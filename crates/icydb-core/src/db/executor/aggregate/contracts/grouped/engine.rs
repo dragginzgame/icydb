@@ -3,29 +3,36 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes grouped reducer contracts while keeping grouped implementation details internal.
 
+#[cfg(test)]
 use crate::{
     db::{
         contracts::canonical_value_compare,
-        data::DataKey,
-        direction::Direction,
         executor::{
             aggregate::contracts::{
-                error::GroupError,
-                grouped::ExecutionContext,
-                spec::{AggregateKind, ScalarAggregateOutput},
-                state::{
-                    AggregateStateFactory, FoldControl, GroupedTerminalAggregateState,
-                    ScalarAggregateState, ScalarTerminalAggregateState,
-                },
+                error::GroupError, grouped::ExecutionContext, state::GroupedTerminalAggregateState,
             },
             group::{GroupKey, StableHash},
             pipeline::contracts::RowView,
         },
         query::plan::FieldSlot,
     },
-    error::InternalError,
     value::Value,
 };
+use crate::{
+    db::{
+        data::DataKey,
+        direction::Direction,
+        executor::aggregate::contracts::{
+            spec::{AggregateKind, ScalarAggregateOutput},
+            state::{
+                AggregateStateFactory, FoldControl, ScalarAggregateState,
+                ScalarTerminalAggregateState,
+            },
+        },
+    },
+    error::InternalError,
+};
+#[cfg(test)]
 use std::collections::HashMap;
 
 type ScalarAggregateIngestAllFn<'f> =
@@ -39,11 +46,13 @@ type ScalarAggregateIngestAllFn<'f> =
 /// Finalized rows are emitted in deterministic canonical order.
 ///
 
+#[cfg(test)]
 pub(in crate::db::executor) struct GroupedAggregateOutput {
     group_key: GroupKey,
     output: Value,
 }
 
+#[cfg(test)]
 impl GroupedAggregateOutput {
     pub(in crate::db::executor::aggregate) fn into_value_pair(self) -> (Value, Value) {
         (self.group_key.canonical_value().clone(), self.output)
@@ -59,6 +68,7 @@ impl GroupedAggregateOutput {
 /// canonical key order independent of hash-table insertion order.
 ///
 
+#[cfg(test)]
 pub(in crate::db::executor) struct GroupedAggregateState {
     kind: AggregateKind,
     direction: Direction,
@@ -69,6 +79,7 @@ pub(in crate::db::executor) struct GroupedAggregateState {
     groups: HashMap<GroupKey, GroupedTerminalAggregateState>,
 }
 
+#[cfg(test)]
 impl GroupedAggregateState {
     // Build the canonical grouped-state invariant for unsupported field-target
     // aggregate kinds that should already have been removed before grouped
@@ -307,59 +318,6 @@ impl GroupedAggregateState {
         );
 
         out
-    }
-}
-
-///
-/// GroupedAggregateEngine
-///
-/// GroupedAggregateEngine is the structural grouped reducer boundary used by
-/// grouped runtime execution. Grouped fold logic consumes only this trait so
-/// grouped runtime no longer needs entity-typed aggregate engine containers.
-///
-
-pub(in crate::db::executor) trait GroupedAggregateEngine {
-    /// Ingest one grouped row into one grouped aggregate engine.
-    fn ingest(
-        &mut self,
-        execution_context: &mut ExecutionContext,
-        data_key: &DataKey,
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-        borrowed_group_hash: Option<StableHash>,
-        owned_group_key: &mut Option<GroupKey>,
-    ) -> Result<FoldControl, GroupError>;
-
-    /// Finalize one grouped aggregate engine into structural `(group_key, value)` pairs.
-    fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError>;
-}
-
-impl GroupedAggregateEngine for GroupedAggregateState {
-    fn ingest(
-        &mut self,
-        execution_context: &mut ExecutionContext,
-        data_key: &DataKey,
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-        borrowed_group_hash: Option<StableHash>,
-        owned_group_key: &mut Option<GroupKey>,
-    ) -> Result<FoldControl, GroupError> {
-        self.apply_with_borrowed_group_probe(
-            data_key,
-            row_view,
-            group_fields,
-            borrowed_group_hash,
-            owned_group_key,
-            execution_context,
-        )
-    }
-
-    fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError> {
-        Ok((*self)
-            .finalize()
-            .into_iter()
-            .map(GroupedAggregateOutput::into_value_pair)
-            .collect())
     }
 }
 

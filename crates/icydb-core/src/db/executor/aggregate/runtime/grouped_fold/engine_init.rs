@@ -6,10 +6,10 @@
 use crate::{
     db::executor::{
         aggregate::{
-            ExecutionContext, GroupedAggregateEngine,
+            ExecutionContext,
             runtime::{
                 grouped_distinct::global_distinct_field_target_and_kind,
-                grouped_fold::ingest::ShortCircuitGroupSet,
+                grouped_fold::bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
             },
         },
         pipeline::contracts::GroupedRouteStage,
@@ -18,24 +18,17 @@ use crate::{
     error::InternalError,
 };
 
-// Build grouped aggregate engines for canonical grouped terminal projection layout.
-#[expect(clippy::type_complexity)]
-pub(super) fn build_grouped_engines(
+// Build the shared grouped aggregate bundle for canonical grouped terminal projection layout.
+pub(super) fn build_grouped_bundle(
     route: &GroupedRouteStage,
     grouped_execution_context: &ExecutionContext,
-) -> Result<
-    (
-        Vec<Box<dyn GroupedAggregateEngine>>,
-        Vec<ShortCircuitGroupSet>,
-    ),
-    InternalError,
-> {
+) -> Result<GroupedAggregateBundle, InternalError> {
     if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy()).is_some()
     {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(GroupedAggregateBundle::new(Vec::new()));
     }
 
-    let grouped_engines = route
+    let grouped_specs = route
         .projection_layout()
         .aggregate_positions()
         .iter()
@@ -51,20 +44,17 @@ pub(super) fn build_grouped_engines(
                     )
                 })?;
 
-            Ok::<Box<dyn GroupedAggregateEngine>, InternalError>(Box::new(
-                grouped_execution_context.create_grouped_state_with_target(
-                    aggregate_spec.kind(),
-                    aggregate_materialized_fold_direction(aggregate_spec.kind()),
-                    aggregate_spec.distinct(),
-                    aggregate_spec.target_field().cloned(),
-                )?,
-            )
-                as Box<dyn GroupedAggregateEngine>)
+            Ok::<GroupedAggregateBundleSpec, InternalError>(GroupedAggregateBundleSpec::new(
+                aggregate_spec.kind(),
+                aggregate_materialized_fold_direction(aggregate_spec.kind()),
+                aggregate_spec.distinct(),
+                aggregate_spec.target_field().cloned(),
+                grouped_execution_context
+                    .config()
+                    .max_distinct_values_per_group(),
+            ))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let short_circuit_keys = std::iter::repeat_with(ShortCircuitGroupSet::new)
-        .take(grouped_engines.len())
-        .collect();
 
-    Ok((grouped_engines, short_circuit_keys))
+    Ok(GroupedAggregateBundle::new(grouped_specs))
 }

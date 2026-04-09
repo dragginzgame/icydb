@@ -11,8 +11,9 @@ mod state;
 
 pub(in crate::db::executor) use error::GroupError;
 pub(in crate::db::executor) use grouped::{
-    ExecutionConfig, ExecutionContext, GroupedAggregateEngine, ScalarAggregateEngine,
-    execute_scalar_aggregate,
+    ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };
 pub(in crate::db::executor) use spec::{AggregateKind, ScalarAggregateOutput};
-pub(in crate::db::executor) use state::{AggregateFoldMode, FoldControl};
+pub(in crate::db::executor) use state::{
+    AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedTerminalAggregateState,
+};

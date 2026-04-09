@@ -4,21 +4,25 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        direction::Direction,
-        executor::{
-            aggregate::contracts::{error::GroupError, spec::AggregateKind},
-            group::{CanonicalKey, GroupKey, GroupKeySet},
-        },
-        query::plan::FieldSlot,
+    db::executor::{
+        aggregate::contracts::error::GroupError,
+        group::{CanonicalKey, GroupKey, GroupKeySet},
     },
-    error::InternalError,
     value::Value,
 };
 use std::mem::size_of;
 
-use crate::db::executor::aggregate::contracts::{
-    grouped::engine::GroupedAggregateState, state::GroupedTerminalAggregateState,
+use crate::db::executor::aggregate::contracts::state::GroupedTerminalAggregateState;
+#[cfg(test)]
+use crate::{
+    db::{
+        direction::Direction,
+        executor::aggregate::contracts::{
+            grouped::engine::GroupedAggregateState, spec::AggregateKind,
+        },
+        query::plan::FieldSlot,
+    },
+    error::InternalError,
 };
 
 ///
@@ -265,6 +269,7 @@ impl ExecutionContext {
     ///
     /// This keeps grouped field-target widening structural without forcing
     /// existing grouped callers to thread unused target-slot inputs.
+    #[cfg(test)]
     pub(in crate::db::executor) fn create_grouped_state_with_target(
         &self,
         kind: AggregateKind,
@@ -291,15 +296,40 @@ impl ExecutionContext {
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
     ) -> Result<(), GroupError> {
+        self.record_new_group_states(
+            group_key,
+            group_count_before_insert,
+            group_capacity_before_insert,
+            1,
+        )
+    }
+
+    // Record one newly seen grouped key plus an explicit number of aggregate
+    // state slots so bundle-based grouped execution can preserve the previous
+    // per-aggregate-state budget accounting model.
+    pub(in crate::db::executor::aggregate) fn record_new_group_states(
+        &mut self,
+        group_key: &GroupKey,
+        group_count_before_insert: usize,
+        group_capacity_before_insert: usize,
+        aggregate_state_count: usize,
+    ) -> Result<(), GroupError> {
+        debug_assert!(
+            aggregate_state_count > 0,
+            "grouped budget accounting must record at least one aggregate state",
+        );
+
         // Count `max_groups` against unique canonical group keys across the
         // full grouped query, not per-aggregate state machine instance.
         let new_group_key = !self.seen_groups.contains_key(group_key);
-        self.budget.record_new_group_state(
-            &self.config,
-            new_group_key,
-            group_count_before_insert,
-            group_capacity_before_insert,
-        )?;
+        for state_index in 0..aggregate_state_count {
+            self.budget.record_new_group_state(
+                &self.config,
+                new_group_key && state_index == 0,
+                group_count_before_insert,
+                group_capacity_before_insert,
+            )?;
+        }
         if new_group_key {
             let inserted = self.seen_groups.insert_key(group_key.clone());
             debug_assert!(

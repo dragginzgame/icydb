@@ -3,6 +3,7 @@
 //! Does not own: grouped route derivation or grouped output finalization.
 //! Boundary: consumes grouped route-stage payload and emits grouped fold-stage payload.
 
+mod bundle;
 mod candidate_rows;
 mod engine_init;
 mod ingest;
@@ -23,13 +24,12 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                candidate_rows::collect_grouped_candidate_rows,
-                engine_init::build_grouped_engines,
-                ingest::{ShortCircuitGroupSet, fold_group_rows_into_engines},
+                bundle::GroupedAggregateBundle, candidate_rows::collect_grouped_candidate_rows,
+                engine_init::build_grouped_bundle, ingest::fold_group_rows_into_bundle,
                 page_finalize::finalize_grouped_page,
             },
             aggregate::{
-                ExecutionContext, GroupError, GroupedAggregateEngine,
+                ExecutionContext, GroupError,
                 runtime::{
                     grouped_distinct::{
                         execute_global_distinct_field_aggregate,
@@ -429,7 +429,6 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
             && grouped_budget.aggregate_states() >= grouped_budget.groups(),
         "grouped budget observability invariants must hold at grouped route entry",
     );
-    let aggregate_count = route.projection_layout().aggregate_positions().len();
     let grouped_projection_spec = route.plan().projection_spec(route.entity_model());
 
     // Phase 2: route global DISTINCT grouped aggregates through their
@@ -457,8 +456,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
 
     // Phase 3: initialize grouped engines only for the remaining grouped
     // aggregate families that still use the canonical grouped reducer path.
-    let (grouped_engines, short_circuit_keys) =
-        build_grouped_engines(route, &grouped_execution_context)?;
+    let grouped_bundle = build_grouped_bundle(route, &grouped_execution_context)?;
 
     // Phase 4: retain the canonical generic grouped reducer path for every
     // grouped aggregate shape that is not covered by a dedicated fast path.
@@ -466,7 +464,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         route,
         &mut stream,
         &mut grouped_execution_context,
-        (grouped_engines, short_circuit_keys, aggregate_count),
+        grouped_bundle,
         max_groups_bound,
         &grouped_projection_spec,
     )
@@ -605,28 +603,20 @@ fn execute_generic_grouped_fold_stage(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage<'_>,
     grouped_execution_context: &mut ExecutionContext,
-    reducers: (
-        Vec<Box<dyn GroupedAggregateEngine>>,
-        Vec<ShortCircuitGroupSet>,
-        usize,
-    ),
+    mut grouped_bundle: GroupedAggregateBundle,
     max_groups_bound: usize,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
-    let (mut grouped_engines, mut short_circuit_keys, aggregate_count) = reducers;
-    let (scanned_rows, filtered_rows) = fold_group_rows_into_engines(
+    let (scanned_rows, filtered_rows) = fold_group_rows_into_bundle(
         route,
         stream,
         grouped_execution_context,
-        grouped_engines.as_mut_slice(),
-        short_circuit_keys.as_mut_slice(),
-        max_groups_bound,
+        &mut grouped_bundle,
     )?;
     let grouped_pagination_window = route.grouped_pagination_window().clone();
     let grouped_candidate_rows = collect_grouped_candidate_rows(
         route,
-        grouped_engines,
-        aggregate_count,
+        grouped_bundle,
         max_groups_bound,
         &grouped_pagination_window,
     )?;

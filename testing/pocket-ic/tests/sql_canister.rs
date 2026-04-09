@@ -10720,6 +10720,74 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
 }
 
 #[test]
+fn sql_canister_perf_generated_dispatch_delete_attribution_reports_positive_stages() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "DELETE FROM Customer ORDER BY id LIMIT 1".to_string(),
+                cursor_token: None,
+            },
+        );
+
+        assert!(
+            sample.outcome.success,
+            "generated delete attribution must keep the representative DELETE successful: {sample:?}",
+        );
+        assert!(
+            sample.parse_local_instructions > 0,
+            "generated delete attribution parse phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.route_local_instructions > 0,
+            "generated delete attribution route phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.lower_local_instructions > 0,
+            "generated delete attribution lower phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.dispatch_local_instructions > 0,
+            "generated delete attribution dispatch phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.execute_local_instructions > 0,
+            "generated delete attribution execute phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions
+                >= sample.parse_local_instructions
+                    + sample.route_local_instructions
+                    + sample.lower_local_instructions
+                    + sample.dispatch_local_instructions
+                    + sample.execute_local_instructions
+                    + sample.wrapper_local_instructions,
+            "generated delete attribution total must cover every attributed phase: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "generated delete attribution should stay on the Customer route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "generated delete attribution should delete exactly one row on the representative shape",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "generated_delete": sample,
+            }))
+            .expect("generated delete attribution sample should serialize to JSON")
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let sql = "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10";

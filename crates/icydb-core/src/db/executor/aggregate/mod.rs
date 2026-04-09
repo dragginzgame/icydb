@@ -48,7 +48,7 @@ pub(in crate::db::executor) use capability::{
 };
 pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
-    GroupedAggregateEngine, ScalarAggregateEngine, ScalarAggregateOutput, execute_scalar_aggregate,
+    ScalarAggregateEngine, ScalarAggregateOutput, execute_scalar_aggregate,
     execute_scalar_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{

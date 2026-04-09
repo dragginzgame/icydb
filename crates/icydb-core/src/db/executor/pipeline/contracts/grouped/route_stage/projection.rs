@@ -33,63 +33,6 @@ impl GroupedRouteStage {
         ))
     }
 
-    /// Construct one grouped route invariant for grouped fold runtimes that
-    /// reached candidate-row collection without any aggregate terminals.
-    pub(in crate::db::executor) fn aggregate_terminal_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "grouped execution requires at least one aggregate terminal",
-        )
-    }
-
-    /// Construct one grouped route invariant for missing primary aggregate
-    /// finalize iterators during grouped candidate alignment.
-    pub(in crate::db::executor) fn missing_primary_aggregate_iterator() -> InternalError {
-        InternalError::query_executor_invariant("missing grouped primary iterator")
-    }
-
-    /// Construct one grouped route invariant for grouped finalize alignment
-    /// that failed to produce one sibling aggregate row.
-    pub(in crate::db::executor) fn missing_sibling_aggregate_row(
-        sibling_index: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
-        ))
-    }
-
-    /// Construct one grouped route invariant for grouped finalize alignment
-    /// that produced a sibling key different from the primary canonical key.
-    pub(in crate::db::executor) fn sibling_aggregate_key_mismatch(
-        sibling_index: usize,
-        primary_key: &Value,
-        sibling_key: &Value,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={primary_key:?}, sibling_key={sibling_key:?}"
-        ))
-    }
-
-    /// Construct one grouped route invariant for grouped finalize alignment
-    /// that left trailing sibling rows after the primary iterator ended.
-    pub(in crate::db::executor) fn trailing_sibling_aggregate_rows(
-        sibling_index: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
-        ))
-    }
-
-    /// Construct one grouped route invariant for fold-ingest aggregate index
-    /// access that drifted beyond the grouped engine set.
-    pub(in crate::db::executor) fn engine_index_out_of_bounds_during_fold_ingest(
-        index: usize,
-        engine_count: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped engine index out of bounds during fold ingest: index={index}, engine_count={engine_count}"
-        ))
-    }
-
     /// Construct one grouped route invariant for grouped page-finalize keys
     /// that no longer match the canonical list-based group-key shape.
     pub(in crate::db::executor) fn canonical_group_key_must_be_list(

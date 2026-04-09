@@ -9,6 +9,4 @@ mod engine;
 mod tests;
 
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};
-pub(in crate::db::executor) use engine::{
-    GroupedAggregateEngine, ScalarAggregateEngine, execute_scalar_aggregate,
-};
+pub(in crate::db::executor) use engine::{ScalarAggregateEngine, execute_scalar_aggregate};
