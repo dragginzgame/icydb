@@ -46,6 +46,15 @@ impl RetainedSlotRow {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) fn new(slot_count: usize, entries: Vec<(usize, Value)>) -> Self {
+        Self::from_sparse_entries(slot_count, entries)
+    }
+
+    /// Build one retained slot row from sparse decoded `(slot, value)` pairs.
+    #[must_use]
+    pub(in crate::db::executor) fn from_sparse_entries(
+        slot_count: usize,
+        entries: Vec<(usize, Value)>,
+    ) -> Self {
         let mut slots = vec![None; slot_count];
         for (slot, value) in entries {
             if let Some(entry) = slots.get_mut(slot) {

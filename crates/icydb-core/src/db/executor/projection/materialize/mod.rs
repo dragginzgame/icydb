@@ -20,10 +20,13 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+#[cfg(feature = "sql")]
+use std::borrow::Cow;
 
 use crate::db::executor::projection::eval::{
     ProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
-    eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
+    eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+    eval_expr_with_required_value_reader_cow, eval_expr_with_slot_reader,
     eval_scalar_projection_expr_with_value_reader,
 };
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
@@ -261,21 +264,21 @@ pub(super) fn visit_projection_values_with_slot_reader(
     Ok(())
 }
 
-// Walk one projection spec through one required-value reader so canonical
-// structural rows fail closed on missing declared slots.
+// Walk one projection spec through one required-value reader that can borrow
+// from the structural row cache until the caller needs an owned output cell.
 #[cfg(feature = "sql")]
-pub(super) fn visit_projection_values_with_required_value_reader(
+pub(super) fn visit_projection_values_with_required_value_reader_cow<'a>(
     projection: &ProjectionSpec,
     model: &EntityModel,
-    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
+    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), InternalError> {
     for field in projection.fields() {
         match field {
             ProjectionField::Scalar { expr, .. } => {
-                on_value(eval_expr_with_required_value_reader(
-                    expr, model, read_slot,
-                )?);
+                on_value(
+                    eval_expr_with_required_value_reader_cow(expr, model, read_slot)?.into_owned(),
+                );
             }
         }
     }
@@ -299,6 +302,35 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
                 on_value(eval_scalar_projection_expr_with_value_reader(
                     compiled, read_slot,
                 )?);
+            }
+
+            Ok(())
+        }
+    }
+}
+
+// Walk one prepared projection plan through one reader that can borrow slot
+// values from retained structural rows until an expression needs ownership.
+#[cfg(feature = "sql")]
+pub(super) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
+    prepared: &PreparedProjectionPlan,
+    projection: &ProjectionSpec,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+    on_value: &mut dyn FnMut(Value),
+) -> Result<(), InternalError> {
+    match prepared {
+        PreparedProjectionPlan::Generic => visit_projection_values_with_required_value_reader_cow(
+            projection, model, read_slot, on_value,
+        ),
+        PreparedProjectionPlan::Scalar(compiled_fields) => {
+            for compiled in compiled_fields {
+                on_value(
+                    eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
+                        compiled, read_slot,
+                    )?
+                    .into_owned(),
+                );
             }
 
             Ok(())

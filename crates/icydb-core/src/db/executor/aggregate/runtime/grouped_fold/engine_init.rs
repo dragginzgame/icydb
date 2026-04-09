@@ -7,13 +7,15 @@ use crate::{
     db::executor::{
         aggregate::{
             ExecutionContext, GroupedAggregateEngine,
-            runtime::grouped_distinct::global_distinct_field_target_and_kind,
+            runtime::{
+                grouped_distinct::global_distinct_field_target_and_kind,
+                grouped_fold::ingest::ShortCircuitGroupSet,
+            },
         },
         pipeline::contracts::GroupedRouteStage,
         route::aggregate_materialized_fold_direction,
     },
     error::InternalError,
-    value::Value,
 };
 
 // Build grouped aggregate engines for canonical grouped terminal projection layout.
@@ -21,7 +23,13 @@ use crate::{
 pub(super) fn build_grouped_engines(
     route: &GroupedRouteStage,
     grouped_execution_context: &ExecutionContext,
-) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
+) -> Result<
+    (
+        Vec<Box<dyn GroupedAggregateEngine>>,
+        Vec<ShortCircuitGroupSet>,
+    ),
+    InternalError,
+> {
     if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy()).is_some()
     {
         return Ok((Vec::new(), Vec::new()));
@@ -54,7 +62,9 @@ pub(super) fn build_grouped_engines(
                 as Box<dyn GroupedAggregateEngine>)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
+    let short_circuit_keys = std::iter::repeat_with(ShortCircuitGroupSet::new)
+        .take(grouped_engines.len())
+        .collect();
 
     Ok((grouped_engines, short_circuit_keys))
 }

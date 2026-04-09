@@ -33,6 +33,7 @@ pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shap
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(super) use guard::*;
+pub(in crate::db::executor) use hints::widened_residual_predicate_pushdown_fetch;
 pub(in crate::db::executor::route) use hints::{
     aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,
     assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,

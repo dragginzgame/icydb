@@ -24,6 +24,8 @@ use crate::{
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
+#[cfg(any(test, feature = "sql"))]
+use std::borrow::Cow;
 
 ///
 /// ScalarProjectionEvalError
@@ -154,6 +156,7 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr(
         &mut |field| eval_scalar_projection_field(field, slots),
         &mut ScalarProjectionEvalError::Eval,
     )
+    .map(Cow::into_owned)
 }
 
 /// Evaluate one compiled scalar projection expression against one canonical
@@ -168,15 +171,20 @@ pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr(
         &mut |field| eval_canonical_scalar_projection_field(field, slots),
         &mut ProjectionEvalError::into_invalid_logical_plan_internal_error,
     )
+    .map(Cow::into_owned)
 }
 
-/// Evaluate one compiled scalar projection expression through one required
-/// value-reader closure on the canonical structural row path.
+/// Evaluate one compiled scalar projection expression through one canonical
+/// reader that can borrow decoded slot values from the structural row cache.
+/// This keeps repeated field references on the structural SQL path from
+/// cloning cached `Value`s before an operator actually needs ownership.
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr_with_required_value_reader(
+pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr_with_required_value_reader_cow<
+    'a,
+>(
     expr: &ScalarProjectionExpr,
-    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
-) -> Result<Value, InternalError> {
+    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+) -> Result<Cow<'a, Value>, InternalError> {
     eval_scalar_projection_expr_core(
         expr,
         &mut |field| read_slot(field.slot),
@@ -200,29 +208,40 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_reader(
                 });
             };
 
-            Ok(value)
+            Ok(Cow::Owned(value))
         },
         &mut |err| err,
     )
+    .map(Cow::into_owned)
 }
 
-fn eval_scalar_projection_expr_core<E>(
+fn eval_scalar_projection_expr_core<'a, E>(
     expr: &ScalarProjectionExpr,
-    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Value, E>,
+    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
     map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
-) -> Result<Value, E> {
+) -> Result<Cow<'a, Value>, E> {
     match expr {
         ScalarProjectionExpr::Field(field) => eval_field(field),
-        ScalarProjectionExpr::Literal(value) => Ok(scalar_expr_value_into_value(value.clone())),
+        ScalarProjectionExpr::Literal(value) => {
+            Ok(Cow::Owned(scalar_expr_value_into_value(value.clone())))
+        }
         ScalarProjectionExpr::Unary { op, expr } => {
-            let operand = eval_scalar_projection_expr_core(expr, eval_field, map_projection_error)?;
-            operators::eval_unary_expr(*op, operand).map_err(map_projection_error)
+            let operand = eval_scalar_projection_expr_core(expr, eval_field, map_projection_error)?
+                .into_owned();
+
+            operators::eval_unary_expr(*op, operand)
+                .map(Cow::Owned)
+                .map_err(map_projection_error)
         }
         ScalarProjectionExpr::Binary { op, left, right } => {
-            let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?;
-            let right = eval_scalar_projection_expr_core(right, eval_field, map_projection_error)?;
+            let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?
+                .into_owned();
+            let right = eval_scalar_projection_expr_core(right, eval_field, map_projection_error)?
+                .into_owned();
 
-            operators::eval_binary_expr(*op, left, right).map_err(map_projection_error)
+            operators::eval_binary_expr(*op, left, right)
+                .map(Cow::Owned)
+                .map_err(map_projection_error)
         }
     }
 }
@@ -231,7 +250,7 @@ fn eval_scalar_projection_expr_core<E>(
 fn eval_scalar_projection_field(
     field: &ScalarProjectionField,
     slots: &dyn SlotReader,
-) -> Result<Value, ScalarProjectionEvalError> {
+) -> Result<Cow<'static, Value>, ScalarProjectionEvalError> {
     let Some(value) = eval_scalar_value_program(&field.program, slots)
         .map_err(ScalarProjectionEvalError::Internal)?
     else {
@@ -243,15 +262,15 @@ fn eval_scalar_projection_field(
         ));
     };
 
-    Ok(scalar_expr_value_into_value(value))
+    Ok(Cow::Owned(scalar_expr_value_into_value(value)))
 }
 
 #[cfg(test)]
 fn eval_canonical_scalar_projection_field(
     field: &ScalarProjectionField,
     slots: &dyn CanonicalSlotReader,
-) -> Result<Value, InternalError> {
+) -> Result<Cow<'static, Value>, InternalError> {
     let value = eval_canonical_scalar_value_program(&field.program, slots)?;
 
-    Ok(scalar_expr_value_into_value(value))
+    Ok(Cow::Owned(scalar_expr_value_into_value(value)))
 }

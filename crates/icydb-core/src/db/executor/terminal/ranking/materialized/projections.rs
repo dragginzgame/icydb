@@ -38,7 +38,7 @@ where
         )?;
         let output_rows = ordered_rows
             .into_iter()
-            .map(|(row, _)| row)
+            .map(|(row_index, _)| rows[row_index].clone())
             .collect::<Vec<_>>();
 
         EntityResponse::from_data_rows(output_rows)
@@ -75,6 +75,7 @@ where
         take_count: u32,
     ) -> Result<Vec<(DataKey, Value)>, InternalError> {
         Ok(field_values_with_data_keys_from_ranked_rows(
+            rows,
             Self::top_k_ranked_rows_from_materialized(
                 model,
                 rows,
@@ -103,7 +104,7 @@ where
         )?;
         let output_rows = ordered_rows
             .into_iter()
-            .map(|(row, _)| row)
+            .map(|(row_index, _)| rows[row_index].clone())
             .collect::<Vec<_>>();
 
         EntityResponse::from_data_rows(output_rows)
@@ -140,6 +141,7 @@ where
         take_count: u32,
     ) -> Result<Vec<(DataKey, Value)>, InternalError> {
         Ok(field_values_with_data_keys_from_ranked_rows(
+            rows,
             Self::bottom_k_ranked_rows_from_materialized(
                 model,
                 rows,
@@ -152,10 +154,11 @@ where
 }
 
 fn field_values_with_data_keys_from_ranked_rows(
-    ordered_rows: Vec<(DataRow, Value)>,
+    rows: &[DataRow],
+    ordered_rows: Vec<(usize, Value)>,
 ) -> Vec<(DataKey, Value)> {
     ordered_rows
         .into_iter()
-        .map(|((data_key, _), value)| (data_key, value))
+        .map(|(row_index, value)| (rows[row_index].0.clone(), value))
         .collect()
 }

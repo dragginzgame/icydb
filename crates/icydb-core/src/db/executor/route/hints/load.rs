@@ -109,6 +109,43 @@ pub(in crate::db::executor::route) const fn residual_predicate_pushdown_fetch_is
     fetch <= residual_predicate_pushdown_fetch_cap()
 }
 
+/// Return one widened bounded fetch for residual-filter retries when the
+/// current bounded probe under-fills the requested post-access keep window.
+pub(in crate::db::executor) fn widened_residual_predicate_pushdown_fetch(
+    current_fetch: usize,
+    keep_count: usize,
+    post_access_rows: usize,
+) -> Option<usize> {
+    let cap = residual_predicate_pushdown_fetch_cap();
+    if keep_count == 0 || current_fetch >= cap {
+        return None;
+    }
+
+    let growth = if post_access_rows == 0 {
+        std::cmp::max(keep_count, 1)
+    } else {
+        std::cmp::max(
+            std::cmp::max(
+                current_fetch.saturating_sub(post_access_rows),
+                keep_count.saturating_sub(post_access_rows),
+            ),
+            1,
+        )
+    };
+    let widened_fetch = current_fetch.saturating_add(growth);
+    let capped_fetch = if widened_fetch > cap {
+        cap
+    } else {
+        widened_fetch
+    };
+
+    if capped_fetch > current_fetch {
+        Some(capped_fetch)
+    } else {
+        None
+    }
+}
+
 pub(in crate::db::executor) const fn residual_predicate_pushdown_fetch_cap() -> usize {
     256
 }
@@ -122,4 +159,27 @@ pub(in crate::db::executor::route) const fn bounded_window_fetch_hint(
     }
 
     access_window.fetch_limit()
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::executor::route::widened_residual_predicate_pushdown_fetch;
+
+    #[test]
+    fn widened_residual_fetch_grows_underfilled_bounded_probe() {
+        assert_eq!(
+            widened_residual_predicate_pushdown_fetch(3, 2, 0),
+            Some(5),
+            "zero-match underfill should widen the bounded fetch enough to look past the missing keep window",
+        );
+        assert_eq!(
+            widened_residual_predicate_pushdown_fetch(3, 2, 1),
+            Some(5),
+            "partial underfill should widen by the observed discard gap instead of falling back immediately",
+        );
+    }
 }

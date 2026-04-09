@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap};
 
 use crate::{
     db::{
@@ -21,13 +21,99 @@ use crate::{
     value::Value,
 };
 
+///
+/// ShortCircuitGroupSet
+///
+/// Bucketed short-circuit group tracker for one grouped aggregate engine.
+/// Completed groups are indexed by stable grouped hash so the ingest hot loop
+/// only scans same-hash canonical candidates instead of linearly walking every
+/// completed grouped key for every incoming row.
+///
+
+pub(super) struct ShortCircuitGroupSet {
+    groups_by_hash: HashMap<StableHash, Vec<Value>>,
+    group_count: usize,
+}
+
+impl ShortCircuitGroupSet {
+    pub(super) fn new() -> Self {
+        Self {
+            groups_by_hash: HashMap::new(),
+            group_count: 0,
+        }
+    }
+
+    fn contains_row(
+        &self,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+        borrowed_group_hash: Option<StableHash>,
+        owned_group_key: &mut Option<GroupKey>,
+    ) -> Result<bool, InternalError> {
+        if let Some(borrowed_group_hash) = borrowed_group_hash {
+            let Some(bucket) = self.groups_by_hash.get(&borrowed_group_hash) else {
+                return Ok(false);
+            };
+            for done_group_key in bucket {
+                if super::canonical_group_value_matches_row_view(
+                    done_group_key,
+                    row_view,
+                    group_fields,
+                )? {
+                    return Ok(true);
+                }
+            }
+
+            return Ok(false);
+        }
+
+        let group_key = if let Some(group_key) = owned_group_key {
+            group_key
+        } else {
+            owned_group_key.insert(super::materialize_group_key_from_row_view(
+                row_view,
+                group_fields,
+            )?)
+        };
+
+        Ok(self.contains_group_key(group_key))
+    }
+
+    fn insert(&mut self, group_key: &GroupKey) {
+        self.groups_by_hash
+            .entry(group_key.hash())
+            .or_default()
+            .push(group_key.canonical_value().clone());
+        self.group_count = self.group_count.saturating_add(1);
+    }
+
+    const fn len(&self) -> usize {
+        self.group_count
+    }
+
+    fn contains_group_key(&self, group_key: &GroupKey) -> bool {
+        let Some(bucket) = self.groups_by_hash.get(&group_key.hash()) else {
+            return false;
+        };
+        for done_group_key in bucket {
+            if canonical_value_compare(done_group_key, group_key.canonical_value())
+                == Ordering::Equal
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
 // Ingest grouped source rows into aggregate reducers while preserving budget contracts.
 pub(super) fn fold_group_rows_into_engines(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage<'_>,
     grouped_execution_context: &mut ExecutionContext,
     grouped_engines: &mut [Box<dyn GroupedAggregateEngine>],
-    short_circuit_keys: &mut [Vec<Value>],
+    short_circuit_keys: &mut [ShortCircuitGroupSet],
     max_groups_bound: usize,
 ) -> Result<(usize, usize), InternalError> {
     let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
@@ -99,50 +185,11 @@ struct GroupedFoldRowInput<'a> {
     row_view: &'a RowView,
 }
 
-// Return true when one short-circuit canonical group value matches this row
-// without forcing owned grouped-key materialization on borrowed fast-path rows.
-fn short_circuit_keys_contains_row(
-    done_group_keys: &[Value],
-    row_view: &RowView,
-    group_fields: &[FieldSlot],
-    borrowed_group_hash: Option<StableHash>,
-    owned_group_key: &mut Option<GroupKey>,
-) -> Result<bool, InternalError> {
-    if borrowed_group_hash.is_some() {
-        for done_group_key in done_group_keys {
-            if super::canonical_group_value_matches_row_view(
-                done_group_key,
-                row_view,
-                group_fields,
-            )? {
-                return Ok(true);
-            }
-        }
-
-        return Ok(false);
-    }
-
-    let group_key = match owned_group_key {
-        Some(group_key) => group_key,
-        None => owned_group_key.insert(super::materialize_group_key_from_row_view(
-            row_view,
-            group_fields,
-        )?),
-    };
-    for done_group_key in done_group_keys {
-        if canonical_value_compare(done_group_key, group_key.canonical_value()) == Ordering::Equal {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
 // Shared per-row grouped-engine ingest control flow.
 // Typed wrappers inject aggregate-engine ingestion while this helper owns
 // short-circuit key rejection and bounded tracking invariants.
 fn fold_group_input_with_engines(
-    short_circuit_keys: &mut [Vec<Value>],
+    short_circuit_keys: &mut [ShortCircuitGroupSet],
     max_groups_bound: usize,
     grouped_execution_context: &mut ExecutionContext,
     grouped_engines: &mut [Box<dyn GroupedAggregateEngine>],
@@ -178,8 +225,7 @@ fn fold_group_input_with_engines(
     // Phase 2: retain the generic multi-engine ingest path for grouped shapes
     // that need sibling reducer coordination.
     for (index, done_group_keys) in short_circuit_keys.iter_mut().enumerate() {
-        if short_circuit_keys_contains_row(
-            done_group_keys,
+        if done_group_keys.contains_row(
             row_view,
             group_fields,
             borrowed_group_hash,
@@ -207,14 +253,10 @@ fn fold_group_input_with_engines(
             )
             .map_err(GroupError::into_internal_error)?;
         if matches!(fold_control, FoldControl::Break) {
-            let canonical_group_value = owned_group_key
-                .get_or_insert(super::materialize_group_key_from_row_view(
-                    row_view,
-                    group_fields,
-                )?)
-                .canonical_value()
-                .clone();
-            done_group_keys.push(canonical_group_value);
+            let group_key = owned_group_key.get_or_insert(
+                super::materialize_group_key_from_row_view(row_view, group_fields)?,
+            );
+            done_group_keys.insert(group_key);
             debug_assert!(
                 done_group_keys.len() <= max_groups_bound,
                 "grouped short-circuit key tracking must stay bounded by max_groups",
@@ -228,7 +270,7 @@ fn fold_group_input_with_engines(
 // Ingest one grouped row into the common single-reducer grouped shape without
 // paying the generic sibling-engine coordination loop.
 fn fold_group_input_single_engine(
-    done_group_keys: &mut Vec<Value>,
+    done_group_keys: &mut ShortCircuitGroupSet,
     max_groups_bound: usize,
     grouped_execution_context: &mut ExecutionContext,
     grouped_engine: &mut Box<dyn GroupedAggregateEngine>,
@@ -242,13 +284,7 @@ fn fold_group_input_single_engine(
         row_view,
     } = row_input;
 
-    if short_circuit_keys_contains_row(
-        done_group_keys,
-        row_view,
-        group_fields,
-        borrowed_group_hash,
-        owned_group_key,
-    )? {
+    if done_group_keys.contains_row(row_view, group_fields, borrowed_group_hash, owned_group_key)? {
         return Ok(());
     }
 
@@ -263,14 +299,11 @@ fn fold_group_input_single_engine(
         )
         .map_err(GroupError::into_internal_error)?;
     if matches!(fold_control, FoldControl::Break) {
-        let canonical_group_value = owned_group_key
-            .get_or_insert(super::materialize_group_key_from_row_view(
-                row_view,
-                group_fields,
-            )?)
-            .canonical_value()
-            .clone();
-        done_group_keys.push(canonical_group_value);
+        let group_key = owned_group_key.get_or_insert(super::materialize_group_key_from_row_view(
+            row_view,
+            group_fields,
+        )?);
+        done_group_keys.insert(group_key);
         debug_assert!(
             done_group_keys.len() <= max_groups_bound,
             "grouped short-circuit key tracking must stay bounded by max_groups",
@@ -278,4 +311,52 @@ fn fold_group_input_single_engine(
     }
 
     Ok(())
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::executor::{
+            aggregate::runtime::grouped_fold::ingest::ShortCircuitGroupSet, group::GroupKey,
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn short_circuit_group_set_uses_hashed_owned_key_membership() {
+        let first = GroupKey::from_group_values(vec![Value::Uint(7), Value::Text("a".to_string())])
+            .expect("first grouped key should materialize");
+        let second =
+            GroupKey::from_group_values(vec![Value::Uint(9), Value::Text("b".to_string())])
+                .expect("second grouped key should materialize");
+        let missing =
+            GroupKey::from_group_values(vec![Value::Uint(11), Value::Text("c".to_string())])
+                .expect("missing grouped key should materialize");
+        let mut set = ShortCircuitGroupSet::new();
+
+        set.insert(&first);
+        set.insert(&second);
+
+        assert_eq!(
+            set.len(),
+            2,
+            "short-circuit group tracking should count inserted completed groups",
+        );
+        assert!(
+            set.contains_group_key(&first),
+            "inserted grouped key should be found through hashed membership",
+        );
+        assert!(
+            set.contains_group_key(&second),
+            "second inserted grouped key should be found through hashed membership",
+        );
+        assert!(
+            !set.contains_group_key(&missing),
+            "non-inserted grouped key should not be reported as already short-circuited",
+        );
+    }
 }

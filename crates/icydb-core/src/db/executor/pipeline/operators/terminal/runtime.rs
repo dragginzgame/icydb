@@ -92,6 +92,22 @@ struct SqlRouteCoveringSlotLayout {
     component_slots: Vec<CoveringComponentSlotGroup>,
 }
 
+///
+/// SqlConstantCoveringSlotTemplate
+///
+/// SqlConstantCoveringSlotTemplate keeps the constant-only covering slot-row
+/// shape in sparse form until one row survives residual predicate checks.
+/// This lets the constant covering short path avoid cloning one full dense
+/// slot template for every key before the row is even admitted.
+///
+
+#[cfg(feature = "sql")]
+struct SqlConstantCoveringSlotTemplate {
+    slot_count: usize,
+    primary_key_slot: usize,
+    constant_slots: Vec<(usize, Value)>,
+}
+
 use crate::{
     db::{
         cursor::CursorBoundary,
@@ -845,20 +861,18 @@ fn try_materialize_sql_covering_slot_rows(
 
     // Phase 2: then try the constant-covering path that rebuilds rows from
     // already-resolved keys without re-entering index storage.
-    if let Some((slot_template, primary_key_slot)) =
-        sql_constant_covering_slot_row_template_from_route_contract(
+    if let Some(slot_template) = sql_constant_covering_slot_row_template_from_route_contract(
+        context.model,
+        context.load_terminal_fast_path,
+        context.predicate_slots,
+    )
+    .or_else(|| {
+        sql_constant_covering_slot_row_template(
+            context.plan,
             context.model,
-            context.load_terminal_fast_path,
             context.predicate_slots,
         )
-        .or_else(|| {
-            sql_constant_covering_slot_row_template(
-                context.plan,
-                context.model,
-                context.predicate_slots,
-            )
-        })
-    {
+    }) {
         let consistency = row_read_consistency_for_plan(context.plan);
         let row_check_required =
             sql_route_covering_row_check_required(context.load_terminal_fast_path);
@@ -883,21 +897,20 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                // Build one dense retained execution row from the constant
-                // template and primary key so downstream slot reads stay on
-                // direct indexing through projection and predicate paths.
-                let mut row = slot_template.clone();
-                row[primary_key_slot] = Some(key.storage_key().as_primary_key_value());
+                let primary_key_value = key.storage_key().as_primary_key_value();
 
                 if let Some(predicate_program) = context.predicate_slots
                     && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
-                        row.get(slot).and_then(Option::as_ref)
+                        sql_constant_covering_slot_ref(&slot_template, &primary_key_value, slot)
                     })
                 {
                     continue;
                 }
 
-                rows.push(crate::db::executor::RetainedSlotRow::from_dense_slots(row));
+                rows.push(sql_constant_covering_retained_row(
+                    &slot_template,
+                    primary_key_value,
+                ));
             }
         } else {
             while let Some(key) = key_stream.next_key()? {
@@ -912,21 +925,20 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                // Build one dense retained execution row from the constant
-                // template and primary key so downstream slot reads stay on
-                // direct indexing through projection and predicate paths.
-                let mut row = slot_template.clone();
-                row[primary_key_slot] = Some(key.storage_key().as_primary_key_value());
+                let primary_key_value = key.storage_key().as_primary_key_value();
 
                 if let Some(predicate_program) = context.predicate_slots
                     && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
-                        row.get(slot).and_then(Option::as_ref)
+                        sql_constant_covering_slot_ref(&slot_template, &primary_key_value, slot)
                     })
                 {
                     continue;
                 }
 
-                rows.push(crate::db::executor::RetainedSlotRow::from_dense_slots(row));
+                rows.push(sql_constant_covering_retained_row(
+                    &slot_template,
+                    primary_key_value,
+                ));
             }
         }
 
@@ -2020,7 +2032,7 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     model: &'static EntityModel,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     predicate_slots: Option<&PredicateProgram>,
-) -> Option<(Vec<Option<Value>>, usize)> {
+) -> Option<SqlConstantCoveringSlotTemplate> {
     let LoadTerminalFastPathContract::CoveringRead(covering) = load_terminal_fast_path?;
     if !sql_route_covering_allows_constant_short_path(load_terminal_fast_path) {
         return None;
@@ -2029,8 +2041,8 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
         .fields
         .iter()
         .position(|field| field.name == model.primary_key.name)?;
-    let mut slot_template = vec![None; model.fields.len()];
     let mut covered_slots = vec![false; model.fields.len()];
+    let mut constant_slots = Vec::new();
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: project one canonical slot template directly from the route
@@ -2043,7 +2055,7 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
                 covered_slots[field.field_slot.index] = true;
             }
             CoveringReadFieldSource::Constant(value) => {
-                slot_template[field.field_slot.index] = Some(value.clone());
+                constant_slots.push((field.field_slot.index, value.clone()));
                 covered_slots[field.field_slot.index] = true;
             }
             CoveringReadFieldSource::IndexComponent { .. } => return None,
@@ -2056,7 +2068,11 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
         return None;
     }
 
-    Some((slot_template, primary_key_slot))
+    Some(SqlConstantCoveringSlotTemplate {
+        slot_count: model.fields.len(),
+        primary_key_slot,
+        constant_slots,
+    })
 }
 
 #[cfg(feature = "sql")]
@@ -2066,15 +2082,15 @@ fn sql_constant_covering_slot_row_template(
     plan: &AccessPlannedQuery,
     model: &'static EntityModel,
     predicate_slots: Option<&PredicateProgram>,
-) -> Option<(Vec<Option<Value>>, usize)> {
+) -> Option<SqlConstantCoveringSlotTemplate> {
     let projection = plan.projection_spec(model);
     let primary_key_slot = model
         .fields
         .iter()
         .position(|field| field.name == model.primary_key.name)?;
-    let mut slot_template = vec![None; model.fields.len()];
     let mut covered_slots = vec![false; model.fields.len()];
     let mut covered_fields = vec![model.primary_key.name];
+    let mut constant_slots = Vec::new();
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: recover every equality-bound index-prefix component once.
@@ -2086,7 +2102,7 @@ fn sql_constant_covering_slot_row_template(
         if let Some(value) =
             constant_covering_projection_value_from_access(&plan.access, field.name)
         {
-            slot_template[slot] = Some(value);
+            constant_slots.push((slot, value));
             covered_slots[slot] = true;
             covered_fields.push(field.name);
         }
@@ -2103,7 +2119,44 @@ fn sql_constant_covering_slot_row_template(
         return None;
     }
 
-    Some((slot_template, primary_key_slot))
+    Some(SqlConstantCoveringSlotTemplate {
+        slot_count: model.fields.len(),
+        primary_key_slot,
+        constant_slots,
+    })
+}
+
+#[cfg(feature = "sql")]
+fn sql_constant_covering_slot_ref<'a>(
+    template: &'a SqlConstantCoveringSlotTemplate,
+    primary_key_value: &'a Value,
+    slot: usize,
+) -> Option<&'a Value> {
+    if slot == template.primary_key_slot {
+        return Some(primary_key_value);
+    }
+
+    template
+        .constant_slots
+        .iter()
+        .find_map(|(constant_slot, value)| (*constant_slot == slot).then_some(value))
+}
+
+#[cfg(feature = "sql")]
+fn sql_constant_covering_retained_row(
+    template: &SqlConstantCoveringSlotTemplate,
+    primary_key_value: Value,
+) -> crate::db::executor::RetainedSlotRow {
+    let mut entries = Vec::with_capacity(template.constant_slots.len().saturating_add(1));
+    entries.push((template.primary_key_slot, primary_key_value));
+    entries.extend(
+        template
+            .constant_slots
+            .iter()
+            .map(|(slot, value)| (*slot, value.clone())),
+    );
+
+    crate::db::executor::RetainedSlotRow::from_sparse_entries(template.slot_count, entries)
 }
 
 #[cfg(feature = "sql")]

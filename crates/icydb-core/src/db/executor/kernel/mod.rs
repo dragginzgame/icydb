@@ -14,6 +14,7 @@ use crate::{
                 StructuralCursorPage,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
+            route::{IndexRangeLimitSpec, widened_residual_predicate_pushdown_fetch},
         },
         index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
@@ -63,32 +64,73 @@ impl ExecutionKernel {
             continuation,
             predicate_compile_mode,
         )?;
-        let retry_required = Self::index_range_limited_residual_retry_required(
+        let initial_retry_decision = Self::index_range_limited_residual_retry_decision(
             inputs.plan(),
             continuation,
             route_plan,
             probe_attempt.rows_scanned,
             probe_attempt.post_access_rows,
         );
-        if !retry_required {
-            return Ok(probe_attempt);
+        let mut accumulated_attempt = probe_attempt;
+        let Some(mut retry_fetch) = initial_retry_decision.widened_fetch() else {
+            if initial_retry_decision.requires_unbounded_fallback() {
+                let fallback_attempt = Self::materialize_route_attempt(
+                    inputs,
+                    &Self::unbounded_residual_retry_route_plan(route_plan),
+                    continuation,
+                    predicate_compile_mode,
+                )?;
+
+                return Ok(Self::merge_retry_attempts(
+                    accumulated_attempt,
+                    fallback_attempt,
+                ));
+            }
+
+            return Ok(accumulated_attempt);
+        };
+
+        // Phase 2: widen the bounded pushdown fetch while it remains under the
+        // residual safety cap so selective predicates can satisfy the window
+        // without immediately degrading into a full unbounded retry.
+        let mut retry_route_plan = route_plan.clone();
+        loop {
+            Self::apply_index_range_retry_fetch(&mut retry_route_plan, retry_fetch);
+            let retry_attempt = Self::materialize_route_attempt(
+                inputs,
+                &retry_route_plan,
+                continuation,
+                predicate_compile_mode,
+            )?;
+            let retry_decision = Self::index_range_limited_residual_retry_decision(
+                inputs.plan(),
+                continuation,
+                &retry_route_plan,
+                retry_attempt.rows_scanned,
+                retry_attempt.post_access_rows,
+            );
+            accumulated_attempt = Self::merge_retry_attempts(accumulated_attempt, retry_attempt);
+
+            if let Some(next_retry_fetch) = retry_decision.widened_fetch() {
+                retry_fetch = next_retry_fetch;
+                continue;
+            }
+            if retry_decision.requires_unbounded_fallback() {
+                let fallback_attempt = Self::materialize_route_attempt(
+                    inputs,
+                    &Self::unbounded_residual_retry_route_plan(route_plan),
+                    continuation,
+                    predicate_compile_mode,
+                )?;
+
+                return Ok(Self::merge_retry_attempts(
+                    accumulated_attempt,
+                    fallback_attempt,
+                ));
+            }
+
+            return Ok(accumulated_attempt);
         }
-
-        // Phase 2: retry once without index-range limit pushdown when the
-        // probe under-fills the requested post-access keep window.
-        let mut fallback_route_plan = route_plan.clone();
-        fallback_route_plan.index_range_limit_spec = None;
-        let fallback_attempt = Self::materialize_route_attempt(
-            inputs,
-            &fallback_route_plan,
-            continuation,
-            predicate_compile_mode,
-        )?;
-
-        Ok(Self::merge_probe_with_fallback(
-            probe_attempt,
-            fallback_attempt,
-        ))
     }
 
     // Materialize one structural attempt for a specific route-plan candidate.
@@ -193,27 +235,27 @@ impl ExecutionKernel {
         None
     }
 
-    // Merge probe and fallback attempts under canonical residual-retry accounting.
-    fn merge_probe_with_fallback(
-        mut probe_attempt: MaterializedExecutionAttempt,
-        fallback_attempt: MaterializedExecutionAttempt,
+    // Merge retry attempts under canonical residual-retry accounting.
+    fn merge_retry_attempts(
+        mut accumulated_attempt: MaterializedExecutionAttempt,
+        latest_attempt: MaterializedExecutionAttempt,
     ) -> MaterializedExecutionAttempt {
-        probe_attempt.rows_scanned = probe_attempt
+        accumulated_attempt.rows_scanned = accumulated_attempt
             .rows_scanned
-            .saturating_add(fallback_attempt.rows_scanned);
-        probe_attempt.optimization = fallback_attempt.optimization;
-        probe_attempt.index_predicate_applied =
-            probe_attempt.index_predicate_applied || fallback_attempt.index_predicate_applied;
-        probe_attempt.index_predicate_keys_rejected = probe_attempt
+            .saturating_add(latest_attempt.rows_scanned);
+        accumulated_attempt.optimization = latest_attempt.optimization;
+        accumulated_attempt.index_predicate_applied =
+            accumulated_attempt.index_predicate_applied || latest_attempt.index_predicate_applied;
+        accumulated_attempt.index_predicate_keys_rejected = accumulated_attempt
             .index_predicate_keys_rejected
-            .saturating_add(fallback_attempt.index_predicate_keys_rejected);
-        probe_attempt.distinct_keys_deduped = probe_attempt
+            .saturating_add(latest_attempt.index_predicate_keys_rejected);
+        accumulated_attempt.distinct_keys_deduped = accumulated_attempt
             .distinct_keys_deduped
-            .saturating_add(fallback_attempt.distinct_keys_deduped);
-        probe_attempt.page = fallback_attempt.page;
-        probe_attempt.post_access_rows = fallback_attempt.post_access_rows;
+            .saturating_add(latest_attempt.distinct_keys_deduped);
+        accumulated_attempt.page = latest_attempt.page;
+        accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
 
-        probe_attempt
+        accumulated_attempt
     }
 
     // Materialize one already-resolved key stream using row-collector fast path
@@ -267,36 +309,87 @@ impl ExecutionKernel {
         Ok((page, keys_scanned, post_access_rows))
     }
 
-    // Retry index-range limit pushdown when a bounded residual-filter pass may
-    // have under-filled the requested page window.
-    fn index_range_limited_residual_retry_required(
+    // Decide whether residual underfill should stop, widen the bounded fetch,
+    // or fall back to an unbounded retry.
+    fn index_range_limited_residual_retry_decision(
         plan: &AccessPlannedQuery,
         continuation: ScalarContinuationBindings<'_>,
         route_plan: &ExecutionPlan,
         rows_scanned: usize,
         post_access_rows: usize,
-    ) -> bool {
+    ) -> ResidualRetryDecision {
         let logical = plan.scalar_plan();
         let Some(limit_spec) = route_plan.index_range_limit_spec else {
-            return false;
+            return ResidualRetryDecision::None;
         };
         if logical.predicate.is_none() {
-            return false;
+            return ResidualRetryDecision::None;
         }
         if limit_spec.fetch == 0 {
-            return false;
+            return ResidualRetryDecision::None;
         }
         let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
-            return false;
+            return ResidualRetryDecision::None;
         };
         let keep_count = continuation.keep_count_for_limit_window(plan, limit);
         if keep_count == 0 {
-            return false;
+            return ResidualRetryDecision::None;
         }
         if rows_scanned < limit_spec.fetch {
-            return false;
+            return ResidualRetryDecision::None;
+        }
+        if post_access_rows >= keep_count {
+            return ResidualRetryDecision::None;
         }
 
-        post_access_rows < keep_count
+        widened_residual_predicate_pushdown_fetch(limit_spec.fetch, keep_count, post_access_rows)
+            .map_or(ResidualRetryDecision::FallbackUnbounded, |fetch| {
+                ResidualRetryDecision::WidenBoundedFetch { fetch }
+            })
+    }
+
+    // Apply one widened residual-retry fetch to the bounded index-range route
+    // contract and the coupled scan-budget hints that consume the same window.
+    const fn apply_index_range_retry_fetch(route_plan: &mut ExecutionPlan, fetch: usize) {
+        if route_plan.index_range_limit_spec.is_some() {
+            route_plan.index_range_limit_spec = Some(IndexRangeLimitSpec { fetch });
+        }
+        if route_plan.scan_hints.load_scan_budget_hint.is_some() {
+            route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
+        }
+        if route_plan.scan_hints.physical_fetch_hint.is_some() {
+            route_plan.scan_hints.physical_fetch_hint = Some(fetch);
+        }
+    }
+
+    // Build the terminal residual-retry fallback plan by clearing the bounded
+    // pushdown spec and coupled scan-budget hints before re-materialization.
+    fn unbounded_residual_retry_route_plan(route_plan: &ExecutionPlan) -> ExecutionPlan {
+        let mut fallback_route_plan = route_plan.clone();
+        fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.scan_hints.load_scan_budget_hint = None;
+        fallback_route_plan.scan_hints.physical_fetch_hint = None;
+
+        fallback_route_plan
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ResidualRetryDecision {
+    None,
+    WidenBoundedFetch { fetch: usize },
+    FallbackUnbounded,
+}
+
+impl ResidualRetryDecision {
+    const fn widened_fetch(self) -> Option<usize> {
+        match self {
+            Self::WidenBoundedFetch { fetch } => Some(fetch),
+            Self::None | Self::FallbackUnbounded => None,
+        }
+    }
+
+    const fn requires_unbounded_fallback(self) -> bool {
+        matches!(self, Self::FallbackUnbounded)
     }
 }

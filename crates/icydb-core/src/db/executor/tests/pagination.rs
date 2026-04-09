@@ -9308,7 +9308,7 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
 }
 
 #[test]
-fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown() {
+fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     setup_pagination_test();
 
     let rows = [
@@ -9376,25 +9376,21 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
     let (fallback_page, fallback_trace) = load
         .execute_paged_with_cursor_traced(fallback_plan, None)
         .expect("fallback residual underfill execution should succeed");
-    let fallback_trace = fallback_trace.expect("debug trace should be present");
+    let _fallback_trace = fallback_trace.expect("debug trace should be present");
 
     assert_eq!(
         ids_from_items(&fast_page.items),
         ids_from_items(&fallback_page.items),
-        "residual underfill retry path must preserve fallback row parity",
+        "residual underfill bounded widening must preserve fallback row parity",
     );
     assert_eq!(
         fast_trace.optimization(),
-        None,
-        "residual underfill should retry without index-range limit pushdown and report fallback optimization outcome",
+        Some(ExecutionOptimization::IndexRangeLimitPushdown),
+        "residual underfill should widen the bounded pushdown window before degrading to the unbounded fallback path",
     );
     assert!(
         fast_trace.keys_scanned() > 3,
-        "residual underfill should rescan beyond the initial bounded fetch window",
-    );
-    assert!(
-        fast_trace.keys_scanned() > fallback_trace.keys_scanned(),
-        "residual underfill retry should report additional scan work beyond canonical fallback (fast={fast_trace:?}, fallback={fallback_trace:?})",
+        "residual underfill should rescan beyond the initial bounded fetch window when the first bounded probe under-fills",
     );
 }
 

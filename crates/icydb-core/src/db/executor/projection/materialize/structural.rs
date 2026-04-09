@@ -15,10 +15,11 @@ use crate::{
             },
             projection::{
                 ProjectionEvalError, direct_projection_field_slots,
-                eval::eval_canonical_scalar_projection_expr_with_required_value_reader,
+                eval::eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
                 materialize::{
-                    prepare_projection_plan, visit_prepared_projection_values_with_value_reader,
-                    visit_projection_values_with_required_value_reader,
+                    prepare_projection_plan,
+                    visit_prepared_projection_values_with_required_value_reader_cow,
+                    visit_projection_values_with_required_value_reader_cow,
                 },
             },
             terminal::RetainedSlotRow,
@@ -33,6 +34,8 @@ use crate::{
     traits::CanisterKind,
     value::{Value, ValueEnum},
 };
+#[cfg(feature = "sql")]
+use std::borrow::Cow;
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use std::cell::RefCell;
 
@@ -335,16 +338,21 @@ fn project_dense_slot_rows_from_projection_structural(
 
     for row in &rows {
         let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot: usize| row.slot(slot);
-        visit_prepared_projection_values_with_value_reader(
+        let mut read_slot = |slot: usize| {
+            row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
+                ProjectionEvalError::MissingFieldValue {
+                    field: format!("slot[{slot}]"),
+                    index: slot,
+                }
+                .into_invalid_logical_plan_internal_error()
+            })
+        };
+        visit_prepared_projection_values_with_required_value_reader_cow(
             &prepared,
             projection,
             model,
             &mut read_slot,
             &mut |value| values.push(value),
-        )
-        .map_err(
-            crate::db::executor::projection::ProjectionEvalError::into_invalid_logical_plan_internal_error,
         )?;
         projected_rows.push(values);
     }
@@ -431,7 +439,7 @@ fn project_scalar_data_rows_from_projection_structural(
 
         let mut values = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
-            let value = eval_canonical_scalar_projection_expr_with_required_value_reader(
+            let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
                 compiled,
                 &mut |slot| {
                     #[cfg(any(test, feature = "structural-read-metrics"))]
@@ -439,10 +447,10 @@ fn project_scalar_data_rows_from_projection_structural(
                         projected_slot_mask.get(slot).copied().unwrap_or(false),
                     );
 
-                    row_fields.required_value_by_contract(slot)
+                    row_fields.required_value_by_contract_cow(slot)
                 },
             )?;
-            values.push(value);
+            values.push(value.into_owned());
         }
         projected_rows.push(values);
     }
@@ -468,27 +476,19 @@ fn project_generic_data_rows_from_projection_structural(
         let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
         row_fields.validate_storage_key(data_key)?;
 
-        // Phase 2: decode declared slots lazily but fail closed when a
-        // canonical structural row omits one.
+        // Phase 2: borrow decoded slot values directly from the structural
+        // row cache and materialize only when the projection output needs an
+        // owned `Value`.
         let mut values = Vec::with_capacity(projection.len());
-        let mut slot_cache: Vec<Option<Value>> = vec![None; model.fields().len()];
         let mut read_slot = |slot: usize| {
             #[cfg(any(test, feature = "structural-read-metrics"))]
             record_sql_projection_data_rows_slot_access(
                 projected_slot_mask.get(slot).copied().unwrap_or(false),
             );
 
-            if slot_cache[slot].is_none() {
-                slot_cache[slot] = Some(row_fields.required_value_by_contract(slot)?);
-            }
-
-            slot_cache[slot].clone().ok_or_else(|| {
-                InternalError::executor_internal(format!(
-                    "structural projection slot cache missing decoded value: slot={slot}",
-                ))
-            })
+            row_fields.required_value_by_contract_cow(slot)
         };
-        visit_projection_values_with_required_value_reader(
+        visit_projection_values_with_required_value_reader_cow(
             projection,
             model,
             &mut read_slot,

@@ -11,7 +11,6 @@ use crate::{
         executor::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values_with_slot,
-                extract_orderable_field_value_with_slot_reader,
             },
             pipeline::contracts::LoadExecutor,
             terminal::{RowDecoder, RowLayout},
@@ -20,7 +19,7 @@ use crate::{
     error::InternalError,
     model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
-    value::Value,
+    value::{StorageKey, Value},
 };
 use std::cmp::Ordering;
 
@@ -43,7 +42,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(DataRow, Value)>, InternalError> {
+    ) -> Result<Vec<(usize, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
             model,
             rows,
@@ -62,7 +61,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(DataRow, Value)>, InternalError> {
+    ) -> Result<Vec<(usize, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
             model,
             rows,
@@ -87,22 +86,22 @@ fn rank_k_rows_from_materialized_structural(
     field_slot: FieldSlot,
     take_count: u32,
     direction: RankedFieldDirection,
-) -> Result<Vec<(DataRow, Value)>, InternalError> {
+) -> Result<Vec<(usize, Value)>, InternalError> {
     let row_layout = RowLayout::from_model(model);
-    let row_decoder = RowDecoder::structural();
     let mut ranked_rows = Vec::with_capacity(rows.len());
 
-    // Phase 1: decode structural rows and compute one comparable target value
-    // per candidate before ranking order is applied.
-    for (data_key, raw_row) in rows {
-        let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
-        let value = extract_orderable_field_value_with_slot_reader(
+    // Phase 1: decode only the ranked target slot from borrowed raw rows and
+    // retain one `(primary_key, row_index)` locator instead of cloning full
+    // `DataRow` payloads through the bounded ranking window.
+    for (row_index, (data_key, raw_row)) in rows.iter().enumerate() {
+        let value = decode_ranked_field_value_from_materialized_row(
+            &row_layout,
+            data_key.storage_key(),
+            raw_row,
             target_field,
             field_slot,
-            &mut |index| row.slot(index),
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
-        ranked_rows.push(((data_key.clone(), raw_row.clone()), value));
+        )?;
+        ranked_rows.push(((data_key.storage_key(), row_index), value));
     }
 
     // Phase 2: validate the comparable value domain once, then retain only the
@@ -117,7 +116,36 @@ fn rank_k_rows_from_materialized_structural(
     )
     .map_err(AggregateFieldValueError::into_internal_error)?;
 
-    Ok(ranked_rows)
+    Ok(ranked_rows
+        .into_iter()
+        .map(|((_, row_index), value)| (row_index, value))
+        .collect())
+}
+
+// Decode the ranked target field directly from the borrowed persisted row so
+// materialized ranking does not clone whole `(data_key, raw_row)` payloads
+// just to read one comparable field.
+fn decode_ranked_field_value_from_materialized_row(
+    row_layout: &RowLayout,
+    expected_key: StorageKey,
+    raw_row: &crate::db::data::RawRow,
+    target_field: &str,
+    field_slot: FieldSlot,
+) -> Result<Value, InternalError> {
+    let Some(value) = RowDecoder::decode_required_slot_value(
+        row_layout,
+        expected_key,
+        raw_row,
+        field_slot.index,
+    )?
+    else {
+        return Err(AggregateFieldValueError::MissingFieldValue {
+            field: target_field.to_string(),
+        }
+        .into_internal_error());
+    };
+
+    Ok(value)
 }
 
 // Compare two ranked candidate keys and values under the deterministic

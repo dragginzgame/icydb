@@ -23,8 +23,10 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                candidate_rows::collect_grouped_candidate_rows, engine_init::build_grouped_engines,
-                ingest::fold_group_rows_into_engines, page_finalize::finalize_grouped_page,
+                candidate_rows::collect_grouped_candidate_rows,
+                engine_init::build_grouped_engines,
+                ingest::{ShortCircuitGroupSet, fold_group_rows_into_engines},
+                page_finalize::finalize_grouped_page,
             },
             aggregate::{
                 ExecutionContext, GroupError, GroupedAggregateEngine,
@@ -607,7 +609,11 @@ fn execute_generic_grouped_fold_stage(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage<'_>,
     grouped_execution_context: &mut ExecutionContext,
-    reducers: (Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>, usize),
+    reducers: (
+        Vec<Box<dyn GroupedAggregateEngine>>,
+        Vec<ShortCircuitGroupSet>,
+        usize,
+    ),
     max_groups_bound: usize,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {

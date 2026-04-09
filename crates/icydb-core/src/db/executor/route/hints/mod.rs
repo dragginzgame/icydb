@@ -9,6 +9,7 @@ mod load;
 pub(in crate::db::executor::route) use aggregate::{
     aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model, count_pushdown_fetch_hint,
 };
+pub(in crate::db::executor) use load::widened_residual_predicate_pushdown_fetch;
 pub(in crate::db::executor::route) use load::{
     assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe, load_scan_budget_hint,
     top_n_seek_spec_for_model,

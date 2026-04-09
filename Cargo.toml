@@ -47,7 +47,7 @@ canic-cdk = "0.26.12"
 canic-memory = "0.26.12"
 canic-testkit = "0.26.12"
 convert_case = "0.11"
-ctor = "0.8"
+ctor = "0.9.1"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 icydb = { path = "crates/icydb", version = "0.74.7" }

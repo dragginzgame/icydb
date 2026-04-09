@@ -16,13 +16,15 @@ use crate::{
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
+#[cfg(any(test, feature = "sql"))]
+use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader;
+pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::{ScalarProjectionEvalError, eval_scalar_projection_expr};
 pub(in crate::db::executor) use scalar::{
@@ -135,7 +137,7 @@ pub(in crate::db::executor) fn eval_expr_with_slot_reader(
 
 /// Evaluate one projection expression through one required-value reader on the
 /// canonical structural row path.
-#[cfg(any(test, feature = "sql"))]
+#[cfg(test)]
 pub(in crate::db::executor) fn eval_expr_with_required_value_reader(
     expr: &Expr,
     model: &EntityModel,
@@ -173,6 +175,61 @@ pub(in crate::db::executor) fn eval_expr_with_required_value_reader(
         .into_invalid_logical_plan_internal_error()),
         Expr::Alias { expr, .. } => {
             eval_expr_with_required_value_reader(expr.as_ref(), model, read_slot)
+        }
+    }
+}
+
+/// Evaluate one projection expression through one canonical reader that can
+/// borrow decoded values from the structural row cache.
+/// Field-only projections can stay borrowed until the SQL projection layer
+/// needs owned output, while computed expressions still materialize exactly
+/// once at the operator boundary.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::executor) fn eval_expr_with_required_value_reader_cow<'a>(
+    expr: &Expr,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+) -> Result<Cow<'a, Value>, InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let Some(field_index) = resolve_field_slot(model, field_name) else {
+                return Err(ProjectionEvalError::UnknownField {
+                    field: field_name.to_string(),
+                }
+                .into_invalid_logical_plan_internal_error());
+            };
+
+            read_slot(field_index)
+        }
+        Expr::Literal(value) => Ok(Cow::Owned(value.clone())),
+        Expr::Unary { op, expr } => {
+            let operand =
+                eval_expr_with_required_value_reader_cow(expr.as_ref(), model, read_slot)?
+                    .into_owned();
+
+            operators::eval_unary_expr(*op, operand)
+                .map(Cow::Owned)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Binary { op, left, right } => {
+            let left_value =
+                eval_expr_with_required_value_reader_cow(left.as_ref(), model, read_slot)?
+                    .into_owned();
+            let right_value =
+                eval_expr_with_required_value_reader_cow(right.as_ref(), model, read_slot)?
+                    .into_owned();
+
+            operators::eval_binary_expr(*op, left_value, right_value)
+                .map(Cow::Owned)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
+            kind: format!("{:?}", aggregate.kind()),
+        }
+        .into_invalid_logical_plan_internal_error()),
+        Expr::Alias { expr, .. } => {
+            eval_expr_with_required_value_reader_cow(expr.as_ref(), model, read_slot)
         }
     }
 }
