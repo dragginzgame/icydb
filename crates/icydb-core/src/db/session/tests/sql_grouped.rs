@@ -1304,6 +1304,75 @@ fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
 }
 
 #[test]
+fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consistently() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed five grouped buckets so HAVING leaves three qualifying
+    // groups after aggregate finalization.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-having-page-a", 10),
+            ("grouped-having-page-b", 10),
+            ("grouped-having-page-c", 20),
+            ("grouped-having-page-d", 30),
+            ("grouped-having-page-e", 30),
+            ("grouped-having-page-f", 30),
+            ("grouped-having-page-g", 40),
+            ("grouped-having-page-h", 50),
+            ("grouped-having-page-i", 50),
+            ("grouped-having-page-j", 50),
+            ("grouped-having-page-k", 50),
+        ],
+    );
+
+    // Phase 2: execute one multi-aggregate grouped page that requires HAVING,
+    // offset, bounded selection, and continuation cursor construction.
+    let sql = "SELECT age, COUNT(*), SUM(age) \
+               FROM SessionSqlEntity \
+               GROUP BY age \
+               HAVING COUNT(*) > 1 \
+               ORDER BY age ASC LIMIT 1 OFFSET 1";
+    let first_page = session
+        .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+        .expect("first multi-aggregate grouped SQL page should execute");
+    assert_eq!(first_page.rows().len(), 1);
+    assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(30)]);
+    assert_eq!(
+        first_page.rows()[0].aggregate_values(),
+        [
+            Value::Uint(3),
+            Value::Decimal(crate::types::Decimal::from(90_u64)),
+        ],
+    );
+    let first_cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("first multi-aggregate grouped page should emit continuation cursor"),
+    );
+
+    // Phase 3: resume after the offset-qualified page and assert the next
+    // qualifying grouped row continues from the prior canonical group key.
+    let second_page = session
+        .execute_sql_grouped::<SessionSqlEntity>(sql, Some(first_cursor.as_str()))
+        .expect("second multi-aggregate grouped SQL page should execute");
+    assert_eq!(second_page.rows().len(), 1);
+    assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(50)]);
+    assert_eq!(
+        second_page.rows()[0].aggregate_values(),
+        [
+            Value::Uint(4),
+            Value::Decimal(crate::types::Decimal::from(200_u64)),
+        ],
+    );
+    assert!(
+        second_page.continuation_cursor().is_none(),
+        "final multi-aggregate grouped page should not emit another continuation cursor",
+    );
+}
+
+#[test]
 fn execute_sql_grouped_rejects_invalid_cursor_token_payload() {
     reset_session_sql_store();
     let session = sql_session();

@@ -4,7 +4,6 @@
 //! Boundary: consumes grouped route-stage payload and emits grouped fold-stage payload.
 
 mod bundle;
-mod candidate_rows;
 mod engine_init;
 mod ingest;
 mod page_finalize;
@@ -24,9 +23,8 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                bundle::GroupedAggregateBundle, candidate_rows::collect_grouped_candidate_rows,
-                engine_init::build_grouped_bundle, ingest::fold_group_rows_into_bundle,
-                page_finalize::finalize_grouped_page,
+                bundle::GroupedAggregateBundle, engine_init::build_grouped_bundle,
+                ingest::fold_group_rows_into_bundle, page_finalize::finalize_grouped_page,
             },
             aggregate::{
                 ExecutionContext, GroupError,
@@ -416,8 +414,6 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     // Phase 1: initialize grouped fold context, projection contracts, and reducers.
     let mut grouped_execution_context =
         grouped_execution_context_from_planner_config(Some(route.grouped_execution()));
-    let max_groups_bound =
-        usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
     let grouped_budget = grouped_budget_observability(&grouped_execution_context);
     debug_assert!(
         grouped_budget.max_groups() >= grouped_budget.groups()
@@ -465,7 +461,6 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         &mut stream,
         &mut grouped_execution_context,
         grouped_bundle,
-        max_groups_bound,
         &grouped_projection_spec,
     )
 }
@@ -604,7 +599,6 @@ fn execute_generic_grouped_fold_stage(
     stream: &mut GroupedStreamStage<'_>,
     grouped_execution_context: &mut ExecutionContext,
     mut grouped_bundle: GroupedAggregateBundle,
-    max_groups_bound: usize,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
     let (scanned_rows, filtered_rows) = fold_group_rows_into_bundle(
@@ -613,18 +607,11 @@ fn execute_generic_grouped_fold_stage(
         grouped_execution_context,
         &mut grouped_bundle,
     )?;
-    let grouped_pagination_window = route.grouped_pagination_window().clone();
-    let grouped_candidate_rows = collect_grouped_candidate_rows(
-        route,
-        grouped_bundle,
-        max_groups_bound,
-        &grouped_pagination_window,
-    )?;
     let (page_rows, next_cursor) = finalize_grouped_page(
         route,
         grouped_projection_spec,
-        grouped_candidate_rows,
-        &grouped_pagination_window,
+        grouped_bundle,
+        route.grouped_pagination_window(),
     )?;
 
     Ok(GroupedFoldStage::from_grouped_stream(

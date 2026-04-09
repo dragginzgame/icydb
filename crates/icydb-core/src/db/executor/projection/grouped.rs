@@ -135,6 +135,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan(
 }
 
 /// Evaluate one compiled grouped projection plan into ordered projected values.
+#[cfg(test)]
 pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     compiled_projection: &[GroupedProjectionExpr],
     grouped_row: &GroupedRowView<'_>,

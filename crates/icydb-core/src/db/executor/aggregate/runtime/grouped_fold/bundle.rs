@@ -95,6 +95,55 @@ impl GroupedAggregateGroupState {
 }
 
 ///
+/// GroupedFinalizeGroup
+///
+/// GroupedFinalizeGroup carries one canonical group key plus its per-group
+/// aggregate states after ingest, but before aggregate outputs are finalized.
+/// This lets page finalization stop early without first finalizing every group.
+///
+
+pub(super) struct GroupedFinalizeGroup {
+    group_key: GroupKey,
+    aggregate_states: Vec<GroupedTerminalAggregateState>,
+}
+
+impl GroupedFinalizeGroup {
+    /// Finalize one single-aggregate grouped row directly.
+    #[must_use]
+    pub(super) fn finalize_single(self) -> (GroupKey, Value) {
+        let mut aggregate_states = self.aggregate_states.into_iter();
+        let aggregate_value = aggregate_states
+            .next()
+            .expect("single-aggregate grouped bundle must keep one aggregate state per group")
+            .finalize();
+        let has_trailing_aggregate_state = aggregate_states.next().is_some();
+        debug_assert!(
+            !has_trailing_aggregate_state,
+            "single-aggregate grouped bundle must not retain trailing aggregate states",
+        );
+
+        (self.group_key, aggregate_value)
+    }
+
+    /// Finalize one multi-aggregate grouped row directly.
+    #[must_use]
+    pub(super) fn finalize(self, aggregate_count: usize) -> (GroupKey, Vec<Value>) {
+        let aggregate_values = self
+            .aggregate_states
+            .into_iter()
+            .map(GroupedTerminalAggregateState::finalize)
+            .collect::<Vec<_>>();
+        debug_assert_eq!(
+            aggregate_values.len(),
+            aggregate_count,
+            "grouped bundle finalize must preserve declared aggregate slot count",
+        );
+
+        (self.group_key, aggregate_values)
+    }
+}
+
+///
 /// GroupedAggregateBundle
 ///
 /// GroupedAggregateBundle owns the generic grouped fold path's shared group
@@ -116,6 +165,12 @@ impl GroupedAggregateBundle {
             borrowed_lookup_keys: HashMap::new(),
             groups: HashMap::new(),
         }
+    }
+
+    /// Return true when this bundle carries exactly one aggregate slot.
+    #[must_use]
+    pub(super) const fn has_single_aggregate(&self) -> bool {
+        self.aggregate_specs.len() == 1
     }
 
     // Return true when one canonical grouped key matches the borrowed grouped
@@ -293,36 +348,45 @@ impl GroupedAggregateBundle {
         Self::apply_row_to_group(group_state, data_key, row_view, execution_context)
     }
 
-    /// Finalize the shared grouped bundle into canonical grouped rows.
+    /// Return the number of aggregate slots carried by this grouped bundle.
     #[must_use]
-    pub(super) fn finalize(self) -> Vec<(Value, Vec<Value>)> {
-        let expected_group_count = self.groups.len();
-        let aggregate_count = self.aggregate_specs.len();
-        let mut out = Vec::with_capacity(expected_group_count);
+    pub(super) const fn aggregate_count(&self) -> usize {
+        self.aggregate_specs.len()
+    }
 
-        // Phase 1: finalize each group's aggregate states exactly once into
-        // one row-shaped payload.
-        for (group_key, group_state) in self.groups {
-            let aggregate_values = group_state
-                .aggregate_states
-                .into_iter()
-                .map(GroupedTerminalAggregateState::finalize)
-                .collect::<Vec<_>>();
-            debug_assert_eq!(
-                aggregate_values.len(),
-                aggregate_count,
-                "grouped bundle finalize must preserve declared aggregate slot count",
-            );
-            out.push((group_key.canonical_value().clone(), aggregate_values));
-        }
+    /// Return the grouped bundle as unsorted pre-finalize group entries.
+    pub(super) fn into_groups(self) -> impl Iterator<Item = GroupedFinalizeGroup> {
+        self.groups
+            .into_iter()
+            .map(|(group_key, group_state)| GroupedFinalizeGroup {
+                group_key,
+                aggregate_states: group_state.aggregate_states,
+            })
+    }
+
+    /// Return the grouped bundle as canonical-order groups whose aggregate
+    /// states have not been finalized yet.
+    #[must_use]
+    pub(super) fn into_sorted_groups(self) -> Vec<GroupedFinalizeGroup> {
+        debug_assert!(
+            !self.aggregate_specs.is_empty(),
+            "grouped finalize requires at least one aggregate slot",
+        );
+        let expected_group_count = self.groups.len();
+        let mut out = self.into_groups().collect::<Vec<_>>();
 
         // Phase 2: preserve deterministic canonical grouped-key order across
         // hash-table iteration.
-        out.sort_by(|left, right| canonical_value_compare(&left.0, &right.0));
+        out.sort_by(|left, right| {
+            canonical_value_compare(
+                left.group_key.canonical_value(),
+                right.group_key.canonical_value(),
+            )
+        });
         debug_assert_eq!(
             out.len(),
             expected_group_count,
-            "grouped bundle finalize output cardinality must match tracked group count",
+            "grouped sorted finalize groups cardinality must match tracked group count",
         );
 
         out

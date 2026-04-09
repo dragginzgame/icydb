@@ -75,7 +75,6 @@ pub(in crate::db::executor) struct GroupedAggregateState {
     distinct: bool,
     target_field: Option<FieldSlot>,
     max_distinct_values_per_group: u64,
-    borrowed_lookup_keys: HashMap<StableHash, Vec<GroupKey>>,
     groups: HashMap<GroupKey, GroupedTerminalAggregateState>,
 }
 
@@ -135,7 +134,6 @@ impl GroupedAggregateState {
             distinct,
             target_field,
             max_distinct_values_per_group,
-            borrowed_lookup_keys: HashMap::new(),
             groups: HashMap::new(),
         })
     }
@@ -181,11 +179,12 @@ impl GroupedAggregateState {
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<Option<GroupKey>, GroupError> {
-        let Some(bucket) = self.borrowed_lookup_keys.get(&borrowed_group_hash) else {
-            return Ok(None);
-        };
-
-        for group_key in bucket {
+        // Keep the borrowed probe contract for tests without carrying a second
+        // grouped-key index beside the canonical group-state map itself.
+        for group_key in self.groups.keys() {
+            if group_key.hash() != borrowed_group_hash {
+                continue;
+            }
             if Self::group_key_matches_row_view(group_key, row_view, group_fields)? {
                 return Ok(Some(group_key.clone()));
             }
@@ -238,10 +237,6 @@ impl GroupedAggregateState {
             group_capacity_before_insert,
         )?;
         self.groups.insert(group_key.clone(), state);
-        self.borrowed_lookup_keys
-            .entry(group_key.hash())
-            .or_default()
-            .push(group_key.clone());
 
         Ok(fold_control)
     }

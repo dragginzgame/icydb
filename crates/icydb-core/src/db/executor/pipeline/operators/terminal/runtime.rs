@@ -90,6 +90,23 @@ struct SqlRouteCoveringSlotLayout {
     slot_count: usize,
     constant_slots: Vec<(usize, Value)>,
     component_slots: Vec<CoveringComponentSlotGroup>,
+    slot_sources: Vec<Option<SqlRouteCoveringSlotSource>>,
+}
+
+///
+/// SqlRouteCoveringSlotSource
+///
+/// SqlRouteCoveringSlotSource records how one route-owned covering slot can
+/// be read directly from PK, constant, or decoded component storage without
+/// first materializing a retained slot row.
+///
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy)]
+enum SqlRouteCoveringSlotSource {
+    PrimaryKey,
+    Constant(usize),
+    DecodedComponent(usize),
 }
 
 ///
@@ -1471,29 +1488,42 @@ fn sql_route_covering_slot_layout(
     let mut constant_slots = Vec::new();
     let mut covered_slots = vec![false; model.fields.len()];
     let mut component_slots = Vec::<CoveringComponentSlotGroup>::new();
+    let mut slot_sources = vec![None; model.fields.len()];
 
     // Phase 1: project one dense slot layout from the planner-owned contract and
     // group decoded component fields by their index component position.
     covered_slots[primary_key_slot] = true;
+    slot_sources[primary_key_slot] = Some(SqlRouteCoveringSlotSource::PrimaryKey);
     for field in &covering.fields {
         match &field.source {
             CoveringReadFieldSource::PrimaryKey => {
                 covered_slots[field.field_slot.index] = true;
+                slot_sources[field.field_slot.index] = Some(SqlRouteCoveringSlotSource::PrimaryKey);
             }
             CoveringReadFieldSource::Constant(value) => {
                 constant_slots.push((field.field_slot.index, value.clone()));
                 covered_slots[field.field_slot.index] = true;
+                slot_sources[field.field_slot.index] = Some(SqlRouteCoveringSlotSource::Constant(
+                    constant_slots.len().saturating_sub(1),
+                ));
             }
             CoveringReadFieldSource::IndexComponent { component_index } => {
-                if let Some((_, slots)) = component_slots
-                    .iter_mut()
-                    .find(|(group_index, _)| group_index == component_index)
+                let decoded_component_index = if let Some((decoded_component_index, (_, slots))) =
+                    component_slots
+                        .iter_mut()
+                        .enumerate()
+                        .find(|(group_index, _)| group_index == component_index)
                 {
                     slots.push(field.field_slot.index);
+                    decoded_component_index
                 } else {
                     component_slots.push((*component_index, vec![field.field_slot.index]));
-                }
+                    component_slots.len().saturating_sub(1)
+                };
                 covered_slots[field.field_slot.index] = true;
+                slot_sources[field.field_slot.index] = Some(
+                    SqlRouteCoveringSlotSource::DecodedComponent(decoded_component_index),
+                );
             }
         }
     }
@@ -1512,6 +1542,7 @@ fn sql_route_covering_slot_layout(
         slot_count: model.fields.len(),
         constant_slots,
         component_slots,
+        slot_sources,
     }))
 }
 
@@ -1770,42 +1801,27 @@ fn sql_route_covering_slot_rows_from_decoded(
     let mut rows = Vec::with_capacity(decoded_rows.len());
 
     for (data_key, component_values) in decoded_rows {
-        // Phase 1: build one fresh dense retained row from the immutable
-        // covering layout so every downstream slot read stays on indexing.
-        let mut retained_slots = vec![None; layout.slot_count];
-        retained_slots[layout.primary_key_slot] =
-            Some(data_key.storage_key().as_primary_key_value());
-        for (slot, value) in &layout.constant_slots {
-            retained_slots[*slot] = Some(value.clone());
-        }
+        let primary_key_value = data_key.storage_key().as_primary_key_value();
 
-        // Phase 2: fill decoded component values, cloning only when one
-        // component fans out to more than one projected slot.
-        for ((_, slots), component_value) in layout
-            .component_slots
-            .iter()
-            .zip(component_values.into_iter())
-        {
-            let Some((last_slot, prefix_slots)) = slots.split_last() else {
-                continue;
-            };
-
-            for slot in prefix_slots {
-                retained_slots[*slot] = Some(component_value.clone());
-            }
-            retained_slots[*last_slot] = Some(component_value);
-        }
-        let retained_row = crate::db::executor::RetainedSlotRow::from_dense_slots(retained_slots);
-
-        // Phase 3: preserve the residual predicate contract before staging the
-        // row into the SQL projection output.
+        // Phase 1: preserve the residual predicate contract directly over the
+        // decoded covering sources so rejected rows do not allocate one full
+        // retained-slot image first.
         if let Some(predicate_program) = predicate_slots
-            && !predicate_program
-                .eval_with_slot_value_ref_reader(&mut |slot| retained_row.slot_ref(slot))
+            && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
+                sql_route_covering_decoded_slot_ref(
+                    layout,
+                    &primary_key_value,
+                    component_values.as_slice(),
+                    slot,
+                )
+            })
         {
             continue;
         }
 
+        // Phase 2: only surviving rows pay the retained-slot materialization cost.
+        let retained_row =
+            sql_route_covering_retained_row(layout, primary_key_value, component_values);
         rows.push((data_key, retained_row));
     }
 
@@ -2157,6 +2173,51 @@ fn sql_constant_covering_retained_row(
     );
 
     crate::db::executor::RetainedSlotRow::from_sparse_entries(template.slot_count, entries)
+}
+
+#[cfg(feature = "sql")]
+fn sql_route_covering_decoded_slot_ref<'a>(
+    layout: &'a SqlRouteCoveringSlotLayout,
+    primary_key_value: &'a Value,
+    component_values: &'a [Value],
+    slot: usize,
+) -> Option<&'a Value> {
+    match layout.slot_sources.get(slot).and_then(Option::as_ref)? {
+        SqlRouteCoveringSlotSource::PrimaryKey => Some(primary_key_value),
+        SqlRouteCoveringSlotSource::Constant(constant_index) => layout
+            .constant_slots
+            .get(*constant_index)
+            .map(|(_, value)| value),
+        SqlRouteCoveringSlotSource::DecodedComponent(decoded_component_index) => {
+            component_values.get(*decoded_component_index)
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn sql_route_covering_retained_row(
+    layout: &SqlRouteCoveringSlotLayout,
+    primary_key_value: Value,
+    component_values: Vec<Value>,
+) -> crate::db::executor::RetainedSlotRow {
+    let mut retained_slots = vec![None; layout.slot_count];
+    retained_slots[layout.primary_key_slot] = Some(primary_key_value);
+    for (slot, value) in &layout.constant_slots {
+        retained_slots[*slot] = Some(value.clone());
+    }
+
+    for ((_, slots), component_value) in layout.component_slots.iter().zip(component_values) {
+        let Some((last_slot, prefix_slots)) = slots.split_last() else {
+            continue;
+        };
+
+        for slot in prefix_slots {
+            retained_slots[*slot] = Some(component_value.clone());
+        }
+        retained_slots[*last_slot] = Some(component_value);
+    }
+
+    crate::db::executor::RetainedSlotRow::from_dense_slots(retained_slots)
 }
 
 #[cfg(feature = "sql")]

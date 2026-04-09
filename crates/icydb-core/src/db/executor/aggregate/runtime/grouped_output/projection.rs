@@ -69,44 +69,53 @@ fn project_grouped_row_from_projection(
         group_fields,
         aggregate_execution_specs,
     );
-    let projected_values = evaluate_grouped_projection_values(compiled_projection, &grouped_row)
-        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
-    let projected_group_key = projected_values_for_positions(
-        projected_values.as_slice(),
-        projection_layout.group_field_positions(),
-        "group-field",
-    )?;
-    let projected_aggregate_values = projected_values_for_positions(
-        projected_values.as_slice(),
-        projection_layout.aggregate_positions(),
-        "aggregate",
-    )?;
+    let mut projected_group_key =
+        Vec::with_capacity(projection_layout.group_field_positions().len());
+    let mut projected_aggregate_values =
+        Vec::with_capacity(projection_layout.aggregate_positions().len());
+    let mut next_group_position = projection_layout.group_field_positions().iter().copied();
+    let mut next_aggregate_position = projection_layout.aggregate_positions().iter().copied();
+    let mut expected_group_position = next_group_position.next();
+    let mut expected_aggregate_position = next_aggregate_position.next();
+
+    // Phase 1: evaluate each compiled projection expression once and route the
+    // resulting value directly into the final grouped output buffers.
+    for (projection_index, expr) in compiled_projection.iter().enumerate() {
+        let projected_value = eval_grouped_projection_expr(expr, &grouped_row)
+            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
+
+        if expected_group_position == Some(projection_index) {
+            projected_group_key.push(projected_value);
+            expected_group_position = next_group_position.next();
+            continue;
+        }
+        if expected_aggregate_position == Some(projection_index) {
+            projected_aggregate_values.push(projected_value);
+            expected_aggregate_position = next_aggregate_position.next();
+        }
+    }
+
+    // Phase 2: preserve the old out-of-bounds diagnostics when the planner
+    // layout references a projection position that does not exist.
+    if let Some(position) = expected_group_position {
+        return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
+            "group-field",
+            position,
+            compiled_projection.len(),
+        ));
+    }
+    if let Some(position) = expected_aggregate_position {
+        return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
+            "aggregate",
+            position,
+            compiled_projection.len(),
+        ));
+    }
 
     Ok(GroupedRow::new(
         projected_group_key,
         projected_aggregate_values,
     ))
-}
-// Project one stable set of row positions into one cloned value vector. Grouped
-// output layout splitting reuses this for both grouped-key and aggregate payloads.
-fn projected_values_for_positions(
-    projected_values: &[Value],
-    positions: &[usize],
-    position_kind: &str,
-) -> Result<Vec<Value>, InternalError> {
-    let mut values = Vec::with_capacity(positions.len());
-    for position in positions {
-        let Some(value) = projected_values.get(*position) else {
-            return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
-                position_kind,
-                *position,
-                projected_values.len(),
-            ));
-        };
-        values.push(value.clone());
-    }
-
-    Ok(values)
 }
 
 ///
