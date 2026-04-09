@@ -12,8 +12,8 @@ use crate::{
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
             GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
             GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
-            LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
-            PlanUserError, QueryMode,
+            GroupedFoldPath, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+            PlanPolicyError, PlanUserError, QueryMode,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
             global_distinct_field_aggregate_admissibility,
             global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
@@ -1122,6 +1122,11 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
     assert_eq!(handoff.projection_layout().aggregate_positions(), &[2, 3]);
+    assert_eq!(
+        handoff.grouped_fold_path(),
+        GroupedFoldPath::GenericReducers,
+        "non-count grouped handoff shapes must stay on the generic grouped reducer path",
+    );
     assert!(matches!(
         handoff.distinct_execution_strategy(),
         GroupedDistinctExecutionStrategy::None
@@ -1163,6 +1168,29 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
         handoff.distinct_policy_violation_for_executor(),
         None,
         "global grouped DISTINCT execution strategy lowering should not project scalar DISTINCT policy violations",
+    );
+}
+
+#[test]
+fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_rows() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+
+    assert_eq!(
+        handoff.grouped_fold_path(),
+        GroupedFoldPath::CountRowsDedicated,
+        "single grouped COUNT(*) shapes must project the dedicated grouped count fold path",
     );
 }
 
@@ -1288,6 +1316,51 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
     assert_eq!(having.clauses()[0].value(), &Value::Uint(1));
 }
 
+type GroupedExecutorHandoffSnapshotVector = (
+    Vec<String>,
+    Vec<(AggregateKind, Option<String>)>,
+    Vec<usize>,
+    Vec<usize>,
+    String,
+    String,
+    u64,
+    u64,
+);
+
+fn grouped_executor_handoff_snapshot_vector(
+    base: &AccessPlannedQuery,
+    group: &GroupSpec,
+) -> GroupedExecutorHandoffSnapshotVector {
+    let grouped = base.clone().into_grouped(group.clone());
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    let aggregate_vector = handoff
+        .aggregate_projection_specs()
+        .iter()
+        .map(|aggregate| {
+            (
+                aggregate.kind(),
+                aggregate.target_field().map(str::to_string),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    (
+        handoff
+            .group_fields()
+            .iter()
+            .map(|field| field.field().to_string())
+            .collect::<Vec<_>>(),
+        aggregate_vector,
+        handoff.projection_layout().group_field_positions().to_vec(),
+        handoff.projection_layout().aggregate_positions().to_vec(),
+        format!("{:?}", handoff.grouped_fold_path()),
+        format!("{:?}", handoff.distinct_execution_strategy()),
+        handoff.execution().max_groups(),
+        handoff.execution().max_group_bytes(),
+    )
+}
+
 #[test]
 fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
     let base = load_plan(AccessPlan::path(AccessPath::FullScan));
@@ -1327,53 +1400,17 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
         },
     ];
 
-    #[expect(clippy::type_complexity)]
-    let actual_vectors: Vec<(
-        Vec<String>,
-        Vec<(AggregateKind, Option<String>)>,
-        Vec<usize>,
-        Vec<usize>,
-        String,
-        u64,
-        u64,
-    )> = grouped_cases
+    let actual_vectors: Vec<GroupedExecutorHandoffSnapshotVector> = grouped_cases
         .iter()
-        .map(|group| {
-            let grouped = base.clone().into_grouped(group.clone());
-            let handoff = grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build handoff");
-            let aggregate_vector = handoff
-                .aggregate_projection_specs()
-                .iter()
-                .map(|aggregate| {
-                    (
-                        aggregate.kind(),
-                        aggregate.target_field().map(str::to_string),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            (
-                handoff
-                    .group_fields()
-                    .iter()
-                    .map(|field| field.field().to_string())
-                    .collect::<Vec<_>>(),
-                aggregate_vector,
-                handoff.projection_layout().group_field_positions().to_vec(),
-                handoff.projection_layout().aggregate_positions().to_vec(),
-                format!("{:?}", handoff.distinct_execution_strategy()),
-                handoff.execution().max_groups(),
-                handoff.execution().max_group_bytes(),
-            )
-        })
+        .map(|group| grouped_executor_handoff_snapshot_vector(&base, group))
         .collect();
-    let expected_vectors = vec![
+    let expected_vectors: Vec<GroupedExecutorHandoffSnapshotVector> = vec![
         (
             vec!["rank".to_string()],
             vec![(AggregateKind::Count, None::<String>)],
             vec![0],
             vec![1],
+            "CountRowsDedicated".to_string(),
             "None".to_string(),
             u64::MAX,
             u64::MAX,
@@ -1386,6 +1423,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             ],
             vec![0, 1],
             vec![2, 3],
+            "GenericReducers".to_string(),
             "None".to_string(),
             11,
             2048,

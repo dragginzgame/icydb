@@ -54,8 +54,9 @@ pub(in crate::db) use group::GroupedAggregateProjectionSpec;
 #[cfg(test)]
 pub(in crate::db) use group::GroupedExecutorHandoff;
 pub(in crate::db) use group::{
-    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
-    grouped_aggregate_execution_specs_with_model, grouped_executor_handoff,
+    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
+    PlannedProjectionLayout, grouped_aggregate_execution_specs_with_model,
+    grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;

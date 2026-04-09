@@ -251,6 +251,49 @@ impl PlannedProjectionLayout {
 /// runtime entry remains explicit at query->executor boundaries.
 ///
 
+///
+/// GroupedFoldPath
+///
+/// Planner-carried grouped fold-path contract for executor runtime.
+/// This is execution-mechanical only: it tells grouped runtime whether the
+/// planner admitted the dedicated grouped `COUNT(*)` fold path or the
+/// canonical generic grouped reducer path. Runtime must consume this contract
+/// instead of branching on grouped planner strategy directly.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum GroupedFoldPath {
+    CountRowsDedicated,
+    GenericReducers,
+}
+
+impl GroupedFoldPath {
+    /// Project one grouped fold path from the planner-owned grouped strategy.
+    #[must_use]
+    pub(in crate::db) const fn from_plan_strategy(strategy: GroupedPlanStrategy) -> Self {
+        if strategy.is_single_count_rows() {
+            Self::CountRowsDedicated
+        } else {
+            Self::GenericReducers
+        }
+    }
+
+    /// Return whether grouped runtime may use the dedicated grouped `COUNT(*)`
+    /// fold/finalize path for this planner-carried fold contract.
+    #[must_use]
+    pub(in crate::db) const fn uses_count_rows_dedicated_fold(self) -> bool {
+        matches!(self, Self::CountRowsDedicated)
+    }
+}
+
+///
+/// GroupedExecutorHandoff
+///
+/// Borrowed grouped planning handoff consumed at the query->executor boundary.
+/// This contract keeps grouped execution routing input explicit while grouped
+/// runtime entry remains explicit at query->executor boundaries.
+///
+
 #[derive(Clone)]
 pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
@@ -259,6 +302,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     projection_layout: PlannedProjectionLayout,
     projection_layout_valid: bool,
     grouped_plan_strategy: GroupedPlanStrategy,
+    grouped_fold_path: GroupedFoldPath,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
     having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
@@ -301,6 +345,12 @@ impl<'a> GroupedExecutorHandoff<'a> {
     #[must_use]
     pub(in crate::db) const fn grouped_plan_strategy(&self) -> GroupedPlanStrategy {
         self.grouped_plan_strategy
+    }
+
+    /// Borrow planner-carried grouped fold-path selection.
+    #[must_use]
+    pub(in crate::db) const fn grouped_fold_path(&self) -> GroupedFoldPath {
+        self.grouped_fold_path
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
@@ -357,6 +407,7 @@ pub(in crate::db) fn grouped_executor_handoff(
             "grouped executor handoff must carry grouped strategy for grouped plans",
         )
     })?;
+    let grouped_fold_path = GroupedFoldPath::from_plan_strategy(grouped_plan_strategy);
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
         grouped.scalar.distinct,
         grouped.having.is_some(),
@@ -372,6 +423,7 @@ pub(in crate::db) fn grouped_executor_handoff(
         projection_layout,
         projection_layout_valid,
         grouped_plan_strategy,
+        grouped_fold_path,
         grouped_distinct_policy_contract,
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,

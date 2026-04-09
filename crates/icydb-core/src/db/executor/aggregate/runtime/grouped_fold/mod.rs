@@ -123,9 +123,10 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         return Ok(folded);
     }
 
-    // Phase 2B: route the common grouped `COUNT(*)` shape through a dedicated
-    // fold/finalize path selected from the planner-owned grouped aggregate family.
-    if route.grouped_plan_strategy().is_single_count_rows() {
+    // Phase 2B: route the common grouped `COUNT(*)` shape through the
+    // planner-carried dedicated fold-path contract instead of re-reading
+    // grouped planner strategy inside runtime.
+    if route.grouped_fold_path().uses_count_rows_dedicated_fold() {
         return execute_single_grouped_count_fold_stage(
             route,
             &mut stream,

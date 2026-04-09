@@ -14,7 +14,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
-            GroupedExecutionConfig, GroupedPlanStrategy, PlannedProjectionLayout,
+            GroupedExecutionConfig, GroupedFoldPath, PlannedProjectionLayout,
         },
     },
     error::InternalError,
@@ -118,9 +118,9 @@ impl GroupedRouteStage {
         self.planner_payload.grouped_execution
     }
 
-    /// Borrow planner-owned grouped execution strategy selection.
-    pub(in crate::db::executor) const fn grouped_plan_strategy(&self) -> GroupedPlanStrategy {
-        self.planner_payload.grouped_plan_strategy
+    /// Borrow planner-carried grouped fold-path selection.
+    pub(in crate::db::executor) const fn grouped_fold_path(&self) -> GroupedFoldPath {
+        self.planner_payload.grouped_fold_path
     }
 
     /// Borrow grouped projection layout.

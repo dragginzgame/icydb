@@ -319,6 +319,39 @@ fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
 }
 
 #[test]
+fn grouped_fold_runtime_does_not_consult_grouped_plan_strategy_directly() {
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/db/executor/aggregate/runtime/grouped_fold/mod.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("grouped_plan_strategy()"),
+        "grouped fold runtime must consume planner-carried fold-path projection instead of direct grouped planner strategy access",
+    );
+}
+
+#[test]
+fn grouped_route_stage_does_not_carry_grouped_plan_strategy_after_projection() {
+    for relative_path in [
+        "src/db/executor/pipeline/contracts/grouped/route_stage/payload.rs",
+        "src/db/executor/pipeline/contracts/grouped/route_stage/projection.rs",
+    ] {
+        let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+
+        assert!(
+            !runtime_source.contains("grouped_plan_strategy"),
+            "grouped route stage must carry execution-mechanical projection artifacts, not planner strategy, after grouped mode/fold-path projection: {}",
+            source_path.display(),
+        );
+    }
+}
+
+#[test]
 fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/db/executor/aggregate/runtime/grouped_distinct/aggregate.rs");

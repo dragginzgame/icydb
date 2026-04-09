@@ -7,7 +7,7 @@ use crate::db::{
     executor::{ExecutionPlan, pipeline::grouped_runtime::GroupedExecutionContext},
     query::plan::{
         AccessPlannedQuery, GroupHavingSpec, GroupedAggregateExecutionSpec,
-        GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedPlanStrategy,
+        GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedFoldPath,
         PlannedProjectionLayout,
     },
 };
@@ -38,7 +38,7 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
     pub(in crate::db::executor) plan: AccessPlannedQuery,
     pub(in crate::db::executor) entity_model: &'static EntityModel,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
-    pub(in crate::db::executor) grouped_plan_strategy: GroupedPlanStrategy,
+    pub(in crate::db::executor) grouped_fold_path: GroupedFoldPath,
     pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,
     pub(in crate::db::executor) grouped_aggregate_execution_specs:
         Vec<GroupedAggregateExecutionSpec>,

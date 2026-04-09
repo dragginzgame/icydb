@@ -45,6 +45,7 @@ where
         }
         let grouped_execution = grouped_handoff.execution();
         let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
+        let grouped_fold_path = grouped_handoff.grouped_fold_path();
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_execution_specs = grouped_aggregate_execution_specs_with_model(
             authority.model(),
@@ -103,7 +104,7 @@ where
                 plan,
                 entity_model: authority.model(),
                 grouped_execution,
-                grouped_plan_strategy,
+                grouped_fold_path,
                 group_fields,
                 grouped_aggregate_execution_specs,
                 projection_layout,
