@@ -4,7 +4,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::query::{builder::AggregateExpr, plan::FieldSlot},
+    db::query::{
+        builder::AggregateExpr,
+        plan::{FieldSlot, GroupedAggregateProjectionSpec},
+    },
     value::Value,
 };
 
@@ -19,7 +22,8 @@ pub(in crate::db::executor) struct GroupedRowView<'a> {
     pub(in crate::db::executor::projection) key_values: &'a [Value],
     pub(in crate::db::executor::projection) aggregate_values: &'a [Value],
     pub(in crate::db::executor::projection) group_fields: &'a [FieldSlot],
-    pub(in crate::db::executor::projection) aggregate_exprs: &'a [AggregateExpr],
+    pub(in crate::db::executor::projection) aggregate_projection_specs:
+        &'a [GroupedAggregateProjectionSpec],
 }
 
 impl<'a> GroupedRowView<'a> {
@@ -29,13 +33,13 @@ impl<'a> GroupedRowView<'a> {
         key_values: &'a [Value],
         aggregate_values: &'a [Value],
         group_fields: &'a [FieldSlot],
-        aggregate_exprs: &'a [AggregateExpr],
+        aggregate_projection_specs: &'a [GroupedAggregateProjectionSpec],
     ) -> Self {
         Self {
             key_values,
             aggregate_values,
             group_fields,
-            aggregate_exprs,
+            aggregate_projection_specs,
         }
     }
 }
@@ -57,8 +61,8 @@ pub(in crate::db::executor::projection) fn resolve_grouped_aggregate_index(
     grouped_row: &GroupedRowView<'_>,
     aggregate_expr: &AggregateExpr,
 ) -> Option<usize> {
-    for (index, candidate) in grouped_row.aggregate_exprs.iter().enumerate() {
-        if candidate == aggregate_expr {
+    for (index, candidate) in grouped_row.aggregate_projection_specs.iter().enumerate() {
+        if candidate.matches_aggregate_expr(aggregate_expr) {
             return Some(index);
         }
     }

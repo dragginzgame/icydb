@@ -50,14 +50,69 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
     distinct: bool,
 }
 
+///
+/// GroupedAggregateProjectionSpec
+///
+/// Planner-owned grouped aggregate projection contract.
+/// This carries only the semantic grouped aggregate identity that grouped
+/// output projection needs to match finalized aggregate values back onto
+/// projection expressions, without retaining full builder-layer
+/// `AggregateExpr` payloads in grouped runtime carriage.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GroupedAggregateProjectionSpec {
+    kind: AggregateKind,
+    target_field: Option<String>,
+    distinct: bool,
+}
+
+impl GroupedAggregateProjectionSpec {
+    /// Build one grouped aggregate projection spec from one semantic aggregate expression.
+    #[must_use]
+    pub(in crate::db) fn from_aggregate_expr(aggregate_expr: &AggregateExpr) -> Self {
+        Self {
+            kind: aggregate_expr.kind(),
+            target_field: aggregate_expr.target_field().map(str::to_string),
+            distinct: aggregate_expr.is_distinct(),
+        }
+    }
+
+    /// Return the grouped aggregate kind.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow the optional grouped aggregate target field label.
+    #[must_use]
+    pub(in crate::db) fn target_field(&self) -> Option<&str> {
+        self.target_field.as_deref()
+    }
+
+    /// Return whether the grouped aggregate uses DISTINCT semantics.
+    #[must_use]
+    pub(in crate::db) const fn distinct(&self) -> bool {
+        self.distinct
+    }
+
+    /// Return whether one aggregate expression matches this grouped projection spec semantically.
+    #[must_use]
+    pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
+        self.kind == aggregate_expr.kind()
+            && self.target_field() == aggregate_expr.target_field()
+            && self.distinct == aggregate_expr.is_distinct()
+    }
+}
+
 impl GroupedAggregateExecutionSpec {
     /// Build one grouped aggregate execution spec from one aggregate
-    /// expression and one structural model context.
+    /// projection spec and one structural model context.
     pub(in crate::db) fn from_aggregate_expr_with_model(
         model: &'static EntityModel,
-        aggregate_expr: &AggregateExpr,
+        aggregate_projection_spec: &GroupedAggregateProjectionSpec,
     ) -> Result<Self, InternalError> {
-        let target_field = aggregate_expr
+        let target_field = aggregate_projection_spec
             .target_field()
             .map(|field| {
                 resolve_aggregate_target_field_slot(model, field).map_err(|err| {
@@ -69,9 +124,9 @@ impl GroupedAggregateExecutionSpec {
             .transpose()?;
 
         Ok(Self {
-            kind: aggregate_expr.kind(),
+            kind: aggregate_projection_spec.kind(),
             target_field,
-            distinct: aggregate_expr.is_distinct(),
+            distinct: aggregate_projection_spec.distinct(),
         })
     }
 
@@ -173,7 +228,7 @@ impl PlannedProjectionLayout {
 pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
-    aggregate_exprs: Vec<AggregateExpr>,
+    aggregate_projection_specs: Vec<GroupedAggregateProjectionSpec>,
     projection_layout: PlannedProjectionLayout,
     projection_layout_valid: bool,
     grouped_plan_strategy: GroupedPlanStrategy,
@@ -195,10 +250,12 @@ impl<'a> GroupedExecutorHandoff<'a> {
         self.group_fields
     }
 
-    /// Borrow grouped aggregate expressions derived from planner projection semantics.
+    /// Borrow grouped aggregate projection specs derived from planner projection semantics.
     #[must_use]
-    pub(in crate::db) const fn aggregate_exprs(&self) -> &[AggregateExpr] {
-        self.aggregate_exprs.as_slice()
+    pub(in crate::db) const fn aggregate_projection_specs(
+        &self,
+    ) -> &[GroupedAggregateProjectionSpec] {
+        self.aggregate_projection_specs.as_slice()
     }
 
     /// Borrow grouped projection position layout derived by planner.
@@ -260,12 +317,12 @@ pub(in crate::db) fn grouped_executor_handoff(
         ));
     };
     let projection_spec = plan.projection_spec_for_identity();
-    let (projection_layout, aggregate_exprs) =
-        planned_projection_layout_and_aggregate_exprs_from_spec(&projection_spec)?;
+    let (projection_layout, aggregate_projection_specs) =
+        planned_projection_layout_and_aggregate_projection_specs_from_spec(&projection_spec)?;
     let projection_layout_valid = validate_grouped_projection_layout(
         &projection_layout,
         grouped.group.group_fields.len(),
-        aggregate_exprs.len(),
+        aggregate_projection_specs.len(),
     )
     .map(|()| true)?;
     let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
@@ -284,7 +341,7 @@ pub(in crate::db) fn grouped_executor_handoff(
     Ok(GroupedExecutorHandoff {
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
-        aggregate_exprs,
+        aggregate_projection_specs,
         projection_layout,
         projection_layout_valid,
         grouped_plan_strategy,
@@ -295,15 +352,18 @@ pub(in crate::db) fn grouped_executor_handoff(
 }
 
 /// Build grouped aggregate execution specs from planner-owned aggregate
-/// expressions and one structural model context.
+/// projection specs and one structural model context.
 pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
     model: &'static EntityModel,
-    aggregate_exprs: &[AggregateExpr],
+    aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
-    aggregate_exprs
+    aggregate_projection_specs
         .iter()
-        .map(|aggregate_expr| {
-            GroupedAggregateExecutionSpec::from_aggregate_expr_with_model(model, aggregate_expr)
+        .map(|aggregate_projection_spec| {
+            GroupedAggregateExecutionSpec::from_aggregate_expr_with_model(
+                model,
+                aggregate_projection_spec,
+            )
         })
         .collect()
 }
@@ -415,14 +475,14 @@ fn grouped_distinct_policy_contract(
     ))
 }
 
-// Derive grouped field/aggregate projection slots and aggregate expressions from
-// canonical projection semantics.
-fn planned_projection_layout_and_aggregate_exprs_from_spec(
+// Derive grouped field/aggregate projection slots and grouped aggregate
+// projection specs from canonical projection semantics.
+fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     projection_spec: &ProjectionSpec,
-) -> Result<(PlannedProjectionLayout, Vec<AggregateExpr>), InternalError> {
+) -> Result<(PlannedProjectionLayout, Vec<GroupedAggregateProjectionSpec>), InternalError> {
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
-    let mut aggregate_exprs = Vec::new();
+    let mut aggregate_projection_specs = Vec::new();
     for (index, field) in projection_spec.fields().enumerate() {
         match field {
             ProjectionField::Scalar { expr, .. } => {
@@ -431,7 +491,9 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
                     Expr::Field(_) => group_field_positions.push(index),
                     Expr::Aggregate(aggregate_expr) => {
                         aggregate_positions.push(index);
-                        aggregate_exprs.push(aggregate_expr.clone());
+                        aggregate_projection_specs.push(
+                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
+                        );
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
                         return Err(InternalError::planner_executor_invariant(format!(
@@ -453,7 +515,7 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
             group_field_positions,
             aggregate_positions,
         },
-        aggregate_exprs,
+        aggregate_projection_specs,
     ))
 }
 

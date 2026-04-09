@@ -52,7 +52,8 @@ pub(in crate::db) use covering::{
 #[cfg(test)]
 pub(in crate::db) use group::GroupedExecutorHandoff;
 pub(in crate::db) use group::{
-    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
+    GroupedAggregateExecutionSpec, GroupedAggregateProjectionSpec,
+    GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
     grouped_aggregate_execution_specs_with_model, grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
