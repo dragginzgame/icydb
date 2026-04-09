@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
 
-- `0.74.7` trims grouped hot-path overhead by replacing the grouped hash-bucket `BTreeMap` plus per-bucket scan with direct `HashMap<GroupKey, ...>` lookups and by compiling grouped projection field/aggregate resolution once up front, so grouped aggregation spends less work both finding existing groups and evaluating grouped output rows.
+- `0.74.7` expands the SQL perf-audit fixture cohort and removes a perf-harness wrapper tax that was making non-grouped queries pay grouped-metrics shaping cost even when no grouped execution happened, so the broader PocketIC benchmark surface is more representative and its non-grouped samples no longer carry that fake fixed overhead.
 - `0.74.6` continues the cleanup line in commit and mutation execution by trimming commit-guard payload retention, collapsing more commit/recovery forwarding shells, and flattening several `commit_window` helper seams so rollback, preflight, and delete-metric plumbing now live on fewer duplicated wrappers.
 - `0.74.5` finishes the explain and payload cleanup pass by removing more grouped and aggregate explain mirrors, centralizing descriptor projection, and trimming extra non-grouped route-payload wrappers so explain and runtime carry fewer duplicate copies of the same execution facts.
 - `0.74.4` makes the grouped boundary harder to bypass by carrying the dedicated grouped `COUNT(*)` fold choice as an explicit planner-to-runtime contract, dropping planner strategy from grouped runtime stage payloads, and adding tripwires so grouped runtime cannot quietly drift back into direct planner-strategy inspection.
