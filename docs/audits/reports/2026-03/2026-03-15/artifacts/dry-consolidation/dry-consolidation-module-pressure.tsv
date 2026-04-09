@@ -1,8 +1,0 @@
-module	loc	duplication_families	pressure_type	risk
-crates/icydb-core/src/db/index/envelope.rs	470	2	under-splitting	medium-high
-crates/icydb-core/src/db/session/sql.rs	446	3	under-splitting	medium
-crates/icydb-core/src/db/access/lowering.rs	396	2	under-splitting	medium
-crates/icydb-core/src/db/relation/reverse_index.rs	319	2	under-splitting	medium
-crates/icydb-core/src/db/commit/prepare.rs	223	2	under-splitting	medium
-crates/icydb-core/src/db/query/plan/logical_builder.rs	183	1	safety-neutral	low-medium
-crates/icydb-core/src/db/commit/recovery.rs	119	2	over-splitting	low-medium

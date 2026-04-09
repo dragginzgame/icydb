@@ -1,8 +1,0 @@
-module	loc	duplication_families	pressure_type	risk
-crates/icydb-core/src/db/predicate/runtime.rs	1596	2	under-splitting	medium
-crates/icydb-core/src/db/predicate/capability.rs	493	2	under-splitting	medium-low
-crates/icydb-core/src/db/executor/explain/descriptor.rs	1050	1	safety-neutral	low
-crates/icydb-core/src/db/cursor/error.rs	421	1	safety-neutral	low-medium
-crates/icydb-core/src/db/cursor/mod.rs	319	1	safety-neutral	low-medium
-crates/icydb-core/src/db/index/predicate/compile.rs	258	1	over-splitting-reduced	low
-crates/icydb-core/src/db/executor/route/planner/entrypoints.rs	189	1	safety-neutral	low-medium

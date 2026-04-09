@@ -1,8 +1,0 @@
-crates/icydb-core/src/db/index/key/mod.rs:3://! Does not own: index-store scanning or unique-constraint policy.
-crates/icydb-core/src/model/index.rs:60:    /// Return whether the index enforces value uniqueness.
-crates/icydb-core/src/db/schema/describe.rs:171:    /// Return whether the index enforces uniqueness.
-crates/icydb-core/src/db/index/plan/unique.rs:2://! Responsibility: preflight unique-constraint validation against the active
-crates/icydb-core/src/db/index/plan/unique.rs:22:/// Validate unique index constraints against existing rows that share the same
-crates/icydb-core/src/db/index/plan/unique.rs:35:pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
-crates/icydb-core/src/db/index/plan/mod.rs:94:/// - Validates unique constraints
-crates/icydb-core/src/db/index/plan/mod.rs:176:        unique::validate_unique_constraint::<E>(

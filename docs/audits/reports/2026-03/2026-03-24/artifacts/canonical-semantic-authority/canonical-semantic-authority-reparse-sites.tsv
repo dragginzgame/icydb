@@ -1,7 +1,0 @@
-concept_family	canonical_site	total_pattern	total_sites	total_files	canonical_site_count	non_canonical_sites
-identifier_normalization	db/sql/identifier.rs::normalize_identifier_to_scope	normalize_identifier_to_scope\(|split_qualified_identifier\(|identifiers_tail_match\(|rewrite_field_identifiers\(	25	4	1	24
-predicate_normalization	db/predicate/normalize.rs::normalize + db/query/plan/access_planner.rs::normalize_query_predicate	normalize_query_predicate\(|normalize_enum_literals\(|normalize\(|parse_sql_predicate\(	52	15	2	50
-index_key_item_interpretation	db/index/key/expression.rs::derive_index_expression_value	derive_index_expression_value\(|key_items\(|IndexKeyItem::	107	18	1	106
-route_statement_classification	db/sql/parser/mod.rs::parse_statement + db/executor/route/contracts/shape.rs::RouteShapeKind	parse_statement\(|lower_statement\(|sql_statement_route\(|RouteShapeKind	58	16	2	56
-projection_expression_tokenization	db/query/plan/expr/ast.rs::{FieldId,Alias,Expr} + db/session/sql.rs::projection_label_from_expr	ProjectionField|projection_label_from_expr\(|projection_label_from_aggregate\(|Expr::	493	32	2	491
-order_key_normalization	db/sql/lowering.rs::normalize_order_terms + db/query/plan/logical_builder.rs::canonicalize_order_spec	normalize_order_terms\(|canonicalize_order_spec\(|apply_order_terms\(|validate_order_shape\(	9	5	2	7
