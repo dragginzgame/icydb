@@ -23,6 +23,7 @@ use crate::db::{
             },
         },
     },
+    query::plan::GroupedPlanStrategy,
 };
 
 ///
@@ -49,6 +50,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
+    pub(in crate::db::executor) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
     pub(in crate::db::executor) load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 }
@@ -75,6 +77,7 @@ impl ExecutionRoutePlan {
                 load_scan_budget_hint: None,
             },
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
+            grouped_plan_strategy: None,
             grouped_execution_strategy: None,
             load_terminal_fast_path: None,
         }
@@ -135,6 +138,9 @@ impl ExecutionRoutePlan {
 
         match self.execution_mode_case {
             ExecutionModeRouteCase::AggregateGrouped => {
+                let grouped_plan_strategy = self
+                    .grouped_plan_strategy
+                    .expect("grouped route observability requires planner-owned grouped strategy");
                 let grouped_execution_strategy = match self.grouped_execution_strategy {
                     Some(strategy) => strategy,
                     None => GroupedExecutionStrategy::HashMaterialized,
@@ -159,6 +165,7 @@ impl ExecutionRoutePlan {
                 Some(GroupedRouteObservability {
                     outcome,
                     rejection_reason,
+                    planner_fallback_reason: grouped_plan_strategy.fallback_reason(),
                     eligible,
                     execution_mode: self.execution_mode,
                     grouped_execution_strategy,

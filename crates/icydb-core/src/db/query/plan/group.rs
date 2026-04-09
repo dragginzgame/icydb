@@ -9,9 +9,9 @@ use crate::{
         plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingSpec,
-            GroupedExecutionConfig, GroupedPlanStrategyHint,
+            GroupedExecutionConfig, GroupedPlanStrategy,
             expr::{Expr, ProjectionField, ProjectionSpec},
-            grouped_distinct_admissibility, grouped_plan_strategy_hint,
+            grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
         },
     },
@@ -114,7 +114,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
     projection_layout_valid: bool,
-    grouped_plan_strategy_hint: GroupedPlanStrategyHint,
+    grouped_plan_strategy: GroupedPlanStrategy,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
     having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
@@ -151,10 +151,10 @@ impl<'a> GroupedExecutorHandoff<'a> {
         self.projection_layout_valid
     }
 
-    /// Borrow grouped execution strategy hint projected by planner semantics.
+    /// Borrow grouped execution strategy projected by planner semantics.
     #[must_use]
-    pub(in crate::db) const fn grouped_plan_strategy_hint(&self) -> GroupedPlanStrategyHint {
-        self.grouped_plan_strategy_hint
+    pub(in crate::db) const fn grouped_plan_strategy(&self) -> GroupedPlanStrategy {
+        self.grouped_plan_strategy
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
@@ -206,9 +206,9 @@ pub(in crate::db) fn grouped_executor_handoff(
         aggregate_exprs.len(),
     )
     .map(|()| true)?;
-    let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan).ok_or_else(|| {
+    let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
         InternalError::planner_executor_invariant(
-            "grouped executor handoff must carry grouped strategy hint for grouped plans",
+            "grouped executor handoff must carry grouped strategy for grouped plans",
         )
     })?;
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
@@ -225,7 +225,7 @@ pub(in crate::db) fn grouped_executor_handoff(
         aggregate_exprs,
         projection_layout,
         projection_layout_valid,
-        grouped_plan_strategy_hint,
+        grouped_plan_strategy,
         grouped_distinct_policy_contract,
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,

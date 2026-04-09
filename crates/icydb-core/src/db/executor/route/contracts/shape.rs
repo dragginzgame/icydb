@@ -5,7 +5,7 @@
 
 use crate::db::query::{
     builder::AggregateExpr,
-    plan::{AggregateKind, GroupedPlanStrategyHint},
+    plan::{AggregateKind, GroupedPlanStrategy},
 };
 
 ///
@@ -104,7 +104,7 @@ pub(in crate::db::executor::route) enum RouteIntent<'a> {
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
     AggregateGrouped {
-        grouped_plan_strategy_hint: GroupedPlanStrategyHint,
+        grouped_plan_strategy: GroupedPlanStrategy,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
 }

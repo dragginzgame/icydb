@@ -21,7 +21,7 @@ use crate::{
                 top_n_seek_spec_for_model,
             },
         },
-        query::plan::{AccessPlannedQuery, GroupedPlanStrategyHint, PlannerRouteProfile},
+        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
     },
     model::entity::EntityModel,
 };
@@ -133,7 +133,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
 ) -> RouteDerivationContext {
     let aggregate_shape = intent_stage.aggregate_shape;
     let grouped = intent_stage.grouped;
-    let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
+    let grouped_plan_strategy = intent_stage.grouped_plan_strategy;
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let secondary_pushdown_applicability =
         crate::db::executor::route::derive_secondary_pushdown_applicability_from_contract(
@@ -198,19 +198,19 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
         .flatten();
     let grouped_execution_strategy = grouped.then(|| {
         debug_assert!(
-            grouped_plan_strategy_hint.is_some(),
-            "route invariant: grouped feasibility derivation requires planner-projected grouped strategy hint",
+            grouped_plan_strategy.is_some(),
+            "route invariant: grouped feasibility derivation requires planner-projected grouped strategy",
         );
         debug_assert!(
             logical_pushdown_eligibility.grouped_aggregate_allowed(),
             "route invariant: grouped feasibility derivation requires planner-projected grouped aggregate eligibility",
         );
-        let planner_grouped_strategy_hint =
-            grouped_plan_strategy_hint.unwrap_or(GroupedPlanStrategyHint::HashGroup);
+        let planner_grouped_strategy = grouped_plan_strategy
+            .expect("grouped feasibility derivation requires planner-projected grouped strategy");
 
         grouped_execution_strategy_for_runtime(
             plan,
-            planner_grouped_strategy_hint,
+            planner_grouped_strategy,
             direction,
             capabilities.desc_physical_reverse_supported,
             capabilities.load_order_route_contract.allows_streaming_load(),

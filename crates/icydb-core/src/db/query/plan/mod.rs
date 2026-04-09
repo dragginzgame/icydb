@@ -84,13 +84,13 @@ pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
-    GroupedCursorPolicyViolation, GroupedPlanStrategyHint, grouped_distinct_admissibility,
-    grouped_having_compare_op_supported, project_access_plan, project_explain_access_path,
-    resolve_global_distinct_field_aggregate,
+    GroupedCursorPolicyViolation, GroupedPlanFallbackReason, GroupedPlanStrategy,
+    grouped_distinct_admissibility, grouped_having_compare_op_supported, project_access_plan,
+    project_explain_access_path, resolve_global_distinct_field_aggregate,
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
-    grouped_cursor_policy_violation, grouped_plan_strategy_hint,
+    grouped_cursor_policy_violation, grouped_plan_strategy,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

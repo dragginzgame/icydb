@@ -84,7 +84,7 @@ impl<C: CanisterKind> DbSession<C> {
         query.plan_hash_hex_with_visible_indexes(&visible_indexes)
     }
 
-    // Explain one scalar load execution shape using only planner-visible
+    // Explain one load execution shape using only planner-visible
     // indexes from the recovered store state.
     pub(in crate::db) fn explain_query_execution_with_visible_indexes<E>(
         &self,
@@ -98,7 +98,7 @@ impl<C: CanisterKind> DbSession<C> {
         query.explain_execution_with_visible_indexes(&visible_indexes)
     }
 
-    // Render one scalar load execution descriptor as deterministic text using
+    // Render one load execution descriptor as deterministic text using
     // only planner-visible indexes from the recovered store state.
     pub(in crate::db) fn explain_query_execution_text_with_visible_indexes<E>(
         &self,
@@ -112,7 +112,7 @@ impl<C: CanisterKind> DbSession<C> {
         query.explain_execution_text_with_visible_indexes(&visible_indexes)
     }
 
-    // Render one scalar load execution descriptor as canonical JSON using
+    // Render one load execution descriptor as canonical JSON using
     // only planner-visible indexes from the recovered store state.
     pub(in crate::db) fn explain_query_execution_json_with_visible_indexes<E>(
         &self,
@@ -126,7 +126,7 @@ impl<C: CanisterKind> DbSession<C> {
         query.explain_execution_json_with_visible_indexes(&visible_indexes)
     }
 
-    // Render one scalar load execution descriptor plus route diagnostics using
+    // Render one load execution descriptor plus route diagnostics using
     // only planner-visible indexes from the recovered store state.
     pub(in crate::db) fn explain_query_execution_verbose_with_visible_indexes<E>(
         &self,

@@ -21,8 +21,8 @@ use crate::{
             fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint, OrderDirection,
-                OrderSpec, PageSpec, QueryMode, expr::ProjectionSpec, grouped_plan_strategy_hint,
+                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategy, OrderDirection, OrderSpec,
+                PageSpec, QueryMode, expr::ProjectionSpec, grouped_plan_strategy,
                 project_access_plan, project_explain_access_path,
             },
         },
@@ -773,6 +773,7 @@ fn hash_grouping_shape_v1(
         ExplainGrouping::None => write_tag(hasher, GROUPING_NONE_TAG),
         ExplainGrouping::Grouped {
             strategy,
+            fallback_reason: _,
             group_fields,
             aggregates,
             having,
@@ -824,9 +825,10 @@ fn hash_grouping_shape_v1_from_plan(
 
     write_tag(hasher, GROUPING_PRESENT_TAG);
     if include_group_strategy {
-        hash_grouped_strategy_hint(
+        hash_grouped_plan_strategy(
             hasher,
-            grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+            grouped_plan_strategy(plan)
+                .expect("grouped grouping-shape hashing requires planner-owned grouped strategy"),
         );
     }
     write_u32(hasher, grouped.group.group_fields.len() as u32);
@@ -947,10 +949,11 @@ fn hash_group_having_clause_spec(hasher: &mut Sha256, clause: &GroupHavingClause
     write_value(hasher, &clause.value);
 }
 
-fn hash_grouped_strategy_hint(hasher: &mut Sha256, strategy: GroupedPlanStrategyHint) {
-    match strategy {
-        GroupedPlanStrategyHint::HashGroup => write_tag(hasher, GROUPING_STRATEGY_HASH_TAG),
-        GroupedPlanStrategyHint::OrderedGroup => write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG),
+fn hash_grouped_plan_strategy(hasher: &mut Sha256, strategy: GroupedPlanStrategy) {
+    if strategy.is_ordered_group() {
+        write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG);
+    } else {
+        write_tag(hasher, GROUPING_STRATEGY_HASH_TAG);
     }
 }
 

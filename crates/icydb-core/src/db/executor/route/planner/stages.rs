@@ -14,7 +14,7 @@ use crate::db::{
             RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
-    query::plan::GroupedPlanStrategyHint,
+    query::plan::GroupedPlanStrategy,
 };
 
 ///
@@ -51,8 +51,7 @@ pub(in crate::db::executor::route::planner) struct RouteIntentStage<'a> {
     pub(in crate::db::executor::route::planner) aggregate_shape: Option<AggregateRouteShape<'a>>,
     pub(in crate::db::executor::route::planner) grouped: bool,
     pub(in crate::db::executor::route::planner) route_shape_kind: RouteShapeKind,
-    pub(in crate::db::executor::route::planner) grouped_plan_strategy_hint:
-        Option<GroupedPlanStrategyHint>,
+    pub(in crate::db::executor::route::planner) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(in crate::db::executor::route::planner) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor::route::planner) aggregate_force_materialized_due_to_predicate_uncertainty:
         bool,

@@ -144,7 +144,7 @@ fn build_execution_route_plan_for_model(
 pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
-    grouped_plan_strategy_hint: crate::db::query::plan::GroupedPlanStrategyHint,
+    grouped_plan_strategy: crate::db::query::plan::GroupedPlanStrategy,
 ) -> ExecutionPlan {
     let execution_preparation = ExecutionPreparation::from_plan(
         model,
@@ -156,7 +156,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
         plan,
         None,
         RouteIntent::AggregateGrouped {
-            grouped_plan_strategy_hint,
+            grouped_plan_strategy,
             aggregate_force_materialized_due_to_predicate_uncertainty:
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
                     &execution_preparation,
@@ -222,6 +222,7 @@ fn assemble_execution_route_plan(
         aggregate_seek_spec: derivation.aggregate_seek_spec,
         scan_hints: derivation.scan_hints,
         aggregate_fold_mode: execution_stage.aggregate_fold_mode,
+        grouped_plan_strategy: intent_stage.grouped_plan_strategy,
         grouped_execution_strategy: derivation.grouped_execution_strategy,
         load_terminal_fast_path,
     }

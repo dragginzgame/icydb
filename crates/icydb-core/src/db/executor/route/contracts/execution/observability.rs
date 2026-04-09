@@ -6,6 +6,7 @@
 use crate::db::executor::route::contracts::execution::{
     GroupedExecutionStrategy, RouteExecutionMode,
 };
+use crate::db::query::plan::GroupedPlanFallbackReason;
 
 ///
 /// GroupedRouteDecisionOutcome
@@ -21,6 +22,17 @@ pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
     MaterializedFallback,
 }
 
+impl GroupedRouteDecisionOutcome {
+    #[must_use]
+    pub(in crate::db::executor) const fn code(self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::Rejected => "rejected",
+            Self::MaterializedFallback => "materialized_fallback",
+        }
+    }
+}
+
 ///
 /// GroupedRouteRejectionReason
 ///
@@ -33,18 +45,31 @@ pub(in crate::db::executor) enum GroupedRouteRejectionReason {
     CapabilityMismatch,
 }
 
+impl GroupedRouteRejectionReason {
+    #[must_use]
+    pub(in crate::db::executor) const fn code(self) -> &'static str {
+        match self {
+            Self::CapabilityMismatch => "capability_mismatch",
+        }
+    }
+}
+
 ///
 /// GroupedRouteObservability
 ///
 /// Grouped route observability payload.
 /// Carries route outcome, optional rejection reason, eligibility, and
 /// selected execution mode for grouped intents.
+/// Planner-authored grouped fallback reasons stay separate from route-gate
+/// rejection reasons so runtime/explain surfaces do not collapse planning and
+/// capability failure into one taxonomy.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct GroupedRouteObservability {
     pub(in crate::db::executor::route) outcome: GroupedRouteDecisionOutcome,
     pub(in crate::db::executor::route) rejection_reason: Option<GroupedRouteRejectionReason>,
+    pub(in crate::db::executor::route) planner_fallback_reason: Option<GroupedPlanFallbackReason>,
     pub(in crate::db::executor::route) eligible: bool,
     pub(in crate::db::executor::route) execution_mode: RouteExecutionMode,
     pub(in crate::db::executor::route) grouped_execution_strategy: GroupedExecutionStrategy,
@@ -61,6 +86,13 @@ impl GroupedRouteObservability {
         self,
     ) -> Option<GroupedRouteRejectionReason> {
         self.rejection_reason
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn planner_fallback_reason(
+        self,
+    ) -> Option<GroupedPlanFallbackReason> {
+        self.planner_fallback_reason
     }
 
     #[must_use]

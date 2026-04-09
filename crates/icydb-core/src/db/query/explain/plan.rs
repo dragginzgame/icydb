@@ -14,9 +14,9 @@ use crate::{
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                grouped_plan_strategy_hint,
+                GroupHavingSpec, GroupHavingSymbol, GroupedPlanFallbackReason, GroupedPlanStrategy,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+                grouped_plan_strategy,
             },
         },
     },
@@ -184,6 +184,7 @@ pub enum ExplainGrouping {
     None,
     Grouped {
         strategy: ExplainGroupedStrategy,
+        fallback_reason: Option<ExplainGroupedFallbackReason>,
         group_fields: Vec<ExplainGroupField>,
         aggregates: Vec<ExplainGroupAggregate>,
         having: Option<ExplainGroupHaving>,
@@ -204,11 +205,45 @@ pub enum ExplainGroupedStrategy {
     OrderedGroup,
 }
 
-impl From<GroupedPlanStrategyHint> for ExplainGroupedStrategy {
-    fn from(value: GroupedPlanStrategyHint) -> Self {
+impl From<GroupedPlanStrategy> for ExplainGroupedStrategy {
+    fn from(value: GroupedPlanStrategy) -> Self {
+        if value.is_ordered_group() {
+            Self::OrderedGroup
+        } else {
+            Self::HashGroup
+        }
+    }
+}
+
+///
+/// ExplainGroupedFallbackReason
+///
+/// Stable explain projection of the planner-authored grouped fallback reason.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainGroupedFallbackReason {
+    DistinctGroupingNotAdmitted,
+    ResidualPredicateBlocksGroupedOrder,
+    AggregateStreamingNotSupported,
+    HavingBlocksGroupedOrder,
+    GroupKeyOrderUnavailable,
+}
+
+impl From<GroupedPlanFallbackReason> for ExplainGroupedFallbackReason {
+    fn from(value: GroupedPlanFallbackReason) -> Self {
         match value {
-            GroupedPlanStrategyHint::HashGroup => Self::HashGroup,
-            GroupedPlanStrategyHint::OrderedGroup => Self::OrderedGroup,
+            GroupedPlanFallbackReason::DistinctGroupingNotAdmitted => {
+                Self::DistinctGroupingNotAdmitted
+            }
+            GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder => {
+                Self::ResidualPredicateBlocksGroupedOrder
+            }
+            GroupedPlanFallbackReason::AggregateStreamingNotSupported => {
+                Self::AggregateStreamingNotSupported
+            }
+            GroupedPlanFallbackReason::HavingBlocksGroupedOrder => Self::HavingBlocksGroupedOrder,
+            GroupedPlanFallbackReason::GroupKeyOrderUnavailable => Self::GroupKeyOrderUnavailable,
         }
     }
 }
@@ -528,35 +563,41 @@ impl AccessPlannedQuery {
         // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
-            LogicalPlan::Grouped(logical) => (
-                &logical.scalar,
-                ExplainGrouping::Grouped {
-                    strategy: grouped_plan_strategy_hint(self)
-                        .map_or(ExplainGroupedStrategy::HashGroup, Into::into),
-                    group_fields: logical
-                        .group
-                        .group_fields
-                        .iter()
-                        .map(|field_slot| ExplainGroupField {
-                            slot_index: field_slot.index(),
-                            field: field_slot.field().to_string(),
-                        })
-                        .collect(),
-                    aggregates: logical
-                        .group
-                        .aggregates
-                        .iter()
-                        .map(|aggregate| ExplainGroupAggregate {
-                            kind: aggregate.kind,
-                            target_field: aggregate.target_field.clone(),
-                            distinct: aggregate.distinct,
-                        })
-                        .collect(),
-                    having: explain_group_having(logical.having.as_ref()),
-                    max_groups: logical.group.execution.max_groups(),
-                    max_group_bytes: logical.group.execution.max_group_bytes(),
-                },
-            ),
+            LogicalPlan::Grouped(logical) => {
+                let grouped_strategy = grouped_plan_strategy(self).expect(
+                    "grouped logical explain projection requires planner-owned grouped strategy",
+                );
+
+                (
+                    &logical.scalar,
+                    ExplainGrouping::Grouped {
+                        strategy: grouped_strategy.into(),
+                        fallback_reason: grouped_strategy.fallback_reason().map(Into::into),
+                        group_fields: logical
+                            .group
+                            .group_fields
+                            .iter()
+                            .map(|field_slot| ExplainGroupField {
+                                slot_index: field_slot.index(),
+                                field: field_slot.field().to_string(),
+                            })
+                            .collect(),
+                        aggregates: logical
+                            .group
+                            .aggregates
+                            .iter()
+                            .map(|aggregate| ExplainGroupAggregate {
+                                kind: aggregate.kind,
+                                target_field: aggregate.target_field.clone(),
+                                distinct: aggregate.distinct,
+                            })
+                            .collect(),
+                        having: explain_group_having(logical.having.as_ref()),
+                        max_groups: logical.group.execution.max_groups(),
+                        max_group_bytes: logical.group.execution.max_group_bytes(),
+                    },
+                )
+            }
         };
 
         // Phase 2: project scalar plan + access path into deterministic explain surface.

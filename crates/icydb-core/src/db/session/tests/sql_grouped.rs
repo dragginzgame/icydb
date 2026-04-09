@@ -1,4 +1,7 @@
 use super::*;
+use crate::db::query::explain::{
+    ExplainExecutionNodeType, ExplainGroupedFallbackReason, ExplainGrouping,
+};
 
 #[test]
 fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
@@ -52,6 +55,73 @@ fn execute_sql_grouped_rejects_global_aggregate_execution_in_current_lane() {
         err.to_string()
             .contains("execute_sql_grouped rejects global aggregate SELECT"),
         "execute_sql_grouped should preserve the dedicated aggregate-lane boundary message",
+    );
+}
+
+#[test]
+fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicly() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-explain-a", 20),
+            ("grouped-explain-b", 20),
+            ("grouped-explain-c", 32),
+        ],
+    );
+
+    let query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+        )
+        .expect("grouped explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("grouped logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("grouped execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("group_key_order_unavailable")),
+        "grouped execution explain root should surface the planner-owned grouped fallback reason",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("grouped_route_outcome"),
+        Some(&Value::from("materialized_fallback")),
+        "grouped execution explain root should surface the grouped route outcome",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("hash_materialized")),
+        "grouped execution explain root should surface the grouped execution strategy",
+    );
+
+    let grouped_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::GroupedAggregateHashMaterialized,
+    )
+    .expect("grouped execution explain should emit an explicit grouped aggregate node");
+    assert_eq!(
+        grouped_node
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("group_key_order_unavailable")),
+        "grouped aggregate node should inherit the same planner-owned grouped fallback reason",
     );
 }
 

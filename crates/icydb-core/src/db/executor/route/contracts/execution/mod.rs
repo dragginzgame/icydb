@@ -113,6 +113,16 @@ pub(in crate::db::executor) enum GroupedExecutionStrategy {
     OrderedMaterialized,
 }
 
+impl GroupedExecutionStrategy {
+    #[must_use]
+    pub(in crate::db::executor) const fn code(self) -> &'static str {
+        match self {
+            Self::HashMaterialized => "hash_materialized",
+            Self::OrderedMaterialized => "ordered_materialized",
+        }
+    }
+}
+
 ///
 /// ScanHintPlan
 ///

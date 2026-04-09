@@ -40,10 +40,10 @@ use crate::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
             DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason,
             GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-            GroupedExecutionConfig, GroupedPlanStrategyHint, OrderDirection, OrderSpec, PageSpec,
-            QueryMode,
+            GroupedExecutionConfig, GroupedPlanFallbackReason, GroupedPlanStrategy, OrderDirection,
+            OrderSpec, PageSpec, QueryMode,
             expr::{FieldId, ProjectionSelection},
-            grouped_executor_handoff, grouped_plan_strategy_hint,
+            grouped_executor_handoff, grouped_plan_strategy,
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -381,7 +381,7 @@ fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
     build_execution_route_plan_for_grouped_plan(
         RouteCapabilityEntity::MODEL,
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy_hint(),
+        grouped_handoff.grouped_plan_strategy(),
     )
 }
 
@@ -404,8 +404,8 @@ fn scalar_aggregate_route_snapshot(
 }
 
 fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
-    let planner_hint =
-        grouped_plan_strategy_hint(plan).expect("grouped route snapshot requires grouped hint");
+    let planner_strategy =
+        grouped_plan_strategy(plan).expect("grouped route snapshot requires grouped strategy");
     let handoff = grouped_executor_handoff(plan).expect("grouped route snapshot requires handoff");
     let aggregate_contracts = handoff
         .aggregate_exprs()
@@ -422,7 +422,7 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteCapabilityEntity::MODEL,
         handoff.base(),
-        handoff.grouped_plan_strategy_hint(),
+        handoff.grouped_plan_strategy(),
     );
     let grouped_observability = route_plan
         .grouped_observability()
@@ -430,10 +430,14 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
 
     [
         "grouped=true".to_string(),
-        format!("planner_hint={planner_hint:?}"),
+        format!("planner_strategy={planner_strategy:?}"),
         format!("aggregate_contracts={aggregate_contracts:?}"),
         format!("route_strategy={:?}", route_plan.execution_mode_case),
         format!("execution_mode={:?}", route_plan.execution_mode),
+        format!(
+            "planner_fallback_reason={:?}",
+            grouped_observability.planner_fallback_reason()
+        ),
         format!(
             "grouped_execution_strategy={:?}",
             grouped_observability.grouped_execution_strategy()
@@ -446,26 +450,26 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
 fn grouped_policy_snapshot(
     plan: &AccessPlannedQuery,
 ) -> (
-    GroupedPlanStrategyHint,
+    GroupedPlanStrategy,
     Option<crate::db::query::plan::GroupDistinctPolicyReason>,
     GroupedExecutionStrategy,
     bool,
 ) {
-    let planner_hint =
-        grouped_plan_strategy_hint(plan).expect("grouped plans should project planner hints");
+    let planner_strategy =
+        grouped_plan_strategy(plan).expect("grouped plans should project planner strategy");
     let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteCapabilityEntity::MODEL,
         handoff.base(),
-        handoff.grouped_plan_strategy_hint(),
+        handoff.grouped_plan_strategy(),
     );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped plans should always project grouped route observability");
 
     (
-        planner_hint,
+        planner_strategy,
         distinct_violation,
         grouped_observability.grouped_execution_strategy(),
         grouped_observability.eligible(),
@@ -2238,6 +2242,10 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         GroupedRouteDecisionOutcome::MaterializedFallback
     );
     assert_eq!(grouped_observability.rejection_reason(), None);
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::GroupKeyOrderUnavailable)
+    );
     assert!(grouped_observability.eligible());
     assert_eq!(
         grouped_observability.execution_mode(),
@@ -2287,6 +2295,10 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         GroupedRouteDecisionOutcome::MaterializedFallback
     );
     assert_eq!(grouped_observability.rejection_reason(), None);
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::GroupKeyOrderUnavailable)
+    );
     assert!(grouped_observability.eligible());
     assert_eq!(
         grouped_observability.execution_mode(),
@@ -2325,6 +2337,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         grouped_observability.grouped_execution_strategy(),
         GroupedExecutionStrategy::OrderedMaterialized
     );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
         grouped_observability.outcome(),
         GroupedRouteDecisionOutcome::MaterializedFallback
@@ -2359,6 +2372,10 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
         grouped_observability.grouped_execution_strategy(),
         GroupedExecutionStrategy::HashMaterialized
     );
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder)
+    );
 }
 
 #[test]
@@ -2392,17 +2409,21 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
-    let planner_hint =
-        grouped_plan_strategy_hint(&grouped).expect("grouped plans should project strategy hints");
+    let planner_strategy =
+        grouped_plan_strategy(&grouped).expect("grouped plans should project strategy");
 
     assert_eq!(
-        planner_hint,
-        GroupedPlanStrategyHint::HashGroup,
-        "unsupported grouped HAVING operators should be planner-policy rejected from ordered-group hints",
+        planner_strategy,
+        GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
+        "unsupported grouped HAVING operators should be planner-policy rejected from ordered-group strategy",
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
         GroupedExecutionStrategy::HashMaterialized
+    );
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::HavingBlocksGroupedOrder)
     );
 }
 
@@ -2572,7 +2593,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
     assert_eq!(
         grouped_policy_snapshot(&ordered_grouped),
         (
-            GroupedPlanStrategyHint::OrderedGroup,
+            GroupedPlanStrategy::ordered_group(),
             None,
             GroupedExecutionStrategy::OrderedMaterialized,
             true,
@@ -2607,7 +2628,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
     assert_eq!(
         grouped_policy_snapshot(&having_rejected_grouped),
         (
-            GroupedPlanStrategyHint::HashGroup,
+            GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
             None,
             GroupedExecutionStrategy::HashMaterialized,
             true,
@@ -2629,7 +2650,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
     assert_eq!(
         grouped_policy_snapshot(&scalar_distinct_grouped),
         (
-            GroupedPlanStrategyHint::HashGroup,
+            GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::DistinctGroupingNotAdmitted),
             Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
             GroupedExecutionStrategy::HashMaterialized,
             true,
@@ -2655,7 +2676,9 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
         assert_eq!(
             grouped_policy_snapshot(&grouped),
             (
-                GroupedPlanStrategyHint::HashGroup,
+                GroupedPlanStrategy::hash_group(
+                    GroupedPlanFallbackReason::AggregateStreamingNotSupported,
+                ),
                 None,
                 GroupedExecutionStrategy::HashMaterialized,
                 true,
@@ -2698,6 +2721,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -2727,7 +2751,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteCapabilityEntity::MODEL,
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy_hint(),
+        grouped_handoff.grouped_plan_strategy(),
     );
     assert_eq!(
         route_plan.execution_mode_case,
@@ -2858,10 +2882,11 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
     let actual = grouped_aggregate_route_snapshot(&grouped);
     let expected = [
         "grouped=true".to_string(),
-        "planner_hint=HashGroup".to_string(),
+        "planner_strategy=GroupedPlanStrategy { family: HashGroup, fallback_reason: Some(AggregateStreamingNotSupported) }".to_string(),
         "aggregate_contracts=[\"Avg:Some(\\\"rank\\\"):false\"]".to_string(),
         "route_strategy=AggregateGrouped".to_string(),
         "execution_mode=Materialized".to_string(),
+        "planner_fallback_reason=Some(AggregateStreamingNotSupported)".to_string(),
         "grouped_execution_strategy=HashMaterialized".to_string(),
         "fold_mode=ExistingRows".to_string(),
     ]

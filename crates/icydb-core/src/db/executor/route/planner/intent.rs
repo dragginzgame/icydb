@@ -32,7 +32,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
             aggregate_shape: None,
             grouped: false,
             route_shape_kind: route_shape_kind_for_intent(false, None),
-            grouped_plan_strategy_hint: None,
+            grouped_plan_strategy: None,
             fast_path_order: &LOAD_FAST_PATH_ORDER,
             aggregate_force_materialized_due_to_predicate_uncertainty: false,
         },
@@ -45,19 +45,19 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
                 aggregate_shape: Some(aggregate),
                 grouped: false,
                 route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
-                grouped_plan_strategy_hint: None,
+                grouped_plan_strategy: None,
                 fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             }
         }
         RouteIntent::AggregateGrouped {
-            grouped_plan_strategy_hint,
+            grouped_plan_strategy,
             aggregate_force_materialized_due_to_predicate_uncertainty,
         } => RouteIntentStage {
             aggregate_shape: None,
             grouped: true,
             route_shape_kind: route_shape_kind_for_intent(true, None),
-            grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
+            grouped_plan_strategy: Some(grouped_plan_strategy),
             fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
             aggregate_force_materialized_due_to_predicate_uncertainty,
         },
@@ -85,8 +85,8 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
         "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
     );
     debug_assert!(
-        stage.grouped == stage.grouped_plan_strategy_hint.is_some(),
-        "route invariant: grouped intents must carry planner grouped-strategy hints, scalar intents must not",
+        stage.grouped == stage.grouped_plan_strategy.is_some(),
+        "route invariant: grouped intents must carry planner grouped strategies, scalar intents must not",
     );
 
     stage

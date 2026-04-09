@@ -252,7 +252,7 @@ impl StructuralQuery {
         .map_err(QueryError::execute)
     }
 
-    // Explain one scalar load execution shape through the structural query core.
+    // Explain one load execution shape through the structural query core.
     #[inline(never)]
     pub(in crate::db) fn explain_execution(
         &self,
@@ -892,7 +892,7 @@ impl<E: EntityKind> Query<E> {
         Ok(plan.fingerprint().to_string())
     }
 
-    /// Explain executor-selected scalar load execution shape without running it.
+    /// Explain executor-selected load execution shape without running it.
     pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
@@ -911,7 +911,7 @@ impl<E: EntityKind> Query<E> {
             .explain_execution_with_visible_indexes(visible_indexes)
     }
 
-    /// Explain executor-selected scalar load execution shape as deterministic text.
+    /// Explain executor-selected load execution shape as deterministic text.
     pub fn explain_execution_text(&self) -> Result<String, QueryError>
     where
         E: EntityValue,
@@ -930,7 +930,7 @@ impl<E: EntityKind> Query<E> {
             .explain_execution_text_with_visible_indexes(visible_indexes)
     }
 
-    /// Explain executor-selected scalar load execution shape as canonical JSON.
+    /// Explain executor-selected load execution shape as canonical JSON.
     pub fn explain_execution_json(&self) -> Result<String, QueryError>
     where
         E: EntityValue,
@@ -949,7 +949,7 @@ impl<E: EntityKind> Query<E> {
             .explain_execution_json_with_visible_indexes(visible_indexes)
     }
 
-    /// Explain executor-selected scalar load execution shape with route diagnostics.
+    /// Explain executor-selected load execution shape with route diagnostics.
     #[inline(never)]
     pub fn explain_execution_verbose(&self) -> Result<String, QueryError>
     where

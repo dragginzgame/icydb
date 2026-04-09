@@ -9,7 +9,8 @@ use crate::{
             ExecutionPreparation,
             preparation::slot_map_for_model_plan,
             route::{
-                ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
+                ExecutionRoutePlan, ExecutionRouteShape, LoadTerminalFastPathContract,
+                TopNSeekSpec, build_execution_route_plan_for_grouped_plan,
                 build_initial_execution_route_plan_for_load_with_model,
             },
         },
@@ -22,7 +23,7 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource,
+                CoveringReadFieldSource, grouped_executor_handoff,
             },
         },
     },
@@ -50,7 +51,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+    let route_plan = build_execution_route_plan_for_explain_with_model(model, plan)?;
 
     Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
 }
@@ -69,7 +70,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visi
 fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
-    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+    route_plan: &ExecutionRoutePlan,
 ) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
@@ -105,6 +106,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
             load_terminal_fast_path,
         )),
     );
+    annotate_grouped_route_node_properties(&mut root, route_plan);
     if let Some(capability) = predicate_index_capability {
         root.node_properties.insert(
             "pred_idx_cap",
@@ -142,7 +144,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
 
 fn load_modifier_execution_nodes(
     plan: &AccessPlannedQuery,
-    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+    route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
     route_shape: ExecutionRouteShape,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
@@ -168,6 +170,9 @@ fn load_modifier_execution_nodes(
         route_shape,
         execution_mode,
     ) {
+        nodes.push(node);
+    }
+    if let Some(node) = grouped_aggregate_execution_node_descriptor(route_plan, execution_mode) {
         nodes.push(node);
     }
     if let Some(node) =
@@ -200,7 +205,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+    let route_plan = build_execution_route_plan_for_explain_with_model(model, plan)?;
 
     Ok(
         assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
@@ -224,7 +229,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_
 fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
-    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+    route_plan: &ExecutionRoutePlan,
 ) -> Vec<String> {
     // Phase 1: build canonical route/planner inputs for load mode.
     let execution_preparation =
@@ -310,14 +315,12 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
         "diag.r.access_choice_chosen_reason",
         access_choice.chosen_reason.code(),
     ));
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_alternatives",
+    append_access_choice_verbose_diagnostics(
+        &mut lines,
         &access_choice.alternatives,
-    ));
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_rejections",
-        &rejections,
-    ));
+        rejections.as_slice(),
+    );
+    append_grouped_route_verbose_diagnostics(&mut lines, route_plan);
     if let Some(capability) =
         execution_preparation_predicate_index_capability(&execution_preparation)
     {
@@ -328,6 +331,69 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     }
 
     lines
+}
+
+fn append_access_choice_verbose_diagnostics(
+    lines: &mut Vec<String>,
+    alternatives: &(impl core::fmt::Debug + ?Sized),
+    rejections: &(impl core::fmt::Debug + ?Sized),
+) {
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_alternatives",
+        &alternatives,
+    ));
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_rejections",
+        &rejections,
+    ));
+}
+
+fn append_grouped_route_verbose_diagnostics(
+    lines: &mut Vec<String>,
+    route_plan: &ExecutionRoutePlan,
+) {
+    let Some(grouped_observability) = route_plan.grouped_observability() else {
+        return;
+    };
+    lines.push(descriptor_route_property_line(
+        "diag.r.grouped_route_outcome",
+        grouped_observability.outcome().code(),
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.grouped_route_rejection_reason",
+        grouped_observability
+            .rejection_reason()
+            .map_or("none", |reason| reason.code()),
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.grouped_plan_fallback_reason",
+        grouped_observability
+            .planner_fallback_reason()
+            .map_or("none", |reason| reason.code()),
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.grouped_execution_strategy",
+        grouped_observability.grouped_execution_strategy().code(),
+    ));
+}
+
+// Grouped execution descriptors must consume the planner-owned grouped handoff
+// so explain does not silently rebuild a scalar load route for grouped plans.
+fn build_execution_route_plan_for_explain_with_model(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Result<ExecutionRoutePlan, InternalError> {
+    if plan.grouped_plan().is_some() {
+        let grouped_handoff = grouped_executor_handoff(plan)?;
+
+        return Ok(build_execution_route_plan_for_grouped_plan(
+            model,
+            grouped_handoff.base(),
+            grouped_handoff.grouped_plan_strategy(),
+        ));
+    }
+
+    build_initial_execution_route_plan_for_load_with_model(model, plan, None)
 }
 
 // Keep scalar covering-read explain labels local to the load descriptor so the
@@ -376,7 +442,7 @@ fn annotate_covering_read_route_node_properties(
 // verbose explain stay projections of the same route-owned contract.
 fn annotate_load_order_route_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
-    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+    route_plan: &ExecutionRoutePlan,
 ) {
     node.node_properties.insert(
         "ord_route_contract",
@@ -386,6 +452,97 @@ fn annotate_load_order_route_node_properties(
         "ord_route_reason",
         Value::from(route_plan.load_order_route_reason().code()),
     );
+}
+
+// Project grouped route observability directly onto the access root so the
+// descriptor exposes planner fallback versus route rejection without inference.
+fn annotate_grouped_route_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &ExecutionRoutePlan,
+) {
+    let Some(grouped_observability) = route_plan.grouped_observability() else {
+        return;
+    };
+    node.node_properties.insert(
+        "grouped_route_outcome",
+        Value::from(grouped_observability.outcome().code()),
+    );
+    node.node_properties.insert(
+        "grouped_route_rejection_reason",
+        Value::from(
+            grouped_observability
+                .rejection_reason()
+                .map_or("none", |reason| reason.code()),
+        ),
+    );
+    node.node_properties.insert(
+        "grouped_plan_fallback_reason",
+        Value::from(
+            grouped_observability
+                .planner_fallback_reason()
+                .map_or("none", |reason| reason.code()),
+        ),
+    );
+    node.node_properties.insert(
+        "grouped_route_eligible",
+        Value::from(grouped_observability.eligible()),
+    );
+    node.node_properties.insert(
+        "grouped_execution_strategy",
+        Value::from(grouped_observability.grouped_execution_strategy().code()),
+    );
+}
+
+// Emit one explicit grouped aggregate node so grouped execution descriptors
+// expose grouped materialization shape as part of the execution tree.
+fn grouped_aggregate_execution_node_descriptor(
+    route_plan: &ExecutionRoutePlan,
+    execution_mode: ExplainExecutionMode,
+) -> Option<ExplainExecutionNodeDescriptor> {
+    let grouped_observability = route_plan.grouped_observability()?;
+    let node_type = match grouped_observability.grouped_execution_strategy() {
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized => {
+            ExplainExecutionNodeType::GroupedAggregateHashMaterialized
+        }
+        crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized => {
+            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
+        }
+    };
+    let mut node =
+        crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
+            node_type,
+            execution_mode,
+        );
+    node.node_properties.insert(
+        "grouped_route_outcome",
+        Value::from(grouped_observability.outcome().code()),
+    );
+    node.node_properties.insert(
+        "grouped_route_rejection_reason",
+        Value::from(
+            grouped_observability
+                .rejection_reason()
+                .map_or("none", |reason| reason.code()),
+        ),
+    );
+    node.node_properties.insert(
+        "grouped_plan_fallback_reason",
+        Value::from(
+            grouped_observability
+                .planner_fallback_reason()
+                .map_or("none", |reason| reason.code()),
+        ),
+    );
+    node.node_properties.insert(
+        "grouped_route_eligible",
+        Value::from(grouped_observability.eligible()),
+    );
+    node.node_properties.insert(
+        "grouped_execution_strategy",
+        Value::from(grouped_observability.grouped_execution_strategy().code()),
+    );
+
+    Some(node)
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

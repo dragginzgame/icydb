@@ -179,6 +179,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
+            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
             ..
         }
     ));
@@ -211,6 +212,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
             ..
         }
     ));
@@ -247,6 +249,9 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
+            fallback_reason: Some(
+                ExplainGroupedFallbackReason::ResidualPredicateBlocksGroupedOrder,
+            ),
             ..
         }
     ));
@@ -288,6 +293,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
+            fallback_reason: Some(ExplainGroupedFallbackReason::HavingBlocksGroupedOrder),
             ..
         }
     ));
@@ -329,6 +335,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
             ..
         }
     ));
@@ -430,6 +437,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -472,6 +480,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
+            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -533,7 +542,7 @@ access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: OrderedGroup, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
+grouping=Grouped { strategy: OrderedGroup, fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -580,7 +589,7 @@ access=FullScan
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: HashGroup, group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
+grouping=Grouped { strategy: HashGroup, fallback_reason: Some(GroupKeyOrderUnavailable), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -609,6 +618,9 @@ fn explain_global_distinct_sum_projection_is_reported() {
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
             strategy: crate::db::query::explain::ExplainGroupedStrategy::HashGroup,
+            fallback_reason: Some(
+                crate::db::query::explain::ExplainGroupedFallbackReason::AggregateStreamingNotSupported,
+            ),
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
                 kind: AggregateKind::Sum,

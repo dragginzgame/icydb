@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.73.x] 🧮 - 2026-04-09 - Grouped Aggregate Planning
+
+- `0.73.0` starts the grouped aggregate planning line by making grouped strategy and grouped fallback reasons planner-owned artifacts that execution, fingerprints, and `EXPLAIN` all project from directly, and by exposing that grouped fallback story on the public grouped explain surfaces without widening grouped route-admission policy yet.
+
+See detailed breakdown:
+[docs/changelog/0.73.md](docs/changelog/0.73.md)
+
+---
+
 ## [0.72.x] 🎯 - 2026-04-08 - Deterministic Planning & Index Exploitation
 
 - `0.72.4` is a small follow-up that updates executor pipeline snapshots for the new ordered-route diagnostics introduced in `0.72.3`, keeping the deterministic-planning line green without changing planner behavior.
