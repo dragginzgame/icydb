@@ -3174,7 +3174,7 @@ fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3195,7 +3195,7 @@ fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3217,7 +3217,7 @@ fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordere
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3238,7 +3238,7 @@ fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordere
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3260,7 +3260,7 @@ fn sql_canister_query_lane_grouped_sum_field_explain_execution_projects_ordered_
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped SUM(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3282,7 +3282,7 @@ fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });
@@ -3303,7 +3303,7 @@ fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
         );
     });

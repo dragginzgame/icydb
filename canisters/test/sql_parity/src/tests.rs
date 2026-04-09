@@ -3736,7 +3736,7 @@ mod tests {
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3763,7 +3763,7 @@ mod tests {
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3791,7 +3791,7 @@ mod tests {
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped COUNT(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3819,7 +3819,7 @@ mod tests {
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped SUM(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3847,7 +3847,7 @@ mod tests {
                 && explain.contains("OrderByMaterializedSort")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "Customer grouped AVG(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3874,7 +3874,7 @@ mod tests {
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3901,7 +3901,7 @@ mod tests {
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped SUM(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
@@ -3928,7 +3928,7 @@ mod tests {
             explain.contains("IndexPrefixScan")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
             "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
         );
     }
