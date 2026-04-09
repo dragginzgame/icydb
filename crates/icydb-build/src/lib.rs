@@ -17,14 +17,53 @@ pub fn generate(canister_path: &str) -> String {
     // load schema and get the specified canister
     let schema = get_schema().expect("schema must be valid before codegen");
 
-    // filter by name
-    let canister = schema.cast_node::<Canister>(canister_path).unwrap();
+    // Resolve the requested canister path against the registered schema nodes.
+    // Build scripts pass absolute Rust paths, while schema registration stores
+    // the derive-time module path. Depending on how the fixture crate is wired,
+    // those two can differ only by the leading crate segment, so codegen needs
+    // one suffix-based fallback instead of panicking on the first exact miss.
+    let canister = resolve_canister(&schema, canister_path);
 
     // create the ActorBuilder and generate the code
-    let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone());
+    let code = ActorBuilder::new(Arc::new(schema.clone()), canister);
     let tokens = code.generate();
 
     tokens.to_string()
+}
+
+// Resolve one canister path from the registered schema nodes.
+// Exact matches stay authoritative. If that misses, accept one unique schema
+// canister whose registered path is a suffix of the requested Rust path.
+fn resolve_canister(schema: &Schema, canister_path: &str) -> Canister {
+    if let Ok(canister) = schema.cast_node::<Canister>(canister_path) {
+        return canister.clone();
+    }
+
+    let matching_canisters = schema
+        .get_nodes::<Canister>()
+        .filter(|(path, _)| canister_path.ends_with(path))
+        .map(|(path, canister)| (path.to_string(), canister.clone()))
+        .collect::<Vec<_>>();
+
+    match matching_canisters.as_slice() {
+        [(_, canister)] => canister.clone(),
+        [] => panic!(
+            "codegen canister path `{canister_path}` was not found; registered canisters: {}",
+            schema
+                .get_nodes::<Canister>()
+                .map(|(path, _)| path.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => panic!(
+            "codegen canister path `{canister_path}` matched multiple registered canisters: {}",
+            matching_canisters
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
 ///
