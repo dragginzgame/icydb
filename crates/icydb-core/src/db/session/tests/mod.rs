@@ -10581,6 +10581,7 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
     assert!(matches!(
         exists_terminal_plan.execution().ordering_source(),
         crate::db::ExplainExecutionOrderingSource::AccessOrder
+            | crate::db::ExplainExecutionOrderingSource::Materialized
     ));
 
     let exists_execution = exists_terminal_plan.execution();
