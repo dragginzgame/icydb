@@ -6,6 +6,7 @@
 use crate::{
     db::{
         access::AccessPath,
+        codec::cursor::encode_cursor,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::{field::FieldRef, sum},
@@ -78,9 +79,9 @@ fn index_range_query(
     )
 }
 
-fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
-    AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
-        .into_grouped(GroupSpec {
+fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
+    AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore).into_grouped(
+        GroupSpec {
             group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
@@ -88,8 +89,12 @@ fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan 
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
-        })
-        .explain()
+        },
+    )
+}
+
+fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
+    grouped_query_with_fixed_shape().explain()
 }
 
 #[test]
@@ -946,5 +951,17 @@ fn explain_fingerprint_grouped_strategy_only_change_does_not_invalidate() {
         hash_strategy.fingerprint(),
         ordered_strategy.fingerprint(),
         "execution strategy hints are explain/runtime metadata and must not affect semantic fingerprint identity",
+    );
+}
+
+#[test]
+fn grouped_fingerprint_identity_projection_remains_stable() {
+    let plan = grouped_query_with_fixed_shape();
+    let identity_projection = plan.projection_spec_for_identity();
+
+    assert_eq!(
+        plan.fingerprint().as_hex(),
+        encode_cursor(&fingerprint_with_projection(&plan, &identity_projection)),
+        "grouped fingerprint identity must stay stable across plan-owned and explain-owned grouped projection seams",
     );
 }

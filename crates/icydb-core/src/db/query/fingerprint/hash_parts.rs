@@ -11,18 +11,18 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHaving,
-                ExplainGroupHavingClause, ExplainGroupHavingSymbol, ExplainGroupedStrategy,
-                ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHavingSymbol,
+                ExplainGroupedStrategy, ExplainGrouping, ExplainOrderBy, ExplainPagination,
+                ExplainPlan,
             },
             fingerprint::aggregate_hash::{
                 AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
             },
             fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
             plan::{
-                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategy, OrderDirection, OrderSpec,
-                PageSpec, QueryMode, expr::ProjectionSpec, grouped_plan_strategy,
+                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupAggregateSpec,
+                GroupHavingSymbol, OrderDirection, OrderSpec, PageSpec, QueryMode,
+                expr::ProjectionSpec, grouped_plan_aggregate_family, grouped_plan_strategy,
                 project_access_plan, project_explain_access_path,
             },
         },
@@ -762,6 +762,173 @@ fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
     }
 }
 
+///
+/// GroupedFingerprintShape
+///
+/// Canonical grouped fingerprint projection shared by logical-plan and explain
+/// hashing callsites. Both surfaces project into this neutral grouped shape so
+/// hashing does not keep parallel semantic projection seams.
+///
+
+struct GroupedFingerprintShape<'a> {
+    ordered_group: bool,
+    aggregate_family_code: Option<&'a str>,
+    group_fields: Vec<(u32, &'a str)>,
+    aggregates: Vec<AggregateHashShape<'a>>,
+    having: Option<Vec<GroupHavingFingerprintClause<'a>>>,
+    max_groups: u64,
+    max_group_bytes: u64,
+}
+
+/// Canonical grouped fingerprint projection state shared by plan and explain hashing.
+enum ProjectedGroupingShape<'a> {
+    None,
+    Grouped(GroupedFingerprintShape<'a>),
+}
+
+/// Canonical grouped HAVING clause projection shared by plan and explain hashing.
+enum GroupHavingFingerprintClause<'a> {
+    GroupField {
+        slot_index: u32,
+        field: &'a str,
+        op_tag: u8,
+        value: &'a Value,
+    },
+    AggregateIndex {
+        index: u32,
+        op_tag: u8,
+        value: &'a Value,
+    },
+}
+
+impl<'a> ProjectedGroupingShape<'a> {
+    fn from_explain(grouping: &'a ExplainGrouping) -> Self {
+        match grouping {
+            ExplainGrouping::None => Self::None,
+            ExplainGrouping::Grouped {
+                strategy,
+                fallback_reason: _,
+                group_fields,
+                aggregates,
+                having,
+                max_groups,
+                max_group_bytes,
+            } => {
+                let aggregate_family = grouped_plan_aggregate_family(
+                    &aggregates
+                        .iter()
+                        .map(|aggregate| GroupAggregateSpec {
+                            kind: aggregate.kind(),
+                            target_field: aggregate.target_field().map(str::to_string),
+                            distinct: aggregate.distinct(),
+                        })
+                        .collect::<Vec<_>>(),
+                );
+
+                Self::Grouped(GroupedFingerprintShape {
+                    ordered_group: matches!(strategy, ExplainGroupedStrategy::OrderedGroup),
+                    aggregate_family_code: Some(aggregate_family.code()),
+                    group_fields: group_fields
+                        .iter()
+                        .map(|field| (field.slot_index() as u32, field.field()))
+                        .collect(),
+                    aggregates: aggregates
+                        .iter()
+                        .map(|aggregate| {
+                            AggregateHashShape::semantic(
+                                aggregate.kind(),
+                                aggregate.target_field(),
+                                aggregate.distinct(),
+                            )
+                        })
+                        .collect(),
+                    having: having.as_ref().map(|having| {
+                        having
+                            .clauses()
+                            .iter()
+                            .map(|clause| match clause.symbol() {
+                                ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
+                                    GroupHavingFingerprintClause::GroupField {
+                                        slot_index: *slot_index as u32,
+                                        field,
+                                        op_tag: clause.op().tag(),
+                                        value: clause.value(),
+                                    }
+                                }
+                                ExplainGroupHavingSymbol::AggregateIndex { index } => {
+                                    GroupHavingFingerprintClause::AggregateIndex {
+                                        index: *index as u32,
+                                        op_tag: clause.op().tag(),
+                                        value: clause.value(),
+                                    }
+                                }
+                            })
+                            .collect()
+                    }),
+                    max_groups: *max_groups,
+                    max_group_bytes: *max_group_bytes,
+                })
+            }
+        }
+    }
+
+    fn from_plan(plan: &'a AccessPlannedQuery) -> Self {
+        let Some(grouped) = plan.grouped_plan() else {
+            return Self::None;
+        };
+        let strategy = grouped_plan_strategy(plan)
+            .expect("grouped grouping-shape hashing requires planner-owned grouped strategy");
+
+        Self::Grouped(GroupedFingerprintShape {
+            ordered_group: strategy.is_ordered_group(),
+            aggregate_family_code: Some(strategy.aggregate_family().code()),
+            group_fields: grouped
+                .group
+                .group_fields
+                .iter()
+                .map(|field| (field.index as u32, field.field.as_str()))
+                .collect(),
+            aggregates: grouped
+                .group
+                .aggregates
+                .iter()
+                .map(|aggregate| {
+                    AggregateHashShape::semantic(
+                        aggregate.kind,
+                        aggregate.target_field.as_deref(),
+                        aggregate.distinct,
+                    )
+                })
+                .collect(),
+            having: grouped.having.as_ref().map(|having| {
+                having
+                    .clauses
+                    .iter()
+                    .map(|clause| match &clause.symbol {
+                        GroupHavingSymbol::GroupField(field_slot) => {
+                            GroupHavingFingerprintClause::GroupField {
+                                slot_index: field_slot.index as u32,
+                                field: &field_slot.field,
+                                op_tag: clause.op.tag(),
+                                value: &clause.value,
+                            }
+                        }
+                        GroupHavingSymbol::AggregateIndex(index) => {
+                            GroupHavingFingerprintClause::AggregateIndex {
+                                index: *index as u32,
+                                op_tag: clause.op.tag(),
+                                value: &clause.value,
+                            }
+                        }
+                    })
+                    .collect()
+            }),
+            max_groups: grouped.group.execution.max_groups,
+            max_group_bytes: grouped.group.execution.max_group_bytes,
+        })
+    }
+}
+
 // Grouped shape semantics that remain part of continuation identity independent
 // from projection expression hashing.
 fn hash_grouping_shape_v1(
@@ -769,39 +936,9 @@ fn hash_grouping_shape_v1(
     grouping: &ExplainGrouping,
     include_group_strategy: bool,
 ) {
-    match grouping {
-        ExplainGrouping::None => write_tag(hasher, GROUPING_NONE_TAG),
-        ExplainGrouping::Grouped {
-            strategy,
-            fallback_reason: _,
-            group_fields,
-            aggregates,
-            having,
-            max_groups,
-            max_group_bytes,
-        } => hash_grouping_shape_v1_components(
-            hasher,
-            GroupingShapeHashLayout {
-                include_group_strategy,
-                group_field_count: group_fields.len(),
-                aggregate_count: aggregates.len(),
-                max_groups: *max_groups,
-                max_group_bytes: *max_group_bytes,
-            },
-            |hasher| hash_grouped_strategy(hasher, *strategy),
-            group_fields
-                .iter()
-                .map(|field| (field.slot_index() as u32, field.field())),
-            aggregates.iter().map(|aggregate| {
-                AggregateHashShape::semantic(
-                    aggregate.kind(),
-                    aggregate.target_field(),
-                    aggregate.distinct(),
-                )
-            }),
-            |hasher| hash_group_having(hasher, having.as_ref()),
-        ),
-    }
+    let grouping = ProjectedGroupingShape::from_explain(grouping);
+
+    hash_projected_grouping_shape_v1(hasher, &grouping, include_group_strategy);
 }
 
 fn hash_grouping_shape_v1_from_plan(
@@ -809,42 +946,9 @@ fn hash_grouping_shape_v1_from_plan(
     plan: &AccessPlannedQuery,
     include_group_strategy: bool,
 ) {
-    let Some(grouped) = plan.grouped_plan() else {
-        write_tag(hasher, GROUPING_NONE_TAG);
-        return;
-    };
+    let grouping = ProjectedGroupingShape::from_plan(plan);
 
-    hash_grouping_shape_v1_components(
-        hasher,
-        GroupingShapeHashLayout {
-            include_group_strategy,
-            group_field_count: grouped.group.group_fields.len(),
-            aggregate_count: grouped.group.aggregates.len(),
-            max_groups: grouped.group.execution.max_groups,
-            max_group_bytes: grouped.group.execution.max_group_bytes,
-        },
-        |hasher| {
-            hash_grouped_plan_strategy(
-                hasher,
-                grouped_plan_strategy(plan).expect(
-                    "grouped grouping-shape hashing requires planner-owned grouped strategy",
-                ),
-            );
-        },
-        grouped
-            .group
-            .group_fields
-            .iter()
-            .map(|field| (field.index as u32, field.field.as_str())),
-        grouped.group.aggregates.iter().map(|aggregate| {
-            AggregateHashShape::semantic(
-                aggregate.kind,
-                aggregate.target_field.as_deref(),
-                aggregate.distinct,
-            )
-        }),
-        |hasher| hash_group_having_spec(hasher, grouped.having.as_ref()),
-    );
+    hash_projected_grouping_shape_v1(hasher, &grouping, include_group_strategy);
 }
 
 fn hash_projection_spec_v1(
@@ -877,50 +981,44 @@ fn hash_projection_spec_v1_for_plan(
     hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
 }
 
-///
-/// GroupingShapeHashLayout
-///
-/// Shared grouped hashing layout metadata for logical-plan and explain
-/// projection callsites. This keeps grouped counters and budget policy
-/// together so grouped hashing can reuse one helper without duplicating the
-/// grouped shape envelope.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct GroupingShapeHashLayout {
-    include_group_strategy: bool,
-    group_field_count: usize,
-    aggregate_count: usize,
-    max_groups: u64,
-    max_group_bytes: u64,
-}
-
-// Hash the canonical grouped identity payload shared by logical-plan and
-// explain-derived grouped fingerprint callsites.
-fn hash_grouping_shape_v1_components<'a, S, GF, AG, H>(
+// Hash the canonical grouped identity payload after plan/explain have already
+// projected onto the shared grouped fingerprint shape.
+fn hash_projected_grouping_shape_v1(
     hasher: &mut Sha256,
-    layout: GroupingShapeHashLayout,
-    hash_group_strategy: S,
-    group_fields: GF,
-    aggregates: AG,
-    hash_having: H,
-) where
-    S: FnOnce(&mut Sha256),
-    GF: IntoIterator<Item = (u32, &'a str)>,
-    AG: IntoIterator<Item = AggregateHashShape<'a>>,
-    H: FnOnce(&mut Sha256),
-{
-    write_tag(hasher, GROUPING_PRESENT_TAG);
-    if layout.include_group_strategy {
-        hash_group_strategy(hasher);
+    grouping: &ProjectedGroupingShape<'_>,
+    include_group_strategy: bool,
+) {
+    match grouping {
+        ProjectedGroupingShape::None => write_tag(hasher, GROUPING_NONE_TAG),
+        ProjectedGroupingShape::Grouped(grouped) => {
+            write_tag(hasher, GROUPING_PRESENT_TAG);
+            if include_group_strategy {
+                hash_grouped_strategy_projection(
+                    hasher,
+                    grouped.ordered_group,
+                    grouped.aggregate_family_code,
+                );
+            }
+
+            hash_group_field_slots(
+                hasher,
+                grouped.group_fields.len(),
+                grouped
+                    .group_fields
+                    .iter()
+                    .map(|(slot_index, field)| (*slot_index, *field)),
+            );
+            hash_group_aggregate_shapes(
+                hasher,
+                grouped.aggregates.len(),
+                grouped.aggregates.iter().copied(),
+            );
+            hash_group_having_projection(hasher, grouped.having.as_deref());
+
+            write_hash_u64(hasher, grouped.max_groups);
+            write_hash_u64(hasher, grouped.max_group_bytes);
+        }
     }
-
-    hash_group_field_slots(hasher, layout.group_field_count, group_fields);
-    hash_group_aggregate_shapes(hasher, layout.aggregate_count, aggregates);
-    hash_having(hasher);
-
-    write_hash_u64(hasher, layout.max_groups);
-    write_hash_u64(hasher, layout.max_group_bytes);
 }
 
 // Hash grouped key order using stable slot identity first, then the canonical
@@ -947,83 +1045,7 @@ where
     }
 }
 
-fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
-    hash_grouped_strategy_components(
-        hasher,
-        matches!(strategy, ExplainGroupedStrategy::OrderedGroup),
-        None,
-    );
-}
-
-fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
-    hash_group_having_components(
-        hasher,
-        having.map(|having| having.clauses().iter()),
-        hash_group_having_clause_from_explain,
-    );
-}
-
-fn hash_group_having_spec(hasher: &mut Sha256, having: Option<&GroupHavingSpec>) {
-    hash_group_having_components(
-        hasher,
-        having.map(|having| having.clauses.iter()),
-        hash_group_having_clause_from_plan,
-    );
-}
-
-fn hash_group_having_clause_from_explain(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
-    match clause.symbol() {
-        ExplainGroupHavingSymbol::GroupField { slot_index, field } => hash_group_having_clause(
-            hasher,
-            GroupHavingClauseShape::GroupField {
-                slot_index: *slot_index as u32,
-                field,
-            },
-            clause.op().tag(),
-            clause.value(),
-        ),
-        ExplainGroupHavingSymbol::AggregateIndex { index } => hash_group_having_clause(
-            hasher,
-            GroupHavingClauseShape::AggregateIndex {
-                index: *index as u32,
-            },
-            clause.op().tag(),
-            clause.value(),
-        ),
-    }
-}
-
-fn hash_group_having_clause_from_plan(hasher: &mut Sha256, clause: &GroupHavingClause) {
-    match &clause.symbol {
-        GroupHavingSymbol::GroupField(field_slot) => hash_group_having_clause(
-            hasher,
-            GroupHavingClauseShape::GroupField {
-                slot_index: field_slot.index as u32,
-                field: &field_slot.field,
-            },
-            clause.op.tag(),
-            &clause.value,
-        ),
-        GroupHavingSymbol::AggregateIndex(index) => hash_group_having_clause(
-            hasher,
-            GroupHavingClauseShape::AggregateIndex {
-                index: *index as u32,
-            },
-            clause.op.tag(),
-            &clause.value,
-        ),
-    }
-}
-
-fn hash_grouped_plan_strategy(hasher: &mut Sha256, strategy: GroupedPlanStrategy) {
-    hash_grouped_strategy_components(
-        hasher,
-        strategy.is_ordered_group(),
-        Some(strategy.aggregate_family().code()),
-    );
-}
-
-fn hash_grouped_strategy_components(
+fn hash_grouped_strategy_projection(
     hasher: &mut Sha256,
     ordered_group: bool,
     aggregate_family_code: Option<&str>,
@@ -1039,40 +1061,42 @@ fn hash_grouped_strategy_components(
     }
 }
 
-// Canonical grouped HAVING symbol shape shared by plan/explain hashing entrypoints.
-enum GroupHavingClauseShape<'a> {
-    GroupField { slot_index: u32, field: &'a str },
-    AggregateIndex { index: u32 },
-}
-
 // Hash one grouped HAVING clause after the caller has already projected it onto
 // the canonical grouped symbol/op/value shape.
-fn hash_group_having_clause(
+fn hash_group_having_projection_clause(
     hasher: &mut Sha256,
-    symbol: GroupHavingClauseShape<'_>,
-    op_tag: u8,
-    value: &Value,
+    clause: &GroupHavingFingerprintClause<'_>,
 ) {
-    match symbol {
-        GroupHavingClauseShape::GroupField { slot_index, field } => {
+    match clause {
+        GroupHavingFingerprintClause::GroupField {
+            slot_index,
+            field,
+            op_tag,
+            value,
+        } => {
             write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
-            write_u32(hasher, slot_index);
+            write_u32(hasher, *slot_index);
             write_str(hasher, field);
+            write_tag(hasher, *op_tag);
+            write_value(hasher, value);
         }
-        GroupHavingClauseShape::AggregateIndex { index } => {
+        GroupHavingFingerprintClause::AggregateIndex {
+            index,
+            op_tag,
+            value,
+        } => {
             write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, index);
+            write_u32(hasher, *index);
+            write_tag(hasher, *op_tag);
+            write_value(hasher, value);
         }
     }
-    write_tag(hasher, op_tag);
-    write_value(hasher, value);
 }
 
-fn hash_group_having_components<I, C>(hasher: &mut Sha256, clauses: Option<I>, hash_clause: C)
-where
-    I: ExactSizeIterator,
-    C: Fn(&mut Sha256, I::Item),
-{
+fn hash_group_having_projection(
+    hasher: &mut Sha256,
+    clauses: Option<&[GroupHavingFingerprintClause<'_>]>,
+) {
     let Some(clauses) = clauses else {
         write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
         return;
@@ -1081,7 +1105,7 @@ where
     write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
     write_u32(hasher, clauses.len() as u32);
     for clause in clauses {
-        hash_clause(hasher, clause);
+        hash_group_having_projection_clause(hasher, clause);
     }
 }
 

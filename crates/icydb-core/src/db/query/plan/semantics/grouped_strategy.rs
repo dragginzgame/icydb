@@ -225,7 +225,9 @@ pub(in crate::db) fn grouped_plan_strategy(
     ))
 }
 
-fn grouped_plan_aggregate_family(aggregates: &[GroupAggregateSpec]) -> GroupedPlanAggregateFamily {
+pub(in crate::db) fn grouped_plan_aggregate_family(
+    aggregates: &[GroupAggregateSpec],
+) -> GroupedPlanAggregateFamily {
     if matches!(
         aggregates,
         [GroupAggregateSpec {

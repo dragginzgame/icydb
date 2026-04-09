@@ -96,7 +96,7 @@ pub(crate) use semantics::{
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
-    grouped_cursor_policy_violation, grouped_plan_strategy,
+    grouped_cursor_policy_violation, grouped_plan_aggregate_family, grouped_plan_strategy,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

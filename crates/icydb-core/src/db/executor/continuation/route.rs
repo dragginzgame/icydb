@@ -33,7 +33,6 @@ pub(in crate::db::executor) enum ContinuationMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteContinuationPlan {
     capabilities: ContinuationCapabilities,
-    pub(in crate::db::executor) effective_offset: u32,
     pub(in crate::db::executor) access_window_keep: AccessWindow,
     pub(in crate::db::executor) access_window_fetch: AccessWindow,
 }
@@ -42,13 +41,11 @@ impl RouteContinuationPlan {
     #[must_use]
     const fn new(
         capabilities: ContinuationCapabilities,
-        effective_offset: u32,
         access_window_keep: AccessWindow,
         access_window_fetch: AccessWindow,
     ) -> Self {
         Self {
             capabilities,
-            effective_offset,
             access_window_keep,
             access_window_fetch,
         }
@@ -59,21 +56,14 @@ impl RouteContinuationPlan {
         capabilities: ContinuationCapabilities,
         window_plan: ScalarAccessWindowPlan,
     ) -> Self {
-        let effective_offset = window_plan.effective_offset();
         let lower_bound = window_plan.lower_bound();
-        let keep_count = window_plan.keep_count();
         let page_limit = window_plan.limit();
+        let keep_count = window_plan.keep_count();
         let fetch_count = window_plan.fetch_count();
-        let access_window_keep = AccessWindow::new(lower_bound, keep_count, page_limit, keep_count);
-        let access_window_fetch =
-            AccessWindow::new(lower_bound, keep_count, page_limit, fetch_count);
+        let access_window_keep = AccessWindow::new(lower_bound, page_limit, keep_count);
+        let access_window_fetch = AccessWindow::new(lower_bound, page_limit, fetch_count);
 
-        Self::new(
-            capabilities,
-            effective_offset,
-            access_window_keep,
-            access_window_fetch,
-        )
+        Self::new(capabilities, access_window_keep, access_window_fetch)
     }
 
     /// Construct one canonical initial continuation plan for mutation-style routes.
@@ -81,9 +71,8 @@ impl RouteContinuationPlan {
     const fn initial_with_policy(continuation_policy: ContinuationPolicy) -> Self {
         Self::new(
             ContinuationCapabilities::new(ContinuationMode::Initial, continuation_policy),
-            0,
-            AccessWindow::new(0, None, None, None),
-            AccessWindow::new(0, None, None, None),
+            AccessWindow::new(0, None, None),
+            AccessWindow::new(0, None, None),
         )
     }
 
@@ -99,8 +88,8 @@ impl RouteContinuationPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn effective_offset(self) -> u32 {
-        self.effective_offset
+    pub(in crate::db::executor) fn effective_offset(self) -> u32 {
+        u32::try_from(self.access_window_keep.lower_bound()).unwrap_or(u32::MAX)
     }
 
     #[must_use]
@@ -123,14 +112,13 @@ impl RouteContinuationPlan {
 /// AccessWindow
 ///
 /// Route-projected bounded access-window contract.
-/// `lower_bound` is the effective offset, `upper_bound` is the optional bounded
-/// keep-count horizon, and `fetch_limit` is the optional bounded access budget.
+/// `lower_bound` is the effective offset, and `fetch_limit` is the optional
+/// bounded access budget derived from the planner-owned scalar window plan.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct AccessWindow {
     lower_bound: usize,
-    upper_bound: Option<usize>,
     page_limit: Option<u32>,
     fetch_limit: Option<usize>,
 }
@@ -140,13 +128,11 @@ impl AccessWindow {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         lower_bound: usize,
-        upper_bound: Option<usize>,
         page_limit: Option<u32>,
         fetch_limit: Option<usize>,
     ) -> Self {
         Self {
             lower_bound,
-            upper_bound,
             page_limit,
             fetch_limit,
         }
@@ -191,7 +177,6 @@ mod tests {
     };
 
     fn route_continuation(
-        effective_offset: u32,
         access_window_keep: AccessWindow,
         access_window_fetch: AccessWindow,
     ) -> RouteContinuationPlan {
@@ -200,7 +185,6 @@ mod tests {
                 ContinuationMode::Initial,
                 ContinuationPolicy::new(true, true, true),
             ),
-            effective_offset,
             access_window_keep,
             access_window_fetch,
         )
@@ -209,12 +193,12 @@ mod tests {
     #[test]
     fn route_continuation_access_window_limit_zero_projects_zero_fetch_limit() {
         let continuation = route_continuation(
-            4,
-            AccessWindow::new(4, Some(4), Some(0), Some(4)),
-            AccessWindow::new(4, Some(4), Some(0), Some(0)),
+            AccessWindow::new(4, Some(0), Some(4)),
+            AccessWindow::new(4, Some(0), Some(0)),
         );
         let access_window = continuation.fetch_access_window();
 
+        assert_eq!(continuation.effective_offset(), 4);
         assert_eq!(access_window.lower_bound(), 4);
         assert_eq!(access_window.page_limit(), Some(0));
         assert_eq!(access_window.fetch_limit(), Some(0));
@@ -227,13 +211,13 @@ mod tests {
     #[test]
     fn route_continuation_access_window_bounded_limit_projects_offset_and_fetch_counts() {
         let continuation = route_continuation(
-            3,
-            AccessWindow::new(3, Some(5), Some(2), Some(5)),
-            AccessWindow::new(3, Some(5), Some(2), Some(6)),
+            AccessWindow::new(3, Some(2), Some(5)),
+            AccessWindow::new(3, Some(2), Some(6)),
         );
         let keep_window = continuation.keep_access_window();
         let fetch_window = continuation.fetch_access_window();
 
+        assert_eq!(continuation.effective_offset(), 3);
         assert_eq!(keep_window.lower_bound(), 3);
         assert_eq!(keep_window.page_limit(), Some(2));
         assert_eq!(keep_window.fetch_limit(), Some(5));
@@ -244,12 +228,12 @@ mod tests {
     #[test]
     fn route_continuation_access_window_unbounded_limit_projects_unbounded_fetch() {
         let continuation = route_continuation(
-            0,
-            AccessWindow::new(0, None, None, None),
-            AccessWindow::new(0, None, None, None),
+            AccessWindow::new(0, None, None),
+            AccessWindow::new(0, None, None),
         );
         let access_window = continuation.fetch_access_window();
 
+        assert_eq!(continuation.effective_offset(), 0);
         assert_eq!(access_window.lower_bound(), 0);
         assert_eq!(access_window.page_limit(), None);
         assert_eq!(access_window.fetch_limit(), None);

@@ -87,6 +87,33 @@ impl GroupedContinuationWindow {
     }
 }
 
+///
+/// GroupedCursorAction
+///
+/// Internal grouped continuation action discriminator.
+/// Keeps grouped-plan requirement messages and cursor-policy gating shared
+/// across grouped cursor preparation, grouped cursor revalidation, and grouped
+/// paging-window projection so those entrypoints do not drift independently.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GroupedCursorAction {
+    Prepare,
+    Revalidate,
+    PagingWindow,
+}
+
+impl GroupedCursorAction {
+    // Return the canonical grouped-plan requirement text for one grouped cursor action.
+    const fn grouped_plan_required_message(self) -> &'static str {
+        match self {
+            Self::Prepare => "grouped cursor preparation requires grouped logical plans",
+            Self::Revalidate => "grouped cursor revalidation requires grouped logical plans",
+            Self::PagingWindow => "grouped paging window requires grouped logical plans",
+        }
+    }
+}
+
 /// Derive the effective offset under cursor-window semantics.
 ///
 /// Offset applies only for initial requests. Once a continuation cursor is
@@ -121,12 +148,6 @@ impl ScalarAccessWindowPlan {
             effective_offset,
             limit,
         }
-    }
-
-    /// Return effective offset under cursor-window semantics.
-    #[must_use]
-    pub(in crate::db) const fn effective_offset(self) -> u32 {
-        self.effective_offset
     }
 
     /// Return optional page limit.
@@ -261,8 +282,8 @@ impl ContinuationContract {
         entity_model: &crate::model::entity::EntityModel,
         bytes: Option<&[u8]>,
     ) -> Result<CursorValidationOutcome, CursorPlanError> {
-        if self.is_grouped() && bytes.is_some() {
-            self.validate_grouped_cursor_policy()?;
+        if self.is_grouped() {
+            self.validate_grouped_cursor_policy_if_applied(bytes.is_some())?;
         }
 
         let access = if self.is_grouped() {
@@ -314,15 +335,7 @@ impl ContinuationContract {
         entity_path: &'static str,
         bytes: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-        if !self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped cursor preparation requires grouped logical plans",
-            ));
-        }
-
-        if bytes.is_some() {
-            self.validate_grouped_cursor_policy()?;
-        }
+        self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, bytes.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor(
             entity_path,
@@ -339,15 +352,7 @@ impl ContinuationContract {
         entity_path: &'static str,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-        if !self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped cursor preparation requires grouped logical plans",
-            ));
-        }
-
-        if cursor.is_some() {
-            self.validate_grouped_cursor_policy()?;
-        }
+        self.validate_grouped_cursor_contract(GroupedCursorAction::Prepare, cursor.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor_token(
             entity_path,
@@ -387,15 +392,7 @@ impl ContinuationContract {
         &self,
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-        if !self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped cursor revalidation requires grouped logical plans",
-            ));
-        }
-
-        if !cursor.is_empty() {
-            self.validate_grouped_cursor_policy()?;
-        }
+        self.validate_grouped_cursor_contract(GroupedCursorAction::Revalidate, !cursor.is_empty())?;
 
         crate::db::cursor::revalidate_grouped_cursor(self.expected_initial_offset(), cursor)
     }
@@ -405,15 +402,10 @@ impl ContinuationContract {
         &self,
         cursor: &GroupedPlannedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
-        if !self.is_grouped() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                "grouped paging window requires grouped logical plans",
-            ));
-        }
-
-        if !cursor.is_empty() {
-            self.validate_grouped_cursor_policy()?;
-        }
+        self.validate_grouped_cursor_contract(
+            GroupedCursorAction::PagingWindow,
+            !cursor.is_empty(),
+        )?;
 
         let resume_initial_offset = if cursor.is_empty() {
             self.effective_offset(false)
@@ -441,6 +433,33 @@ impl ContinuationContract {
             resume_initial_offset,
             resume_boundary,
         ))
+    }
+
+    // Enforce grouped continuation ownership once for all grouped cursor entrypoints.
+    fn validate_grouped_cursor_contract(
+        &self,
+        action: GroupedCursorAction,
+        cursor_applied: bool,
+    ) -> Result<(), CursorPlanError> {
+        if !self.is_grouped() {
+            return Err(CursorPlanError::continuation_cursor_invariant(
+                action.grouped_plan_required_message(),
+            ));
+        }
+
+        self.validate_grouped_cursor_policy_if_applied(cursor_applied)
+    }
+
+    // Apply grouped cursor-policy violations only when continuation is actually reused.
+    fn validate_grouped_cursor_policy_if_applied(
+        &self,
+        cursor_applied: bool,
+    ) -> Result<(), CursorPlanError> {
+        if !cursor_applied {
+            return Ok(());
+        }
+
+        self.validate_grouped_cursor_policy()
     }
 
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
@@ -524,7 +543,41 @@ impl AccessPlannedQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::ScalarAccessWindowPlan;
+    use super::{ContinuationContract, ScalarAccessWindowPlan};
+    use crate::{
+        db::{
+            access::{AccessPath, AccessPlan},
+            cursor::{
+                ContinuationSignature, CursorPlanError, GroupedContinuationToken,
+                GroupedPlannedCursor,
+            },
+            direction::Direction,
+            query::plan::{
+                ExecutionOrderContract, ExecutionShapeSignature, GroupedCursorPolicyViolation,
+            },
+        },
+        value::Value,
+    };
+
+    fn continuation_signature_fixture() -> ContinuationSignature {
+        ContinuationSignature::from_bytes([0x11; 32])
+    }
+
+    fn grouped_contract(violation: Option<GroupedCursorPolicyViolation>) -> ContinuationContract {
+        ContinuationContract::new(
+            ExecutionShapeSignature::new(continuation_signature_fixture()),
+            1,
+            4,
+            ExecutionOrderContract::from_plan(true, None),
+            Some(2),
+            AccessPlan::path(AccessPath::FullScan),
+            violation,
+        )
+    }
+
+    fn applied_grouped_cursor(contract: &ContinuationContract) -> GroupedPlannedCursor {
+        GroupedPlannedCursor::new(vec![Value::Uint(7)], contract.expected_initial_offset())
+    }
 
     #[test]
     fn scalar_access_window_fetch_count_unbounded_remains_unbounded() {
@@ -547,5 +600,66 @@ mod tests {
 
         assert_eq!(window.keep_count(), Some(4));
         assert_eq!(window.fetch_count(), Some(0));
+    }
+
+    #[test]
+    fn grouped_cursor_contract_shares_policy_gate_for_token_and_window_paths() {
+        let contract = grouped_contract(Some(
+            GroupedCursorPolicyViolation::ContinuationRequiresLimit,
+        ));
+        let continuation_token = GroupedContinuationToken::new_with_direction(
+            continuation_signature_fixture(),
+            vec![Value::Uint(7)],
+            Direction::Asc,
+            contract.expected_initial_offset(),
+        );
+
+        let token_err = contract
+            .prepare_grouped_cursor_token("PlanEntity", Some(continuation_token))
+            .expect_err("grouped cursor token reuse should honor grouped cursor policy");
+        let window_err = contract
+            .grouped_paging_window(&applied_grouped_cursor(&contract))
+            .expect_err("grouped paging window should honor grouped cursor policy");
+
+        assert!(matches!(
+            &token_err,
+            CursorPlanError::ContinuationCursorInvariantViolation { reason }
+                if reason == "grouped continuation cursors require an explicit LIMIT"
+        ));
+        assert_eq!(
+            token_err.to_string(),
+            window_err.to_string(),
+            "grouped token preparation and grouped paging window must project the same grouped cursor policy error",
+        );
+    }
+
+    #[test]
+    fn grouped_cursor_contract_skips_policy_gate_for_initial_grouped_page() {
+        let contract = grouped_contract(Some(
+            GroupedCursorPolicyViolation::ContinuationRequiresLimit,
+        ));
+
+        let prepared = contract
+            .prepare_grouped_cursor_token("PlanEntity", None)
+            .expect("initial grouped page should not be blocked by continuation-only policy");
+        let window = contract
+            .grouped_paging_window(&GroupedPlannedCursor::none())
+            .expect(
+                "initial grouped page window should not be blocked by continuation-only policy",
+            );
+        let (
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ) = window.into_parts();
+
+        assert!(prepared.is_empty());
+        assert_eq!(limit, Some(2));
+        assert_eq!(initial_offset_for_page, 4);
+        assert_eq!(selection_bound, Some(7));
+        assert_eq!(resume_initial_offset, 4);
+        assert_eq!(resume_boundary, None);
     }
 }
