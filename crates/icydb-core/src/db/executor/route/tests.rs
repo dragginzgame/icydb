@@ -5,9 +5,10 @@
 
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, ExecutionModeRouteCase, FastPathOrder,
-    GroupedExecutionMode, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
-    LoadOrderRouteContract, LoadOrderRouteReason, LoadTerminalFastPathContract, RouteExecutionMode,
-    TopNSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model,
+    GroupedExecutionMode, GroupedExecutionModeProjection, GroupedRouteDecisionOutcome,
+    LOAD_FAST_PATH_ORDER, LoadOrderRouteContract, LoadOrderRouteReason,
+    LoadTerminalFastPathContract, RouteCapabilities, RouteExecutionMode, TopNSeekSpec,
+    build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
     build_initial_execution_route_plan_for_load_with_model,
@@ -3083,6 +3084,72 @@ fn grouped_execution_mode_to_metrics_execution_mode_mapping_is_stable() {
             "grouped execution mode must map to stable grouped metrics execution-mode labels",
         );
     }
+}
+
+#[test]
+fn grouped_execution_mode_projection_contract_is_stable() {
+    let direct_caps = RouteCapabilities {
+        load_order_route_contract: LoadOrderRouteContract::DirectStreaming,
+        load_order_route_reason: LoadOrderRouteReason::None,
+        pk_order_fast_path_eligible: false,
+        desc_physical_reverse_supported: true,
+        count_pushdown_shape_supported: false,
+        count_pushdown_existing_rows_shape_supported: false,
+        index_range_limit_pushdown_shape_supported: false,
+        composite_aggregate_fast_path_eligible: false,
+        bounded_probe_hint_safe: false,
+        field_min_fast_path_eligible: false,
+        field_max_fast_path_eligible: false,
+        field_min_fast_path_ineligibility_reason: None,
+        field_max_fast_path_ineligibility_reason: None,
+    };
+    let blocked_desc_caps = RouteCapabilities {
+        desc_physical_reverse_supported: false,
+        ..direct_caps
+    };
+    let materialized_caps = RouteCapabilities {
+        load_order_route_contract: LoadOrderRouteContract::MaterializedFallback,
+        load_order_route_reason: LoadOrderRouteReason::RequiresMaterializedSort,
+        ..direct_caps
+    };
+    assert_eq!(
+        GroupedExecutionMode::from_planner_strategy(
+            GroupedPlanStrategy::ordered_group(),
+            GroupedExecutionModeProjection::from_route_capabilities(Direction::Asc, direct_caps),
+        ),
+        GroupedExecutionMode::OrderedMaterialized,
+        "ordered grouped planner strategy should stay ordered on direct compatible routes",
+    );
+    assert_eq!(
+        GroupedExecutionMode::from_planner_strategy(
+            GroupedPlanStrategy::ordered_group(),
+            GroupedExecutionModeProjection::from_route_capabilities(
+                Direction::Desc,
+                blocked_desc_caps,
+            ),
+        ),
+        GroupedExecutionMode::HashMaterialized,
+        "descending ordered grouped routes should fail closed when reverse traversal is unavailable",
+    );
+    assert_eq!(
+        GroupedExecutionMode::from_planner_strategy(
+            GroupedPlanStrategy::ordered_group(),
+            GroupedExecutionModeProjection::from_route_capabilities(
+                Direction::Asc,
+                materialized_caps,
+            ),
+        ),
+        GroupedExecutionMode::HashMaterialized,
+        "ordered grouped routes should fail closed when route capability does not preserve ordered grouped projection",
+    );
+    assert_eq!(
+        GroupedExecutionMode::from_planner_strategy(
+            GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
+            GroupedExecutionModeProjection::from_route_capabilities(Direction::Asc, direct_caps),
+        ),
+        GroupedExecutionMode::HashMaterialized,
+        "hash grouped planner strategies must not be reinterpreted as ordered grouped execution modes",
+    );
 }
 
 #[test]

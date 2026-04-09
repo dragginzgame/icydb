@@ -11,7 +11,8 @@ use crate::{
             continuation::ScalarContinuationContext,
             preparation::resolved_index_slots_for_access_path,
             route::{
-                AggregateRouteShape, ExecutionRoutePlan, LoadTerminalFastPathContract, RouteIntent,
+                AggregateRouteShape, ExecutionRoutePlan, GroupedExecutionMode,
+                GroupedExecutionModeProjection, LoadTerminalFastPathContract, RouteIntent,
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
                 derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_model_plan,
@@ -207,6 +208,23 @@ fn assemble_execution_route_plan(
         derivation,
         index_range_limit_spec: _,
     } = feasibility_stage;
+    debug_assert!(
+        intent_stage.grouped == derivation.grouped_execution_mode.is_some(),
+        "grouped route assembly must align grouped intent with grouped execution-mode projection",
+    );
+    if let Some(grouped_plan_strategy) = intent_stage.grouped_plan_strategy {
+        debug_assert!(
+            derivation.grouped_execution_mode
+                == Some(GroupedExecutionMode::from_planner_strategy(
+                    grouped_plan_strategy,
+                    GroupedExecutionModeProjection::from_route_capabilities(
+                        derivation.direction,
+                        derivation.capabilities,
+                    ),
+                )),
+            "grouped route assembly must not drift from the canonical grouped execution-mode projection",
+        );
+    }
 
     ExecutionRoutePlan {
         direction: derivation.direction,
