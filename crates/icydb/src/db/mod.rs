@@ -23,9 +23,8 @@ pub use icydb_core::db::{
     StorageReport, TraceExecutionStrategy,
 };
 pub use icydb_core::db::{
-    ExplainAggregateTerminalPlan, ExplainAggregateTerminalRoute, ExplainExecutionDescriptor,
-    ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource,
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
