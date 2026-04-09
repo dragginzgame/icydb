@@ -287,13 +287,15 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
         "projected_fields",
         &projected_fields,
     ));
+    let (load_order_route_contract, load_order_route_reason) =
+        load_order_route_property_values(route_plan);
     lines.push(descriptor_route_property_line(
         "diag.r.load_order_route_contract",
-        route_plan.load_order_route_contract().code(),
+        load_order_route_contract,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.load_order_route_reason",
-        route_plan.load_order_route_reason().code(),
+        load_order_route_reason,
     ));
     lines.push(route_diagnostic_line_bool(
         "projection_pushdown",
@@ -352,28 +354,31 @@ fn append_grouped_route_verbose_diagnostics(
     lines: &mut Vec<String>,
     route_plan: &ExecutionRoutePlan,
 ) {
-    let Some(grouped_observability) = route_plan.grouped_observability() else {
+    let Some((
+        grouped_route_outcome,
+        grouped_route_rejection_reason,
+        grouped_plan_fallback_reason,
+        _grouped_route_eligible,
+        grouped_execution_mode,
+    )) = grouped_route_property_values(route_plan)
+    else {
         return;
     };
     lines.push(descriptor_route_property_line(
         "diag.r.grouped_route_outcome",
-        grouped_observability.outcome().code(),
+        grouped_route_outcome,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.grouped_route_rejection_reason",
-        grouped_observability
-            .rejection_reason()
-            .map_or("none", |reason| reason.code()),
+        grouped_route_rejection_reason,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.grouped_plan_fallback_reason",
-        grouped_observability
-            .planner_fallback_reason()
-            .map_or("none", |reason| reason.code()),
+        grouped_plan_fallback_reason,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.grouped_execution_mode",
-        grouped_observability.grouped_execution_mode().code(),
+        grouped_execution_mode,
     ));
 }
 
@@ -444,14 +449,12 @@ fn annotate_load_order_route_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
-    node.node_properties.insert(
-        "ord_route_contract",
-        Value::from(route_plan.load_order_route_contract().code()),
-    );
-    node.node_properties.insert(
-        "ord_route_reason",
-        Value::from(route_plan.load_order_route_reason().code()),
-    );
+    let (load_order_route_contract, load_order_route_reason) =
+        load_order_route_property_values(route_plan);
+    node.node_properties
+        .insert("ord_route_contract", Value::from(load_order_route_contract));
+    node.node_properties
+        .insert("ord_route_reason", Value::from(load_order_route_reason));
 }
 
 // Project grouped route observability directly onto the access root so the
@@ -460,36 +463,33 @@ fn annotate_grouped_route_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
-    let Some(grouped_observability) = route_plan.grouped_observability() else {
+    let Some((
+        grouped_route_outcome,
+        grouped_route_rejection_reason,
+        grouped_plan_fallback_reason,
+        grouped_route_eligible,
+        grouped_execution_mode,
+    )) = grouped_route_property_values(route_plan)
+    else {
         return;
     };
-    node.node_properties.insert(
-        "grouped_route_outcome",
-        Value::from(grouped_observability.outcome().code()),
-    );
+    node.node_properties
+        .insert("grouped_route_outcome", Value::from(grouped_route_outcome));
     node.node_properties.insert(
         "grouped_route_rejection_reason",
-        Value::from(
-            grouped_observability
-                .rejection_reason()
-                .map_or("none", |reason| reason.code()),
-        ),
+        Value::from(grouped_route_rejection_reason),
     );
     node.node_properties.insert(
         "grouped_plan_fallback_reason",
-        Value::from(
-            grouped_observability
-                .planner_fallback_reason()
-                .map_or("none", |reason| reason.code()),
-        ),
+        Value::from(grouped_plan_fallback_reason),
     );
     node.node_properties.insert(
         "grouped_route_eligible",
-        Value::from(grouped_observability.eligible()),
+        Value::from(grouped_route_eligible),
     );
     node.node_properties.insert(
         "grouped_execution_mode",
-        Value::from(grouped_observability.grouped_execution_mode().code()),
+        Value::from(grouped_execution_mode),
     );
 }
 
@@ -513,36 +513,36 @@ fn grouped_aggregate_execution_node_descriptor(
             node_type,
             execution_mode,
         );
-    node.node_properties.insert(
-        "grouped_route_outcome",
-        Value::from(grouped_observability.outcome().code()),
-    );
-    node.node_properties.insert(
-        "grouped_route_rejection_reason",
-        Value::from(
-            grouped_observability
-                .rejection_reason()
-                .map_or("none", |reason| reason.code()),
-        ),
-    );
-    node.node_properties.insert(
-        "grouped_plan_fallback_reason",
-        Value::from(
-            grouped_observability
-                .planner_fallback_reason()
-                .map_or("none", |reason| reason.code()),
-        ),
-    );
-    node.node_properties.insert(
-        "grouped_route_eligible",
-        Value::from(grouped_observability.eligible()),
-    );
-    node.node_properties.insert(
-        "grouped_execution_mode",
-        Value::from(grouped_observability.grouped_execution_mode().code()),
-    );
+    annotate_grouped_route_node_properties(&mut node, route_plan);
 
     Some(node)
+}
+
+const fn load_order_route_property_values(
+    route_plan: &ExecutionRoutePlan,
+) -> (&'static str, &'static str) {
+    (
+        route_plan.load_order_route_contract().code(),
+        route_plan.load_order_route_reason().code(),
+    )
+}
+
+fn grouped_route_property_values(
+    route_plan: &ExecutionRoutePlan,
+) -> Option<(&'static str, &'static str, &'static str, bool, &'static str)> {
+    let grouped_observability = route_plan.grouped_observability()?;
+
+    Some((
+        grouped_observability.outcome().code(),
+        grouped_observability
+            .rejection_reason()
+            .map_or("none", |reason| reason.code()),
+        grouped_observability
+            .planner_fallback_reason()
+            .map_or("none", |reason| reason.code()),
+        grouped_observability.eligible(),
+        grouped_observability.grouped_execution_mode().code(),
+    ))
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

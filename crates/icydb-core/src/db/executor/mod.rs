@@ -45,11 +45,10 @@ pub(in crate::db) use aggregate::{
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use continuation::{
-    AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
-    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
-    LoadCursorInput, PreparedLoadCursor, RequestedLoadExecutionShape, ResolvedLoadCursorContext,
-    ResolvedScalarContinuationContext, RouteContinuationPlan, ScalarContinuationBindings,
-    ScalarRouteContinuationInvariantProjection,
+    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationCapabilities,
+    GroupedContinuationContext, GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver,
+    PreparedLoadCursor, ResolvedScalarContinuationContext, RouteContinuationPlan,
+    ScalarContinuationBindings,
 };
 pub(in crate::db::executor) use covering::{
     CoveringMembershipRows, CoveringProjectionComponentRows,

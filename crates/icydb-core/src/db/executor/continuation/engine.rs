@@ -5,109 +5,56 @@
 
 use crate::{
     db::{
-        cursor::{
-            ContinuationSignature, GroupedContinuationToken, GroupedPlannedCursor, PlannedCursor,
-        },
-        direction::Direction,
+        cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
             PreparedLoadPlan,
             continuation::scalar::{ResolvedScalarContinuationContext, ScalarContinuationContext},
+            pipeline::orchestrator::LoadExecutionMode,
         },
-        query::plan::ExecutionOrdering,
     },
     error::InternalError,
-    value::Value,
 };
 
 ///
-/// ContinuationEngine
+/// LoadCursorResolver
 ///
-/// Executor-owned continuation protocol facade.
-/// Centralizes scalar cursor runtime bindings and grouped cursor token emission
-/// so executor load paths consume one boundary for runtime continuation payloads.
+/// Executor-owned load-cursor resolution boundary.
+/// This type owns only entrypoint load-cursor validation/revalidation against
+/// prepared load plans. It no longer owns grouped token emission or general
+/// continuation construction helpers.
 ///
 
-pub(in crate::db::executor) struct ContinuationEngine;
+pub(in crate::db::executor) struct LoadCursorResolver;
 
-impl ContinuationEngine {
+impl LoadCursorResolver {
     /// Resolve load mode/order compatibility and cursor revalidation contracts.
     pub(in crate::db::executor) fn resolve_load_cursor_context(
         plan: &PreparedLoadPlan,
         cursor: LoadCursorInput,
-        requested_shape: RequestedLoadExecutionShape,
-    ) -> Result<ResolvedLoadCursorContext, InternalError> {
+        execution_mode: LoadExecutionMode,
+    ) -> Result<PreparedLoadCursor, InternalError> {
         let ordering = plan.execution_ordering()?;
-        match (requested_shape, &ordering) {
-            (
-                RequestedLoadExecutionShape::Scalar,
-                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
-            )
-            | (RequestedLoadExecutionShape::Grouped, ExecutionOrdering::Grouped(_)) => {}
-            (RequestedLoadExecutionShape::Scalar, ExecutionOrdering::Grouped(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped plans require grouped load execution mode",
-                ));
-            }
-            (
-                RequestedLoadExecutionShape::Grouped,
-                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
-            ) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped load execution mode requires grouped logical plans",
-                ));
-            }
-        }
+        execution_mode.validate_execution_ordering(&ordering)?;
 
-        let cursor = match (requested_shape, cursor) {
-            (RequestedLoadExecutionShape::Scalar, LoadCursorInput::Scalar(cursor)) => {
+        let cursor = match (execution_mode.scalar_page_mode(), cursor) {
+            (true, LoadCursorInput::Scalar(cursor)) => {
                 let cursor = plan.revalidate_cursor(*cursor)?;
                 let continuation_signature = plan.continuation_signature_for_runtime()?;
-                let resolved = Self::resolve_scalar_context(cursor, continuation_signature);
+                let resolved = ResolvedScalarContinuationContext::new(
+                    ScalarContinuationContext::new(cursor),
+                    continuation_signature,
+                );
                 PreparedLoadCursor::Scalar(Box::new(resolved))
             }
-            (RequestedLoadExecutionShape::Grouped, LoadCursorInput::Grouped(cursor)) => {
+            (false, LoadCursorInput::Grouped(cursor)) => {
                 PreparedLoadCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
             }
-            (RequestedLoadExecutionShape::Scalar, LoadCursorInput::Grouped(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "scalar load execution mode requires scalar cursor input",
-                ));
-            }
-            (RequestedLoadExecutionShape::Grouped, LoadCursorInput::Scalar(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped load execution mode requires grouped cursor input",
-                ));
+            (true, LoadCursorInput::Grouped(_)) | (false, LoadCursorInput::Scalar(_)) => {
+                return Err(execution_mode.cursor_input_invariant_error());
             }
         };
 
-        Ok(ResolvedLoadCursorContext::new(cursor))
-    }
-
-    /// Resolve scalar continuation runtime + signature into one contract object.
-    #[must_use]
-    pub(in crate::db::executor) fn resolve_scalar_context(
-        cursor: PlannedCursor,
-        continuation_signature: ContinuationSignature,
-    ) -> ResolvedScalarContinuationContext {
-        ResolvedScalarContinuationContext::new(
-            ScalarContinuationContext::new(cursor),
-            continuation_signature,
-        )
-    }
-
-    /// Build one grouped continuation token for grouped page finalization.
-    #[must_use]
-    pub(in crate::db::executor) const fn grouped_next_cursor_token(
-        continuation_signature: ContinuationSignature,
-        last_group_key: Vec<Value>,
-        resume_initial_offset: u32,
-    ) -> GroupedContinuationToken {
-        GroupedContinuationToken::new_with_direction(
-            continuation_signature,
-            last_group_key,
-            Direction::Asc,
-            resume_initial_offset,
-        )
+        Ok(cursor)
     }
 }
 
@@ -121,20 +68,6 @@ impl ContinuationEngine {
 pub(in crate::db::executor) enum LoadCursorInput {
     Scalar(Box<PlannedCursor>),
     Grouped(GroupedPlannedCursor),
-}
-
-///
-/// RequestedLoadExecutionShape
-///
-/// Requested load execution shape at entrypoint selection time.
-/// Used by continuation resolver to validate mode/order compatibility before
-/// cursor revalidation occurs.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) enum RequestedLoadExecutionShape {
-    Scalar,
-    Grouped,
 }
 
 impl LoadCursorInput {
@@ -160,30 +93,4 @@ impl LoadCursorInput {
 pub(in crate::db::executor) enum PreparedLoadCursor {
     Scalar(Box<ResolvedScalarContinuationContext>),
     Grouped(GroupedPlannedCursor),
-}
-
-///
-/// ResolvedLoadCursorContext
-///
-/// Canonical load cursor resolution output.
-/// Carries one revalidated cursor payload so load
-/// entrypoint orchestration consumes one resolved contract boundary.
-///
-
-pub(in crate::db::executor) struct ResolvedLoadCursorContext {
-    cursor: PreparedLoadCursor,
-}
-
-impl ResolvedLoadCursorContext {
-    /// Construct one resolved load cursor context.
-    #[must_use]
-    const fn new(cursor: PreparedLoadCursor) -> Self {
-        Self { cursor }
-    }
-
-    /// Consume context and return revalidated cursor payload.
-    #[must_use]
-    pub(in crate::db::executor) fn into_cursor(self) -> PreparedLoadCursor {
-        self.cursor
-    }
 }

@@ -95,6 +95,15 @@ pub(crate) struct GroupedPlanStrategy {
 }
 
 impl GroupedPlanStrategy {
+    /// Return the stable planner-owned grouped strategy code.
+    #[must_use]
+    pub(crate) const fn code(self) -> &'static str {
+        match self.family {
+            GroupedPlanFamily::HashGroup => "hash_group",
+            GroupedPlanFamily::OrderedGroup => "ordered_group",
+        }
+    }
+
     /// Construct one hash-group planner strategy artifact with one planner-authored fallback reason.
     #[cfg(test)]
     #[must_use]

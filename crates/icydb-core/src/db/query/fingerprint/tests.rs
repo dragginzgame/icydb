@@ -10,7 +10,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::{field::FieldRef, sum},
-            explain::{ExplainGroupedStrategy, ExplainGrouping},
+            explain::ExplainGrouping,
             fingerprint::{
                 finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
                 new_plan_fingerprint_hasher_v1,
@@ -937,7 +937,7 @@ fn explain_fingerprint_grouped_strategy_only_change_does_not_invalidate() {
     else {
         panic!("grouped explain fixture must produce grouped explain shape");
     };
-    *hash_value = ExplainGroupedStrategy::HashGroup;
+    *hash_value = "hash_group";
     let ExplainGrouping::Grouped {
         strategy: ordered_value,
         ..
@@ -945,7 +945,7 @@ fn explain_fingerprint_grouped_strategy_only_change_does_not_invalidate() {
     else {
         panic!("grouped explain fixture must produce grouped explain shape");
     };
-    *ordered_value = ExplainGroupedStrategy::OrderedGroup;
+    *ordered_value = "ordered_group";
 
     assert_eq!(
         hash_strategy.fingerprint(),

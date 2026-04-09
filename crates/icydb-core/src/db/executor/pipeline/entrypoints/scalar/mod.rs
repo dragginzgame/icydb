@@ -15,10 +15,10 @@ use crate::{
         direction::Direction,
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
-            AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutionKernel,
-            ExecutionPlan, ExecutionPreparation, ExecutionTrace, ExecutorPlanError,
-            PreparedLoadPlan, ResolvedScalarContinuationContext,
-            ScalarRouteContinuationInvariantProjection, StoreResolver, TraversalRuntime,
+            AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
+            ExecutionPreparation, ExecutionTrace, ExecutorPlanError, PreparedLoadPlan,
+            ResolvedScalarContinuationContext, StoreResolver, TraversalRuntime,
+            continuation::ScalarContinuationContext,
             pipeline::contracts::{
                 CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
                 ExecutionRuntime, ExecutionRuntimeAdapter, LoadExecutor,
@@ -217,11 +217,7 @@ fn execute_scalar_execution_stage(
     let continuation = route_plan.continuation();
     let continuation_capabilities = continuation.capabilities();
     let continuation_applied = continuation_capabilities.applied();
-    let continuation_invariants = ScalarRouteContinuationInvariantProjection::new(
-        continuation_capabilities.strict_advance_required_when_applied(),
-        continuation.effective_offset(),
-    );
-    resolved_continuation.debug_assert_route_continuation_invariants(plan, continuation_invariants);
+    resolved_continuation.debug_assert_route_continuation_invariants(plan, continuation);
     let direction = route_plan.direction();
     let mut execution_trace =
         debug.then(|| ExecutionTrace::new(&plan.access, direction, continuation_applied));
@@ -409,8 +405,8 @@ where
         route_plan,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation: ContinuationEngine::resolve_scalar_context(
-            PlannedCursor::none(),
+        resolved_continuation: ResolvedScalarContinuationContext::new(
+            ScalarContinuationContext::new(PlannedCursor::none()),
             continuation_signature,
         ),
         unpaged_rows_mode: true,
@@ -486,8 +482,8 @@ where
         route_plan,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation: ContinuationEngine::resolve_scalar_context(
-            PlannedCursor::none(),
+        resolved_continuation: ResolvedScalarContinuationContext::new(
+            ScalarContinuationContext::new(PlannedCursor::none()),
             continuation_contract.continuation_signature(),
         ),
         unpaged_rows_mode: true,
@@ -549,8 +545,8 @@ where
         route_plan,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation: ContinuationEngine::resolve_scalar_context(
-            PlannedCursor::none(),
+        resolved_continuation: ResolvedScalarContinuationContext::new(
+            ScalarContinuationContext::new(PlannedCursor::none()),
             continuation_contract.continuation_signature(),
         ),
         unpaged_rows_mode: true,
@@ -582,8 +578,8 @@ where
                 "scalar materialized rows path requires load-mode continuation contract",
             )
         })?;
-    let resolved_continuation = ContinuationEngine::resolve_scalar_context(
-        PlannedCursor::none(),
+    let resolved_continuation = ResolvedScalarContinuationContext::new(
+        ScalarContinuationContext::new(PlannedCursor::none()),
         continuation_contract.continuation_signature(),
     );
 

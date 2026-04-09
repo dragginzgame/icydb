@@ -100,9 +100,9 @@ pub use query::{
         min_by, sum,
     },
     explain::{
-        ExplainAggregateTerminalPlan, ExplainAggregateTerminalRoute, ExplainExecutionDescriptor,
-        ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-        ExplainExecutionOrderingSource, ExplainPlan,
+        ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+        ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+        ExplainPlan,
     },
     expr::{FilterExpr, SortExpr},
     fluent::{

@@ -178,8 +178,8 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
+            strategy: "hash_group",
+            fallback_reason: Some("group_key_order_unavailable"),
             ..
         }
     ));
@@ -211,7 +211,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -244,7 +244,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -277,7 +277,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -310,7 +310,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -347,7 +347,7 @@ fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicat
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -382,7 +382,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -419,10 +419,8 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(
-                ExplainGroupedFallbackReason::ResidualPredicateBlocksGroupedOrder,
-            ),
+            strategy: "hash_group",
+            fallback_reason: Some("residual_predicate_blocks_grouped_order",),
             ..
         }
     ));
@@ -463,8 +461,8 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(ExplainGroupedFallbackReason::HavingBlocksGroupedOrder),
+            strategy: "hash_group",
+            fallback_reason: Some("having_blocks_grouped_order"),
             ..
         }
     ));
@@ -505,7 +503,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -607,7 +605,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
     assert_eq!(
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
@@ -650,8 +648,8 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
     assert_eq!(
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(ExplainGroupedFallbackReason::AggregateStreamingNotSupported),
+            strategy: "hash_group",
+            fallback_reason: Some("aggregate_streaming_not_supported"),
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -713,7 +711,7 @@ access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: OrderedGroup, fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
+grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -760,7 +758,7 @@ access=FullScan
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: HashGroup, fallback_reason: Some(AggregateStreamingNotSupported), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
+grouping=Grouped { strategy: \"hash_group\", fallback_reason: Some(\"aggregate_streaming_not_supported\"), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -788,10 +786,8 @@ fn explain_global_distinct_sum_projection_is_reported() {
     assert_eq!(
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
-            strategy: crate::db::query::explain::ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(
-                crate::db::query::explain::ExplainGroupedFallbackReason::AggregateStreamingNotSupported,
-            ),
+            strategy: "hash_group",
+            fallback_reason: Some("aggregate_streaming_not_supported",),
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
                 kind: AggregateKind::Sum,
@@ -1690,7 +1686,6 @@ fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> Stri
     format!(
         concat!(
             "terminal={:?}\n",
-            "route={:?}\n",
             "query_access={:?}\n",
             "query_order_by={:?}\n",
             "query_page={:?}\n",
@@ -1707,7 +1702,6 @@ fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> Stri
             "execution_node_json={}",
         ),
         plan.terminal(),
-        plan.route(),
         plan.query().access(),
         plan.query().order_by(),
         plan.query().page(),
@@ -1768,7 +1762,6 @@ fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
 
     let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
     let expected = "terminal=Min
-route=IndexSeekFirst { fetch: 1 }
 query_access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 1, values: [Text(\"alpha\")] }
 query_order_by=Fields([ExplainOrder { field: \"tag\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }])
 query_page=None
@@ -1822,7 +1815,6 @@ fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
 
     let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
     let expected = "terminal=Exists
-route=Standard
 query_access=FullScan
 query_order_by=Fields([ExplainOrder { field: \"id\", direction: Asc }])
 query_page=Page { limit: Some(3), offset: 1 }

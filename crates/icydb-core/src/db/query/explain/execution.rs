@@ -83,24 +83,12 @@ impl Debug for ExplainPropertyMap {
 
 #[cfg_attr(
     doc,
-    doc = "ExplainAggregateTerminalRoute\n\nScalar aggregate route label used by EXPLAIN output."
-)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainAggregateTerminalRoute {
-    Standard,
-    IndexSeekFirst { fetch: usize },
-    IndexSeekLast { fetch: usize },
-}
-
-#[cfg_attr(
-    doc,
     doc = "ExplainAggregateTerminalPlan\n\nCombined EXPLAIN payload for one scalar aggregate request."
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainAggregateTerminalPlan {
     pub(crate) query: ExplainPlan,
     pub(crate) terminal: AggregateKind,
-    pub(crate) route: ExplainAggregateTerminalRoute,
     pub(crate) execution: ExplainExecutionDescriptor,
 }
 
@@ -217,12 +205,6 @@ impl ExplainAggregateTerminalPlan {
         self.terminal
     }
 
-    /// Return projected aggregate terminal route.
-    #[must_use]
-    pub const fn route(&self) -> ExplainAggregateTerminalRoute {
-        self.route
-    }
-
     /// Borrow projected execution descriptor.
     #[must_use]
     pub const fn execution(&self) -> &ExplainExecutionDescriptor {
@@ -235,12 +217,9 @@ impl ExplainAggregateTerminalPlan {
         terminal: AggregateKind,
         execution: ExplainExecutionDescriptor,
     ) -> Self {
-        let route = execution.route();
-
         Self {
             query,
             terminal,
-            route,
             execution,
         }
     }
@@ -293,22 +272,6 @@ impl ExplainExecutionDescriptor {
     #[must_use]
     pub const fn node_properties(&self) -> &ExplainPropertyMap {
         &self.node_properties
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn route(&self) -> ExplainAggregateTerminalRoute {
-        match self.ordering_source {
-            ExplainExecutionOrderingSource::IndexSeekFirst { fetch } => {
-                ExplainAggregateTerminalRoute::IndexSeekFirst { fetch }
-            }
-            ExplainExecutionOrderingSource::IndexSeekLast { fetch } => {
-                ExplainAggregateTerminalRoute::IndexSeekLast { fetch }
-            }
-            ExplainExecutionOrderingSource::AccessOrder
-            | ExplainExecutionOrderingSource::Materialized => {
-                ExplainAggregateTerminalRoute::Standard
-            }
-        }
     }
 }
 

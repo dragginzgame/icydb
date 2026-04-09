@@ -18,7 +18,7 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::field::FieldRef,
-            explain::{ExplainGroupedStrategy, ExplainGrouping},
+            explain::ExplainGrouping,
             fingerprint::{
                 finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
             },
@@ -388,7 +388,7 @@ fn continuation_signature_changes_when_grouped_strategy_changes() {
     else {
         panic!("grouped explain fixture must produce grouped explain shape");
     };
-    *hash_value = ExplainGroupedStrategy::HashGroup;
+    *hash_value = "hash_group";
     let ExplainGrouping::Grouped {
         strategy: ordered_value,
         ..
@@ -396,7 +396,7 @@ fn continuation_signature_changes_when_grouped_strategy_changes() {
     else {
         panic!("grouped explain fixture must produce grouped explain shape");
     };
-    *ordered_value = ExplainGroupedStrategy::OrderedGroup;
+    *ordered_value = "ordered_group";
 
     assert_ne!(
         hash_strategy.continuation_signature("tests::Entity"),

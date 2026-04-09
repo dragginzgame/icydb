@@ -5,9 +5,10 @@
 
 use crate::{
     db::{
-        cursor::ContinuationSignature,
+        cursor::{ContinuationSignature, GroupedContinuationToken},
+        direction::Direction,
         executor::{
-            ContinuationEngine, GroupedContinuationCapabilities, GroupedPaginationWindow,
+            GroupedContinuationCapabilities, GroupedPaginationWindow,
             pipeline::contracts::PageCursor,
         },
     },
@@ -75,9 +76,10 @@ impl GroupedContinuationContext {
         }
 
         Ok(PageCursor::Grouped(
-            ContinuationEngine::grouped_next_cursor_token(
+            GroupedContinuationToken::new_with_direction(
                 self.continuation_signature,
                 last_group_key,
+                Direction::Asc,
                 self.grouped_pagination_window.resume_initial_offset(),
             ),
         ))

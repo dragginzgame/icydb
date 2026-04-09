@@ -9,7 +9,10 @@ use crate::{
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
         TraceExecutionStrategy,
         access::AccessStrategy,
-        cursor::{CursorPlanError, GroupedContinuationToken},
+        cursor::{
+            CursorPlanError, GroupedContinuationToken, decode_optional_cursor_token,
+            decode_optional_grouped_cursor_token,
+        },
         diagnostics::ExecutionTrace,
         executor::{
             ExecutablePlan, ExecutionStrategy, GroupedCursorPage, LoadExecutor, PageCursor,
@@ -22,7 +25,6 @@ use crate::{
         },
         query::intent::{CompiledQuery, PlannedQuery},
         query::plan::QueryMode,
-        session::{decode_optional_cursor_bytes, decode_optional_grouped_cursor},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
@@ -338,7 +340,8 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
 
         // Phase 2: decode external cursor token and validate it against plan surface.
-        let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
+        let cursor_bytes = decode_optional_cursor_token(cursor_token)
+            .map_err(QueryError::from_cursor_plan_error)?;
         let cursor = plan
             .prepare_cursor(cursor_bytes.as_deref())
             .map_err(QueryError::from_executor_plan_error)?;
@@ -447,7 +450,8 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
 
         // Phase 2: decode external grouped cursor token and validate against plan.
-        let cursor = decode_optional_grouped_cursor(cursor_token)?;
+        let cursor = decode_optional_grouped_cursor_token(cursor_token)
+            .map_err(QueryError::from_cursor_plan_error)?;
         let cursor = plan
             .prepare_grouped_cursor_token(cursor)
             .map_err(QueryError::from_executor_plan_error)?;

@@ -3263,7 +3263,6 @@ fn session_aggregate_terminal_plan_snapshot(
     format!(
         concat!(
             "terminal={:?}\n",
-            "route={:?}\n",
             "query_access={:?}\n",
             "query_order_by={:?}\n",
             "query_page={:?}\n",
@@ -3280,7 +3279,6 @@ fn session_aggregate_terminal_plan_snapshot(
             "execution_node_json={}",
         ),
         plan.terminal(),
-        plan.route(),
         plan.query().access(),
         plan.query().order_by(),
         plan.query().page(),
@@ -10581,8 +10579,8 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
 
     assert_eq!(exists_terminal_plan.terminal(), AggregateKind::Exists);
     assert!(matches!(
-        exists_terminal_plan.route(),
-        crate::db::ExplainAggregateTerminalRoute::Standard
+        exists_terminal_plan.execution().ordering_source(),
+        crate::db::ExplainExecutionOrderingSource::AccessOrder
     ));
 
     let exists_execution = exists_terminal_plan.execution();
@@ -10826,14 +10824,14 @@ fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
     assert_eq!(first_plan.terminal(), AggregateKind::First);
     assert_eq!(last_plan.terminal(), AggregateKind::Last);
     assert_eq!(
-        first_plan.route(),
-        crate::db::ExplainAggregateTerminalRoute::Standard,
-        "first explain should remain on the standard terminal route",
+        first_plan.execution().ordering_source(),
+        crate::db::ExplainExecutionOrderingSource::Materialized,
+        "first explain should remain on the materialized ordering source",
     );
     assert_eq!(
-        last_plan.route(),
-        crate::db::ExplainAggregateTerminalRoute::Standard,
-        "last explain should remain on the standard terminal route",
+        last_plan.execution().ordering_source(),
+        crate::db::ExplainExecutionOrderingSource::Materialized,
+        "last explain should remain on the materialized ordering source",
     );
     assert_eq!(
         first_plan.query().access(),
@@ -11717,8 +11715,8 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
         .expect("session explain_min should succeed");
     assert_eq!(min_terminal_plan.terminal(), AggregateKind::Min);
     assert!(matches!(
-        min_terminal_plan.route(),
-        crate::db::ExplainAggregateTerminalRoute::IndexSeekFirst { fetch: 1 }
+        min_terminal_plan.execution().ordering_source(),
+        crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }
     ));
     let min_execution = min_terminal_plan.execution();
     assert_eq!(min_execution.aggregation(), AggregateKind::Min);
@@ -11766,8 +11764,8 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
         .expect("session explain_max should succeed");
     assert_eq!(max_terminal_plan.terminal(), AggregateKind::Max);
     assert!(matches!(
-        max_terminal_plan.route(),
-        crate::db::ExplainAggregateTerminalRoute::IndexSeekLast { fetch: 1 }
+        max_terminal_plan.execution().ordering_source(),
+        crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 }
     ));
     let max_execution = max_terminal_plan.execution();
     assert_eq!(max_execution.aggregation(), AggregateKind::Max);

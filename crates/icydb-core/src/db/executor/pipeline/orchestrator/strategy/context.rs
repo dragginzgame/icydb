@@ -34,8 +34,7 @@ where
         }
 
         let resolved_cursor = Self::resolve_entrypoint_cursor(&plan, cursor, execution_mode)?;
-        let execution_spec =
-            self.build_execution_spec(plan, resolved_cursor.into_cursor(), false)?;
+        let execution_spec = self.build_execution_spec(plan, resolved_cursor, false)?;
         Ok(LoadAccessState {
             context: LoadExecutionContext::new(execution_mode),
             access_inputs: LoadAccessInputs { execution_spec },

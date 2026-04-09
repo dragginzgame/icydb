@@ -151,45 +151,6 @@ pub(in crate::db::executor) struct ResolvedScalarContinuationContext {
     continuation_signature: ContinuationSignature,
 }
 
-///
-/// ScalarRouteContinuationInvariantProjection
-///
-/// Minimal route-to-continuation invariant projection consumed by scalar
-/// continuation runtime assertions.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ScalarRouteContinuationInvariantProjection {
-    strict_advance_required_when_applied: bool,
-    effective_offset: u32,
-}
-
-impl ScalarRouteContinuationInvariantProjection {
-    /// Construct one scalar continuation invariant projection.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
-        strict_advance_required_when_applied: bool,
-        effective_offset: u32,
-    ) -> Self {
-        Self {
-            strict_advance_required_when_applied,
-            effective_offset,
-        }
-    }
-
-    /// Return whether strict continuation advancement is required.
-    #[must_use]
-    pub(in crate::db::executor) const fn strict_advance_required_when_applied(self) -> bool {
-        self.strict_advance_required_when_applied
-    }
-
-    /// Return route-projected effective offset for continuation checks.
-    #[must_use]
-    pub(in crate::db::executor) const fn effective_offset(self) -> u32 {
-        self.effective_offset
-    }
-}
-
 impl ResolvedScalarContinuationContext {
     /// Construct one resolved scalar continuation context.
     #[must_use]
@@ -245,14 +206,16 @@ impl ResolvedScalarContinuationContext {
     pub(in crate::db::executor) fn debug_assert_route_continuation_invariants(
         &self,
         plan: &AccessPlannedQuery,
-        projection: ScalarRouteContinuationInvariantProjection,
+        route_continuation: RouteContinuationPlan,
     ) {
         debug_assert!(
-            projection.strict_advance_required_when_applied(),
+            route_continuation
+                .capabilities()
+                .strict_advance_required_when_applied(),
             "route invariant: continuation executions must enforce strict advancement policy",
         );
         debug_assert_eq!(
-            projection.effective_offset(),
+            route_continuation.effective_offset(),
             continuation_page_offset_for_window(plan, self.cursor_boundary().is_some()),
             "route window effective offset must match logical plan offset semantics",
         );

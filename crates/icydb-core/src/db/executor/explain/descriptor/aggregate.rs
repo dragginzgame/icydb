@@ -7,24 +7,18 @@ use crate::db::{
     executor::{
         ExecutionPreparation,
         preparation::slot_map_for_model_plan,
-        route::{
-            AggregateRouteShape, AggregateSeekSpec,
-            build_execution_route_plan_for_aggregate_spec_with_model,
-        },
+        route::{AggregateRouteShape, build_execution_route_plan_for_aggregate_spec_with_model},
     },
     query::{
-        explain::{
-            ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
-            ExplainExecutionOrderingSource,
-        },
+        explain::{ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor},
         plan::AccessPlannedQuery,
     },
     sql::lowering::PreparedSqlScalarAggregateStrategy,
 };
 
 use crate::db::executor::explain::descriptor::shared::{
-    aggregate_covering_projection_for_terminal, explain_execution_mode,
-    explain_node_properties_for_route,
+    aggregate_covering_projection_for_terminal, explain_aggregate_ordering_source,
+    explain_execution_mode, explain_node_properties_for_route,
 };
 
 // Assemble one canonical scalar aggregate execution descriptor through one
@@ -83,16 +77,7 @@ fn assemble_aggregate_terminal_execution_descriptor(
     let route_shape = route_plan.shape();
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
-    let ordering_source = match route_plan.aggregate_seek_spec() {
-        Some(AggregateSeekSpec::First { fetch }) => {
-            ExplainExecutionOrderingSource::IndexSeekFirst { fetch }
-        }
-        Some(AggregateSeekSpec::Last { fetch }) => {
-            ExplainExecutionOrderingSource::IndexSeekLast { fetch }
-        }
-        None if route_shape.is_materialized() => ExplainExecutionOrderingSource::Materialized,
-        None => ExplainExecutionOrderingSource::AccessOrder,
-    };
+    let ordering_source = explain_aggregate_ordering_source(&route_plan, route_shape);
     let execution_mode = explain_execution_mode(route_shape);
     let covering_projection =
         aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);

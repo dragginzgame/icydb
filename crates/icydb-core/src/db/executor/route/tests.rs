@@ -33,7 +33,7 @@ use crate::{
         query::builder::aggregate,
         query::explain::{
             ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
-            ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
+            ExplainGroupHavingSymbol, ExplainGrouping,
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
@@ -3012,7 +3012,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     assert_eq!(
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),

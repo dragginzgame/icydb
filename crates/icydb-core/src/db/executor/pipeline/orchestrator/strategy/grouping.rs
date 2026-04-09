@@ -4,37 +4,23 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        cursor::GroupedPlannedCursor,
-        executor::{
-            ExecutionTrace, PreparedLoadCursor, PreparedLoadPlan,
-            ResolvedScalarContinuationContext,
-            pipeline::{
-                contracts::{GroupedCursorPage, LoadExecutor, StructuralCursorPage},
-                entrypoints::{
-                    PreparedGroupedRouteRuntime, PreparedScalarRouteRuntime,
-                    execute_prepared_grouped_route_runtime, execute_prepared_scalar_route_runtime,
-                },
-                orchestrator::state::{
-                    LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadExecutionPayload,
-                    LoadPayloadState,
-                },
+    db::executor::{
+        ExecutionTrace, PreparedLoadCursor, PreparedLoadPlan,
+        pipeline::{
+            contracts::LoadExecutor,
+            entrypoints::{
+                PreparedGroupedRouteRuntime, PreparedScalarRouteRuntime,
+                execute_prepared_grouped_route_runtime, execute_prepared_scalar_route_runtime,
+            },
+            orchestrator::state::{
+                LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadExecutionPayload,
+                LoadPayloadState,
             },
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-///
-/// ExecutionMode
-///
-/// Runtime kernel lane selector for load payload materialization.
-///
-enum ExecutionMode {
-    Scalar(ResolvedScalarContinuationContext),
-    Grouped(GroupedPlannedCursor),
-}
 
 ///
 /// ExecutionSpec
@@ -60,17 +46,6 @@ impl ExecutionSpec {
 }
 
 ///
-/// KernelPayload
-///
-/// Type-erased payload envelope emitted by non-generic kernel orchestration.
-///
-
-enum KernelPayload {
-    Scalar(StructuralCursorPage),
-    Grouped(GroupedCursorPage),
-}
-
-///
 /// KernelDispatchOutput
 ///
 /// Output emitted by one lane-specific leaf kernel operation.
@@ -78,7 +53,7 @@ enum KernelPayload {
 ///
 
 struct KernelDispatchOutput {
-    payload: KernelPayload,
+    payload: LoadExecutionPayload,
     trace: Option<ExecutionTrace>,
 }
 
@@ -91,7 +66,7 @@ struct KernelDispatchOutput {
 
 struct KernelState {
     context: LoadExecutionContext,
-    payload: KernelPayload,
+    payload: LoadExecutionPayload,
     trace: Option<ExecutionTrace>,
 }
 
@@ -143,7 +118,7 @@ impl KernelOp for ScalarKernelOp {
         let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
 
         Ok(KernelDispatchOutput {
-            payload: KernelPayload::Scalar(page),
+            payload: LoadExecutionPayload::Scalar(page),
             trace,
         })
     }
@@ -158,7 +133,7 @@ impl KernelOp for GroupedKernelOp {
         let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
 
         Ok(KernelDispatchOutput {
-            payload: KernelPayload::Grouped(page),
+            payload: LoadExecutionPayload::Grouped(page),
             trace,
         })
     }
@@ -192,8 +167,17 @@ where
         } = state;
         let LoadAccessInputs { execution_spec } = access_inputs;
         let kernel_state = execute_kernel(context, execution_spec)?;
+        let KernelState {
+            context,
+            payload,
+            trace,
+        } = kernel_state;
 
-        Ok(Self::materialize_payload_state(kernel_state))
+        Ok(LoadPayloadState {
+            context,
+            payload,
+            trace,
+        })
     }
 
     // Build one non-generic kernel descriptor from one typed execution context.
@@ -203,49 +187,24 @@ where
         cursor: PreparedLoadCursor,
         scalar_rows_mode: bool,
     ) -> Result<ExecutionSpec, InternalError> {
-        let mode = match cursor {
+        match cursor {
             PreparedLoadCursor::Scalar(resolved_continuation) => {
-                ExecutionMode::Scalar(*resolved_continuation)
-            }
-            PreparedLoadCursor::Grouped(cursor) => ExecutionMode::Grouped(cursor),
-        };
-
-        match mode {
-            ExecutionMode::Scalar(resolved_continuation) => {
                 let prepared = self.prepare_scalar_route_runtime(
                     plan,
-                    resolved_continuation,
+                    *resolved_continuation,
                     scalar_rows_mode,
                 )?;
                 let op = ScalarKernelOp { prepared };
+
                 Ok(ExecutionSpec::scalar(op))
             }
-            ExecutionMode::Grouped(cursor) => {
+            PreparedLoadCursor::Grouped(cursor) => {
                 let route = Self::resolve_grouped_route(plan, cursor, self.debug)?;
                 let prepared = self.prepare_grouped_route_runtime(route)?;
                 let op = GroupedKernelOp { prepared };
 
                 Ok(ExecutionSpec::grouped(op))
             }
-        }
-    }
-
-    // Re-materialize one typed payload state from one non-generic kernel state.
-    fn materialize_payload_state(kernel_state: KernelState) -> LoadPayloadState {
-        let KernelState {
-            context,
-            payload,
-            trace,
-        } = kernel_state;
-        let payload = match payload {
-            KernelPayload::Scalar(page) => LoadExecutionPayload::Scalar(page),
-            KernelPayload::Grouped(page) => LoadExecutionPayload::Grouped(page),
-        };
-
-        LoadPayloadState {
-            context,
-            payload,
-            trace,
         }
     }
 }

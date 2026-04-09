@@ -1,7 +1,5 @@
 use super::*;
-use crate::db::query::explain::{
-    ExplainExecutionNodeType, ExplainGroupedFallbackReason, ExplainGroupedStrategy, ExplainGrouping,
-};
+use crate::db::query::explain::{ExplainExecutionNodeType, ExplainGrouping};
 
 #[test]
 fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
@@ -83,7 +81,7 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
+            fallback_reason: Some("group_key_order_unavailable"),
             ..
         }
     ));
@@ -147,7 +145,7 @@ fn query_from_sql_indexed_grouped_explain_and_execution_project_ordered_group_pu
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -215,7 +213,7 @@ fn query_from_sql_indexed_grouped_count_field_explain_and_execution_project_orde
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -262,7 +260,7 @@ fn query_from_sql_indexed_grouped_sum_field_explain_and_execution_project_ordere
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -309,7 +307,7 @@ fn query_from_sql_indexed_grouped_avg_field_explain_and_execution_project_ordere
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -357,7 +355,7 @@ fn query_from_sql_indexed_grouped_mixed_count_and_sum_explain_and_execution_proj
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -711,7 +709,7 @@ fn query_from_sql_indexed_filtered_grouped_explain_and_execution_project_ordered
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -773,7 +771,7 @@ fn query_from_sql_indexed_filtered_grouped_sum_field_explain_and_execution_proje
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }
@@ -822,7 +820,7 @@ fn query_from_sql_indexed_filtered_grouped_avg_field_explain_and_execution_proje
     assert!(matches!(
         explain.grouping(),
         ExplainGrouping::Grouped {
-            strategy: ExplainGroupedStrategy::OrderedGroup,
+            strategy: "ordered_group",
             fallback_reason: None,
             ..
         }

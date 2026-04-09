@@ -14,9 +14,8 @@ use crate::{
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupedPlanFallbackReason, GroupedPlanStrategy,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                grouped_plan_strategy,
+                GroupHavingSpec, GroupHavingSymbol, GroupedPlanFallbackReason, LogicalPlan,
+                OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy,
             },
         },
     },
@@ -183,69 +182,14 @@ impl ExplainPlan {
 pub enum ExplainGrouping {
     None,
     Grouped {
-        strategy: ExplainGroupedStrategy,
-        fallback_reason: Option<ExplainGroupedFallbackReason>,
+        strategy: &'static str,
+        fallback_reason: Option<&'static str>,
         group_fields: Vec<ExplainGroupField>,
         aggregates: Vec<ExplainGroupAggregate>,
         having: Option<ExplainGroupHaving>,
         max_groups: u64,
         max_group_bytes: u64,
     },
-}
-
-///
-/// ExplainGroupedStrategy
-///
-/// Deterministic explain projection of grouped strategy selection.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainGroupedStrategy {
-    HashGroup,
-    OrderedGroup,
-}
-
-impl From<GroupedPlanStrategy> for ExplainGroupedStrategy {
-    fn from(value: GroupedPlanStrategy) -> Self {
-        if value.is_ordered_group() {
-            Self::OrderedGroup
-        } else {
-            Self::HashGroup
-        }
-    }
-}
-
-///
-/// ExplainGroupedFallbackReason
-///
-/// Stable explain projection of the planner-authored grouped fallback reason.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainGroupedFallbackReason {
-    DistinctGroupingNotAdmitted,
-    ResidualPredicateBlocksGroupedOrder,
-    AggregateStreamingNotSupported,
-    HavingBlocksGroupedOrder,
-    GroupKeyOrderUnavailable,
-}
-
-impl From<GroupedPlanFallbackReason> for ExplainGroupedFallbackReason {
-    fn from(value: GroupedPlanFallbackReason) -> Self {
-        match value {
-            GroupedPlanFallbackReason::DistinctGroupingNotAdmitted => {
-                Self::DistinctGroupingNotAdmitted
-            }
-            GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder => {
-                Self::ResidualPredicateBlocksGroupedOrder
-            }
-            GroupedPlanFallbackReason::AggregateStreamingNotSupported => {
-                Self::AggregateStreamingNotSupported
-            }
-            GroupedPlanFallbackReason::HavingBlocksGroupedOrder => Self::HavingBlocksGroupedOrder,
-            GroupedPlanFallbackReason::GroupKeyOrderUnavailable => Self::GroupKeyOrderUnavailable,
-        }
-    }
 }
 
 ///
@@ -571,8 +515,10 @@ impl AccessPlannedQuery {
                 (
                     &logical.scalar,
                     ExplainGrouping::Grouped {
-                        strategy: grouped_strategy.into(),
-                        fallback_reason: grouped_strategy.fallback_reason().map(Into::into),
+                        strategy: grouped_strategy.code(),
+                        fallback_reason: grouped_strategy
+                            .fallback_reason()
+                            .map(GroupedPlanFallbackReason::code),
                         group_fields: logical
                             .group
                             .group_fields

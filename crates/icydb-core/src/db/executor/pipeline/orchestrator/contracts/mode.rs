@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::RequestedLoadExecutionShape;
+use crate::{db::query::plan::ExecutionOrdering, error::InternalError};
 
 ///
 /// LoadTracingMode
@@ -59,26 +59,51 @@ impl LoadExecutionMode {
         }
     }
 
-    // Resolve entrypoint-selected mode into the requested scalar/grouped execution shape.
-    pub(in crate::db::executor) const fn requested_shape(self) -> RequestedLoadExecutionShape {
-        match self.mode {
-            LoadMode::ScalarPage => RequestedLoadExecutionShape::Scalar,
-            LoadMode::GroupedPage => RequestedLoadExecutionShape::Grouped,
-        }
-    }
-
     // True when load mode materializes one paged scalar surface.
-    pub(in crate::db::executor::pipeline::orchestrator) const fn scalar_page_mode(self) -> bool {
+    pub(in crate::db::executor) const fn scalar_page_mode(self) -> bool {
         matches!(self.mode, LoadMode::ScalarPage)
     }
 
     // True when load mode materializes one grouped paged surface.
-    pub(in crate::db::executor::pipeline::orchestrator) const fn grouped_page_mode(self) -> bool {
+    pub(in crate::db::executor) const fn grouped_page_mode(self) -> bool {
         matches!(self.mode, LoadMode::GroupedPage)
     }
 
     // True when load mode should preserve execution trace output.
     pub(in crate::db::executor::pipeline::orchestrator) const fn tracing_enabled(self) -> bool {
         matches!(self.tracing, LoadTracingMode::Enabled)
+    }
+
+    // Fail closed when entrypoint-selected load mode and logical ordering disagree.
+    pub(in crate::db::executor) fn validate_execution_ordering(
+        self,
+        ordering: &ExecutionOrdering,
+    ) -> Result<(), InternalError> {
+        match (self.grouped_page_mode(), ordering) {
+            (false, ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_))
+            | (true, ExecutionOrdering::Grouped(_)) => Ok(()),
+            (false, ExecutionOrdering::Grouped(_))
+            | (true, ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_)) => {
+                Err(self.logical_plan_invariant_error())
+            }
+        }
+    }
+
+    // Construct the canonical entrypoint/logical-plan mismatch invariant.
+    pub(in crate::db::executor) fn logical_plan_invariant_error(self) -> InternalError {
+        InternalError::query_executor_invariant(if self.scalar_page_mode() {
+            "grouped plans require grouped load execution mode"
+        } else {
+            "grouped load execution mode requires grouped logical plans"
+        })
+    }
+
+    // Construct the canonical entrypoint/cursor-input mismatch invariant.
+    pub(in crate::db::executor) fn cursor_input_invariant_error(self) -> InternalError {
+        InternalError::query_executor_invariant(if self.scalar_page_mode() {
+            "scalar load execution mode requires scalar cursor input"
+        } else {
+            "grouped load execution mode requires grouped cursor input"
+        })
     }
 }

@@ -11,9 +11,8 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHavingSymbol,
-                ExplainGroupedStrategy, ExplainGrouping, ExplainOrderBy, ExplainPagination,
-                ExplainPlan,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHavingSymbol, ExplainGrouping,
+                ExplainOrderBy, ExplainPagination, ExplainPlan,
             },
             fingerprint::aggregate_hash::{
                 AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
@@ -826,7 +825,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                 );
 
                 Self::Grouped(GroupedFingerprintShape {
-                    ordered_group: matches!(strategy, ExplainGroupedStrategy::OrderedGroup),
+                    ordered_group: *strategy == "ordered_group",
                     aggregate_family_code: Some(aggregate_family.code()),
                     group_fields: group_fields
                         .iter()

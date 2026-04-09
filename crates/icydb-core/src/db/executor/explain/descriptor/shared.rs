@@ -14,16 +14,17 @@ use crate::{
             ExecutionPreparation,
             aggregate::AggregateFoldMode,
             route::{
-                ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape, FastPathOrder,
-                TopNSeekSpec,
+                AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
+                FastPathOrder, TopNSeekSpec,
             },
         },
         predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
-                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
-                ExplainPropertyMap, write_access_strategy_label,
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                ExplainExecutionOrderingSource, ExplainPredicate, ExplainPropertyMap,
+                write_access_strategy_label,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
@@ -753,6 +754,22 @@ pub(in crate::db::executor::explain::descriptor) const fn explain_execution_mode
         ExplainExecutionMode::Streaming
     } else {
         ExplainExecutionMode::Materialized
+    }
+}
+
+pub(in crate::db::executor::explain::descriptor) const fn explain_aggregate_ordering_source(
+    route_plan: &ExecutionRoutePlan,
+    route_shape: ExecutionRouteShape,
+) -> ExplainExecutionOrderingSource {
+    match route_plan.aggregate_seek_spec() {
+        Some(AggregateSeekSpec::First { fetch }) => {
+            ExplainExecutionOrderingSource::IndexSeekFirst { fetch }
+        }
+        Some(AggregateSeekSpec::Last { fetch }) => {
+            ExplainExecutionOrderingSource::IndexSeekLast { fetch }
+        }
+        None if route_shape.is_materialized() => ExplainExecutionOrderingSource::Materialized,
+        None => ExplainExecutionOrderingSource::AccessOrder,
     }
 }
 

@@ -99,7 +99,7 @@ fn load_entrypoint_leaf_modules_do_not_resolve_continuation_directly() {
                 path.display()
             );
         });
-        if source.contains("ContinuationEngine::resolve_") {
+        if source.contains("LoadCursorResolver::resolve_") {
             let relative = path
                 .strip_prefix(&entrypoints_root)
                 .unwrap_or(path.as_path())

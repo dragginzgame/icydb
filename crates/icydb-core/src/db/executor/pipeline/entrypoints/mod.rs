@@ -11,8 +11,8 @@ use crate::{
         PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
-            ResolvedLoadCursorContext,
+            ExecutablePlan, ExecutionTrace, LoadCursorInput, LoadCursorResolver,
+            PreparedLoadCursor, PreparedLoadPlan,
             pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         },
         response::EntityResponse,
@@ -40,17 +40,6 @@ pub(in crate::db) use scalar::{
     execute_initial_scalar_rows_for_canister, execute_initial_scalar_text_rows_for_canister,
 };
 
-// Resolve one load-entry cursor contract without depending on typed entity
-// state. Entrypoint wrappers can share this boundary across all entities in the
-// same canister.
-fn resolve_entrypoint_cursor(
-    plan: &PreparedLoadPlan,
-    cursor: LoadCursorInput,
-    execution_mode: LoadExecutionMode,
-) -> Result<ResolvedLoadCursorContext, InternalError> {
-    ContinuationEngine::resolve_load_cursor_context(plan, cursor, execution_mode.requested_shape())
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -61,8 +50,8 @@ where
         plan: &PreparedLoadPlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
-    ) -> Result<ResolvedLoadCursorContext, InternalError> {
-        resolve_entrypoint_cursor(plan, cursor, execution_mode)
+    ) -> Result<PreparedLoadCursor, InternalError> {
+        LoadCursorResolver::resolve_load_cursor_context(plan, cursor, execution_mode)
     }
 }
 
