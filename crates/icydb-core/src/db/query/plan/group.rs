@@ -106,9 +106,9 @@ impl GroupedAggregateProjectionSpec {
 }
 
 impl GroupedAggregateExecutionSpec {
-    /// Build one grouped aggregate execution spec from one aggregate
+    /// Build one grouped aggregate execution spec from one grouped aggregate
     /// projection spec and one structural model context.
-    pub(in crate::db) fn from_aggregate_expr_with_model(
+    pub(in crate::db) fn from_projection_spec_with_model(
         model: &'static EntityModel,
         aggregate_projection_spec: &GroupedAggregateProjectionSpec,
     ) -> Result<Self, InternalError> {
@@ -360,7 +360,7 @@ pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
     aggregate_projection_specs
         .iter()
         .map(|aggregate_projection_spec| {
-            GroupedAggregateExecutionSpec::from_aggregate_expr_with_model(
+            GroupedAggregateExecutionSpec::from_projection_spec_with_model(
                 model,
                 aggregate_projection_spec,
             )

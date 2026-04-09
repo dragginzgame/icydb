@@ -9,7 +9,7 @@ use crate::{
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
-            FieldSlot,
+            FieldSlot, GroupedAggregateProjectionSpec,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
     },
@@ -120,6 +120,13 @@ fn eval_scalar_expr_for_row(
         .expect("persisted row should decode structurally");
 
     eval_scalar_projection_expr(&compiled, &row_fields)
+}
+
+fn grouped_projection_specs<const N: usize>(
+    aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; N],
+) -> [GroupedAggregateProjectionSpec; N] {
+    aggregate_exprs
+        .map(|aggregate_expr| GroupedAggregateProjectionSpec::from_aggregate_expr(&aggregate_expr))
 }
 
 ///
@@ -511,12 +518,12 @@ fn ordering_is_preserved_when_projecting_computed_fields() {
 #[test]
 fn grouped_projection_arithmetic_over_group_field_evaluates() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; 0] = [];
+    let aggregate_projection_specs: [GroupedAggregateProjectionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
         &[],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let expr = Expr::Binary {
         op: BinaryOp::Add,
@@ -535,12 +542,12 @@ fn grouped_projection_arithmetic_over_group_field_evaluates() {
 #[test]
 fn grouped_projection_supports_numeric_equality_widening() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; 0] = [];
+    let aggregate_projection_specs: [GroupedAggregateProjectionSpec; 0] = [];
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
         &[],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
@@ -559,13 +566,13 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
         FieldSlot::from_parts_for_test(1, "rank"),
         FieldSlot::from_parts_for_test(2, "label"),
     ];
-    let aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; 0] = [];
+    let aggregate_projection_specs: [GroupedAggregateProjectionSpec; 0] = [];
     let key_values = [Value::Int(7), Value::Text("label-7".to_string())];
     let grouped_row = GroupedRowView::new(
         key_values.as_slice(),
         &[],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
@@ -585,12 +592,12 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
 #[test]
 fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs = [sum("rank")];
+    let aggregate_projection_specs = grouped_projection_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
         &[Value::Int(40)],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let expr = Expr::Binary {
         op: BinaryOp::Add,
@@ -610,12 +617,12 @@ fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
 #[test]
 fn grouped_projection_alias_wrapping_is_semantic_no_op() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs = [sum("rank")];
+    let aggregate_projection_specs = grouped_projection_specs([sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
         &[Value::Int(40)],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let plain = Expr::Binary {
         op: BinaryOp::Add,
@@ -644,12 +651,12 @@ fn grouped_projection_alias_wrapping_is_semantic_no_op() {
 #[test]
 fn grouped_projection_column_order_is_stable() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs = [count(), sum("rank")];
+    let aggregate_projection_specs = grouped_projection_specs([count(), sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
         &[Value::Uint(3), Value::Int(40)],
         group_fields.as_slice(),
-        aggregate_exprs.as_slice(),
+        aggregate_projection_specs.as_slice(),
     );
     let projection = ProjectionSpec::from_fields_for_test(vec![
         ProjectionField::Scalar {
@@ -781,7 +788,7 @@ fn expression_projection_column_identity_is_deterministic() {
 #[test]
 fn grouped_projection_ordering_preserves_input_group_order() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
-    let aggregate_exprs = [sum("rank")];
+    let aggregate_projection_specs = grouped_projection_specs([sum("rank")]);
     let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
         expr: Expr::Binary {
             op: BinaryOp::Add,
@@ -801,7 +808,7 @@ fn grouped_projection_ordering_preserves_input_group_order() {
             key_values.as_slice(),
             aggregate_values.as_slice(),
             group_fields.as_slice(),
-            aggregate_exprs.as_slice(),
+            aggregate_projection_specs.as_slice(),
         );
         let evaluated = evaluate_grouped_projection_values(&projection, &row_view)
             .expect("grouped projection should evaluate per-row");

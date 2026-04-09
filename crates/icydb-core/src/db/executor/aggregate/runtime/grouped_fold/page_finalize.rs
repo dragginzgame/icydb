@@ -30,7 +30,7 @@ pub(super) fn finalize_grouped_page(
         grouped_projection_spec,
         route.projection_layout(),
         route.group_fields(),
-        route.grouped_aggregate_exprs(),
+        route.grouped_aggregate_projection_specs(),
         page_rows,
     )?;
     let next_cursor = next_cursor_boundary

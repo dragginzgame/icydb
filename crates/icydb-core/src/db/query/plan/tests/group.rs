@@ -1104,11 +1104,20 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
             .collect::<Vec<_>>(),
         vec!["rank".to_string(), "tag".to_string()]
     );
-    assert_eq!(handoff.aggregate_exprs().len(), 2);
-    assert_eq!(handoff.aggregate_exprs()[0].kind(), AggregateKind::Count);
-    assert_eq!(handoff.aggregate_exprs()[0].target_field(), None);
-    assert_eq!(handoff.aggregate_exprs()[1].kind(), AggregateKind::Max);
-    assert_eq!(handoff.aggregate_exprs()[1].target_field(), Some("rank"));
+    assert_eq!(handoff.aggregate_projection_specs().len(), 2);
+    assert_eq!(
+        handoff.aggregate_projection_specs()[0].kind(),
+        AggregateKind::Count
+    );
+    assert_eq!(handoff.aggregate_projection_specs()[0].target_field(), None);
+    assert_eq!(
+        handoff.aggregate_projection_specs()[1].kind(),
+        AggregateKind::Max
+    );
+    assert_eq!(
+        handoff.aggregate_projection_specs()[1].target_field(),
+        Some("rank")
+    );
     assert_eq!(handoff.execution().max_groups(), 11);
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
@@ -1144,7 +1153,7 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
     let handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
         GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field }
@@ -1173,7 +1182,7 @@ fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
     let handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
         GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field }
@@ -1202,7 +1211,7 @@ fn grouped_executor_handoff_lowers_global_distinct_avg_execution_strategy() {
     let handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
         GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field }
@@ -1334,7 +1343,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             let handoff = grouped_executor_handoff(&grouped)
                 .expect("grouped logical plans should build handoff");
             let aggregate_vector = handoff
-                .aggregate_exprs()
+                .aggregate_projection_specs()
                 .iter()
                 .map(|aggregate| {
                     (

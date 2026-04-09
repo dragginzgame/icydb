@@ -407,14 +407,14 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
         grouped_plan_strategy(plan).expect("grouped route snapshot requires grouped strategy");
     let handoff = grouped_executor_handoff(plan).expect("grouped route snapshot requires handoff");
     let aggregate_contracts = handoff
-        .aggregate_exprs()
+        .aggregate_projection_specs()
         .iter()
-        .map(|aggregate_expr| {
+        .map(|aggregate_projection_spec| {
             format!(
                 "{:?}:{:?}:{}",
-                aggregate_expr.kind(),
-                aggregate_expr.target_field(),
-                aggregate_expr.is_distinct()
+                aggregate_projection_spec.kind(),
+                aggregate_projection_spec.target_field(),
+                aggregate_projection_spec.distinct()
             )
         })
         .collect::<Vec<_>>();
@@ -2627,14 +2627,17 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
 
     assert_eq!(grouped_handoff.group_fields().len(), 1);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
-    assert_eq!(grouped_handoff.aggregate_exprs().len(), kind_cases.len());
+    assert_eq!(
+        grouped_handoff.aggregate_projection_specs().len(),
+        kind_cases.len()
+    );
     for (index, expected_kind) in kind_cases.iter().enumerate() {
         assert_eq!(
-            grouped_handoff.aggregate_exprs()[index].kind(),
+            grouped_handoff.aggregate_projection_specs()[index].kind(),
             *expected_kind
         );
         assert_eq!(
-            grouped_handoff.aggregate_exprs()[index].target_field(),
+            grouped_handoff.aggregate_projection_specs()[index].target_field(),
             None
         );
     }
@@ -2658,13 +2661,13 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(grouped_handoff.aggregate_exprs().len(), 1);
+    assert_eq!(grouped_handoff.aggregate_projection_specs().len(), 1);
     assert_eq!(
-        grouped_handoff.aggregate_exprs()[0].kind(),
+        grouped_handoff.aggregate_projection_specs()[0].kind(),
         AggregateKind::Max
     );
     assert_eq!(
-        grouped_handoff.aggregate_exprs()[0].target_field(),
+        grouped_handoff.aggregate_projection_specs()[0].target_field(),
         Some("rank")
     );
 }
@@ -2702,9 +2705,12 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(grouped_handoff.aggregate_exprs().len(), grouped_cases.len());
+    assert_eq!(
+        grouped_handoff.aggregate_projection_specs().len(),
+        grouped_cases.len()
+    );
     for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
-        let aggregate = &grouped_handoff.aggregate_exprs()[index];
+        let aggregate = &grouped_handoff.aggregate_projection_specs()[index];
         assert_eq!(aggregate.kind(), *expected_kind);
         assert_eq!(aggregate.target_field(), *expected_target);
     }

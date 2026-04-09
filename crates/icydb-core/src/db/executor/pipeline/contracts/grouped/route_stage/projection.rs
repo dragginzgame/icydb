@@ -155,7 +155,7 @@ impl GroupedRouteStage {
     }
 
     /// Borrow grouped aggregate projection-spec list.
-    pub(in crate::db::executor) const fn grouped_aggregate_exprs(
+    pub(in crate::db::executor) const fn grouped_aggregate_projection_specs(
         &self,
     ) -> &[crate::db::query::plan::GroupedAggregateProjectionSpec] {
         self.planner_payload
