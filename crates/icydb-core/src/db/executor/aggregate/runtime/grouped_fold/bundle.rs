@@ -40,21 +40,39 @@ pub(super) struct GroupedAggregateBundleSpec {
 }
 
 impl GroupedAggregateBundleSpec {
+    // Build the canonical grouped bundle invariant for unsupported field-target
+    // aggregate kinds that should already have been removed before grouped
+    // bundle construction.
+    fn unsupported_field_target_aggregate(kind: AggregateKind) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped field-target aggregate reached executor after planning: {kind:?}",
+        ))
+    }
+
     /// Build one bundle aggregate-slot blueprint.
-    pub(super) const fn new(
+    pub(super) fn new(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
         target_field: Option<FieldSlot>,
         max_distinct_values_per_group: u64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        if target_field.is_some()
+            && !matches!(
+                kind,
+                AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+            )
+        {
+            return Err(Self::unsupported_field_target_aggregate(kind));
+        }
+
+        Ok(Self {
             kind,
             direction,
             distinct,
             target_field,
             max_distinct_values_per_group,
-        }
+        })
     }
 
     // Materialize one grouped terminal reducer state for this aggregate slot.

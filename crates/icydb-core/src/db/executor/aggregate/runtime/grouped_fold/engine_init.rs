@@ -44,7 +44,7 @@ pub(super) fn build_grouped_bundle(
                     )
                 })?;
 
-            Ok::<GroupedAggregateBundleSpec, InternalError>(GroupedAggregateBundleSpec::new(
+            GroupedAggregateBundleSpec::new(
                 aggregate_spec.kind(),
                 aggregate_materialized_fold_direction(aggregate_spec.kind()),
                 aggregate_spec.distinct(),
@@ -52,7 +52,7 @@ pub(super) fn build_grouped_bundle(
                 grouped_execution_context
                     .config()
                     .max_distinct_values_per_group(),
-            ))
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
 
