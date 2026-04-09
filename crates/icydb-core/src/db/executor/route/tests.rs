@@ -3055,11 +3055,11 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
     let actual = grouped_aggregate_route_snapshot(&grouped);
     let expected = [
         "grouped=true".to_string(),
-        "planner_strategy=GroupedPlanStrategy { family: HashGroup, fallback_reason: Some(AggregateStreamingNotSupported) }".to_string(),
+        "planner_strategy=GroupedPlanStrategy { family: HashGroup, fallback_reason: Some(GroupKeyOrderUnavailable) }".to_string(),
         "aggregate_contracts=[\"Avg:Some(\\\"rank\\\"):false\"]".to_string(),
         "route_strategy=AggregateGrouped".to_string(),
         "execution_mode=Materialized".to_string(),
-        "planner_fallback_reason=Some(AggregateStreamingNotSupported)".to_string(),
+        "planner_fallback_reason=Some(GroupKeyOrderUnavailable)".to_string(),
         "grouped_execution_strategy=HashMaterialized".to_string(),
         "fold_mode=ExistingRows".to_string(),
     ]

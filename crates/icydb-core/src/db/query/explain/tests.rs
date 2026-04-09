@@ -651,7 +651,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
-            fallback_reason: Some(ExplainGroupedFallbackReason::GroupKeyOrderUnavailable),
+            fallback_reason: Some(ExplainGroupedFallbackReason::AggregateStreamingNotSupported),
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -760,7 +760,7 @@ access=FullScan
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: HashGroup, fallback_reason: Some(GroupKeyOrderUnavailable), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
+grouping=Grouped { strategy: HashGroup, fallback_reason: Some(AggregateStreamingNotSupported), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
