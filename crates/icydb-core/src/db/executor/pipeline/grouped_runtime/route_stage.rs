@@ -21,7 +21,7 @@ use crate::{
             },
             validate_executor_plan_for_authority,
         },
-        query::plan::grouped_executor_handoff,
+        query::plan::{grouped_aggregate_execution_specs_with_model, grouped_executor_handoff},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -47,6 +47,10 @@ where
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
+        let grouped_aggregate_execution_specs = grouped_aggregate_execution_specs_with_model(
+            authority.model(),
+            grouped_aggregate_exprs.as_slice(),
+        )?;
         let projection_layout = grouped_handoff.projection_layout().clone();
         debug_assert!(
             grouped_handoff.projection_layout_valid(),
@@ -102,6 +106,7 @@ where
                 entity_model: authority.model(),
                 grouped_execution,
                 group_fields,
+                grouped_aggregate_execution_specs,
                 grouped_aggregate_exprs,
                 projection_layout,
                 grouped_having,

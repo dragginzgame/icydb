@@ -2345,6 +2345,179 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
 }
 
 #[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_index_prefix_shape() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: Some("label".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index_prefix_shape() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("label".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index_prefix_shape() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("label".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_predicate_shape() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_shape() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::index_range(
+            ROUTE_CAPABILITY_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        ),
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+    assert_eq!(grouped_observability.planner_fallback_reason(), None);
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
+    );
+}
+
+#[test]
 fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicate_exists() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {

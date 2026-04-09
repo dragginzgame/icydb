@@ -781,6 +781,60 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
 }
 
 #[test]
+fn grouped_plan_accepts_count_field_aggregate_terminal_in_grouped_v1() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("grouped COUNT(field) should be accepted in grouped v1");
+}
+
+#[test]
+fn grouped_plan_accepts_sum_field_aggregate_terminal_in_grouped_v1() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("grouped SUM(field) should be accepted in grouped v1");
+}
+
+#[test]
+fn grouped_plan_accepts_avg_field_aggregate_terminal_in_grouped_v1() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("grouped AVG(field) should be accepted in grouped v1");
+}
+
+#[test]
 fn grouped_plan_accepts_distinct_count_aggregate_terminal() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");

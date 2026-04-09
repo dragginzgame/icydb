@@ -12,10 +12,12 @@ use crate::{
             GroupedExecutionConfig, GroupedPlanStrategy,
             expr::{Expr, ProjectionField, ProjectionSpec},
             grouped_distinct_admissibility, grouped_plan_strategy,
-            resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
+            resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
+            validate_grouped_projection_layout,
         },
     },
     error::InternalError,
+    model::entity::EntityModel,
 };
 
 ///
@@ -30,6 +32,66 @@ use crate::{
 pub(in crate::db) struct PlannedProjectionLayout {
     pub(in crate::db) group_field_positions: Vec<usize>,
     pub(in crate::db) aggregate_positions: Vec<usize>,
+}
+
+///
+/// GroupedAggregateExecutionSpec
+///
+/// GroupedAggregateExecutionSpec carries one planner-lowered grouped aggregate
+/// execution contract into grouped route/runtime stages.
+/// This keeps grouped target-slot resolution structural so grouped execution
+/// does not rediscover field-target inputs inside runtime loops.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GroupedAggregateExecutionSpec {
+    kind: AggregateKind,
+    target_field: Option<FieldSlot>,
+    distinct: bool,
+}
+
+impl GroupedAggregateExecutionSpec {
+    /// Build one grouped aggregate execution spec from one aggregate
+    /// expression and one structural model context.
+    pub(in crate::db) fn from_aggregate_expr_with_model(
+        model: &'static EntityModel,
+        aggregate_expr: &AggregateExpr,
+    ) -> Result<Self, InternalError> {
+        let target_field = aggregate_expr
+            .target_field()
+            .map(|field| {
+                resolve_aggregate_target_field_slot(model, field).map_err(|err| {
+                    InternalError::planner_executor_invariant(format!(
+                        "grouped aggregate execution target slot resolution failed: field='{field}', error={err}",
+                    ))
+                })
+            })
+            .transpose()?;
+
+        Ok(Self {
+            kind: aggregate_expr.kind(),
+            target_field,
+            distinct: aggregate_expr.is_distinct(),
+        })
+    }
+
+    /// Return the grouped aggregate kind.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow the optional grouped aggregate target slot.
+    #[must_use]
+    pub(in crate::db) const fn target_field(&self) -> Option<&FieldSlot> {
+        self.target_field.as_ref()
+    }
+
+    /// Return whether the grouped aggregate uses DISTINCT semantics.
+    #[must_use]
+    pub(in crate::db) const fn distinct(&self) -> bool {
+        self.distinct
+    }
 }
 
 impl PlannedProjectionLayout {
@@ -230,6 +292,20 @@ pub(in crate::db) fn grouped_executor_handoff(
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,
     })
+}
+
+/// Build grouped aggregate execution specs from planner-owned aggregate
+/// expressions and one structural model context.
+pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
+    model: &'static EntityModel,
+    aggregate_exprs: &[AggregateExpr],
+) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
+    aggregate_exprs
+        .iter()
+        .map(|aggregate_expr| {
+            GroupedAggregateExecutionSpec::from_aggregate_expr_with_model(model, aggregate_expr)
+        })
+        .collect()
 }
 
 ///

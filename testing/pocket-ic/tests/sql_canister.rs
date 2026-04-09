@@ -2954,6 +2954,310 @@ fn sql_canister_query_lane_supports_grouped_explain() {
 }
 
 #[test]
+fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_order_only() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_exact_prefix_filter()
+{
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped COUNT(field) EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_for_customer_exact_prefix_filter()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped COUNT(field) EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_sum_field_explain_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped SUM(field) EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped AVG(field) EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_customer_exact_prefix_filter()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped AVG(field) EXPLAIN should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped COUNT(field) EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_sum_field_explain_execution_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped SUM(field) EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped SUM(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_group_for_customer_order_only()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "Customer grouped AVG(field) EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let explain = query_explain_text(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should return an explain payload",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_global_aggregate_explain() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(pic, canister_id, "EXPLAIN SELECT COUNT(*) FROM Customer")

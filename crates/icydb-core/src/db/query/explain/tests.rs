@@ -219,6 +219,177 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
 }
 
 #[test]
+fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_index_prefix_shapes() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index_prefix_shapes() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index_prefix_shapes() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicate_shapes() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![Value::Text("alpha".to_string())],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq(
+        "tag".to_string(),
+        Value::Text("alpha".to_string()),
+    ));
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_shapes() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::index_range(
+            PUSHDOWN_INDEX,
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        ),
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {

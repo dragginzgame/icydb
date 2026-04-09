@@ -10,6 +10,7 @@ use crate::{
             aggregate::contracts::{error::GroupError, spec::AggregateKind},
             group::{CanonicalKey, GroupKey, GroupKeySet, StableHash},
         },
+        query::plan::FieldSlot,
     },
     value::Value,
 };
@@ -247,6 +248,7 @@ impl ExecutionContext {
     ///
     /// This keeps grouped state construction policy-owned by executor context
     /// so grouped operators cannot bypass centralized budget/config plumbing.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) fn create_grouped_state(
         &self,
@@ -254,14 +256,30 @@ impl ExecutionContext {
         direction: Direction,
         distinct: bool,
     ) -> GroupedAggregateState {
+        self.create_grouped_state_with_target(kind, direction, distinct, None)
+    }
+
+    /// Build one grouped aggregate state with one optional field-target slot.
+    ///
+    /// This keeps grouped field-target widening structural without forcing
+    /// existing grouped callers to thread unused target-slot inputs.
+    #[must_use]
+    pub(in crate::db::executor) fn create_grouped_state_with_target(
+        &self,
+        kind: AggregateKind,
+        direction: Direction,
+        distinct: bool,
+        target_field: Option<FieldSlot>,
+    ) -> GroupedAggregateState {
         debug_assert!(
             self.config.max_groups() > 0 || self.config.max_group_bytes() > 0,
             "grouped execution config must expose at least one positive hard limit"
         );
-        GroupedAggregateState::new(
+        GroupedAggregateState::new_with_target(
             kind,
             direction,
             distinct,
+            target_field,
             self.config.max_distinct_values_per_group(),
         )
     }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::db::query::explain::{
-    ExplainExecutionNodeType, ExplainGroupedFallbackReason, ExplainGrouping,
+    ExplainExecutionNodeType, ExplainGroupedFallbackReason, ExplainGroupedStrategy, ExplainGrouping,
 };
 
 #[test]
@@ -122,6 +122,788 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
             .get("grouped_plan_fallback_reason"),
         Some(&Value::from("group_key_order_unavailable")),
         "grouped aggregate node should inherit the same planner-owned grouped fallback reason",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_grouped_explain_and_execution_project_ordered_group_publicly() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed grouped explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed grouped logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed grouped execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("grouped_route_outcome"),
+        Some(&Value::from("materialized_fallback")),
+        "indexed grouped execution explain root should surface the grouped route outcome",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed grouped execution explain root should surface the ordered grouped execution strategy",
+    );
+
+    let grouped_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+    )
+    .expect(
+        "indexed grouped execution explain should emit an explicit ordered grouped aggregate node",
+    );
+    assert_eq!(
+        grouped_node
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped aggregate node should inherit the same no-fallback planner state",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_grouped_count_field_explain_and_execution_project_ordered_group_publicly()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed grouped COUNT(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed grouped COUNT(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed grouped COUNT(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped COUNT(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed grouped COUNT(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_grouped_sum_field_explain_and_execution_project_ordered_group_publicly() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed grouped SUM(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed grouped SUM(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed grouped SUM(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_grouped_avg_field_explain_and_execution_project_ordered_group_publicly() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, AVG(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed grouped AVG(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed grouped AVG(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed grouped AVG(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_count_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one grouped ordered cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted indexed grouped shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped COUNT(*) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (Value::Text("alpha".to_string()), Value::Uint(2)),
+        (Value::Text("bravo".to_string()), Value::Uint(1)),
+        (Value::Text("charlie".to_string()), Value::Uint(2)),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped COUNT(*) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed grouped COUNT(*) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_count_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one grouped ordered field-count cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted indexed grouped COUNT(field) shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped COUNT(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (Value::Text("alpha".to_string()), Value::Uint(2)),
+        (Value::Text("bravo".to_string()), Value::Uint(1)),
+        (Value::Text("charlie".to_string()), Value::Uint(2)),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped COUNT(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed grouped COUNT(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_sum_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one grouped ordered SUM(field) cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted indexed grouped SUM(field) shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped SUM(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (
+            Value::Text("alpha".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("bravo".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("charlie".to_string()),
+            Value::Decimal(crate::types::Decimal::from(90_u64)),
+        ),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed grouped SUM(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_avg_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one grouped ordered AVG(field) cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted indexed grouped AVG(field) shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, AVG(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped AVG(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (
+            Value::Text("alpha".to_string()),
+            Value::Decimal(crate::types::Decimal::from(15_u64)),
+        ),
+        (
+            Value::Text("bravo".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("charlie".to_string()),
+            Value::Decimal(crate::types::Decimal::from(45_u64)),
+        ),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped AVG(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed grouped AVG(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_filtered_grouped_explain_and_execution_project_ordered_group_publicly() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed filtered grouped explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed filtered grouped logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed filtered grouped execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed filtered grouped execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed filtered grouped execution explain root should surface the ordered grouped execution strategy",
+    );
+
+    let grouped_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+    )
+    .expect("indexed filtered grouped execution explain should emit an explicit ordered grouped aggregate node");
+    assert_eq!(
+        grouped_node
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed filtered grouped aggregate node should inherit the same no-fallback planner state",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_filtered_grouped_sum_field_explain_and_execution_project_ordered_group_publicly()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed filtered grouped SUM(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed filtered grouped SUM(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed filtered grouped SUM(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed filtered grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed filtered grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
+fn query_from_sql_indexed_filtered_grouped_avg_field_explain_and_execution_project_ordered_group_publicly()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, AVG(age) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed filtered grouped AVG(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed filtered grouped AVG(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed filtered grouped AVG(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed filtered grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed filtered grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_filtered_count_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("delta", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted filtered grouped shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed filtered grouped COUNT(*) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![(Value::Text("alpha".to_string()), Value::Uint(2))];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed filtered grouped COUNT(*) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed filtered grouped COUNT(*) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_filtered_sum_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered SUM(field) cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("delta", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted filtered grouped SUM(field) shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed filtered grouped SUM(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![(
+        Value::Text("alpha".to_string()),
+        Value::Decimal(crate::types::Decimal::from(30_u64)),
+    )];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed filtered grouped SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed filtered grouped SUM(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_filtered_avg_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered AVG(field) cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("delta", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted filtered grouped AVG(field) shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, AVG(age) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed filtered grouped AVG(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![(
+        Value::Text("alpha".to_string()),
+        Value::Decimal(crate::types::Decimal::from(15_u64)),
+    )];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed filtered grouped AVG(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed filtered grouped AVG(field) should fully materialize under LIMIT 10",
     );
 }
 

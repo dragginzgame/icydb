@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         aggregate::{
-            ExecutionContext, GroupedAggregateEngine,
+            AggregateKind, ExecutionContext, GroupedAggregateEngine,
             runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
         pipeline::contracts::GroupedRouteStage,
@@ -32,8 +32,8 @@ pub(super) fn build_grouped_engines(
         .iter()
         .enumerate()
         .map(|(aggregate_index, projection_index)| {
-            let aggregate_expr = route
-                .grouped_aggregate_exprs()
+            let aggregate_spec = route
+                .grouped_aggregate_execution_specs()
                 .get(aggregate_index)
                 .ok_or_else(|| {
                     GroupedRouteStage::aggregate_index_out_of_bounds_for_projection_layout(
@@ -41,17 +41,25 @@ pub(super) fn build_grouped_engines(
                         aggregate_index,
                     )
                 })?;
-            if aggregate_expr.target_field().is_some() {
+            if aggregate_spec.target_field().is_some()
+                && !matches!(
+                    aggregate_spec.kind(),
+                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                )
+            {
                 return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
-                    aggregate_expr.kind(),
+                    aggregate_spec.kind(),
                 ));
             }
 
-            Ok(Box::new(grouped_execution_context.create_grouped_state(
-                aggregate_expr.kind(),
-                aggregate_materialized_fold_direction(aggregate_expr.kind()),
-                aggregate_expr.is_distinct(),
-            )) as Box<dyn GroupedAggregateEngine>)
+            Ok(
+                Box::new(grouped_execution_context.create_grouped_state_with_target(
+                    aggregate_spec.kind(),
+                    aggregate_materialized_fold_direction(aggregate_spec.kind()),
+                    aggregate_spec.distinct(),
+                    aggregate_spec.target_field().cloned(),
+                )) as Box<dyn GroupedAggregateEngine>,
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
     let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];

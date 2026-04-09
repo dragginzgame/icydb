@@ -112,6 +112,22 @@ mod tests {
         typed_aggregate_value_for_sql_unchecked_as::<Customer>(sql)
     }
 
+    // Execute one grouped SQL statement through the typed grouped lane and
+    // project the grouped key plus first aggregate value into one stable test
+    // shape.
+    fn typed_grouped_rows_for_sql_as<E>(sql: &str) -> Vec<(Value, Value)>
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        test_db()
+            .execute_sql_grouped::<E>(sql, None)
+            .expect("typed execute_sql_grouped should succeed")
+            .items()
+            .iter()
+            .map(|row| (row.group_key()[0].clone(), row.aggregate_values()[0].clone()))
+            .collect::<Vec<_>>()
+    }
+
     fn perf_sample(surface: SqlPerfSurface, sql: &str) -> super::perf::SqlPerfSample {
         reload_default_fixtures();
         sample_sql_surface(SqlPerfRequest {
@@ -3419,6 +3435,218 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_customer_grouped_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_explain_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped COUNT(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped SUM(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped AVG(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexRange"),
+            "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped COUNT(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped SUM(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_projects_ordered_group()
+    {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped SUM(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped AVG(field) EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_projects_ordered_group()
+    {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("access=IndexPrefix"),
+            "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
+        );
+        assert!(
+            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_global_aggregate_explain_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "EXPLAIN SELECT COUNT(*) FROM Customer",
@@ -3467,6 +3695,388 @@ mod tests {
         assert_dispatch_result_matches_typed(
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
             "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_explain_execution_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_explain_execution_projects_ordered_group() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped COUNT(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped COUNT(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_matches_typed_surface()
+    {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped SUM(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped SUM(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_matches_typed_surface()
+    {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped AVG(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "Customer grouped AVG(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped COUNT(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped SUM(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped SUM(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<Customer>(
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped AVG(field) EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_projects_ordered_group(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("GroupedAggregateOrderedMaterialized")
+                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
+                && explain.contains("grouped_execution_strategy=Text(\"ordered_materialized\")"),
+            "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should surface the admitted ordered grouped execution family: {explain}",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_count_by_name_preserves_ordered_group_rows() {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (Value::Text("alice".to_string()), Value::Uint(1)),
+                (Value::Text("bob".to_string()), Value::Uint(1)),
+                (Value::Text("charlie".to_string()), Value::Uint(1)),
+            ],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted Customer order-only grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_filtered_count_by_name_preserves_ordered_group_rows(
+    ) {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![(Value::Text("alice".to_string()), Value::Uint(1))],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted filtered Customer grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_count_age_by_name_preserves_ordered_group_rows() {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (Value::Text("alice".to_string()), Value::Uint(1)),
+                (Value::Text("bob".to_string()), Value::Uint(1)),
+                (Value::Text("charlie".to_string()), Value::Uint(1)),
+            ],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted Customer COUNT(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_sum_age_by_name_preserves_ordered_group_rows() {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Value::Text("alice".to_string()),
+                    Value::Decimal(Decimal::from(31_u64)),
+                ),
+                (
+                    Value::Text("bob".to_string()),
+                    Value::Decimal(Decimal::from(24_u64)),
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    Value::Decimal(Decimal::from(43_u64)),
+                ),
+            ],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted Customer SUM(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_avg_age_by_name_preserves_ordered_group_rows() {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Value::Text("alice".to_string()),
+                    Value::Decimal(Decimal::from(31_u64)),
+                ),
+                (
+                    Value::Text("bob".to_string()),
+                    Value::Decimal(Decimal::from(24_u64)),
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    Value::Decimal(Decimal::from(43_u64)),
+                ),
+            ],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted Customer AVG(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_filtered_count_age_by_name_preserves_ordered_group_rows(
+    ) {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![(Value::Text("alice".to_string()), Value::Uint(1))],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted filtered Customer COUNT(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_filtered_sum_age_by_name_preserves_ordered_group_rows()
+    {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![(
+                Value::Text("alice".to_string()),
+                Value::Decimal(Decimal::from(31_u64)),
+            )],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted filtered Customer SUM(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_filtered_avg_age_by_name_preserves_ordered_group_rows()
+    {
+        reload_default_fixtures();
+
+        let rows = typed_grouped_rows_for_sql_as::<Customer>(
+            "SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+        );
+
+        assert_eq!(
+            rows,
+            vec![(
+                Value::Text("alice".to_string()),
+                Value::Decimal(Decimal::from(31_u64)),
+            )],
+            "typed execute_sql_grouped should preserve grouped-key order for the admitted filtered Customer AVG(field) grouped cohort",
         );
     }
 

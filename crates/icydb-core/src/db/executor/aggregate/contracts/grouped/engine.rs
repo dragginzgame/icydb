@@ -19,7 +19,9 @@ use crate::{
                 },
             },
             group::{GroupKey, StableHash, canonical_group_key_equals},
+            pipeline::contracts::RowView,
         },
+        query::plan::FieldSlot,
     },
     error::InternalError,
     value::Value,
@@ -81,12 +83,18 @@ pub(in crate::db::executor) struct GroupedAggregateState {
     kind: AggregateKind,
     direction: Direction,
     distinct: bool,
+    target_field: Option<FieldSlot>,
     max_distinct_values_per_group: u64,
     groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot>>,
 }
 
 impl GroupedAggregateState {
     /// Build one empty grouped aggregate state container.
+    #[cfg(test)]
+    #[expect(
+        dead_code,
+        reason = "grouped contract tests still exercise the compatibility constructor"
+    )]
     #[must_use]
     pub(in crate::db::executor::aggregate) const fn new(
         kind: AggregateKind,
@@ -94,10 +102,30 @@ impl GroupedAggregateState {
         distinct: bool,
         max_distinct_values_per_group: u64,
     ) -> Self {
+        Self::new_with_target(
+            kind,
+            direction,
+            distinct,
+            None,
+            max_distinct_values_per_group,
+        )
+    }
+
+    /// Build one empty grouped aggregate state container with one optional
+    /// grouped field-target slot.
+    #[must_use]
+    pub(in crate::db::executor::aggregate) const fn new_with_target(
+        kind: AggregateKind,
+        direction: Direction,
+        distinct: bool,
+        target_field: Option<FieldSlot>,
+        max_distinct_values_per_group: u64,
+    ) -> Self {
         Self {
             kind,
             direction,
             distinct,
+            target_field,
             max_distinct_values_per_group,
             groups: BTreeMap::new(),
         }
@@ -105,10 +133,23 @@ impl GroupedAggregateState {
 
     // Apply one `(group_key, data_key)` row into grouped aggregate state using
     // a borrowed grouped key to avoid hot-path clone churn at ingest callsites.
+    #[cfg(test)]
     pub(in crate::db::executor::aggregate) fn apply_borrowed(
         &mut self,
         group_key: &GroupKey,
         data_key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        self.apply_borrowed_with_row_view(group_key, data_key, None, execution_context)
+    }
+
+    // Apply one `(group_key, data_key)` row plus one already-decoded grouped
+    // row view when grouped field-target semantics need slot access.
+    pub(in crate::db::executor::aggregate) fn apply_borrowed_with_row_view(
+        &mut self,
+        group_key: &GroupKey,
+        data_key: &DataKey,
+        row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
         // Phase 1: resolve updates for existing buckets/groups.
@@ -118,7 +159,9 @@ impl GroupedAggregateState {
                 .iter_mut()
                 .find(|slot| canonical_group_key_equals(slot.group_key(), group_key))
             {
-                return slot.state.apply(data_key, execution_context);
+                return slot
+                    .state
+                    .apply_with_row_view(data_key, row_view, execution_context);
             }
 
             // New group in an existing bucket.
@@ -126,9 +169,10 @@ impl GroupedAggregateState {
                 self.kind,
                 self.direction,
                 self.distinct,
+                self.target_field.clone(),
                 self.max_distinct_values_per_group,
             );
-            let fold_control = state.apply(data_key, execution_context)?;
+            let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;
             execution_context.record_new_group(
                 group_key,
                 false,
@@ -148,9 +192,10 @@ impl GroupedAggregateState {
             self.kind,
             self.direction,
             self.distinct,
+            self.target_field.clone(),
             self.max_distinct_values_per_group,
         );
-        let fold_control = state.apply(data_key, execution_context)?;
+        let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;
         execution_context.record_new_group(group_key, true, 0, 0)?;
         self.groups.insert(
             hash,
@@ -172,17 +217,9 @@ impl GroupedAggregateState {
             .fold(0usize, |count, bucket| count.saturating_add(bucket.len()));
         let mut out = Vec::with_capacity(expected_output_count);
 
-        // Phase 1: walk stable-hash buckets in deterministic key order.
-        for (_, mut bucket) in self.groups {
-            // Phase 2: break hash-collision ties by canonical group-key value.
-            bucket.sort_by(|left, right| {
-                canonical_value_compare(
-                    left.group_key().canonical_value(),
-                    right.group_key().canonical_value(),
-                )
-            });
-
-            // Phase 3: finalize states in deterministic bucket order.
+        // Phase 1: finalize every grouped state slot into one flat output
+        // buffer without treating stable-hash bucket order as output order.
+        for (_, bucket) in self.groups {
             for slot in bucket {
                 out.push(GroupedAggregateOutput {
                     group_key: slot.group_key,
@@ -190,6 +227,17 @@ impl GroupedAggregateState {
                 });
             }
         }
+
+        // Phase 2: sort finalized rows globally by canonical grouped-key
+        // value so ordered grouped execution never inherits stable-hash
+        // bucket order as an accidental output contract.
+        out.sort_by(|left, right| {
+            canonical_value_compare(
+                left.group_key.canonical_value(),
+                right.group_key.canonical_value(),
+            )
+        });
+
         debug_assert_eq!(
             out.len(),
             expected_output_count,
@@ -215,6 +263,7 @@ pub(in crate::db::executor) trait GroupedAggregateEngine {
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
         group_key: &GroupKey,
+        row_view: &RowView,
     ) -> Result<FoldControl, GroupError>;
 
     /// Finalize one grouped aggregate engine into structural `(group_key, value)` pairs.
@@ -227,8 +276,9 @@ impl GroupedAggregateEngine for GroupedAggregateState {
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
         group_key: &GroupKey,
+        row_view: &RowView,
     ) -> Result<FoldControl, GroupError> {
-        self.apply_borrowed(group_key, data_key, execution_context)
+        self.apply_borrowed_with_row_view(group_key, data_key, Some(row_view), execution_context)
     }
 
     fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError> {

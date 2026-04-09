@@ -48,7 +48,20 @@ impl GroupAggregateSpec {
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
     pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
-        self.target_field.is_none() && (!self.distinct || self.kind.supports_grouped_distinct_v1())
+        match self.kind {
+            AggregateKind::Count => !self.distinct,
+            AggregateKind::Sum | AggregateKind::Avg => {
+                !self.distinct && self.target_field.is_some()
+            }
+            AggregateKind::Exists
+            | AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                self.target_field.is_none()
+                    && (!self.distinct || self.kind.supports_grouped_distinct_v1())
+            }
+        }
     }
 }
 

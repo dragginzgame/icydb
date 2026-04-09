@@ -114,7 +114,7 @@ pub(in crate::db) fn grouped_plan_strategy(
             GroupedPlanFallbackReason::DistinctGroupingNotAdmitted,
         ));
     }
-    if grouped.scalar.predicate.is_some() {
+    if plan.has_residual_predicate() {
         return Some(GroupedPlanStrategy::hash_group(
             GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder,
         ));
@@ -179,20 +179,42 @@ fn grouped_access_path_proves_group_order<K>(
 ) -> bool {
     // Derive grouped-order evidence from the normalized executable access contract so
     // planner strategy hints do not branch on raw AccessPath variants directly.
+    //
+    // Both index-prefix and index-range shapes can preserve grouped key order:
+    // - `IndexPrefix` proves one leading equality prefix plus ordered suffix traversal.
+    // - `IndexRange` proves one ordered range traversal after its equality prefix.
+    //
+    // Grouped planning only needs the stable `(index, prefix_len)` contract here,
+    // not the raw range bounds themselves.
     let executable = access.resolve_strategy();
     let Some(path) = executable.as_path() else {
         return false;
     };
-    let Some((index, prefix_len)) = path.index_prefix_details() else {
+    let Some((index, prefix_len)) = path
+        .index_prefix_details()
+        .or_else(|| path.index_range_details())
+    else {
         return false;
     };
-    let required_end = prefix_len.saturating_add(group_fields.len());
-    if required_end > index.fields().len() {
-        return false;
+    let index_fields = index.fields();
+    let mut cursor = 0usize;
+
+    // Equality-bound prefix fields are fixed constants during traversal, so
+    // grouped-order proof may skip them until the next declared grouped key.
+    // Any gap beyond the equality prefix remains unfixed and therefore blocks
+    // ordered grouping.
+    for group_field in group_fields {
+        while cursor < prefix_len
+            && cursor < index_fields.len()
+            && index_fields[cursor] != group_field.field()
+        {
+            cursor = cursor.saturating_add(1);
+        }
+        if cursor >= index_fields.len() || index_fields[cursor] != group_field.field() {
+            return false;
+        }
+        cursor = cursor.saturating_add(1);
     }
 
-    group_fields
-        .iter()
-        .zip(index.fields()[prefix_len..required_end].iter())
-        .all(|(group_field, index_field)| group_field.field() == *index_field)
+    true
 }

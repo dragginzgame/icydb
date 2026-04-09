@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.73.x] 🧮 - 2026-04-09 - Grouped Aggregate Planning
 
+- `0.73.1` widens the first admitted grouped aggregate cohort so indexed single-key grouped reads, including simple fully indexable filtered shapes, can keep `COUNT(field)`, `SUM(field)`, and `AVG(field)` on the ordered grouped planning path instead of falling back to the generic hash-group route.
 - `0.73.0` starts the grouped aggregate planning line by making grouped strategy and grouped fallback reasons planner-owned artifacts that execution, fingerprints, and `EXPLAIN` all project from directly, and by exposing that grouped fallback story on the public grouped explain surfaces without widening grouped route-admission policy yet.
 
 See detailed breakdown:

@@ -140,6 +140,15 @@ impl GroupedRouteStage {
         self.planner_payload.group_fields.as_slice()
     }
 
+    /// Borrow planner-lowered grouped aggregate execution specs.
+    pub(in crate::db::executor) const fn grouped_aggregate_execution_specs(
+        &self,
+    ) -> &[crate::db::query::plan::GroupedAggregateExecutionSpec] {
+        self.planner_payload
+            .grouped_aggregate_execution_specs
+            .as_slice()
+    }
+
     /// Borrow grouped aggregate expression list.
     pub(in crate::db::executor) const fn grouped_aggregate_exprs(
         &self,
