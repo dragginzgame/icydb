@@ -3020,7 +3020,8 @@ fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_o
             "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
@@ -3042,7 +3043,8 @@ fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_e
             "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
@@ -3064,7 +3066,8 @@ fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_fo
             "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
@@ -3086,7 +3089,8 @@ fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_fo
             "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
@@ -3108,7 +3112,8 @@ fn sql_canister_query_lane_grouped_sum_field_explain_projects_ordered_group_for_
             "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
@@ -3130,7 +3135,8 @@ fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_
             "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });

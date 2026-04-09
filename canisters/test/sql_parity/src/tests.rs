@@ -3472,7 +3472,7 @@ mod tests {
             "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3498,7 +3498,7 @@ mod tests {
             "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3524,7 +3524,7 @@ mod tests {
             "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3550,7 +3550,7 @@ mod tests {
             "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3576,7 +3576,7 @@ mod tests {
             "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3604,7 +3604,7 @@ mod tests {
             "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3631,7 +3631,7 @@ mod tests {
             "filtered Customer grouped SUM(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3658,7 +3658,7 @@ mod tests {
             "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
