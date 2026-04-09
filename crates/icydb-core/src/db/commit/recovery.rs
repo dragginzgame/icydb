@@ -21,6 +21,7 @@ use crate::{
         Db,
         commit::{
             memory::configure_commit_memory_id,
+            rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
             store::{commit_marker_present_fast, with_commit_store},
         },
         diagnostics::integrity_report_after_recovery,
@@ -67,12 +68,12 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
         // Phase 1: replay persisted row operations while marker authority is active.
-        db.replay_commit_marker_row_ops(&marker.row_ops)
+        replay_commit_marker_row_ops(db, &marker.row_ops)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
     // Phase 2: rebuild secondary indexes from authoritative data rows.
-    db.rebuild_secondary_indexes_from_rows()
+    rebuild_secondary_indexes_from_rows(db)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 3: enforce post-recovery integrity before clearing marker authority.

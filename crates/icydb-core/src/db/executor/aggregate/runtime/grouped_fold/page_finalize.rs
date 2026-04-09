@@ -28,6 +28,7 @@ pub(super) fn finalize_grouped_page(
         finalize_grouped_page_rows(grouped_candidate_rows, pagination_window)?;
     let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
+        route.projection_is_identity(),
         route.projection_layout(),
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),

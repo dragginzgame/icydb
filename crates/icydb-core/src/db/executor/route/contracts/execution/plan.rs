@@ -166,14 +166,11 @@ impl ExecutionRoutePlan {
                 );
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {
-                    match self.execution_mode {
-                        RouteExecutionMode::Materialized => {
-                            (GroupedRouteDecisionOutcome::MaterializedFallback, None)
-                        }
-                        RouteExecutionMode::Streaming => {
-                            (GroupedRouteDecisionOutcome::Selected, None)
-                        }
-                    }
+                    debug_assert!(
+                        matches!(self.execution_mode, RouteExecutionMode::Materialized),
+                        "grouped route observability currently models only materialized grouped execution",
+                    );
+                    (GroupedRouteDecisionOutcome::MaterializedFallback, None)
                 } else {
                     (
                         GroupedRouteDecisionOutcome::Rejected,

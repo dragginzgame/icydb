@@ -3,7 +3,7 @@
 //! Does not own: query semantics, plan hashing primitives, or executor routing policy.
 //! Boundary: read-only diagnostics surface assembled at query/session boundaries.
 
-use crate::db::query::explain::ExplainPlan;
+use crate::db::{executor::ExecutionStrategy, query::explain::ExplainPlan};
 
 ///
 /// TraceExecutionStrategy
@@ -11,12 +11,7 @@ use crate::db::query::explain::ExplainPlan;
 /// Trace-surface execution-shape label derived from executor strategy selection.
 /// Keeps high-level route shape visible without exposing executor internals.
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TraceExecutionStrategy {
-    PrimaryKey,
-    Ordered,
-    Grouped,
-}
+pub type TraceExecutionStrategy = ExecutionStrategy;
 
 ///
 /// QueryTracePlan

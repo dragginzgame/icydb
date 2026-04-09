@@ -154,6 +154,20 @@ fn count_rows_emitted(events: &[MetricsEvent], entity_path: &'static str) -> usi
     })
 }
 
+fn count_grouped_plan_events(events: &[MetricsEvent]) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::Plan {
+                grouped_execution_mode: Some(_),
+                ..
+            } => 1,
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
+}
+
 ///
 /// TESTS
 ///
@@ -561,6 +575,10 @@ fn grouped_load_emits_rows_aggregated_metrics() {
     assert!(
         count_rows_aggregated(&events, PushdownParityEntity::PATH) >= 1,
         "grouped load should emit at least one aggregated-row metric",
+    );
+    assert!(
+        count_grouped_plan_events(&events) >= 1,
+        "grouped load should emit at least one grouped plan metric event",
     );
     assert!(
         count_rows_emitted(&events, PushdownParityEntity::PATH) >= 1,

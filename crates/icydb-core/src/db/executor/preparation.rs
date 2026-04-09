@@ -12,7 +12,7 @@ use crate::{
         },
         predicate::{
             IndexCompileTarget, PredicateCapabilityContext, PredicateCapabilityProfile,
-            PredicateProgram, classify_predicate_capabilities,
+            PredicateExecutionModel, PredicateProgram, classify_predicate_capabilities,
             classify_predicate_capabilities_for_targets,
         },
         query::plan::AccessPlannedQuery,
@@ -40,6 +40,31 @@ pub(in crate::db::executor) struct ExecutionPreparation {
     strict_mode: Option<IndexPredicateProgram>,
 }
 
+// Selects which planner-owned predicate view should seed executor preparation.
+#[derive(Clone, Copy)]
+enum PreparationPredicateSource {
+    ExecutionPreparation,
+    EffectiveRuntime,
+}
+
+impl PreparationPredicateSource {
+    fn predicate_for_plan(self, plan: &AccessPlannedQuery) -> Option<PredicateExecutionModel> {
+        match self {
+            Self::ExecutionPreparation => plan.execution_preparation_predicate(),
+            Self::EffectiveRuntime => plan.effective_execution_predicate(),
+        }
+    }
+}
+
+// Build-time toggles for the canonical preparation builder.
+#[derive(Clone, Copy)]
+struct PreparationBuildConfig {
+    predicate_source: PreparationPredicateSource,
+    include_predicate_capability_profile: bool,
+    strict_policy: Option<IndexCompilePolicy>,
+    conservative_policy: Option<IndexCompilePolicy>,
+}
+
 impl ExecutionPreparation {
     /// Build execution preparation once for one validated access-planned query.
     #[must_use]
@@ -48,64 +73,17 @@ impl ExecutionPreparation {
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
-        // Phase 1: Compile the row-predicate once from logical plan semantics.
-        let effective_predicate = plan.execution_preparation_predicate();
-        let compiled_predicate = effective_predicate
-            .as_ref()
-            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
-
-        let compile_targets = index_compile_targets_for_model_plan(model, plan);
-
-        // Phase 2: Derive canonical predicate capability once for runtime/explain consumers.
-        let predicate_capability_profile = match (
-            compiled_predicate.as_ref(),
-            compile_targets.as_deref(),
-            slot_map.as_deref(),
-        ) {
-            (Some(compiled_predicate), Some(compile_targets), _) => {
-                Some(classify_predicate_capabilities_for_targets(
-                    compiled_predicate.executable(),
-                    compile_targets,
-                ))
-            }
-            (Some(compiled_predicate), None, Some(slot_map)) => {
-                Some(classify_predicate_capabilities(
-                    compiled_predicate.executable(),
-                    PredicateCapabilityContext::index_compile(slot_map),
-                ))
-            }
-            (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
-        };
-
-        // Phase 3: Build strict index predicate program only when strict full pushdown is valid.
-        let strict_mode = match (
-            compiled_predicate.as_ref(),
-            compile_targets.as_deref(),
-            slot_map.as_deref(),
-        ) {
-            (Some(compiled_predicate), Some(compile_targets), _) => {
-                compile_index_program_for_targets(
-                    compiled_predicate.executable(),
-                    compile_targets,
-                    IndexCompilePolicy::StrictAllOrNone,
-                )
-            }
-            (Some(compiled_predicate), None, Some(slot_map)) => compile_index_program(
-                compiled_predicate.executable(),
-                slot_map,
-                IndexCompilePolicy::StrictAllOrNone,
-            ),
-            (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
-        };
-
-        Self {
-            compiled_predicate,
-            compile_targets,
-            conservative_mode: None,
-            predicate_capability_profile,
+        Self::build(
+            model,
+            plan,
             slot_map,
-            strict_mode,
-        }
+            PreparationBuildConfig {
+                predicate_source: PreparationPredicateSource::ExecutionPreparation,
+                include_predicate_capability_profile: true,
+                strict_policy: Some(IndexCompilePolicy::StrictAllOrNone),
+                conservative_policy: None,
+            },
+        )
     }
 
     /// Build the lighter runtime execution preparation needed by shared scalar
@@ -122,39 +100,17 @@ impl ExecutionPreparation {
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
-        let effective_predicate = plan.effective_execution_predicate();
-        let compiled_predicate = effective_predicate
-            .as_ref()
-            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
-        let compile_targets = index_compile_targets_for_model_plan(model, plan);
-        let conservative_mode = match (
-            compiled_predicate.as_ref(),
-            compile_targets.as_deref(),
-            slot_map.as_deref(),
-        ) {
-            (Some(compiled_predicate), Some(compile_targets), _) => {
-                compile_index_program_for_targets(
-                    compiled_predicate.executable(),
-                    compile_targets,
-                    IndexCompilePolicy::ConservativeSubset,
-                )
-            }
-            (Some(compiled_predicate), None, Some(slot_map)) => compile_index_program(
-                compiled_predicate.executable(),
-                slot_map,
-                IndexCompilePolicy::ConservativeSubset,
-            ),
-            (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
-        };
-
-        Self {
-            compiled_predicate,
-            compile_targets,
-            conservative_mode,
-            predicate_capability_profile: None,
+        Self::build(
+            model,
+            plan,
             slot_map,
-            strict_mode: None,
-        }
+            PreparationBuildConfig {
+                predicate_source: PreparationPredicateSource::EffectiveRuntime,
+                include_predicate_capability_profile: false,
+                strict_policy: None,
+                conservative_policy: Some(IndexCompilePolicy::ConservativeSubset),
+            },
+        )
     }
 
     #[must_use]
@@ -192,6 +148,103 @@ impl ExecutionPreparation {
     #[must_use]
     pub(in crate::db::executor) const fn strict_mode(&self) -> Option<&IndexPredicateProgram> {
         self.strict_mode.as_ref()
+    }
+
+    // Build the canonical preparation bundle once from one planner predicate
+    // source plus the caller's requested index-program/capability outputs.
+    fn build(
+        model: &'static EntityModel,
+        plan: &AccessPlannedQuery,
+        slot_map: Option<Vec<usize>>,
+        config: PreparationBuildConfig,
+    ) -> Self {
+        // Phase 1: compile the chosen planner predicate projection once.
+        let predicate = config.predicate_source.predicate_for_plan(plan);
+        let compiled_predicate = predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
+        let compile_targets = index_compile_targets_for_model_plan(model, plan);
+
+        // Phase 2: derive the optional planner/explain capability snapshot.
+        let predicate_capability_profile = if config.include_predicate_capability_profile {
+            predicate_capability_profile_for_preparation(
+                compiled_predicate.as_ref(),
+                compile_targets.as_deref(),
+                slot_map.as_deref(),
+            )
+        } else {
+            None
+        };
+
+        // Phase 3: compile whichever index-predicate programs this boundary needs.
+        let strict_mode = config.strict_policy.and_then(|policy| {
+            compile_index_program_for_preparation(
+                compiled_predicate.as_ref(),
+                compile_targets.as_deref(),
+                slot_map.as_deref(),
+                policy,
+            )
+        });
+        let conservative_mode = config.conservative_policy.and_then(|policy| {
+            compile_index_program_for_preparation(
+                compiled_predicate.as_ref(),
+                compile_targets.as_deref(),
+                slot_map.as_deref(),
+                policy,
+            )
+        });
+
+        Self {
+            compiled_predicate,
+            compile_targets,
+            conservative_mode,
+            predicate_capability_profile,
+            slot_map,
+            strict_mode,
+        }
+    }
+}
+
+// Derive one optional predicate capability snapshot from the compiled
+// predicate plus whichever slot-target projection this access path exposes.
+fn predicate_capability_profile_for_preparation(
+    compiled_predicate: Option<&PredicateProgram>,
+    compile_targets: Option<&[IndexCompileTarget]>,
+    slot_map: Option<&[usize]>,
+) -> Option<PredicateCapabilityProfile> {
+    match (compiled_predicate, compile_targets, slot_map) {
+        (Some(compiled_predicate), Some(compile_targets), _) => {
+            Some(classify_predicate_capabilities_for_targets(
+                compiled_predicate.executable(),
+                compile_targets,
+            ))
+        }
+        (Some(compiled_predicate), None, Some(slot_map)) => Some(classify_predicate_capabilities(
+            compiled_predicate.executable(),
+            PredicateCapabilityContext::index_compile(slot_map),
+        )),
+        (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
+    }
+}
+
+// Compile one index predicate program for the requested pushdown policy using
+// either key-item-aware compile targets or the structural slot-map fallback.
+fn compile_index_program_for_preparation(
+    compiled_predicate: Option<&PredicateProgram>,
+    compile_targets: Option<&[IndexCompileTarget]>,
+    slot_map: Option<&[usize]>,
+    policy: IndexCompilePolicy,
+) -> Option<IndexPredicateProgram> {
+    match (compiled_predicate, compile_targets, slot_map) {
+        (Some(compiled_predicate), Some(compile_targets), _) => compile_index_program_for_targets(
+            compiled_predicate.executable(),
+            compile_targets,
+            policy,
+        ),
+        (Some(compiled_predicate), None, Some(slot_map)) => {
+            compile_index_program(compiled_predicate.executable(), slot_map, policy)
+        }
+        (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
     }
 }
 

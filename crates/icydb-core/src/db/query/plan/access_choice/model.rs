@@ -53,6 +53,32 @@ impl AccessChoiceExplainSnapshot {
 }
 
 ///
+/// AccessChoiceRankingReason
+///
+/// Shared ranking reason taxonomy for planner tie-break decisions.
+/// Selection and rejection surfaces carry polarity separately so explain
+/// output can reuse the same canonical ranking reason codes.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum AccessChoiceRankingReason {
+    ExactMatchPreferred,
+    OrderCompatiblePreferred,
+    LexicographicTiebreak,
+}
+
+impl AccessChoiceRankingReason {
+    #[must_use]
+    pub(in crate::db) const fn code(self) -> &'static str {
+        match self {
+            Self::ExactMatchPreferred => "exact_match_preferred",
+            Self::OrderCompatiblePreferred => "order_compatible_preferred",
+            Self::LexicographicTiebreak => "lexicographic_tiebreak",
+        }
+    }
+}
+
+///
 /// AccessChoiceSelectedReason
 ///
 /// Canonical reason code taxonomy for selected access candidates.
@@ -65,9 +91,7 @@ pub(in crate::db) enum AccessChoiceSelectedReason {
     SchemaUnavailable,
     SingleCandidate,
     BestPrefixLen,
-    ExactMatchPreferred,
-    OrderCompatiblePreferred,
-    LexicographicTiebreak,
+    Ranked(AccessChoiceRankingReason),
 }
 
 impl AccessChoiceSelectedReason {
@@ -79,9 +103,7 @@ impl AccessChoiceSelectedReason {
             Self::SchemaUnavailable => "schema_unavailable",
             Self::SingleCandidate => "single_candidate",
             Self::BestPrefixLen => "best_prefix_len",
-            Self::ExactMatchPreferred => "exact_match_preferred",
-            Self::OrderCompatiblePreferred => "order_compatible_preferred",
-            Self::LexicographicTiebreak => "lexicographic_tiebreak",
+            Self::Ranked(reason) => reason.code(),
         }
     }
 }
@@ -119,9 +141,7 @@ pub(in crate::db) enum AccessChoiceRejectedReason {
     NonContiguousRangeConstraints,
     MissingRangeConstraint,
     ShorterPrefix,
-    ExactMatchPreferred,
-    OrderCompatiblePreferred,
-    LexicographicTiebreak,
+    Ranked(AccessChoiceRankingReason),
 }
 
 impl AccessChoiceRejectedReason {
@@ -153,9 +173,7 @@ impl AccessChoiceRejectedReason {
             Self::NonContiguousRangeConstraints => "non_contiguous_range_constraints",
             Self::MissingRangeConstraint => "missing_range_constraint",
             Self::ShorterPrefix => "shorter_prefix",
-            Self::ExactMatchPreferred => "exact_match_preferred",
-            Self::OrderCompatiblePreferred => "order_compatible_preferred",
-            Self::LexicographicTiebreak => "lexicographic_tiebreak",
+            Self::Ranked(reason) => reason.code(),
         }
     }
 

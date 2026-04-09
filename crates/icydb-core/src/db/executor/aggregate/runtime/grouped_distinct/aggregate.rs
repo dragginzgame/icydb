@@ -23,26 +23,13 @@ use crate::{
         },
         numeric::coerce_numeric_decimal,
         predicate::{MissingRowPolicy, PredicateProgram},
+        query::plan::{AggregateKind, GroupedDistinctExecutionStrategy},
     },
     error::InternalError,
     model::entity::EntityModel,
     types::Decimal,
     value::Value,
 };
-
-///
-/// GlobalDistinctFieldAggregateKind
-///
-/// GlobalDistinctFieldAggregateKind selects the supported reducer semantics for
-/// grouped global DISTINCT field execution.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum GlobalDistinctFieldAggregateKind {
-    Count,
-    Sum,
-    Avg,
-}
 
 ///
 /// GlobalDistinctFieldAggregateDispatcher
@@ -62,18 +49,42 @@ impl GlobalDistinctFieldAggregateDispatcher {
     // Resolve one grouped global DISTINCT field reducer against structural model metadata.
     fn resolve_with_model(
         model: &'static EntityModel,
-        execution_spec: (&str, GlobalDistinctFieldAggregateKind),
-    ) -> Result<Self, AggregateFieldValueError> {
-        let (target_field, reducer_kind) = execution_spec;
+        execution_strategy: &GroupedDistinctExecutionStrategy,
+    ) -> Result<Self, InternalError> {
+        let target_field = execution_strategy
+            .global_distinct_target_field()
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "grouped DISTINCT dispatcher requires a global field-target strategy",
+                )
+            })?;
+        let reducer_kind = execution_strategy
+            .global_distinct_aggregate_kind()
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "grouped DISTINCT dispatcher requires a global field-target aggregate kind",
+                )
+            })?;
         let (field_slot, needs_numeric) = match reducer_kind {
-            GlobalDistinctFieldAggregateKind::Count => (
-                resolve_any_aggregate_target_slot_with_model(model, target_field)?,
+            AggregateKind::Count => (
+                resolve_any_aggregate_target_slot_with_model(model, target_field)
+                    .map_err(AggregateFieldValueError::into_internal_error)?,
                 false,
             ),
-            GlobalDistinctFieldAggregateKind::Sum | GlobalDistinctFieldAggregateKind::Avg => (
-                resolve_numeric_aggregate_target_slot_with_model(model, target_field)?,
+            AggregateKind::Sum | AggregateKind::Avg => (
+                resolve_numeric_aggregate_target_slot_with_model(model, target_field)
+                    .map_err(AggregateFieldValueError::into_internal_error)?,
                 true,
             ),
+            AggregateKind::Exists
+            | AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "grouped DISTINCT dispatcher admits only COUNT/SUM/AVG field-target aggregates",
+                ));
+            }
         };
         let field_name = model
             .fields
@@ -81,7 +92,8 @@ impl GlobalDistinctFieldAggregateDispatcher {
             .map(crate::model::field::FieldModel::name)
             .ok_or_else(|| AggregateFieldValueError::UnknownField {
                 field: target_field.to_string(),
-            })?;
+            })
+            .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Self {
             field_name,
@@ -130,21 +142,40 @@ struct DistinctReducerSpec {
 
 impl DistinctReducerSpec {
     // Resolve one reducer kind into structural ingest/finalize dispatch.
-    const fn from_kind(reducer_kind: GlobalDistinctFieldAggregateKind) -> Self {
-        match reducer_kind {
-            GlobalDistinctFieldAggregateKind::Count => Self {
+    fn from_strategy(
+        execution_strategy: &GroupedDistinctExecutionStrategy,
+    ) -> Result<Self, InternalError> {
+        let Some(reducer_kind) = execution_strategy.global_distinct_aggregate_kind() else {
+            return Err(InternalError::query_executor_invariant(
+                "grouped DISTINCT reducer requires a global field-target aggregate kind",
+            ));
+        };
+
+        let reducer_spec = match reducer_kind {
+            AggregateKind::Count => Self {
                 apply_mode: DistinctApplyMode::Count,
                 finalize_mode: DistinctFinalizeMode::Count,
             },
-            GlobalDistinctFieldAggregateKind::Sum => Self {
+            AggregateKind::Sum => Self {
                 apply_mode: DistinctApplyMode::Numeric,
                 finalize_mode: DistinctFinalizeMode::Sum,
             },
-            GlobalDistinctFieldAggregateKind::Avg => Self {
+            AggregateKind::Avg => Self {
                 apply_mode: DistinctApplyMode::Numeric,
                 finalize_mode: DistinctFinalizeMode::Avg,
             },
-        }
+            AggregateKind::Exists
+            | AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "grouped DISTINCT reducer admits only COUNT/SUM/AVG field-target aggregates",
+                ));
+            }
+        };
+
+        Ok(reducer_spec)
     }
 }
 
@@ -278,14 +309,15 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     compiled_predicate: Option<&PredicateProgram>,
     grouped_execution_context: &mut ExecutionContext,
     entity_model: &'static EntityModel,
-    execution_spec: (&str, GlobalDistinctFieldAggregateKind),
+    execution_strategy: &GroupedDistinctExecutionStrategy,
     row_counters: (&mut usize, &mut usize),
 ) -> Result<GroupedRow, InternalError> {
     // Phase 1: resolve structural field access and initialize distinct reducer state.
-    let reducer_spec = DistinctReducerSpec::from_kind(execution_spec.1);
-    let dispatcher =
-        GlobalDistinctFieldAggregateDispatcher::resolve_with_model(entity_model, execution_spec)
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+    let reducer_spec = DistinctReducerSpec::from_strategy(execution_strategy)?;
+    let dispatcher = GlobalDistinctFieldAggregateDispatcher::resolve_with_model(
+        entity_model,
+        execution_strategy,
+    )?;
     let mut distinct_values = GroupKeySet::new();
     let mut accumulator = GlobalDistinctFieldAccumulator::new(reducer_spec);
     let (scanned_rows, filtered_rows) = row_counters;

@@ -3,7 +3,20 @@
 //! Does not own: mutation preparation, commit-marker durability, or recovery orchestration.
 //! Boundary: commit::{prepared_op,prepare,rebuild,replay} -> commit::apply (one-way).
 
-use crate::db::commit::PreparedRowCommitOp;
+use crate::db::commit::{PreparedIndexMutation, PreparedRowCommitOp};
+
+impl PreparedIndexMutation {
+    /// Apply one precomputed index mutation infallibly.
+    pub(crate) fn apply(self) {
+        self.store.with_borrow_mut(|store| {
+            if let Some(value) = self.value {
+                store.insert(self.key, value);
+            } else {
+                store.remove(&self.key);
+            }
+        });
+    }
+}
 
 impl PreparedRowCommitOp {
     /// Apply the prepared row operation infallibly.
@@ -11,13 +24,7 @@ impl PreparedRowCommitOp {
         // Phase 1: apply all index mutations first so rollback snapshots can
         // mirror this order exactly in reverse.
         for index_op in self.index_ops {
-            index_op.store.with_borrow_mut(|store| {
-                if let Some(value) = index_op.value {
-                    store.insert(index_op.key, value);
-                } else {
-                    store.remove(&index_op.key);
-                }
-            });
+            index_op.apply();
         }
 
         // Phase 2: apply the authoritative row-store mutation.

@@ -32,10 +32,7 @@ pub(in crate::db) mod relation;
 
 use crate::{
     db::{
-        commit::{
-            CommitRowOp, PreparedRowCommitOp, ensure_recovered,
-            rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
-        },
+        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
         data::RawDataKey,
         executor::Context,
         registry::StoreHandle,
@@ -73,6 +70,7 @@ pub use diagnostics::{
 #[doc(hidden)]
 pub use executor::EntityAuthority;
 pub use executor::MutationMode;
+pub use executor::{ExecutionStrategy, RouteExecutionMode};
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
@@ -188,6 +186,15 @@ impl<C: CanisterKind> Db<C> {
     pub(in crate::db) fn recovered_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
         ensure_recovered(self)?;
 
+        self.store_handle(path)
+    }
+
+    // Resolve one named store without re-entering recovery.
+    //
+    // Internal commit/recovery paths already own recovery authority and must
+    // not bounce back through `ensure_recovered`, or they can recurse through
+    // replay/rebuild preparation.
+    fn store_handle(&self, path: &str) -> Result<StoreHandle, InternalError> {
         self.with_store_registry(|registry| registry.try_get_store(path))
     }
 
@@ -242,30 +249,9 @@ impl<C: CanisterKind> Db<C> {
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
         let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_ref())?;
+        let store = self.store_handle(hooks.store_path)?;
 
-        (hooks.prepare_row_commit)(self, op)
-    }
-
-    pub(in crate::db) fn prepare_row_commit_op_with_readers(
-        &self,
-        op: &CommitRowOp,
-        row_reader: &dyn crate::db::index::StructuralPrimaryRowReader,
-        index_reader: &dyn crate::db::index::StructuralIndexEntryReader,
-    ) -> Result<PreparedRowCommitOp, InternalError> {
-        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_ref())?;
-
-        (hooks.prepare_row_commit_with_readers)(self, op, row_reader, index_reader)
-    }
-
-    pub(in crate::db) fn replay_commit_marker_row_ops(
-        &self,
-        row_ops: &[CommitRowOp],
-    ) -> Result<(), InternalError> {
-        replay_commit_marker_row_ops(self, row_ops)
-    }
-
-    pub(in crate::db) fn rebuild_secondary_indexes_from_rows(&self) -> Result<(), InternalError> {
-        rebuild_secondary_indexes_from_rows(self)
+        (hooks.prepare_row_commit_with_readers)(self, op, &store, &store)
     }
 
     /// Execute one bounded migration run using explicit row-op plan contracts.

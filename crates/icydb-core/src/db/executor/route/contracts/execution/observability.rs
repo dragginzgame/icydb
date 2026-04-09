@@ -15,7 +15,6 @@ use crate::db::query::plan::GroupedPlanFallbackReason;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
-    Selected,
     Rejected,
     MaterializedFallback,
 }
@@ -24,7 +23,6 @@ impl GroupedRouteDecisionOutcome {
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
-            Self::Selected => "selected",
             Self::Rejected => "rejected",
             Self::MaterializedFallback => "materialized_fallback",
         }

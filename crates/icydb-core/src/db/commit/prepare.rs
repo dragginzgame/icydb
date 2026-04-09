@@ -14,8 +14,8 @@ use crate::{
             StructuralSlotReader, canonical_row_from_structural_slot_reader,
         },
         index::{
-            IndexEntryReader, IndexMutationPlan, PrimaryRowReader, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
+            IndexMutationPlan, StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            plan_index_mutation_for_slot_reader_structural,
         },
         relation::{
             ReverseRelationSourceInfo,
@@ -138,44 +138,6 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers_and_s
         CommitPrepareAuthority::for_type_with_schema_fingerprint::<E>(schema_fingerprint),
         row_reader,
         index_reader,
-    )
-}
-
-/// Prepare a typed row-level commit op against typed preflight readers while
-/// reusing a caller-resolved schema fingerprint.
-pub(in crate::db) fn prepare_row_commit_for_entity_with_readers_and_schema_fingerprint<E, R, I>(
-    db: &Db<E::Canister>,
-    op: &CommitRowOp,
-    row_reader: &R,
-    index_reader: &I,
-    schema_fingerprint: CommitSchemaFingerprint,
-) -> Result<PreparedRowCommitOp, InternalError>
-where
-    E: EntityKind + EntityValue,
-    R: PrimaryRowReader<E> + StructuralPrimaryRowReader,
-    I: IndexEntryReader<E> + StructuralIndexEntryReader,
-{
-    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-        db,
-        op,
-        row_reader,
-        index_reader,
-        schema_fingerprint,
-    )
-}
-
-/// Prepare a typed row-level commit op against committed-store readers.
-pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
-    op: &CommitRowOp,
-) -> Result<PreparedRowCommitOp, InternalError> {
-    let context = db.context::<E>();
-    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-        db,
-        op,
-        &context,
-        &context,
-        commit_schema_fingerprint_for_entity::<E>(),
     )
 }
 

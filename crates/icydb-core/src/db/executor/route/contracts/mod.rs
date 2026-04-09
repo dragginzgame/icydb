@@ -11,15 +11,15 @@ pub(in crate::db::executor) use crate::db::executor::{
     AccessWindow, ContinuationMode, RouteContinuationPlan,
 };
 pub(in crate::db::executor) use capabilities::RouteCapabilities;
+#[cfg(test)]
+pub(in crate::db::executor) use execution::GroupedRouteDecisionOutcome;
+pub use execution::RouteExecutionMode;
 pub(in crate::db::executor) use execution::{
     AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRoutePlan, ExecutionRouteShape,
-    GroupedExecutionMode, GroupedExecutionModeProjection, GroupedRouteDecisionOutcome,
-    IndexRangeLimitSpec, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+    GroupedExecutionMode, GroupedExecutionModeProjection, IndexRangeLimitSpec, ScanHintPlan,
+    TopNSeekSpec,
 };
 pub(in crate::db) use execution::{LoadOrderRouteContract, LoadOrderRouteReason};
-// Keep this symbol on the route boundary so compile-fail privacy tests fail on
-// module visibility, not unresolved-symbol drift.
-pub(in crate::db::executor) use execution::GroupedRouteObservability;
 pub(in crate::db) use shape::AggregateRouteShape;
 pub(in crate::db::executor::route) use shape::RouteIntent;
 pub(in crate::db::executor) use shape::{

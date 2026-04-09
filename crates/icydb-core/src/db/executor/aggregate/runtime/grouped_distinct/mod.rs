@@ -14,10 +14,6 @@ mod strategy;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::executor) use aggregate::{
-    GlobalDistinctFieldAggregateKind, execute_global_distinct_field_aggregate,
-};
+pub(in crate::db::executor) use aggregate::execute_global_distinct_field_aggregate;
 pub(in crate::db::executor) use paging::page_global_distinct_grouped_row;
-pub(in crate::db::executor) use strategy::{
-    GlobalDistinctFieldExecutionSpec, global_distinct_field_execution_spec,
-};
+pub(in crate::db::executor) use strategy::global_distinct_field_target_and_kind;

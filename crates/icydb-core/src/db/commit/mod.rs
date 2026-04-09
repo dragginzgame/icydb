@@ -57,8 +57,6 @@ pub(in crate::db) use marker::{
     MAX_COMMIT_BYTES, decode_commit_marker_payload, validate_commit_marker_shape,
 };
 pub(in crate::db) use prepare::{
-    prepare_row_commit_for_entity,
-    prepare_row_commit_for_entity_with_readers_and_schema_fingerprint,
     prepare_row_commit_for_entity_with_structural_readers,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
 };
@@ -68,9 +66,7 @@ pub(in crate::db) use prepared_op::{
 pub(in crate::db) use rebuild::rebuild_secondary_indexes_from_rows;
 pub(in crate::db) use recovery::ensure_recovered;
 pub(in crate::db) use replay::replay_commit_marker_row_ops;
-pub(in crate::db) use rollback::{
-    rollback_prepared_row_ops_reverse, snapshot_row_only_rollback, snapshot_row_rollback,
-};
+pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 
 /// Return true if a commit marker is currently persisted.
 #[cfg(test)]

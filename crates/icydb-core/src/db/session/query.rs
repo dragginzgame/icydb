@@ -7,7 +7,6 @@ use crate::{
     db::{
         DbSession, EntityResponse, GroupedTextCursorPageWithTrace, PagedGroupedExecutionWithTrace,
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
-        TraceExecutionStrategy,
         access::AccessStrategy,
         cursor::{
             CursorPlanError, GroupedContinuationToken, decode_optional_cursor_token,
@@ -306,11 +305,11 @@ impl<C: CanisterKind> DbSession<C> {
         let executable = compiled.into_executable();
         let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
         let execution_strategy = match query.mode() {
-            QueryMode::Load(_) => Some(trace_execution_strategy(
+            QueryMode::Load(_) => Some(
                 executable
                     .execution_strategy()
                     .map_err(QueryError::execute)?,
-            )),
+            ),
             QueryMode::Delete(_) => None,
         };
 
@@ -477,13 +476,5 @@ impl<C: CanisterKind> DbSession<C> {
                 "failed to serialize grouped continuation cursor: {err}"
             ))
         })
-    }
-}
-
-const fn trace_execution_strategy(strategy: ExecutionStrategy) -> TraceExecutionStrategy {
-    match strategy {
-        ExecutionStrategy::PrimaryKey => TraceExecutionStrategy::PrimaryKey,
-        ExecutionStrategy::Ordered => TraceExecutionStrategy::Ordered,
-        ExecutionStrategy::Grouped => TraceExecutionStrategy::Grouped,
     }
 }

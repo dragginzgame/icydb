@@ -5,12 +5,21 @@
 
 use crate::{
     db::{
+        cursor::IndexScanContinuationInput,
         data::DataStore,
-        index::{IndexState, IndexStore},
+        data::{DataKey, RawRow, StorageKey},
+        direction::Direction,
+        index::{
+            IndexState, IndexStore, RawIndexEntry, RawIndexKey, SealedStructuralIndexEntryReader,
+            SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
+            StructuralPrimaryRowReader,
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    model::index::IndexModel,
+    types::EntityTag,
 };
-use std::{cell::RefCell, thread::LocalKey};
+use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 use thiserror::Error as ThisError;
 
 ///
@@ -123,6 +132,56 @@ impl StoreHandle {
         self.index
     }
 }
+
+impl StructuralPrimaryRowReader for StoreHandle {
+    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        let raw_key = key.to_raw()?;
+
+        Ok(self.with_data(|store| store.get(&raw_key)))
+    }
+}
+
+impl SealedStructuralPrimaryRowReader for StoreHandle {}
+
+impl StructuralIndexEntryReader for StoreHandle {
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        Ok(store.with_borrow(|index_store| index_store.get(key)))
+    }
+
+    fn read_index_keys_in_raw_range_structural(
+        &self,
+        _entity_path: &'static str,
+        entity_tag: EntityTag,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        let data_keys = store.with_borrow(|index_store| {
+            index_store.resolve_data_values_in_raw_range_limited(
+                entity_tag,
+                index,
+                bounds,
+                IndexScanContinuationInput::new(None, Direction::Asc),
+                limit,
+                None,
+            )
+        })?;
+
+        let mut out = Vec::with_capacity(data_keys.len());
+        for data_key in data_keys {
+            out.push(data_key.storage_key());
+        }
+
+        Ok(out)
+    }
+}
+
+impl SealedStructuralIndexEntryReader for StoreHandle {}
 
 ///
 /// StoreRegistry

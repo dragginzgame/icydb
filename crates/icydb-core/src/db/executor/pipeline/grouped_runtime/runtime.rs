@@ -5,9 +5,8 @@
 
 use crate::db::{
     direction::Direction,
-    executor::{ExecutionTrace, GroupedContinuationContext},
+    executor::{ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode},
 };
-use crate::metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode;
 
 ///
 /// GroupedExecutionContext
@@ -20,7 +19,7 @@ use crate::metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode;
 pub(in crate::db::executor) struct GroupedExecutionContext {
     continuation: GroupedContinuationContext,
     direction: Direction,
-    grouped_metrics_execution_mode: MetricsGroupedExecutionMode,
+    grouped_execution_mode: GroupedExecutionMode,
     execution_trace: Option<ExecutionTrace>,
 }
 
@@ -30,13 +29,13 @@ impl GroupedExecutionContext {
     pub(in crate::db::executor) const fn new(
         continuation: GroupedContinuationContext,
         direction: Direction,
-        grouped_metrics_execution_mode: MetricsGroupedExecutionMode,
+        grouped_execution_mode: GroupedExecutionMode,
         execution_trace: Option<ExecutionTrace>,
     ) -> Self {
         Self {
             continuation,
             direction,
-            grouped_metrics_execution_mode,
+            grouped_execution_mode,
             execution_trace,
         }
     }
@@ -47,12 +46,10 @@ impl GroupedExecutionContext {
         self.direction
     }
 
-    /// Return grouped metrics execution mode for grouped stream observability.
+    /// Return grouped execution mode for grouped stream observability.
     #[must_use]
-    pub(in crate::db::executor) const fn grouped_metrics_execution_mode(
-        &self,
-    ) -> MetricsGroupedExecutionMode {
-        self.grouped_metrics_execution_mode
+    pub(in crate::db::executor) const fn grouped_execution_mode(&self) -> GroupedExecutionMode {
+        self.grouped_execution_mode
     }
 
     /// Borrow grouped continuation context.

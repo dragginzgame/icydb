@@ -6,10 +6,7 @@
 use crate::{
     db::{
         Db,
-        commit::{
-            CommitRowOp, PreparedRowCommitOp, rollback_prepared_row_ops_reverse,
-            snapshot_row_only_rollback,
-        },
+        commit::{CommitRowOp, PreparedRowCommitOp, rollback_prepared_row_ops_reverse},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -40,7 +37,7 @@ pub(in crate::db) fn replay_commit_marker_row_ops(
             }
         };
 
-        rollbacks.push(snapshot_row_only_rollback(&prepared));
+        rollbacks.push(prepared.snapshot_row_only_rollback());
         prepared.apply_row_only();
     }
 

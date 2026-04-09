@@ -43,6 +43,7 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
     pub(in crate::db::executor) grouped_aggregate_execution_specs:
         Vec<GroupedAggregateExecutionSpec>,
     pub(in crate::db::executor) projection_layout: PlannedProjectionLayout,
+    pub(in crate::db::executor) projection_is_identity: bool,
     pub(in crate::db::executor) grouped_having: Option<GroupHavingSpec>,
     pub(in crate::db::executor) grouped_distinct_execution_strategy:
         GroupedDistinctExecutionStrategy,

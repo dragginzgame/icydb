@@ -6,7 +6,6 @@
 mod capability;
 mod contracts;
 mod fast_path;
-mod grouped_runtime;
 mod guard;
 mod hints;
 mod mode;
@@ -26,13 +25,13 @@ pub(in crate::db::executor) use capability::derive_budget_safety_flags_for_model
 pub(in crate::db::executor::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
 pub(in crate::db) use contracts::AggregateRouteShape;
+pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db) use contracts::{LoadOrderRouteContract, LoadOrderRouteReason};
 pub(in crate::db::executor::route) use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
 pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shape_supported_for_model;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
-pub(in crate::db::executor) use grouped_runtime::grouped_route_observability_for_runtime;
 pub(super) use guard::*;
 pub(in crate::db::executor::route) use hints::{
     aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,

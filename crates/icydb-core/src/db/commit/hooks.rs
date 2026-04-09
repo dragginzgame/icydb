@@ -8,8 +8,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity,
-            prepare_row_commit_for_entity_with_structural_readers,
+            CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity_with_structural_readers,
         },
         relation::StrongRelationDeleteValidateFn,
     },
@@ -28,9 +27,6 @@ type PrepareRowCommitWithReadersFn<C> = fn(
     &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError>;
 
-// Runtime hook callback used for the normal row-commit preparation path.
-type PrepareRowCommitFn<C> = fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>;
-
 ///
 /// EntityRuntimeHooks
 ///
@@ -46,7 +42,6 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(crate) model: &'static EntityModel,
     pub(crate) entity_path: &'static str,
     pub(crate) store_path: &'static str,
-    pub(in crate::db) prepare_row_commit: PrepareRowCommitFn<C>,
     pub(in crate::db) prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
     pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
@@ -59,7 +54,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         model: &'static EntityModel,
         entity_path: &'static str,
         store_path: &'static str,
-        prepare_row_commit: PrepareRowCommitFn<C>,
         prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
@@ -68,7 +62,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             model,
             entity_path,
             store_path,
-            prepare_row_commit,
             prepare_row_commit_with_readers,
             validate_delete_strong_relations,
         }
@@ -85,7 +78,6 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             E::MODEL,
             E::PATH,
             E::Store::PATH,
-            prepare_row_commit_for_entity::<E>,
             prepare_row_commit_for_entity_with_structural_readers::<E>,
             crate::db::relation::validate_delete_strong_relations_for_source::<E>,
         )

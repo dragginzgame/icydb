@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
 
+- `0.74.6` continues the cleanup line in commit and mutation execution by trimming commit-guard payload retention, collapsing more commit/recovery forwarding shells, and flattening several `commit_window` helper seams so rollback, preflight, and delete-metric plumbing now live on fewer duplicated wrappers.
 - `0.74.5` finishes the explain and payload cleanup pass by removing more grouped and aggregate explain mirrors, centralizing descriptor projection, and trimming extra non-grouped route-payload wrappers so explain and runtime carry fewer duplicate copies of the same execution facts.
 - `0.74.4` makes the grouped boundary harder to bypass by carrying the dedicated grouped `COUNT(*)` fold choice as an explicit planner-to-runtime contract, dropping planner strategy from grouped runtime stage payloads, and adding tripwires so grouped runtime cannot quietly drift back into direct planner-strategy inspection.
 - `0.74.3` finishes the grouped boundary pass by centralizing planner-to-route grouped mode projection on one explicit route contract, adding assertions that grouped routes never drift from that projection, and locking the mode mapping directly in tests so grouped explain and metrics stay aligned with the same execution-mode vocabulary.

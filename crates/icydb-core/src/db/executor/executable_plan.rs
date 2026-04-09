@@ -9,6 +9,7 @@ use crate::db::executor::route::{
 };
 use crate::{
     db::{
+        access::AccessPlan,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
@@ -39,7 +40,7 @@ use std::ops::Bound;
 /// re-derive grouped/scalar routing shape from boolean flags.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionStrategy {
+pub enum ExecutionStrategy {
     PrimaryKey,
     Ordered,
     Grouped,
@@ -57,6 +58,37 @@ pub(in crate::db) enum BytesByProjectionMode {
     Materialized,
     CoveringIndex,
     CoveringConstant,
+}
+
+/// Classify canonical `bytes_by(field)` execution mode from one neutral access context.
+#[must_use]
+pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
+    access: &AccessPlan<crate::value::Value>,
+    order_spec: Option<&OrderSpec>,
+    consistency: MissingRowPolicy,
+    has_predicate: bool,
+    target_field: &str,
+    primary_key_name: &'static str,
+) -> BytesByProjectionMode {
+    if !matches!(consistency, MissingRowPolicy::Ignore) {
+        return BytesByProjectionMode::Materialized;
+    }
+
+    if constant_covering_projection_value_from_access(access, target_field).is_some() {
+        return BytesByProjectionMode::CoveringConstant;
+    }
+
+    if has_predicate {
+        return BytesByProjectionMode::Materialized;
+    }
+
+    if covering_index_projection_context(access, order_spec, target_field, primary_key_name)
+        .is_some()
+    {
+        return BytesByProjectionMode::CoveringIndex;
+    }
+
+    BytesByProjectionMode::Materialized
 }
 
 /// ExecutablePlanCore
@@ -573,30 +605,14 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ) -> BytesByProjectionMode {
         let authority = EntityAuthority::for_type::<E>();
 
-        if !matches!(self.consistency(), MissingRowPolicy::Ignore) {
-            return BytesByProjectionMode::Materialized;
-        }
-
-        if constant_covering_projection_value_from_access(self.access(), target_field).is_some() {
-            return BytesByProjectionMode::CoveringConstant;
-        }
-
-        if self.has_predicate() {
-            return BytesByProjectionMode::Materialized;
-        }
-
-        if covering_index_projection_context(
+        classify_bytes_by_projection_mode(
             self.access(),
             self.order_spec(),
+            self.consistency(),
+            self.has_predicate(),
             target_field,
             authority.model().primary_key.name,
         )
-        .is_some()
-        {
-            return BytesByProjectionMode::CoveringIndex;
-        }
-
-        BytesByProjectionMode::Materialized
     }
 
     /// Return a stable explain/diagnostic label for one bytes-by mode.

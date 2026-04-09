@@ -11,8 +11,8 @@ use crate::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
             commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
             init_commit_store_for_tests, marker::encode_single_row_commit_marker_payload,
-            prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_structural_readers,
-            rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
+            prepare_row_commit_for_entity_with_structural_readers,
+            rollback_prepared_row_ops_reverse, store,
         },
         data::{
             DataKey, DataStore, RawDataKey, RawRow, StorageKey,
@@ -393,7 +393,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
@@ -402,7 +401,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryIndexedEntity as EntitySchema>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -411,7 +409,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUniqueEntity as EntitySchema>::MODEL,
         RecoveryUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryUniqueEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
@@ -420,7 +417,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUniqueCasefoldEntity as EntitySchema>::MODEL,
         RecoveryUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryUniqueCasefoldEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryUniqueCasefoldEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
     ),
@@ -429,7 +425,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryUpperExpressionEntity as EntitySchema>::MODEL,
         RecoveryUpperExpressionEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryUpperExpressionEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryUpperExpressionEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUpperExpressionEntity>,
     ),
@@ -438,7 +433,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalEntity as EntitySchema>::MODEL,
         RecoveryConditionalEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryConditionalEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalEntity>,
     ),
@@ -447,7 +441,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryConditionalUniqueEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
     ),
@@ -456,7 +449,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueCasefoldEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueCasefoldEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<
             RecoveryConditionalUniqueCasefoldEntity,
         >,
@@ -467,7 +459,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         <RecoveryConditionalUniqueEnumEntity as EntitySchema>::MODEL,
         RecoveryConditionalUniqueEnumEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryConditionalUniqueEnumEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryConditionalUniqueEnumEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEnumEntity>,
     ),
@@ -493,7 +484,6 @@ static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     )];
@@ -507,7 +497,6 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
@@ -516,7 +505,6 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryIndexedEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -528,7 +516,6 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryTestEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
@@ -537,7 +524,6 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         <RecoveryIndexedEntity as EntitySchema>::MODEL,
         RecoveryTestEntity::PATH,
         RecoveryTestDataStore::PATH,
-        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -1634,8 +1620,11 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
     // - fail before row write
     // - rollback must remove the applied index mutation
     let err = finish_commit(guard, |_| {
-        let prepared = prepare_row_commit_for_entity::<RecoveryIndexedEntity>(&DB, &row_op)?;
-        let rollback = snapshot_row_rollback(&prepared);
+        let context = DB.context::<RecoveryIndexedEntity>();
+        let prepared = prepare_row_commit_for_entity_with_structural_readers::<
+            RecoveryIndexedEntity,
+        >(&DB, &row_op, &context, &context)?;
+        let rollback = prepared.snapshot_rollback();
         for index_op in prepared.index_ops {
             index_op.store.with_borrow_mut(|store| {
                 if let Some(value) = index_op.value {
@@ -3485,7 +3474,10 @@ fn prepare_row_commit_rejects_malformed_nonindexed_scalar_field() {
         commit_schema_fingerprint_for_entity::<RecoveryPayloadEntity>(),
     );
 
-    let Err(err) = prepare_row_commit_for_entity::<RecoveryPayloadEntity>(&DB, &row_op) else {
+    let context = DB.context::<RecoveryPayloadEntity>();
+    let Err(err) = prepare_row_commit_for_entity_with_structural_readers::<RecoveryPayloadEntity>(
+        &DB, &row_op, &context, &context,
+    ) else {
         panic!("commit prepare must reject malformed non-indexed scalar payloads");
     };
 

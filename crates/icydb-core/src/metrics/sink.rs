@@ -41,13 +41,14 @@ pub enum PlanKind {
 }
 
 ///
-/// GroupedExecutionMode
+/// GroupedPlanExecutionMode
 ///
-/// Grouped execution mode classification emitted with plan metrics.
+/// Canonical grouped-plan mode carried by metrics events.
+/// This keeps grouped metrics classification structured without routing
+/// through string codes that the sink would immediately decode again.
 ///
-
-#[derive(Clone, Copy, Debug)]
-pub enum GroupedExecutionMode {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupedPlanExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
 }
@@ -108,7 +109,7 @@ pub enum MetricsEvent {
     },
     Plan {
         kind: PlanKind,
-        grouped_execution_mode: Option<GroupedExecutionMode>,
+        grouped_execution_mode: Option<GroupedPlanExecutionMode>,
     },
 }
 
@@ -343,11 +344,11 @@ impl MetricsSink for GlobalMetricsSink {
                     }
 
                     match grouped_execution_mode {
-                        Some(GroupedExecutionMode::HashMaterialized) => {
+                        Some(GroupedPlanExecutionMode::HashMaterialized) => {
                             m.ops.plan_grouped_hash_materialized =
                                 m.ops.plan_grouped_hash_materialized.saturating_add(1);
                         }
-                        Some(GroupedExecutionMode::OrderedMaterialized) => {
+                        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
                             m.ops.plan_grouped_ordered_materialized =
                                 m.ops.plan_grouped_ordered_materialized.saturating_add(1);
                         }
@@ -701,11 +702,11 @@ mod tests {
         metrics_reset_all();
         record(MetricsEvent::Plan {
             kind: PlanKind::Index,
-            grouped_execution_mode: Some(GroupedExecutionMode::HashMaterialized),
+            grouped_execution_mode: Some(GroupedPlanExecutionMode::HashMaterialized),
         });
         record(MetricsEvent::Plan {
             kind: PlanKind::Range,
-            grouped_execution_mode: Some(GroupedExecutionMode::OrderedMaterialized),
+            grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedMaterialized),
         });
 
         let report = metrics_report(None);

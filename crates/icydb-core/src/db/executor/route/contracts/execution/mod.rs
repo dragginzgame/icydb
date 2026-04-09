@@ -135,7 +135,7 @@ impl LoadOrderRouteReason {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum RouteExecutionMode {
+pub enum RouteExecutionMode {
     Streaming,
     Materialized,
 }
@@ -150,7 +150,7 @@ pub(in crate::db::executor) enum RouteExecutionMode {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum GroupedExecutionMode {
+pub(crate) enum GroupedExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
 }

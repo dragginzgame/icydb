@@ -9,8 +9,7 @@ use crate::{
         commit::{
             CommitMarker, CommitRowOp, begin_commit, begin_commit_with_migration_state,
             clear_commit_marker_for_tests, clear_migration_state_bytes, commit_marker_present,
-            init_commit_store_for_tests, prepare_row_commit_for_entity,
-            prepare_row_commit_for_entity_with_structural_readers,
+            init_commit_store_for_tests, prepare_row_commit_for_entity_with_structural_readers,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow},
         index::IndexStore,
@@ -86,7 +85,6 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<MigrationTestCanister>] =
         <MigrationEntity as crate::traits::EntitySchema>::MODEL,
         MigrationEntity::PATH,
         MigrationTestStore::PATH,
-        prepare_row_commit_for_entity::<MigrationEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<MigrationEntity>,
         validate_delete_strong_relations_for_source::<MigrationEntity>,
     )];

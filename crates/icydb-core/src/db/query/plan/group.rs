@@ -96,6 +96,14 @@ impl GroupedAggregateProjectionSpec {
     pub(in crate::db) const fn distinct(&self) -> bool {
         self.distinct
     }
+
+    /// Return whether this grouped aggregate projection spec matches one planner-owned grouped aggregate.
+    #[must_use]
+    pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
+        self.kind == aggregate.kind()
+            && self.target_field() == aggregate.target_field()
+            && self.distinct == aggregate.distinct()
+    }
 }
 
 impl GroupedAggregateExecutionSpec {
@@ -300,7 +308,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     group_fields: &'a [FieldSlot],
     aggregate_projection_specs: Vec<GroupedAggregateProjectionSpec>,
     projection_layout: PlannedProjectionLayout,
-    projection_layout_valid: bool,
+    projection_is_identity: bool,
     grouped_plan_strategy: GroupedPlanStrategy,
     grouped_fold_path: GroupedFoldPath,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
@@ -335,10 +343,10 @@ impl<'a> GroupedExecutorHandoff<'a> {
         &self.projection_layout
     }
 
-    /// Return whether planner already validated grouped projection layout invariants.
+    /// Return whether planner already proved the grouped projection is row-identical.
     #[must_use]
-    pub(in crate::db) const fn projection_layout_valid(&self) -> bool {
-        self.projection_layout_valid
+    pub(in crate::db) const fn projection_is_identity(&self) -> bool {
+        self.projection_is_identity
     }
 
     /// Borrow grouped execution strategy projected by planner semantics.
@@ -394,14 +402,17 @@ pub(in crate::db) fn grouped_executor_handoff(
         ));
     };
     let projection_spec = plan.projection_spec_for_identity();
-    let (projection_layout, aggregate_projection_specs) =
-        planned_projection_layout_and_aggregate_projection_specs_from_spec(&projection_spec)?;
-    let projection_layout_valid = validate_grouped_projection_layout(
+    let (projection_layout, aggregate_projection_specs, projection_is_identity) =
+        planned_projection_layout_and_aggregate_projection_specs_from_spec(
+            &projection_spec,
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+        )?;
+    validate_grouped_projection_layout(
         &projection_layout,
         grouped.group.group_fields.len(),
         aggregate_projection_specs.len(),
-    )
-    .map(|()| true)?;
+    )?;
     let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
         InternalError::planner_executor_invariant(
             "grouped executor handoff must carry grouped strategy for grouped plans",
@@ -421,7 +432,7 @@ pub(in crate::db) fn grouped_executor_handoff(
         group_fields: grouped.group.group_fields.as_slice(),
         aggregate_projection_specs,
         projection_layout,
-        projection_layout_valid,
+        projection_is_identity,
         grouped_plan_strategy,
         grouped_fold_path,
         grouped_distinct_policy_contract,
@@ -502,6 +513,32 @@ pub(in crate::db) enum GroupedDistinctExecutionStrategy {
     GlobalDistinctFieldAvg { target_field: String },
 }
 
+impl GroupedDistinctExecutionStrategy {
+    /// Borrow the grouped DISTINCT target field when the dedicated global
+    /// field-target runtime path is active.
+    #[must_use]
+    pub(in crate::db) const fn global_distinct_target_field(&self) -> Option<&str> {
+        match self {
+            Self::None => None,
+            Self::GlobalDistinctFieldCount { target_field }
+            | Self::GlobalDistinctFieldSum { target_field }
+            | Self::GlobalDistinctFieldAvg { target_field } => Some(target_field.as_str()),
+        }
+    }
+
+    /// Return the canonical aggregate kind used by the dedicated global
+    /// DISTINCT field-target runtime path.
+    #[must_use]
+    pub(in crate::db) const fn global_distinct_aggregate_kind(&self) -> Option<AggregateKind> {
+        match self {
+            Self::None => None,
+            Self::GlobalDistinctFieldCount { .. } => Some(AggregateKind::Count),
+            Self::GlobalDistinctFieldSum { .. } => Some(AggregateKind::Sum),
+            Self::GlobalDistinctFieldAvg { .. } => Some(AggregateKind::Avg),
+        }
+    }
+}
+
 // Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
 fn grouped_distinct_execution_strategy(
     group_fields: &[FieldSlot],
@@ -558,21 +595,49 @@ fn grouped_distinct_policy_contract(
 // projection specs from canonical projection semantics.
 fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     projection_spec: &ProjectionSpec,
-) -> Result<(PlannedProjectionLayout, Vec<GroupedAggregateProjectionSpec>), InternalError> {
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> Result<
+    (
+        PlannedProjectionLayout,
+        Vec<GroupedAggregateProjectionSpec>,
+        bool,
+    ),
+    InternalError,
+> {
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
     let mut aggregate_projection_specs = Vec::new();
+    let mut projection_is_identity =
+        projection_spec.len() == group_fields.len().saturating_add(aggregates.len());
+    let mut next_group_field_index = 0usize;
+    let mut next_aggregate_index = 0usize;
+
     for (index, field) in projection_spec.fields().enumerate() {
         match field {
             ProjectionField::Scalar { expr, .. } => {
                 let root_expr = expression_without_alias(expr);
                 match root_expr {
-                    Expr::Field(_) => group_field_positions.push(index),
+                    Expr::Field(field_id) => {
+                        group_field_positions.push(index);
+                        projection_is_identity &= next_aggregate_index == 0
+                            && group_fields.get(next_group_field_index).is_some_and(
+                                |group_field| field_id.as_str() == group_field.field.as_str(),
+                            );
+                        next_group_field_index = next_group_field_index.saturating_add(1);
+                    }
                     Expr::Aggregate(aggregate_expr) => {
                         aggregate_positions.push(index);
-                        aggregate_projection_specs.push(
-                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
-                        );
+                        let aggregate_projection_spec =
+                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
+                        projection_is_identity &= next_group_field_index == group_fields.len()
+                            && aggregates
+                                .get(next_aggregate_index)
+                                .is_some_and(|aggregate| {
+                                    aggregate_projection_spec.matches_semantic_aggregate(aggregate)
+                                });
+                        aggregate_projection_specs.push(aggregate_projection_spec);
+                        next_aggregate_index = next_aggregate_index.saturating_add(1);
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
                         return Err(InternalError::planner_executor_invariant(format!(
@@ -588,6 +653,8 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
             }
         }
     }
+    projection_is_identity &=
+        next_group_field_index == group_fields.len() && next_aggregate_index == aggregates.len();
 
     Ok((
         PlannedProjectionLayout {
@@ -595,6 +662,7 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
             aggregate_positions,
         },
         aggregate_projection_specs,
+        projection_is_identity,
     ))
 }
 

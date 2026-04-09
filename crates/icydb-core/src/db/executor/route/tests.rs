@@ -45,7 +45,6 @@ use crate::{
             grouped_executor_handoff, grouped_plan_strategy,
         },
     },
-    metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::{EntitySchema, Path},
     types::Ulid,
@@ -3061,29 +3060,6 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         grouped_observability.grouped_execution_mode(),
         GroupedExecutionMode::OrderedMaterialized
     );
-}
-
-#[test]
-fn grouped_execution_mode_to_metrics_execution_mode_mapping_is_stable() {
-    for (route_execution_mode, expected_metrics_execution_mode) in [
-        (
-            GroupedExecutionMode::HashMaterialized,
-            MetricsGroupedExecutionMode::HashMaterialized,
-        ),
-        (
-            GroupedExecutionMode::OrderedMaterialized,
-            MetricsGroupedExecutionMode::OrderedMaterialized,
-        ),
-    ] {
-        assert_eq!(
-            format!(
-                "{:?}",
-                MetricsGroupedExecutionMode::from(route_execution_mode)
-            ),
-            format!("{expected_metrics_execution_mode:?}"),
-            "grouped execution mode must map to stable grouped metrics execution-mode labels",
-        );
-    }
 }
 
 #[test]

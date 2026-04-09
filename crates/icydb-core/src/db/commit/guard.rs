@@ -5,12 +5,29 @@
 
 use crate::{
     db::commit::{
+        PreparedRowCommitOp,
         marker::{COMMIT_ID_BYTES, CommitMarker, CommitRowOp, generate_commit_id},
         store::{CommitStore, with_commit_store, with_commit_store_infallible},
     },
     error::InternalError,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
+
+///
+/// ApplyRollback
+///
+/// Best-effort rollback payload owned by one in-flight apply guard.
+/// This remains intentionally narrow:
+/// - one closure for the batch rollback path
+/// - one prepared row op for the single-row hot path
+/// - no transactional semantics beyond "try to unwind local process state"
+///
+
+enum ApplyRollback {
+    None,
+    Closure(Box<dyn FnOnce()>),
+    SinglePreparedRow(PreparedRowCommitOp),
+}
 
 ///
 /// CommitApplyGuard
@@ -31,7 +48,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub(crate) struct CommitApplyGuard {
     phase: &'static str,
     finished: bool,
-    rollback: Option<Box<dyn FnOnce()>>,
+    rollback: ApplyRollback,
 }
 
 impl CommitApplyGuard {
@@ -40,23 +57,31 @@ impl CommitApplyGuard {
         Self {
             phase,
             finished: false,
-            rollback: None,
+            rollback: ApplyRollback::None,
         }
     }
 
     pub(crate) fn record_rollback(&mut self, rollback: impl FnOnce() + 'static) {
-        let rollback = Box::new(rollback);
+        debug_assert!(
+            matches!(self.rollback, ApplyRollback::None),
+            "commit apply guard currently owns exactly one rollback closure",
+        );
 
-        // Keep the hot one-rollback case allocation-light while still
-        // preserving reverse-order semantics if a future caller records more
-        // than one cleanup closure.
-        self.rollback = Some(match self.rollback.take() {
-            None => rollback,
-            Some(previous) => Box::new(move || {
-                rollback();
-                previous();
-            }),
-        });
+        if matches!(self.rollback, ApplyRollback::None) {
+            self.rollback = ApplyRollback::Closure(Box::new(rollback));
+        }
+    }
+
+    // Record one prepared row-op rollback snapshot for the single-row hot path.
+    pub(crate) fn record_single_row_rollback(&mut self, rollback: PreparedRowCommitOp) {
+        debug_assert!(
+            matches!(self.rollback, ApplyRollback::None),
+            "commit apply guard currently owns exactly one rollback payload",
+        );
+
+        if matches!(self.rollback, ApplyRollback::None) {
+            self.rollback = ApplyRollback::SinglePreparedRow(rollback);
+        }
     }
 
     /// Mark the guarded apply phase complete and drop rollback closures.
@@ -69,7 +94,7 @@ impl CommitApplyGuard {
         }
 
         self.finished = true;
-        self.rollback = None;
+        self.rollback = ApplyRollback::None;
         Ok(())
     }
 
@@ -80,10 +105,16 @@ impl CommitApplyGuard {
         }
 
         // Best-effort cleanup only:
-        // - reverse order to mirror write application
+        // - execute the one caller-owned rollback payload
         // - never unwind past this boundary
-        while let Some(rollback) = self.rollback.take() {
-            let _ = catch_unwind(AssertUnwindSafe(rollback));
+        match std::mem::replace(&mut self.rollback, ApplyRollback::None) {
+            ApplyRollback::None => {}
+            ApplyRollback::Closure(rollback) => {
+                let _ = catch_unwind(AssertUnwindSafe(rollback));
+            }
+            ApplyRollback::SinglePreparedRow(rollback) => {
+                let _ = catch_unwind(AssertUnwindSafe(|| rollback.apply()));
+            }
         }
     }
 }
@@ -106,31 +137,12 @@ impl Drop for CommitApplyGuard {
 #[derive(Clone, Debug)]
 pub(crate) struct CommitGuard {
     commit_id: [u8; COMMIT_ID_BYTES],
-    marker: Option<CommitMarker>,
 }
 
 impl CommitGuard {
     // Create one guard that only needs persisted marker identity.
     const fn for_persisted_id(commit_id: [u8; COMMIT_ID_BYTES]) -> Self {
-        Self {
-            commit_id,
-            marker: None,
-        }
-    }
-
-    /// Retain one full marker for finish-time consumers that need row ops.
-    pub(in crate::db) const fn from_marker(marker: CommitMarker) -> Self {
-        let commit_id = marker.id;
-
-        Self {
-            commit_id,
-            marker: Some(marker),
-        }
-    }
-
-    /// Borrow the retained marker row ops when the caller explicitly needs them.
-    pub(in crate::db) fn row_ops(&self) -> Option<&[CommitRowOp]> {
-        self.marker.as_ref().map(|marker| marker.row_ops.as_slice())
+        Self { commit_id }
     }
 
     /// Clear the commit marker without surfacing errors.
@@ -183,9 +195,10 @@ pub(crate) fn begin_commit_with_migration_state(
         }
 
         // Phase 2: persist marker + migration step progress atomically.
+        let commit_id = marker.id;
         store.set_with_migration_state(&marker, migration_state_bytes)?;
 
-        Ok(CommitGuard::from_marker(marker))
+        Ok(CommitGuard::for_persisted_id(commit_id))
     })
 }
 

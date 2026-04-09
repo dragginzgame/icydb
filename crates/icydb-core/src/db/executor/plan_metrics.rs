@@ -5,9 +5,8 @@
 
 use crate::{
     db::access::AccessPlan,
-    metrics::sink::{
-        GroupedExecutionMode as MetricsGroupedExecutionMode, MetricsEvent, PlanKind, Span, record,
-    },
+    db::executor::route::GroupedExecutionMode,
+    metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
 };
 
@@ -26,9 +25,13 @@ pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
 /// Must be called exactly once per grouped execution.
 pub(super) fn record_grouped_plan_metrics<K>(
     access: &AccessPlan<K>,
-    grouped_execution_mode: MetricsGroupedExecutionMode,
+    grouped_execution_mode: GroupedExecutionMode,
 ) {
     let kind = access_plan_kind(access);
+    let grouped_execution_mode = match grouped_execution_mode {
+        GroupedExecutionMode::HashMaterialized => GroupedPlanExecutionMode::HashMaterialized,
+        GroupedExecutionMode::OrderedMaterialized => GroupedPlanExecutionMode::OrderedMaterialized,
+    };
 
     record(MetricsEvent::Plan {
         kind,

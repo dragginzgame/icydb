@@ -3,48 +3,20 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::{
-    executor::aggregate::runtime::grouped_distinct::GlobalDistinctFieldAggregateKind,
-    query::plan::GroupedDistinctExecutionStrategy,
-};
+use crate::db::query::plan::{AggregateKind, GroupedDistinctExecutionStrategy};
 
 ///
-/// GlobalDistinctFieldExecutionSpec
+/// global_distinct_field_target_and_kind
 ///
-/// Data-only execution spec for grouped global DISTINCT field reducers.
-/// This spec is resolved from planner-owned grouped DISTINCT strategy and does
-/// not execute any runtime behavior.
+/// Resolve the planner-owned grouped DISTINCT strategy into the canonical
+/// target field and aggregate kind consumed by the dedicated global
+/// field-target runtime path.
 ///
-
-pub(in crate::db::executor) struct GlobalDistinctFieldExecutionSpec<'a> {
-    pub(in crate::db::executor) target_field: &'a str,
-    pub(in crate::db::executor) aggregate_kind: GlobalDistinctFieldAggregateKind,
-}
-
-// Resolve one grouped DISTINCT strategy into one optional global field
-// execution spec. This helper is data-only and does not execute any fold path.
-pub(in crate::db::executor) const fn global_distinct_field_execution_spec(
+pub(in crate::db::executor) fn global_distinct_field_target_and_kind(
     strategy: &GroupedDistinctExecutionStrategy,
-) -> Option<GlobalDistinctFieldExecutionSpec<'_>> {
-    match strategy {
-        GroupedDistinctExecutionStrategy::None => None,
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field } => {
-            Some(GlobalDistinctFieldExecutionSpec {
-                target_field: target_field.as_str(),
-                aggregate_kind: GlobalDistinctFieldAggregateKind::Count,
-            })
-        }
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field } => {
-            Some(GlobalDistinctFieldExecutionSpec {
-                target_field: target_field.as_str(),
-                aggregate_kind: GlobalDistinctFieldAggregateKind::Sum,
-            })
-        }
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field } => {
-            Some(GlobalDistinctFieldExecutionSpec {
-                target_field: target_field.as_str(),
-                aggregate_kind: GlobalDistinctFieldAggregateKind::Avg,
-            })
-        }
-    }
+) -> Option<(&str, AggregateKind)> {
+    let target_field = strategy.global_distinct_target_field()?;
+    let aggregate_kind = strategy.global_distinct_aggregate_kind()?;
+
+    Some((target_field, aggregate_kind))
 }

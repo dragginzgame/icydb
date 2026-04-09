@@ -18,7 +18,6 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode,
     value::Value,
 };
 
@@ -128,6 +127,11 @@ impl GroupedRouteStage {
         &self.planner_payload.projection_layout
     }
 
+    /// Return whether planner already proved grouped projection is row-identical.
+    pub(in crate::db::executor) const fn projection_is_identity(&self) -> bool {
+        self.planner_payload.projection_is_identity
+    }
+
     /// Borrow grouped field slot projection list.
     pub(in crate::db::executor) const fn group_fields(
         &self,
@@ -182,11 +186,11 @@ impl GroupedRouteStage {
         self.execution_context.direction()
     }
 
-    /// Return grouped metrics execution mode for grouped stream observability.
-    pub(in crate::db::executor) const fn grouped_metrics_execution_mode(
+    /// Return grouped execution mode for grouped stream observability.
+    pub(in crate::db::executor) const fn grouped_execution_mode(
         &self,
-    ) -> MetricsGroupedExecutionMode {
-        self.execution_context.grouped_metrics_execution_mode()
+    ) -> crate::db::executor::route::GroupedExecutionMode {
+        self.execution_context.grouped_execution_mode()
     }
 
     /// Borrow grouped runtime pagination projection.

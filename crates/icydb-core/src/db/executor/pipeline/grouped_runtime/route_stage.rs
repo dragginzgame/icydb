@@ -14,10 +14,7 @@ use crate::{
                 LoadExecutor,
             },
             pipeline::grouped_runtime::GroupedExecutionContext,
-            route::{
-                RouteExecutionMode, build_execution_route_plan_for_grouped_plan,
-                grouped_route_observability_for_runtime,
-            },
+            route::{RouteExecutionMode, build_execution_route_plan_for_grouped_plan},
             validate_executor_plan_for_authority,
         },
         query::plan::{grouped_aggregate_execution_specs_with_model, grouped_executor_handoff},
@@ -52,10 +49,7 @@ where
             grouped_handoff.aggregate_projection_specs(),
         )?;
         let projection_layout = grouped_handoff.projection_layout().clone();
-        debug_assert!(
-            grouped_handoff.projection_layout_valid(),
-            "planner grouped projection layout invariants must hold at executor boundary",
-        );
+        let projection_is_identity = grouped_handoff.projection_is_identity();
         let grouped_distinct_execution_strategy =
             grouped_handoff.distinct_execution_strategy().clone();
         let grouped_having = grouped_handoff.having().cloned();
@@ -64,11 +58,16 @@ where
             grouped_handoff.base(),
             grouped_plan_strategy,
         );
+
+        // The route plan remains the single owner of grouped observability.
         let grouped_route_observability =
-            grouped_route_observability_for_runtime(&grouped_route_plan)?;
+            grouped_route_plan.grouped_observability().ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "grouped route planning must emit grouped observability payload",
+                )
+            })?;
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-        let grouped_metrics_execution_mode =
-            grouped_route_observability.grouped_execution_mode().into();
+        let grouped_execution_mode = grouped_route_observability.grouped_execution_mode();
         debug_assert!(
             matches!(
                 grouped_route_execution_mode,
@@ -108,6 +107,7 @@ where
                 group_fields,
                 grouped_aggregate_execution_specs,
                 projection_layout,
+                projection_is_identity,
                 grouped_having,
                 grouped_distinct_execution_strategy,
             },
@@ -119,7 +119,7 @@ where
             execution_context: GroupedExecutionContext::new(
                 continuation,
                 direction,
-                grouped_metrics_execution_mode,
+                grouped_execution_mode,
                 execution_trace,
             ),
         })

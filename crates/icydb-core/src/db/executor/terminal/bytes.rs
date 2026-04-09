@@ -19,6 +19,7 @@ use crate::{
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
             decode_single_covering_projection_pairs,
+            executable_plan::classify_bytes_by_projection_mode,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
             resolve_covering_projection_component_from_lowered_specs,
@@ -28,7 +29,6 @@ use crate::{
             sum_row_payload_bytes_key_range_window_with_store,
             terminal::{RowDecoder, RowLayout},
         },
-        predicate::MissingRowPolicy,
         query::plan::{
             FieldSlot as PlannedFieldSlot, constant_covering_projection_value_from_access,
             covering_index_projection_context,
@@ -58,35 +58,14 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &str,
     ) -> BytesByProjectionMode {
-        if !matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
-            return BytesByProjectionMode::Materialized;
-        }
-
-        if constant_covering_projection_value_from_access(
-            &prepared.logical_plan.access,
-            target_field,
-        )
-        .is_some()
-        {
-            return BytesByProjectionMode::CoveringConstant;
-        }
-
-        if prepared.has_predicate() {
-            return BytesByProjectionMode::Materialized;
-        }
-
-        if covering_index_projection_context(
+        classify_bytes_by_projection_mode(
             &prepared.logical_plan.access,
             prepared.order_spec(),
+            prepared.consistency(),
+            prepared.has_predicate(),
             target_field,
             prepared.authority.model().primary_key.name,
         )
-        .is_some()
-        {
-            return BytesByProjectionMode::CoveringIndex;
-        }
-
-        BytesByProjectionMode::Materialized
     }
 
     // Derive one route-owned `bytes()` fast-path contract from the neutral

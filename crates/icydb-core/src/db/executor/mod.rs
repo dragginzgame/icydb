@@ -66,7 +66,8 @@ pub(super) use delete::DeleteExecutor;
 #[cfg(feature = "sql")]
 pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
-pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
+pub use executable_plan::ExecutionStrategy;
+pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan};
 pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
 pub(in crate::db) use explain::{
     assemble_aggregate_terminal_execution_descriptor_with_model,
@@ -96,6 +97,7 @@ pub use projection::{
 pub(in crate::db) use projection::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
 };
+pub use route::RouteExecutionMode;
 pub(in crate::db) use runtime_context::*;
 #[cfg(feature = "structural-read-metrics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};

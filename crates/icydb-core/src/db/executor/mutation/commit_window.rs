@@ -9,9 +9,9 @@ use crate::{
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
             PreparedIndexDeltaKind, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
-            finish_commit, prepare_row_commit_for_entity_with_readers_and_schema_fingerprint,
+            finish_commit,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
-            rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+            rollback_prepared_row_ops_reverse,
         },
         cursor::IndexScanContinuationInput,
         data::{DataKey, RawDataKey, RawRow, StorageKey},
@@ -34,7 +34,6 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
     ops::Bound,
-    panic::{AssertUnwindSafe, catch_unwind},
     ptr,
     thread::LocalKey,
 };
@@ -52,6 +51,28 @@ pub(in crate::db::executor) struct PreparedRowOpDelta {
     pub(in crate::db::executor) index_removes: usize,
     pub(in crate::db::executor) reverse_index_inserts: usize,
     pub(in crate::db::executor) reverse_index_removes: usize,
+}
+
+impl PreparedRowOpDelta {
+    // Construct one zeroed delta accumulator.
+    const fn zero() -> Self {
+        Self {
+            index_inserts: 0,
+            index_removes: 0,
+            reverse_index_inserts: 0,
+            reverse_index_removes: 0,
+        }
+    }
+
+    // Project one delete-only metric view that suppresses insert counts.
+    const fn delete_only(&self) -> Self {
+        Self {
+            index_inserts: 0,
+            index_removes: self.index_removes,
+            reverse_index_inserts: 0,
+            reverse_index_removes: self.reverse_index_removes,
+        }
+    }
 }
 
 ///
@@ -81,6 +102,49 @@ pub(in crate::db::executor) struct IndexStoreGenerationGuard {
     expected_generation: u64,
 }
 
+impl IndexStoreGenerationGuard {
+    // Capture one index store generation at preflight time.
+    fn capture(store: &'static LocalKey<RefCell<IndexStore>>) -> Self {
+        Self {
+            store,
+            expected_generation: store.with_borrow(IndexStore::generation),
+        }
+    }
+
+    // Verify one touched index store still matches its preflight generation.
+    fn verify(&self) -> Result<(), InternalError> {
+        let observed_generation = self.store.with_borrow(IndexStore::generation);
+        if observed_generation != self.expected_generation {
+            return Err(InternalError::mutation_index_store_generation_changed(
+                self.expected_generation,
+                observed_generation,
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Capture one deduplicated batch of touched index stores after preflight.
+    fn capture_batch(prepared_row_ops: &[PreparedRowCommitOp]) -> Vec<Self> {
+        let mut guards = Vec::<Self>::new();
+
+        for row_op in prepared_row_ops {
+            for index_op in &row_op.index_ops {
+                if guards
+                    .iter()
+                    .any(|existing| ptr::eq(existing.store, index_op.store))
+                {
+                    continue;
+                }
+
+                guards.push(Self::capture(index_op.store));
+            }
+        }
+
+        guards
+    }
+}
+
 ///
 /// SingleRowIndexStoreGuards
 ///
@@ -101,25 +165,15 @@ impl SingleRowIndexStoreGuards {
     fn record(&mut self, store: &'static LocalKey<RefCell<IndexStore>>) {
         match self {
             Self::Empty => {
-                let expected_generation = store.with_borrow(IndexStore::generation);
-                *self = Self::One(IndexStoreGenerationGuard {
-                    store,
-                    expected_generation,
-                });
+                *self = Self::One(IndexStoreGenerationGuard::capture(store));
             }
             Self::One(existing) => {
                 if ptr::eq(existing.store, store) {
                     return;
                 }
 
-                let first = IndexStoreGenerationGuard {
-                    store: existing.store,
-                    expected_generation: existing.expected_generation,
-                };
-                let second = IndexStoreGenerationGuard {
-                    store,
-                    expected_generation: store.with_borrow(IndexStore::generation),
-                };
+                let first = IndexStoreGenerationGuard::capture(existing.store);
+                let second = IndexStoreGenerationGuard::capture(store);
                 *self = Self::Many(vec![first, second]);
             }
             Self::Many(guards) => {
@@ -127,11 +181,7 @@ impl SingleRowIndexStoreGuards {
                     return;
                 }
 
-                let expected_generation = store.with_borrow(IndexStore::generation);
-                guards.push(IndexStoreGenerationGuard {
-                    store,
-                    expected_generation,
-                });
+                guards.push(IndexStoreGenerationGuard::capture(store));
             }
         }
     }
@@ -140,8 +190,14 @@ impl SingleRowIndexStoreGuards {
     fn verify(&self) -> Result<(), InternalError> {
         match self {
             Self::Empty => Ok(()),
-            Self::One(guard) => verify_index_store_generation(guard),
-            Self::Many(guards) => verify_index_store_generations(guards.as_slice()),
+            Self::One(guard) => guard.verify(),
+            Self::Many(guards) => {
+                for guard in guards {
+                    guard.verify()?;
+                }
+
+                Ok(())
+            }
         }
     }
 }
@@ -157,48 +213,6 @@ impl SingleRowIndexStoreGuards {
 struct SingleRowApplyPrep {
     guards: SingleRowIndexStoreGuards,
     delta: PreparedRowOpDelta,
-}
-
-///
-/// SingleRowRollbackGuard
-///
-/// Best-effort unwind cleanup specialized for one prepared row op.
-/// This keeps the hot one-row apply path allocation-free while preserving the
-/// same "rollback on unwind before finish" behavior the boxed apply guard owns
-/// for multi-row commit windows.
-///
-
-struct SingleRowRollbackGuard {
-    rollback: Option<PreparedRowCommitOp>,
-    finished: bool,
-}
-
-impl SingleRowRollbackGuard {
-    // Start one best-effort rollback guard for a single prepared row op.
-    const fn new(rollback: PreparedRowCommitOp) -> Self {
-        Self {
-            rollback: Some(rollback),
-            finished: false,
-        }
-    }
-
-    // Mark the guarded apply phase complete and drop the rollback snapshot.
-    fn finish(&mut self) {
-        self.rollback = None;
-        self.finished = true;
-    }
-}
-
-impl Drop for SingleRowRollbackGuard {
-    fn drop(&mut self) {
-        if self.finished {
-            return;
-        }
-
-        if let Some(rollback) = self.rollback.take() {
-            let _ = catch_unwind(AssertUnwindSafe(|| rollback.apply()));
-        }
-    }
 }
 
 ///
@@ -457,22 +471,15 @@ pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityV
         .map(|prepared| vec![prepared]);
     }
 
-    let mut prepared = Vec::with_capacity(row_ops.len());
-    let mut overlay = PreflightStoreOverlay::<E::Canister>::with_row_capacity(db, row_ops.len());
-
-    for row_op in row_ops {
-        let row = prepare_row_commit_for_entity_with_readers_and_schema_fingerprint::<E, _, _>(
+    preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
+        prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
             db,
             row_op,
-            &overlay,
-            &overlay,
+            overlay,
+            overlay,
             schema_fingerprint,
-        )?;
-        overlay.stage_prepared_row_op(&row);
-        prepared.push(row);
-    }
-
-    Ok(prepared)
+        )
+    })
 }
 
 /// Prepare delete row ops for commit-time apply through nongeneric runtime hooks.
@@ -488,11 +495,27 @@ pub(in crate::db::executor) fn preflight_prepare_row_ops_structural<C: CanisterK
             .map(|prepared| vec![prepared]);
     }
 
+    preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
+        let hooks = db.runtime_hook_for_entity_path(row_op.entity_path.as_ref())?;
+        (hooks.prepare_row_commit_with_readers)(db, row_op, overlay, overlay)
+    })
+}
+
+// Run the shared overlay-driven preflight sequence for multi-row commit
+// windows, leaving only per-row preparation policy to the caller.
+fn preflight_prepare_row_ops_with_overlay<C: CanisterKind>(
+    db: &Db<C>,
+    row_ops: &[CommitRowOp],
+    mut prepare_one: impl FnMut(
+        &PreflightStoreOverlay<'_, C>,
+        &CommitRowOp,
+    ) -> Result<PreparedRowCommitOp, InternalError>,
+) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
     let mut prepared = Vec::with_capacity(row_ops.len());
     let mut overlay = PreflightStoreOverlay::<C>::with_row_capacity(db, row_ops.len());
 
     for row_op in row_ops {
-        let row = db.prepare_row_commit_op_with_readers(row_op, &overlay, &overlay)?;
+        let row = prepare_one(&overlay, row_op)?;
         overlay.stage_prepared_row_op(&row);
         prepared.push(row);
     }
@@ -509,7 +532,7 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
-    let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
+    let index_store_guards = IndexStoreGenerationGuard::capture_batch(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
@@ -528,7 +551,7 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let prepared_row_ops = preflight_prepare_row_ops_structural(db, &row_ops)?;
-    let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
+    let index_store_guards = IndexStoreGenerationGuard::capture_batch(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
@@ -555,7 +578,9 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
         let _ = guard;
 
         // Enforce that index stores are unchanged between preflight and apply.
-        verify_index_store_generations(index_store_guards.as_slice())?;
+        for index_store_guard in &index_store_guards {
+            index_store_guard.verify()?;
+        }
 
         // Single-row writes dominate the hot write lanes, so avoid the extra
         // rollback vector and reverse-apply scaffolding when only one prepared
@@ -565,13 +590,11 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
             let row_op = prepared_iter
                 .next()
                 .expect("single-row prepared path requires exactly one row op");
-            let rollback = snapshot_row_rollback(&row_op);
-            let mut rollback_guard = SingleRowRollbackGuard::new(rollback);
+            apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
 
             row_op.apply();
             on_index_applied();
             on_data_applied();
-            rollback_guard.finish();
             apply_guard.finish()?;
 
             return Ok(());
@@ -579,7 +602,7 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
 
         let mut rollback = Vec::with_capacity(prepared_row_ops.len());
         for row_op in &prepared_row_ops {
-            rollback.push(snapshot_row_rollback(row_op));
+            rollback.push(row_op.snapshot_rollback());
         }
         apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
 
@@ -605,19 +628,18 @@ fn apply_prepared_single_row_op(
     on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
     finish_commit(commit, |guard| {
+        let mut apply_guard = CommitApplyGuard::new(apply_phase);
         let _ = guard;
-        let _ = apply_phase;
 
         // Enforce that index stores are unchanged between preflight and apply.
         index_store_guards.verify()?;
 
-        let rollback = snapshot_row_rollback(&prepared_row_op);
-        let mut rollback_guard = SingleRowRollbackGuard::new(rollback);
+        apply_guard.record_single_row_rollback(prepared_row_op.snapshot_rollback());
 
         prepared_row_op.apply();
         on_index_applied();
         on_data_applied();
-        rollback_guard.finish();
+        apply_guard.finish()?;
 
         Ok(())
     })
@@ -743,17 +765,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         apply_phase,
         prepared_row_ops,
         index_store_guards,
-        || {
-            emit_index_delta_metrics_for_path(
-                entity_path,
-                &PreparedRowOpDelta {
-                    index_inserts: 0,
-                    index_removes: delta.index_removes,
-                    reverse_index_inserts: 0,
-                    reverse_index_removes: delta.reverse_index_removes,
-                },
-            );
-        },
+        || emit_delete_index_delta_metrics_for_path(entity_path, &delta),
         || {},
     )?;
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());
@@ -823,6 +835,25 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
     on_index_applied: impl FnOnce(&PreparedRowOpDelta),
     on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
+    commit_prepared_single_row_op_with_window(
+        row_op,
+        prepared_row_op,
+        synchronized_store_handles,
+        apply_phase,
+        |delta| on_index_applied(delta),
+        on_data_applied,
+    )
+}
+
+// Commit one already-prepared row op through the shared single-row fast path.
+fn commit_prepared_single_row_op_with_window(
+    row_op: CommitRowOp,
+    prepared_row_op: PreparedRowCommitOp,
+    synchronized_store_handles: Vec<StoreHandle>,
+    apply_phase: &'static str,
+    on_index_applied: impl FnOnce(&PreparedRowOpDelta),
+    on_data_applied: impl FnOnce(),
+) -> Result<(), InternalError> {
     let SingleRowApplyPrep {
         guards: index_store_guards,
         delta,
@@ -838,6 +869,7 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
         on_data_applied,
     )?;
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());
+
     Ok(())
 }
 
@@ -859,22 +891,14 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
         )?;
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
-    let SingleRowApplyPrep {
-        guards: index_store_guards,
-        delta,
-    } = prepare_single_row_apply(&prepared_row_op);
-    let commit = begin_single_row_commit(row_op)?;
-
-    apply_prepared_single_row_op(
-        commit,
-        apply_phase,
+    commit_prepared_single_row_op_with_window(
+        row_op,
         prepared_row_op,
-        index_store_guards,
-        || emit_index_delta_metrics::<E>(&delta),
+        synchronized_store_handles,
+        apply_phase,
+        |delta| emit_index_delta_metrics::<E>(delta),
         || {},
-    )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
-    Ok(())
+    )
 }
 
 // Commit one delete-mode row operation through the runtime-hook single-row
@@ -888,43 +912,20 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
     let prepared_row_op = db.prepare_row_commit_op(&row_op)?;
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
-    let SingleRowApplyPrep {
-        guards: index_store_guards,
-        delta,
-    } = prepare_single_row_apply(&prepared_row_op);
-    let commit = begin_single_row_commit(row_op)?;
-
-    apply_prepared_single_row_op(
-        commit,
-        apply_phase,
+    commit_prepared_single_row_op_with_window(
+        row_op,
         prepared_row_op,
-        index_store_guards,
-        || {
-            emit_index_delta_metrics_for_path(
-                entity_path,
-                &PreparedRowOpDelta {
-                    index_inserts: 0,
-                    index_removes: delta.index_removes,
-                    reverse_index_inserts: 0,
-                    reverse_index_removes: delta.reverse_index_removes,
-                },
-            );
-        },
+        synchronized_store_handles,
+        apply_phase,
+        |delta| emit_delete_index_delta_metrics_for_path(entity_path, delta),
         || {},
-    )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
-    Ok(())
+    )
 }
 
 // Derive single-row delta metrics and index-store generation guards in one
 // scan so the hot write lane does not rewalk the same `index_ops` slice.
 fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowApplyPrep {
-    let mut delta = PreparedRowOpDelta {
-        index_inserts: 0,
-        index_removes: 0,
-        reverse_index_inserts: 0,
-        reverse_index_removes: 0,
-    };
+    let mut delta = PreparedRowOpDelta::zero();
     let mut guards = SingleRowIndexStoreGuards::Empty;
 
     for index_op in &prepared_row_op.index_ops {
@@ -940,12 +941,7 @@ fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowA
 pub(in crate::db::executor) fn summarize_prepared_row_ops(
     prepared_row_ops: &[PreparedRowCommitOp],
 ) -> PreparedRowOpDelta {
-    let mut summary = PreparedRowOpDelta {
-        index_inserts: 0,
-        index_removes: 0,
-        reverse_index_inserts: 0,
-        reverse_index_removes: 0,
-    };
+    let mut summary = PreparedRowOpDelta::zero();
 
     for row_op in prepared_row_ops {
         for index_op in &row_op.index_ops {
@@ -954,31 +950,6 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
     }
 
     summary
-}
-
-// Capture unique touched index stores and their generation after preflight.
-fn snapshot_index_store_generations(
-    prepared_row_ops: &[PreparedRowCommitOp],
-) -> Vec<IndexStoreGenerationGuard> {
-    let mut guards = Vec::<IndexStoreGenerationGuard>::new();
-
-    for row_op in prepared_row_ops {
-        for index_op in &row_op.index_ops {
-            if guards
-                .iter()
-                .any(|existing| ptr::eq(existing.store, index_op.store))
-            {
-                continue;
-            }
-            let expected_generation = index_op.store.with_borrow(IndexStore::generation);
-            guards.push(IndexStoreGenerationGuard {
-                store: index_op.store,
-                expected_generation,
-            });
-        }
-    }
-
-    guards
 }
 
 /// Resolve the exact registered store pairs that one prepared-op batch
@@ -1017,30 +988,6 @@ fn mark_store_handles_index_ready(handles: &[StoreHandle]) {
     }
 }
 
-// Verify index stores have not changed since preflight snapshot capture.
-fn verify_index_store_generations(
-    guards: &[IndexStoreGenerationGuard],
-) -> Result<(), InternalError> {
-    for guard in guards {
-        verify_index_store_generation(guard)?;
-    }
-
-    Ok(())
-}
-
-// Verify one touched index store still matches its preflight generation.
-fn verify_index_store_generation(guard: &IndexStoreGenerationGuard) -> Result<(), InternalError> {
-    let observed_generation = guard.store.with_borrow(IndexStore::generation);
-    if observed_generation != guard.expected_generation {
-        return Err(InternalError::mutation_index_store_generation_changed(
-            guard.expected_generation,
-            observed_generation,
-        ));
-    }
-
-    Ok(())
-}
-
 fn index_store_id(store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(store) as usize
 }
@@ -1057,6 +1004,11 @@ fn emit_index_delta_metrics_for_path(entity_path: &'static str, delta: &Prepared
         inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
         removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
     });
+}
+
+// Emit delete-only index metrics through the shared path-shaped sink contract.
+fn emit_delete_index_delta_metrics_for_path(entity_path: &'static str, delta: &PreparedRowOpDelta) {
+    emit_index_delta_metrics_for_path(entity_path, &delta.delete_only());
 }
 
 fn key_within_bounds(

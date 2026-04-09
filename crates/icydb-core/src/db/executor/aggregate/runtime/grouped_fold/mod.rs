@@ -24,8 +24,8 @@ use crate::{
                 ExecutionContext, GroupError, GroupedAggregateEngine,
                 runtime::{
                     grouped_distinct::{
-                        GlobalDistinctFieldExecutionSpec, execute_global_distinct_field_aggregate,
-                        global_distinct_field_execution_spec, page_global_distinct_grouped_row,
+                        execute_global_distinct_field_aggregate,
+                        global_distinct_field_target_and_kind, page_global_distinct_grouped_row,
                     },
                     grouped_output::project_grouped_rows_from_projection,
                 },
@@ -73,7 +73,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
         ProjectionMaterializationMode::SharedValidation,
         true,
     )?;
-    record_grouped_plan_metrics(&route.plan().access, route.grouped_metrics_execution_mode());
+    record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
         &execution_inputs,
         route.grouped_route_plan(),
@@ -160,13 +160,10 @@ fn try_execute_global_distinct_grouped_fold_stage(
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<Option<GroupedFoldStage>, InternalError> {
-    let Some(GlobalDistinctFieldExecutionSpec {
-        aggregate_kind,
-        target_field,
-    }) = global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
-    else {
+    if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy()).is_none()
+    {
         return Ok(None);
-    };
+    }
 
     grouped_execution_context
         .record_implicit_single_group()
@@ -182,7 +179,7 @@ fn try_execute_global_distinct_grouped_fold_stage(
         compiled_predicate,
         grouped_execution_context,
         route.entity_model(),
-        (target_field, aggregate_kind),
+        route.grouped_distinct_execution_strategy(),
         (&mut scanned_rows, &mut filtered_rows),
     )?;
     let grouped_window = route.grouped_pagination_window();
@@ -193,6 +190,7 @@ fn try_execute_global_distinct_grouped_fold_stage(
     );
     let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
+        route.projection_is_identity(),
         route.projection_layout(),
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),
@@ -421,6 +419,7 @@ fn finalize_grouped_count_page(
     // projection fast path that returns the rows unchanged.
     let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
+        route.projection_is_identity(),
         route.projection_layout(),
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),

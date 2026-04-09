@@ -11,8 +11,9 @@ use crate::{
             plan::{
                 OrderSpec,
                 access_choice::model::{
-                    AccessChoiceFamily, AccessChoiceRejectedReason, AccessChoiceSelectedReason,
-                    CandidateEvaluation, CandidateScore, RangeCompareKind, RangeFieldConstraint,
+                    AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
+                    AccessChoiceSelectedReason, CandidateEvaluation, CandidateScore,
+                    RangeCompareKind, RangeFieldConstraint,
                 },
                 key_item_match::{
                     eq_lookup_value_for_key_item, index_key_item_at, index_key_item_count,
@@ -785,7 +786,7 @@ pub(super) fn chosen_selection_reason(
             .iter()
             .any(|score| score.prefix_len == chosen_score.prefix_len && !score.exact)
     {
-        return AccessChoiceSelectedReason::ExactMatchPreferred;
+        return AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::ExactMatchPreferred);
     }
 
     if matches!(
@@ -798,10 +799,12 @@ pub(super) fn chosen_selection_reason(
                 && !score.order_compatible
         })
     {
-        return AccessChoiceSelectedReason::OrderCompatiblePreferred;
+        return AccessChoiceSelectedReason::Ranked(
+            AccessChoiceRankingReason::OrderCompatiblePreferred,
+        );
     }
 
-    AccessChoiceSelectedReason::LexicographicTiebreak
+    AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::LexicographicTiebreak)
 }
 
 pub(super) const fn ranked_rejection_reason(
@@ -820,7 +823,7 @@ pub(super) const fn ranked_rejection_reason(
         && chosen.exact
         && candidate.prefix_len == chosen.prefix_len
     {
-        return AccessChoiceRejectedReason::ExactMatchPreferred;
+        return AccessChoiceRejectedReason::Ranked(AccessChoiceRankingReason::ExactMatchPreferred);
     }
 
     if matches!(
@@ -831,8 +834,10 @@ pub(super) const fn ranked_rejection_reason(
         && candidate.prefix_len == chosen.prefix_len
         && candidate.exact == chosen.exact
     {
-        return AccessChoiceRejectedReason::OrderCompatiblePreferred;
+        return AccessChoiceRejectedReason::Ranked(
+            AccessChoiceRankingReason::OrderCompatiblePreferred,
+        );
     }
 
-    AccessChoiceRejectedReason::LexicographicTiebreak
+    AccessChoiceRejectedReason::Ranked(AccessChoiceRankingReason::LexicographicTiebreak)
 }

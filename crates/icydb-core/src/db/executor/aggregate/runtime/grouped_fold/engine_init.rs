@@ -7,7 +7,7 @@ use crate::{
     db::executor::{
         aggregate::{
             ExecutionContext, GroupedAggregateEngine,
-            runtime::grouped_distinct::global_distinct_field_execution_spec,
+            runtime::grouped_distinct::global_distinct_field_target_and_kind,
         },
         pipeline::contracts::GroupedRouteStage,
         route::aggregate_materialized_fold_direction,
@@ -22,7 +22,8 @@ pub(super) fn build_grouped_engines(
     route: &GroupedRouteStage,
     grouped_execution_context: &ExecutionContext,
 ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
-    if global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy()).is_some() {
+    if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy()).is_some()
+    {
         return Ok((Vec::new(), Vec::new()));
     }
 

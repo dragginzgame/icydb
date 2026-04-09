@@ -1096,6 +1096,10 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     let handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
 
+    assert!(
+        handoff.projection_is_identity(),
+        "planner grouped handoff should carry the canonical identity-projection contract",
+    );
     assert_eq!(
         handoff
             .group_fields()

@@ -8,54 +8,56 @@ use crate::db::{
     data::canonical_row_from_stored_raw_row,
 };
 
-/// Capture the current store state needed to roll back one prepared row op.
-///
-/// The returned op writes the prior index/data values back when applied.
-#[must_use]
-pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
-    // Phase 1: snapshot all index keys touched by the prepared operation.
-    let mut index_ops = Vec::with_capacity(op.index_ops.len());
-    for index_op in &op.index_ops {
-        let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
-        index_ops.push(PreparedIndexMutation {
-            store: index_op.store,
-            key: index_op.key.clone(),
-            value: existing,
-            delta_kind: PreparedIndexDeltaKind::None,
-        });
+impl PreparedRowCommitOp {
+    /// Capture the current store state needed to roll back this prepared row op.
+    ///
+    /// The returned op writes the prior index/data values back when applied.
+    #[must_use]
+    pub(crate) fn snapshot_rollback(&self) -> Self {
+        // Phase 1: snapshot all index keys touched by the prepared operation.
+        let mut index_ops = Vec::with_capacity(self.index_ops.len());
+        for index_op in &self.index_ops {
+            let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
+            index_ops.push(PreparedIndexMutation {
+                store: index_op.store,
+                key: index_op.key.clone(),
+                value: existing,
+                delta_kind: PreparedIndexDeltaKind::None,
+            });
+        }
+
+        // Phase 2: snapshot the row-store value for the target primary key.
+        let data_value = self
+            .data_store
+            .with_borrow(|store| store.get(&self.data_key))
+            .map(canonical_row_from_stored_raw_row);
+
+        Self {
+            index_ops,
+            data_store: self.data_store,
+            data_key: self.data_key,
+            data_value,
+        }
     }
 
-    // Phase 2: snapshot the row-store value for the target primary key.
-    let data_value = op
-        .data_store
-        .with_borrow(|store| store.get(&op.data_key))
-        .map(canonical_row_from_stored_raw_row);
+    /// Capture only row-store state needed to roll back this prepared row op.
+    ///
+    /// Recovery replay applies row mutations only and rebuilds indexes in a
+    /// dedicated phase, so replay rollback snapshots should remain row-scoped.
+    #[must_use]
+    pub(crate) fn snapshot_row_only_rollback(&self) -> Self {
+        // Recovery row-replay rollback does not touch index stores; rebuild owns those.
+        let data_value = self
+            .data_store
+            .with_borrow(|store| store.get(&self.data_key))
+            .map(canonical_row_from_stored_raw_row);
 
-    PreparedRowCommitOp {
-        index_ops,
-        data_store: op.data_store,
-        data_key: op.data_key,
-        data_value,
-    }
-}
-
-/// Capture only row-store state needed to roll back one prepared row op.
-///
-/// Recovery replay applies row mutations only and rebuilds indexes in a
-/// dedicated phase, so replay rollback snapshots should remain row-scoped.
-#[must_use]
-pub(crate) fn snapshot_row_only_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
-    // Recovery row-replay rollback does not touch index stores; rebuild owns those.
-    let data_value = op
-        .data_store
-        .with_borrow(|store| store.get(&op.data_key))
-        .map(canonical_row_from_stored_raw_row);
-
-    PreparedRowCommitOp {
-        index_ops: Vec::new(),
-        data_store: op.data_store,
-        data_key: op.data_key,
-        data_value,
+        Self {
+            index_ops: Vec::new(),
+            data_store: self.data_store,
+            data_key: self.data_key,
+            data_value,
+        }
     }
 }
 
