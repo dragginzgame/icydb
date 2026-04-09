@@ -6,10 +6,10 @@
 use crate::{
     db::executor::{
         ExecutionPlan,
-        plan_metrics::GroupedPlanMetricsStrategy,
         route::{GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability},
     },
     error::InternalError,
+    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
 };
 
 pub(in crate::db::executor) fn grouped_route_observability_for_runtime(
@@ -38,13 +38,11 @@ pub(in crate::db::executor) fn grouped_route_observability_for_runtime(
     Ok(grouped_route_observability)
 }
 
-pub(in crate::db::executor) const fn grouped_plan_metrics_strategy_for_execution_strategy(
-    grouped_execution_strategy: GroupedExecutionStrategy,
-) -> GroupedPlanMetricsStrategy {
-    match grouped_execution_strategy {
-        GroupedExecutionStrategy::HashMaterialized => GroupedPlanMetricsStrategy::HashMaterialized,
-        GroupedExecutionStrategy::OrderedMaterialized => {
-            GroupedPlanMetricsStrategy::OrderedMaterialized
+impl From<GroupedExecutionStrategy> for MetricsGroupedPlanStrategy {
+    fn from(grouped_execution_strategy: GroupedExecutionStrategy) -> Self {
+        match grouped_execution_strategy {
+            GroupedExecutionStrategy::HashMaterialized => Self::HashMaterialized,
+            GroupedExecutionStrategy::OrderedMaterialized => Self::OrderedMaterialized,
         }
     }
 }

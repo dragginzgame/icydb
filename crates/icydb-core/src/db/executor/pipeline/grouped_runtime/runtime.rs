@@ -5,10 +5,9 @@
 
 use crate::db::{
     direction::Direction,
-    executor::{
-        ExecutionTrace, GroupedContinuationContext, plan_metrics::GroupedPlanMetricsStrategy,
-    },
+    executor::{ExecutionTrace, GroupedContinuationContext},
 };
+use crate::metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy;
 
 ///
 /// GroupedExecutionContext
@@ -21,7 +20,7 @@ use crate::db::{
 pub(in crate::db::executor) struct GroupedExecutionContext {
     continuation: GroupedContinuationContext,
     direction: Direction,
-    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
+    grouped_plan_metrics_strategy: MetricsGroupedPlanStrategy,
     execution_trace: Option<ExecutionTrace>,
 }
 
@@ -31,7 +30,7 @@ impl GroupedExecutionContext {
     pub(in crate::db::executor) const fn new(
         continuation: GroupedContinuationContext,
         direction: Direction,
-        grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
+        grouped_plan_metrics_strategy: MetricsGroupedPlanStrategy,
         execution_trace: Option<ExecutionTrace>,
     ) -> Self {
         Self {
@@ -52,7 +51,7 @@ impl GroupedExecutionContext {
     #[must_use]
     pub(in crate::db::executor) const fn grouped_plan_metrics_strategy(
         &self,
-    ) -> GroupedPlanMetricsStrategy {
+    ) -> MetricsGroupedPlanStrategy {
         self.grouped_plan_metrics_strategy
     }
 

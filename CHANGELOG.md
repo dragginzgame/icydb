@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
+
+- `0.74.0` starts the cleanup line by inventorying the grouped planning stack, classifying which planner/runtime/explain/fingerprint seams are canonical versus transitional, and naming the first grouped cleanup targets so later deletions stay surgical instead of becoming a vague refactor bucket.
+
+See detailed breakdown:
+[docs/changelog/0.74.md](docs/changelog/0.74.md)
+
+---
+
 ## [0.73.x] 🧮 - 2026-04-09 - Grouped Aggregate Planning
 
 - `0.73.2` finishes the next grouped-planning structural step by making the planner carry one explicit grouped aggregate-family profile into grouped runtime and continuation signatures, then locking grouped `SUM(field)` and `AVG(field)` cursor-window behavior on the broader parity and integration surfaces before widening to more grouped families.

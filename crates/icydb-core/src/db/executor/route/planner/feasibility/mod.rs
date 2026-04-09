@@ -209,7 +209,6 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
             .expect("grouped feasibility derivation requires planner-projected grouped strategy");
 
         grouped_execution_strategy_for_runtime(
-            plan,
             planner_grouped_strategy,
             direction,
             capabilities.desc_physical_reverse_supported,

@@ -22,17 +22,17 @@ enum GroupedPlanFamily {
 /// GroupedPlanAggregateFamily
 ///
 /// Planner-owned grouped aggregate-family profile.
-/// This is intentionally coarse: it captures which grouped aggregate family the
-/// planner admitted so runtime can select grouped execution paths without
-/// rebuilding family policy from raw aggregate expressions again.
+/// This is intentionally coarse and execution-oriented: it captures which
+/// grouped aggregate family the planner admitted so runtime can select grouped
+/// execution paths without rebuilding family policy from raw aggregate
+/// expressions again.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupedPlanAggregateFamily {
     CountRowsOnly,
     FieldTargetRows,
-    StorageKeyTerminals,
-    Mixed,
+    GenericRows,
 }
 
 impl GroupedPlanAggregateFamily {
@@ -42,8 +42,7 @@ impl GroupedPlanAggregateFamily {
         match self {
             Self::CountRowsOnly => "count_rows_only",
             Self::FieldTargetRows => "field_target_rows",
-            Self::StorageKeyTerminals => "storage_key_terminals",
-            Self::Mixed => "mixed",
+            Self::GenericRows => "generic_rows",
         }
     }
 }
@@ -143,7 +142,7 @@ impl GroupedPlanStrategy {
 
     /// Return whether the planner admitted the ordered grouped family.
     #[must_use]
-    pub(crate) const fn streaming_admitted(self) -> bool {
+    pub(crate) const fn ordered_group_admitted(self) -> bool {
         self.is_ordered_group()
     }
 
@@ -259,10 +258,10 @@ fn grouped_plan_aggregate_family(aggregates: &[GroupAggregateSpec]) -> GroupedPl
                     | AggregateKind::Last
             )
     }) {
-        return GroupedPlanAggregateFamily::StorageKeyTerminals;
+        return GroupedPlanAggregateFamily::GenericRows;
     }
 
-    GroupedPlanAggregateFamily::Mixed
+    GroupedPlanAggregateFamily::GenericRows
 }
 
 fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {

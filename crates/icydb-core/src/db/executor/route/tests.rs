@@ -12,8 +12,7 @@ use super::{
     build_execution_route_plan_for_mutation_with_model,
     build_initial_execution_route_plan_for_load_with_model,
     derive_load_terminal_fast_path_contract_for_model,
-    grouped_ordered_runtime_revalidation_flag_count_guard,
-    grouped_plan_metrics_strategy_for_execution_strategy, route_capability_flag_count_guard,
+    grouped_ordered_runtime_revalidation_flag_count_guard, route_capability_flag_count_guard,
     route_execution_mode_case_count_guard, route_shape_kind_count_guard,
 };
 use crate::{
@@ -26,7 +25,6 @@ use crate::{
             aggregate::AggregateFoldMode,
             aggregate::capability::AggregateFieldExtremaIneligibilityReason,
             continuation::{ContinuationMode, ScalarContinuationContext},
-            plan_metrics::GroupedPlanMetricsStrategy,
             preparation::slot_map_for_model_plan,
         },
         index::{IndexCompilePolicy, compile_index_program},
@@ -46,6 +44,7 @@ use crate::{
             grouped_executor_handoff, grouped_plan_strategy,
         },
     },
+    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::{EntitySchema, Path},
     types::Ulid,
@@ -2863,6 +2862,66 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
 }
 
 #[test]
+fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_rows() {
+    let storage_key_terminal_grouped =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: grouped_field_slots(&["rank"]),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::First,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::unbounded(),
+            });
+    assert_eq!(
+        grouped_policy_snapshot(&storage_key_terminal_grouped),
+        (
+            GroupedPlanStrategy::hash_group_with_aggregate_family(
+                GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+                GroupedPlanAggregateFamily::GenericRows,
+            ),
+            None,
+            GroupedExecutionStrategy::HashMaterialized,
+            true,
+        ),
+        "storage-key grouped aggregates should stay on the generic grouped rows family",
+    );
+
+    let mixed_grouped =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: grouped_field_slots(&["rank"]),
+                aggregates: vec![
+                    GroupAggregateSpec {
+                        kind: AggregateKind::Count,
+                        target_field: None,
+                        distinct: false,
+                    },
+                    GroupAggregateSpec {
+                        kind: AggregateKind::Sum,
+                        target_field: Some("rank".to_string()),
+                        distinct: false,
+                    },
+                ],
+                execution: GroupedExecutionConfig::unbounded(),
+            });
+    assert_eq!(
+        grouped_policy_snapshot(&mixed_grouped),
+        (
+            GroupedPlanStrategy::hash_group_with_aggregate_family(
+                GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+                GroupedPlanAggregateFamily::GenericRows,
+            ),
+            None,
+            GroupedExecutionStrategy::HashMaterialized,
+            true,
+        ),
+        "mixed grouped aggregate sets should collapse to the generic grouped rows family",
+    );
+}
+
+#[test]
 fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     let group_field = grouped_field_slot("rank");
     let grouped = AccessPlannedQuery::new(
@@ -2950,16 +3009,16 @@ fn grouped_route_strategy_to_metrics_strategy_mapping_is_stable() {
     for (route_strategy, expected_metrics_strategy) in [
         (
             GroupedExecutionStrategy::HashMaterialized,
-            GroupedPlanMetricsStrategy::HashMaterialized,
+            MetricsGroupedPlanStrategy::HashMaterialized,
         ),
         (
             GroupedExecutionStrategy::OrderedMaterialized,
-            GroupedPlanMetricsStrategy::OrderedMaterialized,
+            MetricsGroupedPlanStrategy::OrderedMaterialized,
         ),
     ] {
         assert_eq!(
-            grouped_plan_metrics_strategy_for_execution_strategy(route_strategy),
-            expected_metrics_strategy,
+            format!("{:?}", MetricsGroupedPlanStrategy::from(route_strategy)),
+            format!("{expected_metrics_strategy:?}"),
             "grouped route strategy must map to stable grouped metrics strategy labels",
         );
     }

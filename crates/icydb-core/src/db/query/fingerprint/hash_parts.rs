@@ -779,37 +779,28 @@ fn hash_grouping_shape_v1(
             having,
             max_groups,
             max_group_bytes,
-        } => {
-            // Grouped identity includes grouped key/aggregate ordering, grouped
-            // HAVING semantics, and grouped budget policy.
-            write_tag(hasher, GROUPING_PRESENT_TAG);
-            if include_group_strategy {
-                hash_grouped_strategy(hasher, *strategy);
-            }
-            write_u32(hasher, group_fields.len() as u32);
-            for field in group_fields {
-                // Hash declared group field order using stable slot identity first,
-                // then canonical field label as an additional guardrail.
-                write_u32(hasher, field.slot_index() as u32);
-                write_str(hasher, field.field());
-            }
-
-            write_u32(hasher, aggregates.len() as u32);
-            for aggregate in aggregates {
-                hash_group_aggregate_structural_fingerprint_v1(
-                    hasher,
-                    &AggregateHashShape::semantic(
-                        aggregate.kind(),
-                        aggregate.target_field(),
-                        aggregate.distinct(),
-                    ),
-                );
-            }
-            hash_group_having(hasher, having.as_ref());
-
-            write_hash_u64(hasher, *max_groups);
-            write_hash_u64(hasher, *max_group_bytes);
-        }
+        } => hash_grouping_shape_v1_components(
+            hasher,
+            GroupingShapeHashLayout {
+                include_group_strategy,
+                group_field_count: group_fields.len(),
+                aggregate_count: aggregates.len(),
+                max_groups: *max_groups,
+                max_group_bytes: *max_group_bytes,
+            },
+            |hasher| hash_grouped_strategy(hasher, *strategy),
+            group_fields
+                .iter()
+                .map(|field| (field.slot_index() as u32, field.field())),
+            aggregates.iter().map(|aggregate| {
+                AggregateHashShape::semantic(
+                    aggregate.kind(),
+                    aggregate.target_field(),
+                    aggregate.distinct(),
+                )
+            }),
+            |hasher| hash_group_having(hasher, having.as_ref()),
+        ),
     }
 }
 
@@ -823,35 +814,37 @@ fn hash_grouping_shape_v1_from_plan(
         return;
     };
 
-    write_tag(hasher, GROUPING_PRESENT_TAG);
-    if include_group_strategy {
-        hash_grouped_plan_strategy(
-            hasher,
-            grouped_plan_strategy(plan)
-                .expect("grouped grouping-shape hashing requires planner-owned grouped strategy"),
-        );
-    }
-    write_u32(hasher, grouped.group.group_fields.len() as u32);
-    for field in &grouped.group.group_fields {
-        write_u32(hasher, field.index as u32);
-        write_str(hasher, &field.field);
-    }
-
-    write_u32(hasher, grouped.group.aggregates.len() as u32);
-    for aggregate in &grouped.group.aggregates {
-        hash_group_aggregate_structural_fingerprint_v1(
-            hasher,
-            &AggregateHashShape::semantic(
+    hash_grouping_shape_v1_components(
+        hasher,
+        GroupingShapeHashLayout {
+            include_group_strategy,
+            group_field_count: grouped.group.group_fields.len(),
+            aggregate_count: grouped.group.aggregates.len(),
+            max_groups: grouped.group.execution.max_groups,
+            max_group_bytes: grouped.group.execution.max_group_bytes,
+        },
+        |hasher| {
+            hash_grouped_plan_strategy(
+                hasher,
+                grouped_plan_strategy(plan).expect(
+                    "grouped grouping-shape hashing requires planner-owned grouped strategy",
+                ),
+            );
+        },
+        grouped
+            .group
+            .group_fields
+            .iter()
+            .map(|field| (field.index as u32, field.field.as_str())),
+        grouped.group.aggregates.iter().map(|aggregate| {
+            AggregateHashShape::semantic(
                 aggregate.kind,
                 aggregate.target_field.as_deref(),
                 aggregate.distinct,
-            ),
-        );
-    }
-    hash_group_having_spec(hasher, grouped.having.as_ref());
-
-    write_hash_u64(hasher, grouped.group.execution.max_groups);
-    write_hash_u64(hasher, grouped.group.execution.max_group_bytes);
+            )
+        }),
+        |hasher| hash_group_having_spec(hasher, grouped.having.as_ref()),
+    );
 }
 
 fn hash_projection_spec_v1(
@@ -882,6 +875,76 @@ fn hash_projection_spec_v1_for_plan(
     }
 
     hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
+}
+
+///
+/// GroupingShapeHashLayout
+///
+/// Shared grouped hashing layout metadata for logical-plan and explain
+/// projection callsites. This keeps grouped counters and budget policy
+/// together so grouped hashing can reuse one helper without duplicating the
+/// grouped shape envelope.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GroupingShapeHashLayout {
+    include_group_strategy: bool,
+    group_field_count: usize,
+    aggregate_count: usize,
+    max_groups: u64,
+    max_group_bytes: u64,
+}
+
+// Hash the canonical grouped identity payload shared by logical-plan and
+// explain-derived grouped fingerprint callsites.
+fn hash_grouping_shape_v1_components<'a, S, GF, AG, H>(
+    hasher: &mut Sha256,
+    layout: GroupingShapeHashLayout,
+    hash_group_strategy: S,
+    group_fields: GF,
+    aggregates: AG,
+    hash_having: H,
+) where
+    S: FnOnce(&mut Sha256),
+    GF: IntoIterator<Item = (u32, &'a str)>,
+    AG: IntoIterator<Item = AggregateHashShape<'a>>,
+    H: FnOnce(&mut Sha256),
+{
+    write_tag(hasher, GROUPING_PRESENT_TAG);
+    if layout.include_group_strategy {
+        hash_group_strategy(hasher);
+    }
+
+    hash_group_field_slots(hasher, layout.group_field_count, group_fields);
+    hash_group_aggregate_shapes(hasher, layout.aggregate_count, aggregates);
+    hash_having(hasher);
+
+    write_hash_u64(hasher, layout.max_groups);
+    write_hash_u64(hasher, layout.max_group_bytes);
+}
+
+// Hash grouped key order using stable slot identity first, then the canonical
+// field label as a guardrail against grouped projection drift.
+fn hash_group_field_slots<'a, I>(hasher: &mut Sha256, field_count: usize, fields: I)
+where
+    I: IntoIterator<Item = (u32, &'a str)>,
+{
+    write_u32(hasher, field_count as u32);
+    for (slot_index, field) in fields {
+        write_u32(hasher, slot_index);
+        write_str(hasher, field);
+    }
+}
+
+// Hash grouped aggregate semantics from one already-lowered aggregate shape stream.
+fn hash_group_aggregate_shapes<'a, I>(hasher: &mut Sha256, aggregate_count: usize, aggregates: I)
+where
+    I: IntoIterator<Item = AggregateHashShape<'a>>,
+{
+    write_u32(hasher, aggregate_count as u32);
+    for aggregate in aggregates {
+        hash_group_aggregate_structural_fingerprint_v1(hasher, &aggregate);
+    }
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {

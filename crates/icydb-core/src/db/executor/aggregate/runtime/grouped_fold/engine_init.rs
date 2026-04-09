@@ -30,10 +30,6 @@ pub(super) fn build_grouped_engines(
     }
 
     let grouped_plan_strategy = route.grouped_plan_strategy();
-    if grouped_plan_strategy.is_single_count_rows() {
-        return Err(GroupedRouteStage::count_rows_family_requires_dedicated_fold_path());
-    }
-
     let grouped_engines = route
         .projection_layout()
         .aggregate_positions()

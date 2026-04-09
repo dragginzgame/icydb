@@ -5,31 +5,11 @@
 
 use crate::{
     db::access::AccessPlan,
-    metrics::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
+    metrics::sink::{
+        GroupedPlanStrategy as MetricsGroupedPlanStrategy, MetricsEvent, PlanKind, Span, record,
+    },
     traits::EntityKind,
 };
-
-///
-/// GroupedPlanMetricsStrategy
-///
-/// Deterministic grouped strategy dimension emitted alongside plan metrics.
-/// Strategy labels reflect grouped ordering feasibility while execution mode
-/// remains materialized for grouped routes in `0.36.x`.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum GroupedPlanMetricsStrategy {
-    HashMaterialized,
-    OrderedMaterialized,
-}
-
-impl From<GroupedPlanMetricsStrategy> for GroupedPlanStrategy {
-    fn from(value: GroupedPlanMetricsStrategy) -> Self {
-        match value {
-            GroupedPlanMetricsStrategy::HashMaterialized => Self::HashMaterialized,
-            GroupedPlanMetricsStrategy::OrderedMaterialized => Self::OrderedMaterialized,
-        }
-    }
-}
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
@@ -46,13 +26,13 @@ pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
 /// Must be called exactly once per grouped execution.
 pub(super) fn record_grouped_plan_metrics<K>(
     access: &AccessPlan<K>,
-    grouped_strategy: GroupedPlanMetricsStrategy,
+    grouped_strategy: MetricsGroupedPlanStrategy,
 ) {
     let kind = access_plan_kind(access);
 
     record(MetricsEvent::Plan {
         kind,
-        grouped_strategy: Some(grouped_strategy.into()),
+        grouped_strategy: Some(grouped_strategy),
     });
 }
 

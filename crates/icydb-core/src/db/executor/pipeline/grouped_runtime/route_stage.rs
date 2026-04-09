@@ -16,7 +16,6 @@ use crate::{
             pipeline::grouped_runtime::GroupedExecutionContext,
             route::{
                 RouteExecutionMode, build_execution_route_plan_for_grouped_plan,
-                grouped_plan_metrics_strategy_for_execution_strategy,
                 grouped_route_observability_for_runtime,
             },
             validate_executor_plan_for_authority,
@@ -68,9 +67,9 @@ where
         let grouped_route_observability =
             grouped_route_observability_for_runtime(&grouped_route_plan)?;
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-        let grouped_plan_metrics_strategy = grouped_plan_metrics_strategy_for_execution_strategy(
-            grouped_route_observability.grouped_execution_strategy(),
-        );
+        let grouped_plan_metrics_strategy = grouped_route_observability
+            .grouped_execution_strategy()
+            .into();
         debug_assert!(
             matches!(
                 grouped_route_execution_mode,

@@ -9,7 +9,6 @@ use crate::{
         executor::{
             ExecutionTrace, GroupedContinuationCapabilities, GroupedPaginationWindow,
             pipeline::contracts::{PageCursor, grouped::GroupedRouteStage},
-            plan_metrics::GroupedPlanMetricsStrategy,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -19,6 +18,7 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
     value::Value,
 };
 
@@ -49,16 +49,6 @@ impl GroupedRouteStage {
     pub(in crate::db::executor) fn aggregate_terminal_required() -> InternalError {
         InternalError::query_executor_invariant(
             "grouped execution requires at least one aggregate terminal",
-        )
-    }
-
-    /// Construct one grouped route invariant for grouped `COUNT(*)` plans that
-    /// were not diverted onto their dedicated grouped fast path before generic
-    /// grouped engine initialization.
-    pub(in crate::db::executor) fn count_rows_family_requires_dedicated_fold_path() -> InternalError
-    {
-        InternalError::query_executor_invariant(
-            "grouped COUNT(*) family must bypass generic grouped engine initialization",
         )
     }
 
@@ -212,7 +202,7 @@ impl GroupedRouteStage {
     /// Return grouped plan-metrics strategy for grouped stream observability.
     pub(in crate::db::executor) const fn grouped_plan_metrics_strategy(
         &self,
-    ) -> GroupedPlanMetricsStrategy {
+    ) -> MetricsGroupedPlanStrategy {
         self.execution_context.grouped_plan_metrics_strategy()
     }
 

@@ -892,7 +892,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
     let signature = signature_hex(grouped_distinct.continuation_signature("tests::Entity"));
-    let expected = "51f4cb305b0f17610f7c4937383a39872e6427c35b089a7afb2b496f7697ea94".to_string();
+    let expected = "c5600a836ee70450c5c0f91672135c9e6e1278ecacf34144c64bd6387ebb04b4".to_string();
 
     assert_eq!(
         signature, expected,
