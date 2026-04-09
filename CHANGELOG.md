@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
 
-- `0.74.5` finishes the grouped fingerprint/explain audit by routing both plan-owned and explain-owned grouped hashing through one canonical grouped projection seam, so grouped fingerprints and continuation signatures agree on the same semantic identity instead of quietly drifting through parallel hash encoders.
+- `0.74.5` finishes the explain and payload cleanup pass by removing more grouped and aggregate explain mirrors, centralizing descriptor projection, and trimming extra non-grouped route-payload wrappers so explain and runtime carry fewer duplicate copies of the same execution facts.
 - `0.74.4` makes the grouped boundary harder to bypass by carrying the dedicated grouped `COUNT(*)` fold choice as an explicit planner-to-runtime contract, dropping planner strategy from grouped runtime stage payloads, and adding tripwires so grouped runtime cannot quietly drift back into direct planner-strategy inspection.
 - `0.74.3` finishes the grouped boundary pass by centralizing planner-to-route grouped mode projection on one explicit route contract, adding assertions that grouped routes never drift from that projection, and locking the mode mapping directly in tests so grouped explain and metrics stay aligned with the same execution-mode vocabulary.
 - `0.74.2` continues the grouped cleanup by tightening the planner-versus-route boundary, so grouped route observability and metrics now consume one explicit route-owned execution mode projected from planner strategy and route capabilities, and grouped routes fail closed instead of silently inventing missing grouped mode labels.

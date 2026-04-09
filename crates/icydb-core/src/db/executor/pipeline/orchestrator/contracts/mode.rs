@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{db::query::plan::ExecutionOrdering, error::InternalError};
+use crate::error::InternalError;
 
 ///
 /// LoadTracingMode
@@ -74,18 +74,14 @@ impl LoadExecutionMode {
         matches!(self.tracing, LoadTracingMode::Enabled)
     }
 
-    // Fail closed when entrypoint-selected load mode and logical ordering disagree.
-    pub(in crate::db::executor) fn validate_execution_ordering(
+    // Fail closed when entrypoint-selected load mode and projected groupedness disagree.
+    pub(in crate::db::executor) fn validate_grouped_ordering(
         self,
-        ordering: &ExecutionOrdering,
+        grouped_ordering: bool,
     ) -> Result<(), InternalError> {
-        match (self.grouped_page_mode(), ordering) {
-            (false, ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_))
-            | (true, ExecutionOrdering::Grouped(_)) => Ok(()),
-            (false, ExecutionOrdering::Grouped(_))
-            | (true, ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_)) => {
-                Err(self.logical_plan_invariant_error())
-            }
+        match (self.grouped_page_mode(), grouped_ordering) {
+            (false, false) | (true, true) => Ok(()),
+            (false, true) | (true, false) => Err(self.logical_plan_invariant_error()),
         }
     }
 

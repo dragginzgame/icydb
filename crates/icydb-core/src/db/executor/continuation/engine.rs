@@ -11,6 +11,7 @@ use crate::{
             continuation::scalar::{ResolvedScalarContinuationContext, ScalarContinuationContext},
             pipeline::orchestrator::LoadExecutionMode,
         },
+        query::plan::ExecutionOrdering,
     },
     error::InternalError,
 };
@@ -34,7 +35,8 @@ impl LoadCursorResolver {
         execution_mode: LoadExecutionMode,
     ) -> Result<PreparedLoadCursor, InternalError> {
         let ordering = plan.execution_ordering()?;
-        execution_mode.validate_execution_ordering(&ordering)?;
+        execution_mode
+            .validate_grouped_ordering(matches!(ordering, ExecutionOrdering::Grouped(_)))?;
 
         let cursor = match (execution_mode.scalar_page_mode(), cursor) {
             (true, LoadCursorInput::Scalar(cursor)) => {
