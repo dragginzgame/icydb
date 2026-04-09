@@ -948,78 +948,141 @@ where
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
-    match strategy {
-        ExplainGroupedStrategy::HashGroup => write_tag(hasher, GROUPING_STRATEGY_HASH_TAG),
-        ExplainGroupedStrategy::OrderedGroup => write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG),
-    }
+    hash_grouped_strategy_components(
+        hasher,
+        matches!(strategy, ExplainGroupedStrategy::OrderedGroup),
+        None,
+    );
 }
 
 fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
-    let Some(having) = having else {
-        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
-        return;
-    };
-
-    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    write_u32(hasher, having.clauses().len() as u32);
-    for clause in having.clauses() {
-        hash_group_having_clause(hasher, clause);
-    }
+    hash_group_having_components(
+        hasher,
+        having.map(|having| having.clauses().iter()),
+        hash_group_having_clause_from_explain,
+    );
 }
 
 fn hash_group_having_spec(hasher: &mut Sha256, having: Option<&GroupHavingSpec>) {
-    let Some(having) = having else {
-        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
-        return;
-    };
-
-    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    write_u32(hasher, having.clauses.len() as u32);
-    for clause in &having.clauses {
-        hash_group_having_clause_spec(hasher, clause);
-    }
+    hash_group_having_components(
+        hasher,
+        having.map(|having| having.clauses.iter()),
+        hash_group_having_clause_from_plan,
+    );
 }
 
-fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
+fn hash_group_having_clause_from_explain(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
     match clause.symbol() {
-        ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
-            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
-            write_u32(hasher, *slot_index as u32);
-            write_str(hasher, field);
-        }
-        ExplainGroupHavingSymbol::AggregateIndex { index } => {
-            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, *index as u32);
-        }
+        ExplainGroupHavingSymbol::GroupField { slot_index, field } => hash_group_having_clause(
+            hasher,
+            GroupHavingClauseShape::GroupField {
+                slot_index: *slot_index as u32,
+                field,
+            },
+            clause.op().tag(),
+            clause.value(),
+        ),
+        ExplainGroupHavingSymbol::AggregateIndex { index } => hash_group_having_clause(
+            hasher,
+            GroupHavingClauseShape::AggregateIndex {
+                index: *index as u32,
+            },
+            clause.op().tag(),
+            clause.value(),
+        ),
     }
-    write_tag(hasher, clause.op().tag());
-    write_value(hasher, clause.value());
 }
 
-fn hash_group_having_clause_spec(hasher: &mut Sha256, clause: &GroupHavingClause) {
+fn hash_group_having_clause_from_plan(hasher: &mut Sha256, clause: &GroupHavingClause) {
     match &clause.symbol {
-        GroupHavingSymbol::GroupField(field_slot) => {
-            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
-            write_u32(hasher, field_slot.index as u32);
-            write_str(hasher, &field_slot.field);
-        }
-        GroupHavingSymbol::AggregateIndex(index) => {
-            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, *index as u32);
-        }
+        GroupHavingSymbol::GroupField(field_slot) => hash_group_having_clause(
+            hasher,
+            GroupHavingClauseShape::GroupField {
+                slot_index: field_slot.index as u32,
+                field: &field_slot.field,
+            },
+            clause.op.tag(),
+            &clause.value,
+        ),
+        GroupHavingSymbol::AggregateIndex(index) => hash_group_having_clause(
+            hasher,
+            GroupHavingClauseShape::AggregateIndex {
+                index: *index as u32,
+            },
+            clause.op.tag(),
+            &clause.value,
+        ),
     }
-    write_tag(hasher, clause.op.tag());
-    write_value(hasher, &clause.value);
 }
 
 fn hash_grouped_plan_strategy(hasher: &mut Sha256, strategy: GroupedPlanStrategy) {
-    if strategy.is_ordered_group() {
+    hash_grouped_strategy_components(
+        hasher,
+        strategy.is_ordered_group(),
+        Some(strategy.aggregate_family().code()),
+    );
+}
+
+fn hash_grouped_strategy_components(
+    hasher: &mut Sha256,
+    ordered_group: bool,
+    aggregate_family_code: Option<&str>,
+) {
+    if ordered_group {
         write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG);
     } else {
         write_tag(hasher, GROUPING_STRATEGY_HASH_TAG);
     }
 
-    write_str(hasher, strategy.aggregate_family().code());
+    if let Some(aggregate_family_code) = aggregate_family_code {
+        write_str(hasher, aggregate_family_code);
+    }
+}
+
+// Canonical grouped HAVING symbol shape shared by plan/explain hashing entrypoints.
+enum GroupHavingClauseShape<'a> {
+    GroupField { slot_index: u32, field: &'a str },
+    AggregateIndex { index: u32 },
+}
+
+// Hash one grouped HAVING clause after the caller has already projected it onto
+// the canonical grouped symbol/op/value shape.
+fn hash_group_having_clause(
+    hasher: &mut Sha256,
+    symbol: GroupHavingClauseShape<'_>,
+    op_tag: u8,
+    value: &Value,
+) {
+    match symbol {
+        GroupHavingClauseShape::GroupField { slot_index, field } => {
+            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
+            write_u32(hasher, slot_index);
+            write_str(hasher, field);
+        }
+        GroupHavingClauseShape::AggregateIndex { index } => {
+            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
+            write_u32(hasher, index);
+        }
+    }
+    write_tag(hasher, op_tag);
+    write_value(hasher, value);
+}
+
+fn hash_group_having_components<I, C>(hasher: &mut Sha256, clauses: Option<I>, hash_clause: C)
+where
+    I: ExactSizeIterator,
+    C: Fn(&mut Sha256, I::Item),
+{
+    let Some(clauses) = clauses else {
+        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
+        return;
+    };
+
+    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
+    write_u32(hasher, clauses.len() as u32);
+    for clause in clauses {
+        hash_clause(hasher, clause);
+    }
 }
 
 ///

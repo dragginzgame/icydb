@@ -50,10 +50,11 @@ pub(in crate::db) use covering::{
     index_covering_existing_rows_terminal_eligible,
 };
 #[cfg(test)]
+pub(in crate::db) use group::GroupedAggregateProjectionSpec;
+#[cfg(test)]
 pub(in crate::db) use group::GroupedExecutorHandoff;
 pub(in crate::db) use group::{
-    GroupedAggregateExecutionSpec, GroupedAggregateProjectionSpec,
-    GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
+    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
     grouped_aggregate_execution_specs_with_model, grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;

@@ -8,7 +8,7 @@ use crate::{
         GroupedRow,
         executor::projection::*,
         query::plan::{
-            FieldSlot, GroupedAggregateProjectionSpec, PlannedProjectionLayout,
+            FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
@@ -22,7 +22,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     projection: &ProjectionSpec,
     projection_layout: &PlannedProjectionLayout,
     group_fields: &[FieldSlot],
-    aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
+    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     rows: Vec<GroupedRow>,
 ) -> Result<Vec<GroupedRow>, InternalError> {
     // Phase 1: short-circuit the common grouped identity shape.
@@ -32,7 +32,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     if projection_is_identity_grouped_projection(
         projection,
         group_fields,
-        aggregate_projection_specs,
+        aggregate_execution_specs,
     ) {
         return Ok(rows);
     }
@@ -45,7 +45,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
             projection,
             projection_layout,
             group_fields,
-            aggregate_projection_specs,
+            aggregate_execution_specs,
             row.group_key(),
             row.aggregate_values(),
         )?);
@@ -59,12 +59,12 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
 fn projection_is_identity_grouped_projection(
     projection: &ProjectionSpec,
     group_fields: &[FieldSlot],
-    aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
+    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
 ) -> bool {
     if projection.len()
         != group_fields
             .len()
-            .saturating_add(aggregate_projection_specs.len())
+            .saturating_add(aggregate_execution_specs.len())
     {
         return false;
     }
@@ -84,7 +84,7 @@ fn projection_is_identity_grouped_projection(
         }
     }
 
-    for expected_aggregate_projection_spec in aggregate_projection_specs {
+    for expected_aggregate_execution_spec in aggregate_execution_specs {
         let Some(ProjectionField::Scalar { expr, .. }) = projection_fields.next() else {
             return false;
         };
@@ -92,7 +92,7 @@ fn projection_is_identity_grouped_projection(
         if !matches!(
             expression_without_alias(expr),
             Expr::Aggregate(actual_aggregate_expr)
-                if expected_aggregate_projection_spec.matches_aggregate_expr(actual_aggregate_expr)
+                if expected_aggregate_execution_spec.matches_aggregate_expr(actual_aggregate_expr)
         ) {
             return false;
         }
@@ -107,7 +107,7 @@ fn project_grouped_row_from_projection(
     projection: &ProjectionSpec,
     projection_layout: &PlannedProjectionLayout,
     group_fields: &[FieldSlot],
-    aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
+    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     group_key_values: &[Value],
     aggregate_values: &[Value],
 ) -> Result<GroupedRow, InternalError> {
@@ -115,7 +115,7 @@ fn project_grouped_row_from_projection(
         group_key_values,
         aggregate_values,
         group_fields,
-        aggregate_projection_specs,
+        aggregate_execution_specs,
     );
     let projected_values = evaluate_grouped_projection_values(projection, &grouped_row)
         .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
@@ -180,7 +180,8 @@ mod tests {
             query::{
                 builder::aggregate::{count, max_by},
                 plan::{
-                    FieldSlot, GroupedAggregateProjectionSpec, PlannedProjectionLayout,
+                    AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
+                    PlannedProjectionLayout,
                     expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
                 },
             },
@@ -209,9 +210,19 @@ mod tests {
             aggregate_positions: vec![1, 2],
         };
         let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
-        let aggregate_projection_specs = [
-            GroupedAggregateProjectionSpec::from_aggregate_expr(&count()),
-            GroupedAggregateProjectionSpec::from_aggregate_expr(&max_by("score")),
+        let aggregate_execution_specs = [
+            GroupedAggregateExecutionSpec::from_parts_for_test(
+                AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+            GroupedAggregateExecutionSpec::from_parts_for_test(
+                AggregateKind::Max,
+                Some(FieldSlot::from_parts_for_test(1, "score")),
+                Some("score"),
+                false,
+            ),
         ];
         let rows = vec![
             GroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
@@ -222,7 +233,7 @@ mod tests {
             &projection,
             &projection_layout,
             group_fields.as_slice(),
-            aggregate_projection_specs.as_slice(),
+            aggregate_execution_specs.as_slice(),
             rows.clone(),
         )
         .expect("grouped identity projection should preserve grouped rows");

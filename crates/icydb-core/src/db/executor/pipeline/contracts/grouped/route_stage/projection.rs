@@ -154,15 +154,6 @@ impl GroupedRouteStage {
             .as_slice()
     }
 
-    /// Borrow grouped aggregate projection-spec list.
-    pub(in crate::db::executor) const fn grouped_aggregate_projection_specs(
-        &self,
-    ) -> &[crate::db::query::plan::GroupedAggregateProjectionSpec] {
-        self.planner_payload
-            .grouped_aggregate_projection_specs
-            .as_slice()
-    }
-
     /// Borrow grouped HAVING contract when present.
     pub(in crate::db::executor) const fn grouped_having(&self) -> Option<&GroupHavingSpec> {
         self.planner_payload.grouped_having.as_ref()

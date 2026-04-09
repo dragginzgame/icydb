@@ -194,7 +194,7 @@ fn try_execute_global_distinct_grouped_fold_stage(
         grouped_projection_spec,
         route.projection_layout(),
         route.group_fields(),
-        route.grouped_aggregate_projection_specs(),
+        route.grouped_aggregate_execution_specs(),
         page_rows,
     )?;
 
@@ -422,7 +422,7 @@ fn finalize_grouped_count_page(
         grouped_projection_spec,
         route.projection_layout(),
         route.group_fields(),
-        route.grouped_aggregate_projection_specs(),
+        route.grouped_aggregate_execution_specs(),
         page_rows,
     )?;
     let next_cursor = if has_more {

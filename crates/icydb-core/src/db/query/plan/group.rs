@@ -47,6 +47,7 @@ pub(in crate::db) struct PlannedProjectionLayout {
 pub(in crate::db) struct GroupedAggregateExecutionSpec {
     kind: AggregateKind,
     target_field: Option<FieldSlot>,
+    projection_target_field: Option<String>,
     distinct: bool,
 }
 
@@ -95,14 +96,6 @@ impl GroupedAggregateProjectionSpec {
     pub(in crate::db) const fn distinct(&self) -> bool {
         self.distinct
     }
-
-    /// Return whether one aggregate expression matches this grouped projection spec semantically.
-    #[must_use]
-    pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
-        self.kind == aggregate_expr.kind()
-            && self.target_field() == aggregate_expr.target_field()
-            && self.distinct == aggregate_expr.is_distinct()
-    }
 }
 
 impl GroupedAggregateExecutionSpec {
@@ -126,6 +119,7 @@ impl GroupedAggregateExecutionSpec {
         Ok(Self {
             kind: aggregate_projection_spec.kind(),
             target_field,
+            projection_target_field: aggregate_projection_spec.target_field().map(str::to_string),
             distinct: aggregate_projection_spec.distinct(),
         })
     }
@@ -142,10 +136,43 @@ impl GroupedAggregateExecutionSpec {
         self.target_field.as_ref()
     }
 
+    /// Borrow the optional grouped aggregate target field label used for
+    /// grouped projection/expression matching.
+    #[must_use]
+    pub(in crate::db) fn projection_target_field(&self) -> Option<&str> {
+        self.projection_target_field.as_deref()
+    }
+
     /// Return whether the grouped aggregate uses DISTINCT semantics.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {
         self.distinct
+    }
+
+    /// Return whether one aggregate expression matches this grouped execution spec semantically.
+    #[must_use]
+    pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
+        self.kind == aggregate_expr.kind()
+            && self.projection_target_field() == aggregate_expr.target_field()
+            && self.distinct == aggregate_expr.is_distinct()
+    }
+
+    /// Build one grouped aggregate execution spec directly for tests that do
+    /// not carry a model-owned grouped lowering context.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn from_parts_for_test(
+        kind: AggregateKind,
+        target_field: Option<FieldSlot>,
+        projection_target_field: Option<&str>,
+        distinct: bool,
+    ) -> Self {
+        Self {
+            kind,
+            target_field,
+            projection_target_field: projection_target_field.map(str::to_string),
+            distinct,
+        }
     }
 }
 

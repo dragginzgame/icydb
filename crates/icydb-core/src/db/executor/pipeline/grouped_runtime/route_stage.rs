@@ -46,11 +46,9 @@ where
         let grouped_execution = grouped_handoff.execution();
         let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
         let group_fields = grouped_handoff.group_fields().to_vec();
-        let grouped_aggregate_projection_specs =
-            grouped_handoff.aggregate_projection_specs().to_vec();
         let grouped_aggregate_execution_specs = grouped_aggregate_execution_specs_with_model(
             authority.model(),
-            grouped_aggregate_projection_specs.as_slice(),
+            grouped_handoff.aggregate_projection_specs(),
         )?;
         let projection_layout = grouped_handoff.projection_layout().clone();
         debug_assert!(
@@ -109,7 +107,6 @@ where
                 grouped_plan_strategy,
                 group_fields,
                 grouped_aggregate_execution_specs,
-                grouped_aggregate_projection_specs,
                 projection_layout,
                 grouped_having,
                 grouped_distinct_execution_strategy,
