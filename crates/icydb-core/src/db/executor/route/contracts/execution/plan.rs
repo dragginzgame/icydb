@@ -16,7 +16,8 @@ use crate::db::{
                     AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
                     GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
                     GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-                    LoadOrderRouteContract, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                    LoadOrderRouteContract, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
+                    TopNSeekSpec,
                 },
                 shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
             },
@@ -189,6 +190,12 @@ impl ExecutionRoutePlan {
         &self,
     ) -> LoadOrderRouteContract {
         self.capabilities.load_order_route_contract
+    }
+
+    // Route-owned explanation for why one ordered load shape stayed direct or
+    // materialized at the current boundary.
+    pub(in crate::db::executor) const fn load_order_route_reason(&self) -> LoadOrderRouteReason {
+        self.capabilities.load_order_route_reason
     }
 
     // True when index-range limit pushdown is enabled for this route.

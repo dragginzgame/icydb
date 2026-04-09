@@ -6,8 +6,8 @@
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, ExecutionModeRouteCase, FastPathOrder,
     GroupedExecutionStrategy, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
-    LoadOrderRouteContract, LoadTerminalFastPathContract, RouteExecutionMode, TopNSeekSpec,
-    build_execution_route_plan_for_aggregate_spec_with_model,
+    LoadOrderRouteContract, LoadOrderRouteReason, LoadTerminalFastPathContract, RouteExecutionMode,
+    TopNSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
     build_initial_execution_route_plan_for_load_with_model,
@@ -1772,6 +1772,11 @@ fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_b
         "offset-sensitive descending bound non-unique secondary order must fail closed to the materialized boundary contract",
     );
     assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted,
+        "offset-sensitive descending bound non-unique secondary order must expose the planner-owned boundary reason",
+    );
+    assert_eq!(
         route_plan.shape().execution_mode(),
         RouteExecutionMode::Materialized,
         "offset-sensitive descending bound non-unique secondary order must fail closed to materialized execution",
@@ -1816,6 +1821,11 @@ fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_befo
         "non-unique descending secondary order must fail closed to the fallback materialized contract",
     );
     assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::RequiresMaterializedSort,
+        "non-unique descending secondary order must expose the planner-owned fallback reason",
+    );
+    assert_eq!(
         route_plan.shape().execution_mode(),
         RouteExecutionMode::Materialized,
         "non-unique descending secondary order must fail closed to materialized execution",
@@ -1858,6 +1868,11 @@ fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_
         route_plan.load_order_route_contract(),
         LoadOrderRouteContract::MaterializedFallback,
         "offset-sensitive descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::RequiresMaterializedSort,
+        "offset-sensitive descending secondary order must expose the planner-owned fallback reason",
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
@@ -1917,6 +1932,52 @@ fn route_matrix_load_unique_secondary_order_desc_offset_uses_bounded_top_n_seek(
 }
 
 #[test]
+fn route_matrix_load_bound_non_unique_secondary_order_distinct_requires_materialized_boundary() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            values: vec![Value::Uint(10)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("label".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().distinct = true;
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("distinct bound non-unique secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedBoundary,
+        "distinct bound non-unique secondary order must stay on the materialized boundary contract",
+    );
+    assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::DistinctRequiresMaterialization,
+        "distinct bound non-unique secondary order must expose the planner-owned materialized-boundary reason",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "distinct bound non-unique secondary order must stay on materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "distinct bound non-unique secondary order must not derive top-n seek",
+    );
+}
+
+#[test]
 fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -1944,6 +2005,11 @@ fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_befor
         route_plan.load_order_route_contract(),
         LoadOrderRouteContract::MaterializedFallback,
         "distinct descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::RequiresMaterializedSort,
+        "distinct descending secondary order must expose the planner-owned fallback reason",
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
@@ -1988,6 +2054,11 @@ fn route_matrix_load_secondary_order_with_residual_filter_fails_closed_before_to
         route_plan.load_order_route_contract(),
         LoadOrderRouteContract::MaterializedFallback,
         "residual descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.load_order_route_reason(),
+        LoadOrderRouteReason::ResidualPredicateBlocksDirectStreaming,
+        "residual descending secondary order must expose the planner-owned fallback reason",
     );
     assert_eq!(
         route_plan.shape().execution_mode(),

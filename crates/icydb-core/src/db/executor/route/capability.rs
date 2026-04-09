@@ -7,13 +7,12 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            ExecutionKernel,
             aggregate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
             },
             route::{
-                AggregateRouteShape, LoadOrderRouteContract, bounded_probe_hint_is_safe,
-                pk_order_stream_fast_path_shape_supported_for_model,
+                AggregateRouteShape, LoadOrderRouteContract, LoadOrderRouteReason,
+                bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported_for_model,
                 secondary_order_contract_active,
             },
         },
@@ -49,66 +48,73 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     )
 }
 
-/// Derive the route-owned load ordering contract for one executable plan.
-pub(in crate::db::executor) fn load_order_route_contract_for_model(
+// Derive the canonical load-order route decision once so route capability,
+// verbose explain, and route tests can all consume the same contract+reason
+// pair without re-classifying fallback shapes downstream.
+fn derive_load_order_route_decision_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-) -> LoadOrderRouteContract {
+) -> (LoadOrderRouteContract, LoadOrderRouteReason) {
     if !plan.scalar_plan().mode.is_load() {
-        return LoadOrderRouteContract::MaterializedFallback;
+        return (
+            LoadOrderRouteContract::MaterializedFallback,
+            LoadOrderRouteReason::None,
+        );
     }
 
     let (has_residual_filter, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(model, plan);
-    if has_residual_filter || requires_post_access_sort {
-        return LoadOrderRouteContract::MaterializedFallback;
+    if has_residual_filter {
+        return (
+            LoadOrderRouteContract::MaterializedFallback,
+            LoadOrderRouteReason::ResidualPredicateBlocksDirectStreaming,
+        );
+    }
+    if requires_post_access_sort {
+        return (
+            LoadOrderRouteContract::MaterializedFallback,
+            LoadOrderRouteReason::RequiresMaterializedSort,
+        );
     }
 
-    if secondary_prefix_streaming_requires_materialized_boundary(plan) {
-        return LoadOrderRouteContract::MaterializedBoundary;
+    if let Some(reason) = secondary_prefix_streaming_requires_materialized_boundary(plan) {
+        return (LoadOrderRouteContract::MaterializedBoundary, reason);
     }
 
-    LoadOrderRouteContract::DirectStreaming
+    (
+        LoadOrderRouteContract::DirectStreaming,
+        LoadOrderRouteReason::None,
+    )
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
 // but still rely on the canonical materialized page boundary for correctness.
 // Keep that runtime limitation local to route capability derivation so ordered
 // access contracts stay visible while unsafe streaming windows fail closed.
-fn secondary_prefix_streaming_requires_materialized_boundary(plan: &AccessPlannedQuery) -> bool {
+fn secondary_prefix_streaming_requires_materialized_boundary(
+    plan: &AccessPlannedQuery,
+) -> Option<LoadOrderRouteReason> {
     let logical = plan.scalar_plan();
     let access_class = plan.access_strategy().class();
-    let Some((index, prefix_len)) = access_class.single_path_index_prefix_details() else {
-        return false;
-    };
-
-    // Offset windows over non-unique secondary-prefix routes still need the
-    // canonical materialized boundary unless the chosen equality prefix already
-    // collapses traversal to one suffix window. Bound ascending suffix-order
-    // shapes can keep one stable total order through the planner-owned PK
-    // tie-break, while unbound prefixes still fail closed here.
-    let offset =
-        usize::try_from(ExecutionKernel::effective_page_offset(plan, None)).unwrap_or(usize::MAX);
-    if offset > 0 && !index.is_unique() && prefix_len == 0 {
-        return true;
-    }
+    let (index, _prefix_len) = access_class.single_path_index_prefix_details()?;
 
     // DISTINCT over secondary-prefix routes still depends on materialized
     // deduplication rather than direct ordered streaming.
     if logical.distinct {
-        return true;
+        return Some(LoadOrderRouteReason::DistinctRequiresMaterialization);
     }
 
     // Reverse streaming over non-unique secondary-prefix routes is still not
     // page-stable when duplicate secondary values are present, so keep those
     // shapes on the canonical materialized lane for now.
-    !index.is_unique()
+    (!index.is_unique()
         && logical.order.as_ref().is_some_and(|order| {
             order
                 .fields
                 .iter()
                 .any(|(_, direction)| *direction == OrderDirection::Desc)
-        })
+        }))
+    .then_some(LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted)
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -144,6 +150,8 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     let access_class = plan.access_strategy().class();
     let (has_residual_filter, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(model, plan);
+    let (load_order_route_contract, load_order_route_reason) =
+        derive_load_order_route_decision_for_model(model, plan);
     let aggregate_execution_policy = derive_aggregate_execution_policy_for_model(
         model,
         plan,
@@ -155,7 +163,8 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
     RouteCapabilities {
-        load_order_route_contract: load_order_route_contract_for_model(model, plan),
+        load_order_route_contract,
+        load_order_route_reason,
         pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported_for_model(
             model, plan,
         ),

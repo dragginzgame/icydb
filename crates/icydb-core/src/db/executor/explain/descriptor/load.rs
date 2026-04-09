@@ -93,6 +93,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
             execution_mode,
         );
     annotate_access_root_node_properties(&mut root, route_plan);
+    annotate_load_order_route_node_properties(&mut root, route_plan);
     annotate_access_choice_node_properties(&mut root, plan.access_choice().clone());
     let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
@@ -281,6 +282,14 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
         "projected_fields",
         &projected_fields,
     ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.load_order_route_contract",
+        route_plan.load_order_route_contract().code(),
+    ));
+    lines.push(descriptor_route_property_line(
+        "diag.r.load_order_route_reason",
+        route_plan.load_order_route_reason().code(),
+    ));
     lines.push(route_diagnostic_line_bool(
         "projection_pushdown",
         projection_pushdown,
@@ -361,6 +370,22 @@ fn annotate_covering_read_route_node_properties(
     };
     node.node_properties
         .insert("cov_read_route", Value::from(route_label));
+}
+
+// Keep ordered-load route diagnostics local to the load descriptor so JSON and
+// verbose explain stay projections of the same route-owned contract.
+fn annotate_load_order_route_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+) {
+    node.node_properties.insert(
+        "ord_route_contract",
+        Value::from(route_plan.load_order_route_contract().code()),
+    );
+    node.node_properties.insert(
+        "ord_route_reason",
+        Value::from(route_plan.load_order_route_reason().code()),
+    );
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

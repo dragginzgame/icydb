@@ -26,8 +26,8 @@ pub(in crate::db::executor) use capability::derive_budget_safety_flags_for_model
 pub(in crate::db::executor::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
 pub(in crate::db) use contracts::AggregateRouteShape;
-pub(in crate::db) use contracts::LoadOrderRouteContract;
 pub(in crate::db::executor) use contracts::*;
+pub(in crate::db) use contracts::{LoadOrderRouteContract, LoadOrderRouteReason};
 pub(in crate::db::executor::route) use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
 pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shape_supported_for_model;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;

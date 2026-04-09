@@ -34,6 +34,15 @@ pub(in crate::db) enum LoadOrderRouteContract {
 
 impl LoadOrderRouteContract {
     #[must_use]
+    pub(in crate::db) const fn code(self) -> &'static str {
+        match self {
+            Self::DirectStreaming => "direct_streaming",
+            Self::MaterializedBoundary => "materialized_boundary",
+            Self::MaterializedFallback => "materialized_fallback",
+        }
+    }
+
+    #[must_use]
     pub(in crate::db) const fn allows_streaming_load(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
@@ -41,6 +50,40 @@ impl LoadOrderRouteContract {
     #[must_use]
     pub(in crate::db) const fn allows_top_n_seek(self) -> bool {
         matches!(self, Self::DirectStreaming)
+    }
+}
+
+///
+/// LoadOrderRouteReason
+///
+/// Canonical route-owned explanation for why one ordered load route stayed
+/// direct, required the shared materialized boundary, or failed closed to the
+/// canonical materialized fallback path.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum LoadOrderRouteReason {
+    None,
+    RequiresMaterializedSort,
+    ResidualPredicateBlocksDirectStreaming,
+    DistinctRequiresMaterialization,
+    DescendingNonUniqueSecondaryPrefixNotAdmitted,
+}
+
+impl LoadOrderRouteReason {
+    #[must_use]
+    pub(in crate::db) const fn code(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::RequiresMaterializedSort => "requires_materialized_sort",
+            Self::ResidualPredicateBlocksDirectStreaming => {
+                "residual_predicate_blocks_direct_streaming"
+            }
+            Self::DistinctRequiresMaterialization => "distinct_requires_materialization",
+            Self::DescendingNonUniqueSecondaryPrefixNotAdmitted => {
+                "descending_non_unique_secondary_prefix_not_admitted"
+            }
+        }
     }
 }
 

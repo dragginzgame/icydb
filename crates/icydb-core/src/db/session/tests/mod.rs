@@ -1184,6 +1184,16 @@ fn session_fluent_verbose_equality_prefix_suffix_order_desc_prefers_order_compat
         Some(&"order_compatible_preferred".to_string()),
         "session descending verbose explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
     );
+    assert_eq!(
+        diagnostics.get("diag.r.load_order_route_contract"),
+        Some(&"materialized_boundary".to_string()),
+        "session descending verbose explain must expose the materialized-boundary route contract for descending non-unique equality-prefix suffix-order shapes",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.load_order_route_reason"),
+        Some(&"descending_non_unique_secondary_prefix_not_admitted".to_string()),
+        "session descending verbose explain must expose the planner-owned materialized-boundary reason for descending non-unique equality-prefix suffix-order shapes",
+    );
     assert!(
         diagnostics
             .get("diag.r.access_choice_rejections")
@@ -1216,6 +1226,16 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
         diagnostics.get("diag.r.access_choice_chosen_reason"),
         Some(&"order_compatible_preferred".to_string()),
         "session fluent verbose explain must report the canonical order-compatibility tie-break when order-only ranking ties",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.load_order_route_contract"),
+        Some(&"direct_streaming".to_string()),
+        "session fluent verbose explain must expose the direct ordered-load route contract for admitted order-only fallback shapes",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.load_order_route_reason"),
+        Some(&"none".to_string()),
+        "session fluent verbose explain must keep direct order-only fallback admission reason-free once the chosen route is already streaming-safe",
     );
     assert!(
         diagnostics
