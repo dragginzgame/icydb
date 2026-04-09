@@ -150,11 +150,11 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
 ) where
     R: OrderReadableRow,
 {
-    if let Some(keep_count) = keep_count {
-        if keep_count == 0 {
-            rows.clear();
-            return;
-        }
+    if let Some(keep_count) = keep_count
+        && keep_count == 0
+    {
+        rows.clear();
+        return;
     }
 
     if rows.len() <= 1 {
@@ -222,13 +222,13 @@ fn compare_cached_orderable_rows(
     right: &[Option<Value>],
     resolved_order: &ResolvedOrder,
 ) -> Ordering {
-    compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
-        let left_slot = left.get(_slot_index).and_then(Option::as_ref);
-        let right_slot = right.get(_slot_index).and_then(Option::as_ref);
+    compare_structural_order_slots(resolved_order, |slot_index, field_index, direction| {
+        let left_slot = left.get(slot_index).and_then(Option::as_ref);
+        let right_slot = right.get(slot_index).and_then(Option::as_ref);
 
         debug_assert!(
             matches!(field_index, ResolvedOrderValueSource::Missing)
-                || left.get(_slot_index).is_some() && right.get(_slot_index).is_some(),
+                || left.get(slot_index).is_some() && right.get(slot_index).is_some(),
             "cached order values must align with resolved order fields",
         );
         apply_order_direction(

@@ -264,14 +264,13 @@ impl GroupedAggregateState {
 
         // Phase 2: fall back to one lazily materialized canonical grouped key
         // when the row opens a new group or uses structured grouped values.
-        let group_key = match owned_group_key {
-            Some(group_key) => group_key,
-            None => {
-                let group_values = row_view.group_values(group_fields)?;
-                let group_key = GroupKey::from_group_values(group_values)
-                    .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
-                owned_group_key.insert(group_key)
-            }
+        let group_key = if let Some(group_key) = owned_group_key {
+            group_key
+        } else {
+            let group_values = row_view.group_values(group_fields)?;
+            let group_key = GroupKey::from_group_values(group_values)
+                .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
+            owned_group_key.insert(group_key)
         };
 
         self.apply_borrowed_with_row_view(group_key, data_key, Some(row_view), execution_context)

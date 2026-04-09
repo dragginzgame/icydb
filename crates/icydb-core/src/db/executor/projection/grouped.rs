@@ -40,16 +40,19 @@ impl<'a> GroupedRowView<'a> {
     pub(in crate::db::executor) const fn new(
         key_values: &'a [Value],
         aggregate_values: &'a [Value],
-        _group_fields: &'a [FieldSlot],
-        _aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
+        group_fields: &'a [FieldSlot],
+        aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
     ) -> Self {
+        #[cfg(not(test))]
+        let _ = (group_fields, aggregate_execution_specs);
+
         Self {
             key_values,
             aggregate_values,
             #[cfg(test)]
-            group_fields: _group_fields,
+            group_fields,
             #[cfg(test)]
-            aggregate_execution_specs: _aggregate_execution_specs,
+            aggregate_execution_specs,
         }
     }
 }
