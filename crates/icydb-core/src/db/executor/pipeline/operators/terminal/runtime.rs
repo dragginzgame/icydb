@@ -513,11 +513,10 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
     )>,
     InternalError,
 > {
-    let direct_projection_field_slots =
-        sql_direct_projection_field_slots_for_plan(context.plan, context.model);
+    let direct_projection_slots = sql_direct_projection_slots_for_plan(context.plan, context.model);
 
     if context.prefer_rendered_projection_rows
-        && let Some(projection_field_slots) = direct_projection_field_slots.as_deref()
+        && let Some(projection_field_slots) = direct_projection_slots.as_deref()
         && let Some((mut projected_rows, keys_scanned)) =
             try_materialize_sql_route_covering_projected_text_rows(context, projection_field_slots)?
     {
@@ -534,7 +533,7 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
         return Ok(Some((page, keys_scanned, post_access_rows)));
     }
 
-    let Some(projection_field_slots) = direct_projection_field_slots.as_deref() else {
+    let Some(projection_field_slots) = direct_projection_slots.as_deref() else {
         return Ok(None);
     };
 
@@ -598,14 +597,13 @@ fn try_materialize_cursorless_sql_key_stream_short_path(
     )>,
     InternalError,
 > {
-    let direct_projection_field_slots =
-        sql_direct_projection_field_slots_for_plan(context.plan, context.model);
+    let direct_projection_slots = sql_direct_projection_slots_for_plan(context.plan, context.model);
 
     if context.prefer_rendered_projection_rows
         && let Some((mut projected_rows, keys_scanned)) = try_materialize_sql_projected_text_rows(
             context,
             key_stream,
-            direct_projection_field_slots.as_deref(),
+            direct_projection_slots.as_deref(),
         )?
     {
         if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
@@ -621,11 +619,9 @@ fn try_materialize_cursorless_sql_key_stream_short_path(
         return Ok(Some((page, keys_scanned, post_access_rows)));
     }
 
-    if let Some((mut projected_rows, keys_scanned)) = try_materialize_sql_projected_rows(
-        context,
-        key_stream,
-        direct_projection_field_slots.as_deref(),
-    )? {
+    if let Some((mut projected_rows, keys_scanned)) =
+        try_materialize_sql_projected_rows(context, key_stream, direct_projection_slots.as_deref())?
+    {
         if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
             apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
         }
@@ -813,9 +809,9 @@ fn strip_covering_projected_text_row_pairs(
 }
 
 #[cfg(feature = "sql")]
-// Resolve one direct SQL projection field-slot layout once for one short-path
+// Resolve one direct SQL projection slot layout once for one short-path
 // execution attempt so nested helpers do not repeatedly rebuild it.
-fn sql_direct_projection_field_slots_for_plan(
+fn sql_direct_projection_slots_for_plan(
     plan: &AccessPlannedQuery,
     model: &'static EntityModel,
 ) -> Option<DirectProjectionSlots> {

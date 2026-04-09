@@ -8,7 +8,8 @@ mod structural;
 
 use crate::{
     db::query::plan::expr::{
-        Expr, ProjectionField, ProjectionSpec, projection_field_direct_field_name,
+        Expr, ProjectionField, ProjectionSpec, collect_unique_direct_projection_slots,
+        projection_field_direct_field_name,
     },
     error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
@@ -94,34 +95,13 @@ pub(in crate::db::executor) fn direct_projection_slots(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
 ) -> Option<Vec<usize>> {
-    let mut field_slots = Vec::with_capacity(projection.len());
-
-    for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { .. } => {
-                let field_name = projection_field_direct_field_name(field)?;
-                let slot = resolve_field_slot(model, field_name)?;
-
-                // The direct slot-copy path moves values out of retained slot
-                // rows with `Option::take()`, so it is valid only when each
-                // projected output reads a unique source slot exactly once.
-                // Repeated source fields such as computed-projection base
-                // rewrites (`TRIM(name), LOWER(name), ...`) must fall back to
-                // the generic reader, which can read the same slot multiple
-                // times without consuming it.
-                if field_slots
-                    .iter()
-                    .any(|existing_slot| *existing_slot == slot)
-                {
-                    return None;
-                }
-
-                field_slots.push(slot);
-            }
-        }
-    }
-
-    Some(field_slots)
+    collect_unique_direct_projection_slots(
+        model,
+        projection
+            .fields()
+            .map(projection_field_direct_field_name)
+            .collect::<Option<Vec<_>>>()?,
+    )
 }
 
 /// Resolve one direct field-slot projection layout when every output stays on

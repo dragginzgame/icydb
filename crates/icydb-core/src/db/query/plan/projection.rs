@@ -10,11 +10,11 @@ use crate::{
             FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                direct_projection_expr_field_name,
+                collect_unique_direct_projection_slots, direct_projection_expr_field_name,
             },
         },
     },
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
 };
 
 /// Lower one logical plan into the canonical planner-owned projection semantic shape.
@@ -80,24 +80,12 @@ fn lower_scalar_direct_projection_slots(
     match selection {
         ProjectionSelection::All => Some((0..model.fields.len()).collect()),
         ProjectionSelection::Fields(field_ids) => {
-            let mut slots = Vec::with_capacity(field_ids.len());
-
-            for field_id in field_ids {
-                let slot = resolve_field_slot(model, field_id.as_str())?;
-                if slots.iter().any(|existing_slot| *existing_slot == slot) {
-                    return None;
-                }
-                slots.push(slot);
-            }
-
-            Some(slots)
+            collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
         }
-        ProjectionSelection::Expression(expr) => {
-            let field_name = direct_projection_expr_field_name(expr)?;
-            let slot = resolve_field_slot(model, field_name)?;
-
-            Some(vec![slot])
-        }
+        ProjectionSelection::Expression(expr) => collect_unique_direct_projection_slots(
+            model,
+            [direct_projection_expr_field_name(expr)?],
+        ),
     }
 }
 
