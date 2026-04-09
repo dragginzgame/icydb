@@ -3158,7 +3158,8 @@ fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_
             "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: OrderedGroup, fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     });
