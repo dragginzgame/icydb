@@ -1,6 +1,5 @@
 fn main() -> std::io::Result<()> {
-    let _ =
-        std::any::TypeId::of::<icydb_testing_audit_minimal_fixtures::minimal::MinimalCanister>();
+    use icydb_testing_audit_minimal_fixtures as _;
 
     icydb::build!("icydb_testing_audit_minimal_fixtures::minimal::MinimalCanister");
 
