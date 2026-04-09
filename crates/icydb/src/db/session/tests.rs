@@ -474,7 +474,7 @@ fn facade_query_from_sql_grouped_execution_explain_projects_grouped_fallback_sur
         .expect("facade grouped execution explain should build");
 
     assert!(
-        logical_explain.contains("fallback_reason: Some(GroupKeyOrderUnavailable)"),
+        logical_explain.contains("fallback_reason: Some(\"group_key_order_unavailable\")"),
         "facade grouped logical explain should preserve the planner-owned grouped fallback reason",
     );
     assert!(
