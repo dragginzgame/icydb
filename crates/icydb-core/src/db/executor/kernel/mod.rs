@@ -338,7 +338,10 @@ impl ExecutionKernel {
         if rows_scanned < limit_spec.fetch {
             return ResidualRetryDecision::None;
         }
-        if post_access_rows >= keep_count {
+        // A bounded retry cannot stop merely because it filled the visible
+        // page window. Load pagination also needs one lookahead row to decide
+        // whether a continuation cursor must be emitted.
+        if post_access_rows > keep_count {
             return ResidualRetryDecision::None;
         }
 

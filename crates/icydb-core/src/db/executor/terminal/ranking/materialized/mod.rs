@@ -11,6 +11,7 @@ use crate::{
         executor::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values_with_slot,
+                extract_orderable_field_value_from_decoded_slot,
             },
             pipeline::contracts::LoadExecutor,
             terminal::{RowDecoder, RowLayout},
@@ -132,20 +133,17 @@ fn decode_ranked_field_value_from_materialized_row(
     target_field: &str,
     field_slot: FieldSlot,
 ) -> Result<Value, InternalError> {
-    let Some(value) = RowDecoder::decode_required_slot_value(
-        row_layout,
-        expected_key,
-        raw_row,
-        field_slot.index,
-    )?
-    else {
-        return Err(AggregateFieldValueError::MissingFieldValue {
-            field: target_field.to_string(),
-        }
-        .into_internal_error());
-    };
-
-    Ok(value)
+    extract_orderable_field_value_from_decoded_slot(
+        target_field,
+        field_slot,
+        RowDecoder::decode_required_slot_value(
+            row_layout,
+            expected_key,
+            raw_row,
+            field_slot.index,
+        )?,
+    )
+    .map_err(AggregateFieldValueError::into_internal_error)
 }
 
 // Compare two ranked candidate keys and values under the deterministic
