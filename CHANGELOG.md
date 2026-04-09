@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.72.x] 🎯 - 2026-04-08 - Deterministic Planning & Index Exploitation
 
-- `0.72.0` makes single-entity read planning choose between competing visible indexes with one stable ranking order, and locks that choice across planner tests, session explain, generated SQL parity, and PocketIC without changing index-visibility rules or reintroducing runtime correctness checks.
-- `0.72.1` extends that deterministic-planning line to admitted composite ordered-read cohorts, locking both ascending and descending choice across planner/session/SQL surfaces and making the desc equality-prefix lane fail closed to materialized ordering instead of pretending it keeps the ascending fast path.
-- `0.72.2` broadens bounded ordered reads on the same single-entity planner line by keeping more admitted `ORDER BY ... LIMIT/OFFSET` windows, including the simple single-field fallback lane, on direct index-backed routes, mirrors those windows across core/parity/PocketIC coverage, and fixes one nasty session-test fixture bug where competing indexes accidentally shared the same physical runtime identity.
+- `0.72.4` is a small follow-up that updates executor pipeline snapshots for the new ordered-route diagnostics introduced in `0.72.3`, keeping the deterministic-planning line green without changing planner behavior.
 - `0.72.3` finishes the `0.72` line by making ordered-route fallback reasons explicit in `EXPLAIN`, so verbose planning now tells you when a chosen route stays direct, when it needs the shared materialized boundary, and when it must fail closed to a materialized sort, without widening planner policy or adding new route-admission heuristics.
+- `0.72.2` broadens bounded ordered reads on the same single-entity planner line by keeping more admitted `ORDER BY ... LIMIT/OFFSET` windows, including the simple single-field fallback lane, on direct index-backed routes, mirrors those windows across core/parity/PocketIC coverage, and fixes one nasty session-test fixture bug where competing indexes accidentally shared the same physical runtime identity.
+- `0.72.1` extends that deterministic-planning line to admitted composite ordered-read cohorts, locking both ascending and descending choice across planner/session/SQL surfaces and making the desc equality-prefix lane fail closed to materialized ordering instead of pretending it keeps the ascending fast path.
+- `0.72.0` makes single-entity read planning choose between competing visible indexes with one stable ranking order, and locks that choice across planner tests, session explain, generated SQL parity, and PocketIC without changing index-visibility rules or reintroducing runtime correctness checks.
 
 See detailed breakdown:
 [docs/changelog/0.72.md](docs/changelog/0.72.md)
