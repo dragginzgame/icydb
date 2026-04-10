@@ -33,7 +33,6 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub struct EntityAuthority {
     model: &'static EntityModel,
-    schema: &'static SchemaInfo,
     row_layout: RowLayout,
     primary_key_name: &'static str,
     entity_tag: EntityTag,
@@ -43,14 +42,13 @@ pub struct EntityAuthority {
 impl EntityAuthority {
     /// Build authority from explicit runtime metadata.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         model: &'static EntityModel,
         entity_tag: EntityTag,
         store_path: &'static str,
     ) -> Self {
         Self {
             model,
-            schema: SchemaInfo::cached_for_entity_model(model),
             row_layout: RowLayout::from_model(model),
             primary_key_name: model.primary_key.name,
             entity_tag,
@@ -72,8 +70,8 @@ impl EntityAuthority {
 
     /// Borrow the cached schema authority for this entity.
     #[must_use]
-    pub(in crate::db) const fn schema_info(&self) -> &'static SchemaInfo {
-        self.schema
+    pub(in crate::db) fn schema_info(&self) -> &'static SchemaInfo {
+        SchemaInfo::cached_for_entity_model(self.model)
     }
 
     /// Borrow the authoritative generated field table for this entity.
@@ -134,7 +132,7 @@ impl EntityAuthority {
         self,
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
-        validate_access_structure_model(self.schema, self.model, &plan.access)
+        validate_access_structure_model(self.schema_info(), self.model, &plan.access)
             .map_err(AccessPlanError::into_internal_error)
     }
 
