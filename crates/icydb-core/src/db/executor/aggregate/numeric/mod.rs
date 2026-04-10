@@ -23,7 +23,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_from_decoded_slot,
                 extract_numeric_field_decimal_with_slot_reader,
-                resolve_numeric_aggregate_target_slot_from_planner_slot_with_model,
+                resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
                 PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
@@ -134,7 +134,7 @@ where
                         )
                     }
                     PreparedScalarNumericAggregateStrategy::Materialized => {
-                        let row_layout = RowLayout::from_model(prepared.authority.model());
+                        let row_layout = prepared.authority.row_layout();
                         let page = self.execute_scalar_materialized_page_stage(prepared)?;
                         let (rows, _) = page.into_parts();
 
@@ -228,7 +228,7 @@ where
             return false;
         };
         if prepared
-            .explicit_primary_key_order_direction(prepared.authority.model().primary_key.name)
+            .explicit_primary_key_order_direction(prepared.authority.primary_key_name())
             .is_none()
         {
             return false;
@@ -248,7 +248,7 @@ where
         // Phase 1: consume prepared aggregate stage state into one direct stream fold.
         let consistency = prepared.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&prepared);
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
         let PreparedAggregateStreamingInputsCore {
             authority,
             store,
@@ -341,16 +341,12 @@ where
     // planner field slot so both aggregate and global-DISTINCT payloads share
     // the same field/op contract.
     fn resolve_prepared_scalar_numeric_boundary(
-        plan: &PreparedAggregatePlan,
+        _plan: &PreparedAggregatePlan,
         target_field: &PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericBoundary, InternalError> {
-        let authority = plan.authority();
-        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
-            authority.model(),
-            target_field,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot(target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(PreparedScalarNumericBoundary {
             target_field_name: target_field.field().to_string(),

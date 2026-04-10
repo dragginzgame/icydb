@@ -14,8 +14,7 @@ use crate::{
         executor::{
             PreparedLoadPlan,
             aggregate::field::{
-                AggregateFieldValueError,
-                resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
+                AggregateFieldValueError, resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
         },
@@ -231,12 +230,9 @@ where
         direction: RankedFieldBoundaryDirection,
         projection: RankedFieldBoundaryProjection,
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
-        let model = prepared.authority.model();
-        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-            model,
-            &target_field,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+        let row_layout = prepared.authority.row_layout();
         let page = self.execute_scalar_materialized_rank_page_boundary(prepared)?;
         let data_rows = page.data_rows();
         let target_field = target_field.field();
@@ -244,7 +240,7 @@ where
         match (direction, projection) {
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Rows) => {
                 Self::top_k_field_from_materialized(
-                    model,
+                    row_layout,
                     data_rows,
                     target_field,
                     field_slot,
@@ -254,7 +250,7 @@ where
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Rows) => {
                 Self::bottom_k_field_from_materialized(
-                    model,
+                    row_layout,
                     data_rows,
                     target_field,
                     field_slot,
@@ -264,7 +260,7 @@ where
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Values) => {
                 Self::top_k_field_values_from_materialized(
-                    model,
+                    row_layout,
                     data_rows,
                     target_field,
                     field_slot,
@@ -274,7 +270,7 @@ where
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Values) => {
                 Self::bottom_k_field_values_from_materialized(
-                    model,
+                    row_layout,
                     data_rows,
                     target_field,
                     field_slot,
@@ -284,7 +280,7 @@ where
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::ValuesWithIds) => {
                 Self::top_k_field_values_with_ids_from_materialized(
-                    model,
+                    row_layout,
                     data_rows,
                     target_field,
                     field_slot,
@@ -296,7 +292,7 @@ where
                 RankedFieldBoundaryDirection::Bottom,
                 RankedFieldBoundaryProjection::ValuesWithIds,
             ) => Self::bottom_k_field_values_with_ids_from_materialized(
-                model,
+                row_layout,
                 data_rows,
                 target_field,
                 field_slot,

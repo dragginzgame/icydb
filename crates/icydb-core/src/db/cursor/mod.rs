@@ -26,11 +26,8 @@ use crate::{
         executor::ExecutableAccessPath,
         query::plan::{OrderSpec, validate_cursor_order_plan_shape},
     },
-    error::InternalError,
-    model::entity::EntityModel,
     traits::FieldValue,
     types::EntityTag,
-    value::StorageKey,
 };
 
 pub(in crate::db) use crate::db::index::{
@@ -40,8 +37,8 @@ pub(in crate::db) use crate::db::index::{
 pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
-    apply_order_direction, validate_cursor_boundary_for_order, validate_cursor_direction,
-    validate_cursor_window_offset,
+    apply_order_direction, decode_pk_cursor_boundary_storage_key_for_name,
+    validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::{
     IndexScanContinuationInput, MaterializedCursorRow, effective_keep_count_for_limit,
@@ -302,15 +299,6 @@ pub(in crate::db) fn revalidate_grouped_cursor(
     let contract = ContinuationCursorContract::grouped_revalidation(initial_offset);
 
     spine::validate_grouped_cursor_state(contract.initial_offset(), cursor)
-}
-
-/// Decode one structural primary-key cursor boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
-    boundary: Option<&CursorBoundary>,
-    model: &EntityModel,
-) -> Result<Option<StorageKey>, InternalError> {
-    boundary::decode_pk_cursor_boundary_storage_key(boundary, model)
-        .map_err(CursorPlanError::into_pk_cursor_decode_internal_error)
 }
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.

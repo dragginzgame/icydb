@@ -3,12 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        executor::{ContinuationCapabilities, ExecutionKernel},
-        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
-    },
-    model::entity::EntityModel,
+use crate::db::{
+    executor::{ContinuationCapabilities, ExecutionKernel},
+    query::plan::{AccessPlannedQuery, PlannerRouteProfile},
 };
 
 use crate::db::executor::route::{
@@ -18,14 +15,13 @@ use crate::db::executor::route::{
 
 /// Assess index-range limit pushdown once for this execution and produce the bounded fetch spec.
 pub(in crate::db::executor::route) fn assess_index_range_limit_pushdown_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
     capabilities: RouteCapabilities,
 ) -> Option<IndexRangeLimitSpec> {
     let (access_window, continuation_capabilities) = continuation_hint_inputs(continuation);
-    let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(model, plan);
+    let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(plan);
     capabilities
         .index_range_limit_pushdown_shape_supported
         .then_some(())?;

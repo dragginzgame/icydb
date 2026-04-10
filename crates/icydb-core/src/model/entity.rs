@@ -43,6 +43,9 @@ pub struct EntityModel {
     /// Primary key field (points at an entry in `fields`).
     pub(crate) primary_key: &'static FieldModel,
 
+    /// Stable primary-key slot within `fields`.
+    pub(crate) primary_key_slot: usize,
+
     /// Ordered field list (authoritative for runtime planning).
     pub(crate) fields: &'static [FieldModel],
 
@@ -62,6 +65,7 @@ impl EntityModel {
         path: &'static str,
         entity_name: &'static str,
         primary_key: &'static FieldModel,
+        primary_key_slot: usize,
         fields: &'static [FieldModel],
         indexes: &'static [&'static IndexModel],
     ) -> Self {
@@ -69,6 +73,7 @@ impl EntityModel {
             path,
             entity_name,
             primary_key,
+            primary_key_slot,
             fields,
             indexes,
         }
@@ -90,6 +95,12 @@ impl EntityModel {
     #[must_use]
     pub const fn primary_key(&self) -> &'static FieldModel {
         self.primary_key
+    }
+
+    /// Return the stable primary-key slot within the ordered field table.
+    #[must_use]
+    pub const fn primary_key_slot(&self) -> usize {
+        self.primary_key_slot
     }
 
     /// Return the ordered runtime field descriptors.
@@ -117,8 +128,5 @@ pub(crate) fn resolve_field_slot(model: &EntityModel, field_name: &str) -> Optio
 /// Resolve the primary-key field into its stable slot index.
 #[must_use]
 pub(crate) fn resolve_primary_key_slot(model: &EntityModel) -> Option<usize> {
-    model
-        .fields
-        .iter()
-        .position(|field| std::ptr::eq(field, model.primary_key))
+    Some(model.primary_key_slot())
 }

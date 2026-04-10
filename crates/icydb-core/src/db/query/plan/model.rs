@@ -13,6 +13,7 @@ use crate::{
             semantics::LogicalPushdownEligibility,
         },
     },
+    model::field::FieldKind,
     value::Value,
 };
 
@@ -452,13 +453,24 @@ pub(crate) struct GroupAggregateSpec {
 /// Canonical resolved field reference used by logical planning.
 /// `index` is the stable slot in `EntityModel::fields`; `field` is retained
 /// for diagnostics and explain surfaces.
+/// `kind` freezes planner-resolved field metadata so executor boundaries do
+/// not need to reopen `EntityModel` just to recover type/capability shape.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct FieldSlot {
     pub(crate) index: usize,
     pub(crate) field: String,
+    pub(crate) kind: Option<FieldKind>,
 }
+
+impl PartialEq for FieldSlot {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index && self.field == other.field
+    }
+}
+
+impl Eq for FieldSlot {}
 
 ///
 /// GroupedExecutionConfig

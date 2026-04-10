@@ -16,7 +16,6 @@ use crate::{
         predicate::PredicateProgram,
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 use std::cell::RefCell;
 
@@ -27,23 +26,17 @@ impl<K> PostAccessPlan<'_, K> {
         R,
     >(
         &self,
-        model: &'static EntityModel,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         R: OrderReadableRow,
     {
-        self.apply_delete_post_access_with_compiled_predicate_internal(
-            model,
-            rows,
-            compiled_predicate,
-        )
+        self.apply_delete_post_access_with_compiled_predicate_internal(rows, compiled_predicate)
     }
 
     fn apply_delete_post_access_with_compiled_predicate_internal<R>(
         &self,
-        model: &'static EntityModel,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
@@ -63,9 +56,7 @@ impl<K> PostAccessPlan<'_, K> {
         let mut apply_order_phase = |filtered| {
             let rows = &mut **rows.borrow_mut();
             apply_post_access_order_phase(
-                model,
                 self.contract.plan(),
-                self.contract.order_spec(),
                 self.contract.has_predicate(),
                 rows,
                 cursor,

@@ -17,7 +17,7 @@ use crate::{
         cursor::{CursorPlanError, IndexScanContinuationInput},
         data::{DataKey, DataStore},
         direction::Direction,
-        executor::{ExecutorPlanError, assemble_load_execution_node_descriptor_with_model},
+        executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -3374,8 +3374,12 @@ where
     let plan = structural
         .build_plan()
         .expect("store-backed execution descriptor plan should build");
-    let descriptor = assemble_load_execution_node_descriptor_with_model(E::MODEL, &plan)
-        .expect("store-backed execution descriptor should assemble");
+    let descriptor = assemble_load_execution_node_descriptor(
+        E::MODEL.fields(),
+        E::MODEL.primary_key().name(),
+        &plan,
+    )
+    .expect("store-backed execution descriptor should assemble");
 
     descriptor.render_json_canonical()
 }

@@ -9,27 +9,32 @@ use crate::{
         executor::{
             ExecutionKernel, OrderReadableRow,
             pipeline::operators::post_access::order_cursor::{
-                apply_order_spec as apply_post_access_order_spec,
-                apply_order_spec_bounded as apply_post_access_order_spec_bounded,
+                apply_resolved_order as apply_post_access_resolved_order,
+                apply_resolved_order_bounded as apply_post_access_resolved_order_bounded,
             },
-            route::access_order_satisfied_by_route_contract_for_model,
+            route::access_order_satisfied_by_route_contract,
         },
-        query::plan::{AccessPlannedQuery, OrderSpec},
+        query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 
 // Return whether the resolved access stream already satisfies ORDER BY semantics.
-fn order_satisfied_by_access_path(model: &EntityModel, plan: &AccessPlannedQuery) -> bool {
-    access_order_satisfied_by_route_contract_for_model(model, plan)
+fn order_satisfied_by_access_path(plan: &AccessPlannedQuery) -> bool {
+    access_order_satisfied_by_route_contract(plan)
+}
+
+fn resolved_order_required(plan: &AccessPlannedQuery) -> Result<&ResolvedOrder, InternalError> {
+    plan.resolved_order().ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "post-access ordering must consume one planner-frozen resolved order program",
+        )
+    })
 }
 
 // Apply ordering with bounded first-page optimization when available.
 pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_phase<R>(
-    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
-    order_spec: Option<&OrderSpec>,
     has_predicate: bool,
     rows: &mut Vec<R>,
     cursor: Option<&CursorBoundary>,
@@ -39,8 +44,8 @@ where
     R: OrderReadableRow,
 {
     let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(plan, cursor);
-    if let Some(order) = order_spec
-        && !order.fields.is_empty()
+    if let Some(resolved_order) = plan.resolved_order()
+        && !resolved_order.fields().is_empty()
     {
         if has_predicate && !filtered {
             return Err(InternalError::scalar_page_ordering_after_filtering_required());
@@ -48,16 +53,17 @@ where
 
         // If access traversal already satisfies requested ORDER BY
         // semantics, preserve stream order and skip in-memory sorting.
-        if order_satisfied_by_access_path(model, plan) {
+        if order_satisfied_by_access_path(plan) {
             return Ok((true, rows.len()));
         }
 
+        let resolved_order = resolved_order_required(plan)?;
         let ordered_total = rows.len();
         if rows.len() > 1 {
             if let Some(keep_count) = bounded_order_keep {
-                apply_post_access_order_spec_bounded(rows, model, order, keep_count);
+                apply_post_access_resolved_order_bounded(rows, resolved_order, keep_count);
             } else {
-                apply_post_access_order_spec(rows, model, order);
+                apply_post_access_resolved_order(rows, resolved_order);
             }
         }
 

@@ -72,6 +72,7 @@ static ACCESS_CHOICE_MODEL: EntityModel = entity_model_from_static(
     "access_choice::entity",
     "AccessChoiceEntity",
     &ACCESS_CHOICE_FIELDS[0],
+    0,
     &ACCESS_CHOICE_FIELDS,
     &ACCESS_CHOICE_INDEX_REFS,
 );
@@ -92,6 +93,7 @@ static ACCESS_CHOICE_RANGE_MODEL: EntityModel = entity_model_from_static(
     "access_choice::range_entity",
     "AccessChoiceRangeEntity",
     &ACCESS_CHOICE_RANGE_FIELDS[0],
+    0,
     &ACCESS_CHOICE_RANGE_FIELDS,
     &ACCESS_CHOICE_RANGE_INDEX_REFS,
 );

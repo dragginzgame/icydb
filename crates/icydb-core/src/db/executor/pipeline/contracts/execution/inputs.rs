@@ -21,14 +21,14 @@ use crate::{
         direction::Direction,
         executor::pipeline::contracts::{FastPathKeyResult, execution::ErasedRuntimeBindings},
         executor::{
-            AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
-            OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
-            mark_projection_referenced_slots, mark_structural_order_slots,
+            AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPreparation,
+            ExecutorError, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
             pipeline::operators::PreparedSqlExecutionProjection,
             projection::{
-                PreparedProjectionShape, PreparedSlotProjectionValidation, prepare_projection_shape,
+                PreparedProjectionShape, PreparedSlotProjectionValidation,
+                prepare_projection_shape_from_plan,
             },
-            route::access_order_satisfied_by_route_contract_for_model,
+            route::access_order_satisfied_by_route_contract,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
                 RetainedSlotRow, RowDecoder, RowLayout,
@@ -45,7 +45,6 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 use std::marker::PhantomData;
 
@@ -69,29 +68,43 @@ pub(in crate::db::executor) struct PreparedExecutionProjection {
 }
 
 impl PreparedExecutionProjection {
+    /// Build one empty projection bundle for execution paths that only need
+    /// key-stream resolution and never materialize rows through the shared
+    /// scalar page kernel.
+    #[must_use]
+    pub(in crate::db::executor) const fn empty() -> Self {
+        Self {
+            slot_only_required_slots: None,
+            prepared_shape: None,
+            projection_validation_enabled: false,
+            #[cfg(feature = "sql")]
+            sql: None,
+        }
+    }
+
     /// Build one executor-owned prepared projection bundle from one validated
     /// plan, compiled predicate, and optional route-owned covering contract.
     pub(in crate::db::executor) fn compile(
-        model: &'static EntityModel,
+        authority: EntityAuthority,
         plan: &AccessPlannedQuery,
         compiled_predicate: Option<&PredicateProgram>,
         projection_materialization: ProjectionMaterializationMode,
         load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     ) -> Result<Self, InternalError> {
         let slot_only_required_slots = compile_slot_only_required_slots(
-            model,
+            plan.projected_slot_mask().len(),
             plan,
             compiled_predicate,
             projection_materialization,
-        )?;
+        );
         let projection_validation_enabled = projection_materialization.validate_projection();
         let prepared_shape = (projection_validation_enabled
             || projection_materialization.retain_slot_rows())
-        .then(|| prepare_projection_shape(model, plan.projection_spec(model)));
+        .then(|| prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan));
 
         #[cfg(feature = "sql")]
         let sql = crate::db::executor::pipeline::operators::prepare_sql_execution_projection(
-            model,
+            authority.row_layout(),
             plan,
             compiled_predicate,
             projection_materialization,
@@ -149,10 +162,10 @@ struct ScalarRowRuntimeState {
 impl ScalarRowRuntimeState {
     // Build one structural scalar row-runtime descriptor from resolved
     // boundary inputs.
-    const fn new(store: StoreHandle, model: &'static EntityModel) -> Self {
+    const fn new(store: StoreHandle, row_layout: RowLayout) -> Self {
         Self {
             store,
-            row_layout: RowLayout::from_model(model),
+            row_layout,
             row_decoder: RowDecoder::structural(),
         }
     }
@@ -615,7 +628,7 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 struct ExecutionRuntimeAdapterCore<'a> {
     runtime: ErasedRuntimeBindings,
     access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-    model: &'static EntityModel,
+    authority: Option<EntityAuthority>,
     scalar_row_runtime: Option<ScalarRowRuntimeState>,
     covering_component_scan: Option<CoveringComponentScanState<'a>>,
 }
@@ -624,14 +637,14 @@ impl ExecutionRuntimeAdapterCore<'_> {
     const fn new<'a>(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: ErasedRuntimeBindings,
-        model: &'static EntityModel,
+        authority: Option<EntityAuthority>,
         scalar_row_runtime: Option<ScalarRowRuntimeState>,
         covering_component_scan: Option<CoveringComponentScanState<'a>>,
     ) -> ExecutionRuntimeAdapterCore<'a> {
         ExecutionRuntimeAdapterCore {
             runtime,
             access,
-            model,
+            authority,
             scalar_row_runtime,
             covering_component_scan,
         }
@@ -643,6 +656,16 @@ impl ExecutionRuntimeAdapterCore<'_> {
         self.scalar_row_runtime.as_ref().ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "scalar row runtime is required for scalar materialization paths",
+            )
+        })
+    }
+
+    // Require structural entity authority only for runtime paths that still
+    // materialize rows or covering projections through shared scalar kernels.
+    fn authority(&self) -> Result<EntityAuthority, InternalError> {
+        self.authority.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "structural entity authority is required for row materialization paths",
             )
         })
     }
@@ -718,14 +741,14 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: crate::db::executor::stream::access::TraversalRuntime,
         store: StoreHandle,
-        model: &'static EntityModel,
+        authority: EntityAuthority,
     ) -> Self {
         Self {
             core: ExecutionRuntimeAdapterCore::new(
                 access,
                 ErasedRuntimeBindings::from_runtime(runtime),
-                model,
-                Some(ScalarRowRuntimeState::new(store, model)),
+                Some(authority),
+                Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
                 None,
             ),
             marker: PhantomData,
@@ -738,15 +761,15 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: crate::db::executor::stream::access::TraversalRuntime,
         store: StoreHandle,
-        model: &'static EntityModel,
+        authority: EntityAuthority,
         covering_component_scan: CoveringComponentScanState<'a>,
     ) -> Self {
         Self {
             core: ExecutionRuntimeAdapterCore::new(
                 access,
                 ErasedRuntimeBindings::from_runtime(runtime),
-                model,
-                Some(ScalarRowRuntimeState::new(store, model)),
+                Some(authority),
+                Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
                 Some(covering_component_scan),
             ),
             marker: PhantomData,
@@ -758,13 +781,12 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
     pub(in crate::db::executor) const fn from_stream_runtime_parts(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: crate::db::executor::stream::access::TraversalRuntime,
-        model: &'static EntityModel,
     ) -> Self {
         Self {
             core: ExecutionRuntimeAdapterCore::new(
                 access,
                 ErasedRuntimeBindings::from_runtime(runtime),
-                model,
+                None,
                 None,
                 None,
             ),
@@ -839,7 +861,6 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
         ExecutionKernel::try_materialize_load_via_direct_covering_scan(
             request,
-            self.core.model,
             self.core.scalar_row_runtime()?.store,
             self.core.covering_component_scan,
         )
@@ -860,7 +881,6 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
 
         ExecutionKernel::try_materialize_load_via_row_collector(
             request,
-            self.core.model,
             &mut row_runtime,
             scalar_row_runtime.store,
             self.core.covering_component_scan,
@@ -882,7 +902,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
 
         materialize_key_stream_into_structural_page(
             KernelPageMaterializationRequest {
-                model: self.core.model,
+                authority: self.core.authority()?,
                 plan: request.plan,
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
@@ -921,55 +941,7 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     emit_cursor: bool,
 }
 
-///
-/// ExecutionInputPreparation
-///
-/// ExecutionInputPreparation keeps the remaining prepare-time execution
-/// invariants together so `ExecutionInputs::new(...)` does not keep widening as
-/// more fixed-cost metadata moves out of the hot path.
-/// The bundle owns only pre-execution policy inputs, not runtime row streams.
-///
-
-pub(in crate::db::executor) struct ExecutionInputPreparation<'a> {
-    pub(in crate::db::executor) model: &'static EntityModel,
-    pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
-    pub(in crate::db::executor) emit_cursor: bool,
-}
-
 impl<'a> ExecutionInputs<'a> {
-    /// Construct one scalar execution-input projection payload.
-    pub(in crate::db::executor) fn new(
-        runtime: &'a dyn ExecutionRuntime,
-        plan: &'a AccessPlannedQuery,
-        stream_bindings: AccessStreamBindings<'a>,
-        execution_preparation: &'a ExecutionPreparation,
-        projection_materialization: ProjectionMaterializationMode,
-        preparation: ExecutionInputPreparation<'a>,
-    ) -> Result<Self, InternalError> {
-        let ExecutionInputPreparation {
-            model,
-            load_terminal_fast_path,
-            emit_cursor,
-        } = preparation;
-        let prepared_projection = PreparedExecutionProjection::compile(
-            model,
-            plan,
-            execution_preparation.compiled_predicate(),
-            projection_materialization,
-            load_terminal_fast_path,
-        )?;
-
-        Ok(Self {
-            runtime,
-            plan,
-            stream_bindings,
-            execution_preparation,
-            projection_materialization,
-            prepared_projection,
-            emit_cursor,
-        })
-    }
-
     /// Construct one scalar execution-input payload from already-prepared
     /// execution and projection state.
     pub(in crate::db::executor) fn new_prepared(
@@ -1083,20 +1055,22 @@ impl<'a> ExecutionInputs<'a> {
 // cursorless SQL row collectors do not rebuild projection/predicate/order
 // reachability ad hoc at each materialization boundary.
 fn compile_slot_only_required_slots(
-    model: &'static EntityModel,
+    field_count: usize,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
-) -> Result<Option<Vec<usize>>, InternalError> {
+) -> Option<Vec<usize>> {
     if !projection_materialization.retain_slot_rows() {
-        return Ok(None);
+        return None;
     }
 
-    let mut required_slots = vec![false; model.fields().len()];
+    let mut required_slots = vec![false; field_count];
 
     // Phase 1: projection materialization always owns one stable slot set for
     // retained-slot SQL rows, even when final projection happens later.
-    mark_projection_referenced_slots(model, &plan.projection_spec(model), &mut required_slots)?;
+    for &slot in plan.projection_referenced_slots() {
+        required_slots[slot] = true;
+    }
 
     // Phase 2: residual predicate filtering still runs on retained slot rows
     // before the outer SQL materializer consumes them.
@@ -1108,17 +1082,20 @@ fn compile_slot_only_required_slots(
 
     // Phase 3: post-access in-memory ordering only needs extra slots when the
     // chosen route does not already satisfy the visible order contract.
-    if let Some(order) = plan.scalar_plan().order.as_ref()
-        && !access_order_satisfied_by_route_contract_for_model(model, plan)
+    if plan.scalar_plan().order.as_ref().is_some()
+        && !access_order_satisfied_by_route_contract(plan)
+        && let Some(order_slots) = plan.order_referenced_slots()
     {
-        mark_structural_order_slots(model, order, &mut required_slots)?;
+        for &slot in order_slots {
+            required_slots[slot] = true;
+        }
     }
 
-    Ok(Some(
+    Some(
         required_slots
             .into_iter()
             .enumerate()
             .filter_map(|(slot, required)| required.then_some(slot))
             .collect(),
-    ))
+    )
 }

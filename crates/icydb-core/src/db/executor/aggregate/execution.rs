@@ -14,16 +14,14 @@ use crate::{
                 AggregateKind, field::FieldSlot, projection::ScalarProjectionBoundaryRequest,
             },
             pipeline::contracts::GroupedRouteStage,
+            route::AggregateRouteShape,
             traversal::row_read_consistency_for_plan,
         },
         index::IndexPredicateProgram,
         predicate::MissingRowPolicy,
-        query::{
-            builder::AggregateExpr,
-            plan::{
-                AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract,
-                OrderDirection, OrderSpec, PageSpec,
-            },
+        query::plan::{
+            AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract, OrderDirection,
+            OrderSpec, PageSpec,
         },
         registry::StoreHandle,
     },
@@ -63,13 +61,134 @@ impl AggregateFastPathInputs<'_> {
 ///
 /// AggregateExecutionDescriptor
 ///
-/// Canonical aggregate execution descriptor constructed once from a terminal
-/// aggregate spec and validated plan shape before execution branching.
+/// PreparedAggregateTargetField
+///
+/// PreparedAggregateTargetField freezes one field-target aggregate descriptor.
+/// It carries the runtime field label, resolved field slot, and route-facing
+/// target-field flags needed by aggregate execution without reopening
+/// planner or field-table semantics during execution.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) struct PreparedAggregateTargetField {
+    target_field_name: String,
+    field_slot: FieldSlot,
+    target_field_known: bool,
+    target_field_orderable: bool,
+    target_field_is_primary_key: bool,
+}
+
+impl PreparedAggregateTargetField {
+    /// Construct one field-target aggregate descriptor from prepared metadata.
+    #[must_use]
+    pub(in crate::db::executor) fn new(
+        target_field_name: String,
+        field_slot: FieldSlot,
+        target_field_known: bool,
+        target_field_orderable: bool,
+        target_field_is_primary_key: bool,
+    ) -> Self {
+        Self {
+            target_field_name,
+            field_slot,
+            target_field_known,
+            target_field_orderable,
+            target_field_is_primary_key,
+        }
+    }
+
+    /// Borrow the prepared target-field label.
+    #[must_use]
+    pub(in crate::db::executor) fn target_field_name(&self) -> &str {
+        self.target_field_name.as_str()
+    }
+
+    /// Borrow the prepared runtime field slot.
+    #[must_use]
+    pub(in crate::db::executor) const fn field_slot(&self) -> FieldSlot {
+        self.field_slot
+    }
+}
+
+///
+/// PreparedAggregateSpec
+///
+/// PreparedAggregateSpec is the immutable aggregate execution request carried
+/// through runtime after typed boundary preparation.
+/// It freezes kind plus any field-target descriptor so aggregate routing and
+/// execution can consume prepared metadata without rebuilding `AggregateExpr`
+/// or revalidating target fields against schema authority.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) struct PreparedAggregateSpec {
+    kind: AggregateKind,
+    target_field: Option<PreparedAggregateTargetField>,
+}
+
+impl PreparedAggregateSpec {
+    /// Construct one non-field-target aggregate spec.
+    #[must_use]
+    pub(in crate::db::executor) const fn terminal(kind: AggregateKind) -> Self {
+        Self {
+            kind,
+            target_field: None,
+        }
+    }
+
+    /// Construct one field-target aggregate spec from prepared metadata.
+    #[must_use]
+    pub(in crate::db::executor) const fn field_target(
+        kind: AggregateKind,
+        target_field: PreparedAggregateTargetField,
+    ) -> Self {
+        Self {
+            kind,
+            target_field: Some(target_field),
+        }
+    }
+
+    /// Borrow the aggregate kind.
+    #[must_use]
+    pub(in crate::db::executor) const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow the prepared target-field descriptor, if any.
+    #[must_use]
+    pub(in crate::db::executor) const fn target_field(
+        &self,
+    ) -> Option<&PreparedAggregateTargetField> {
+        self.target_field.as_ref()
+    }
+
+    /// Lower one route-owned aggregate shape from this prepared spec.
+    #[must_use]
+    pub(in crate::db::executor) fn route_shape(&self) -> AggregateRouteShape<'_> {
+        let Some(target_field) = self.target_field.as_ref() else {
+            return AggregateRouteShape::new_resolved(self.kind, None, true, false, false);
+        };
+
+        AggregateRouteShape::new_resolved(
+            self.kind,
+            Some(target_field.target_field_name()),
+            target_field.target_field_known,
+            target_field.target_field_orderable,
+            target_field.target_field_is_primary_key,
+        )
+    }
+}
+
+///
+/// AggregateExecutionDescriptor
+///
+/// Canonical aggregate execution descriptor constructed once from one
+/// prepared aggregate spec and validated plan shape before execution branching.
 ///
 
 #[derive(Clone)]
 pub(in crate::db::executor) struct AggregateExecutionDescriptor {
-    pub(in crate::db::executor) aggregate: AggregateExpr,
+    pub(in crate::db::executor) aggregate: PreparedAggregateSpec,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
 }
@@ -563,7 +682,7 @@ impl PreparedAggregateStreamingInputs<'_> {
             return false;
         };
         if self
-            .explicit_primary_key_order_direction(self.authority.model().primary_key.name)
+            .explicit_primary_key_order_direction(self.authority.primary_key_name())
             .is_none()
         {
             return false;
@@ -592,6 +711,7 @@ pub(in crate::db::executor) enum PreparedScalarTerminalOp {
     IdBySlot {
         kind: AggregateKind,
         target_field_name: String,
+        field_slot: FieldSlot,
     },
 }
 

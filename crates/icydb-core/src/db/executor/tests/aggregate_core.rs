@@ -13,7 +13,7 @@ use crate::{
             aggregate::{
                 AggregateKind, ScalarNumericFieldBoundaryRequest, ScalarTerminalBoundaryRequest,
                 field::{
-                    AggregateFieldValueError, resolve_orderable_aggregate_target_slot_with_model,
+                    AggregateFieldValueError, resolve_orderable_aggregate_target_slot_from_fields,
                 },
             },
         },
@@ -230,11 +230,13 @@ fn planned_slot<E>(field: &str) -> PlannedFieldSlot
 where
     E: EntityKind,
 {
-    let index = resolve_field_slot(E::MODEL, field).unwrap_or(0);
+    let resolved_index = resolve_field_slot(E::MODEL, field);
+    let index = resolved_index.unwrap_or(0);
 
     PlannedFieldSlot {
         index,
         field: field.to_string(),
+        kind: resolved_index.and_then(|index| E::MODEL.fields.get(index).map(|field| field.kind)),
     }
 }
 
@@ -753,7 +755,7 @@ where
     // Phase 2: preserve field-target resolution taxonomy for unsupported and
     // unknown target fields without entering any runtime execution path.
     if let Some(target_field) = aggregate.target_field() {
-        resolve_orderable_aggregate_target_slot_with_model(E::MODEL, target_field)
+        resolve_orderable_aggregate_target_slot_from_fields(E::MODEL.fields(), target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
     }
 

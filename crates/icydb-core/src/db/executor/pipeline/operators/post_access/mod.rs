@@ -21,14 +21,12 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 
 pub(in crate::db::executor) use contracts::PostAccessStats;
 
 impl ExecutionKernel {
     pub(in crate::db::executor) fn apply_delete_post_access_with_compiled_predicate<R>(
-        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
@@ -37,6 +35,6 @@ impl ExecutionKernel {
         R: OrderReadableRow,
     {
         PostAccessPlan::<()>::new(PostAccessContract::<()>::new(plan))
-            .apply_delete_post_access_with_compiled_predicate(model, rows, compiled_predicate)
+            .apply_delete_post_access_with_compiled_predicate(rows, compiled_predicate)
     }
 }

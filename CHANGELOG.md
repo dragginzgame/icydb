@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.75.x] 🧭 - 2026-04-10 - Crosscutting Audit Refresh
+
+- `0.75.0` starts the next crosscutting cleanup line by rerunning the complexity audit and then splitting several of the largest internal DB hotspot modules into smaller owner-local pieces, making the query, planning, and row-runtime code easier to follow without changing SQL behavior.
+
+See detailed breakdown:
+[docs/changelog/0.75.md](docs/changelog/0.75.md)
+
+---
+
 ## [0.74.x] 🧹 - 2026-04-10 - Redundancy and Ownership Audit
 
 - `0.74.12` finishes the remaining generic projection/materialization cleanup by consolidating shared prepared projection state, deleting duplicated structural SQL fallback orchestration, and keeping the tiny direct SQL projection benchmark about `7.9%` below the original `0.74` audit baseline without adding any new route-specific shortcuts.

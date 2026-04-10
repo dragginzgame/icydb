@@ -19,15 +19,16 @@ use crate::{
             ExecutableAccess, ExecutablePlan, ExecutionKernel, KeyStreamLoopControl,
             PreparedAggregatePlan, TraversalRuntime,
             aggregate::{
-                AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
+                AggregateKind, PreparedAggregateSpec, PreparedAggregateStreamingInputs,
+                PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
                 PreparedScalarProjectionStrategy, ScalarProjectionWindow,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_from_decoded_slot,
                     extract_orderable_field_value_with_slot_reader,
-                    resolve_any_aggregate_target_slot_from_planner_slot_with_model,
-                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
+                    resolve_any_aggregate_target_slot_from_planner_slot,
+                    resolve_orderable_aggregate_target_slot_from_planner_slot,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
@@ -46,12 +47,9 @@ use crate::{
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
-        query::{
-            builder::AggregateExpr,
-            plan::{
-                CoveringProjectionContext, FieldSlot as PlannedFieldSlot,
-                constant_covering_projection_value_from_access,
-            },
+        query::plan::{
+            CoveringProjectionContext, FieldSlot as PlannedFieldSlot,
+            constant_covering_projection_value_from_access,
         },
     },
     error::InternalError,
@@ -157,12 +155,8 @@ where
         }
 
         let plan = plan.into_prepared_aggregate_plan();
-        let authority = plan.authority();
-        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-            authority.model(),
-            &target_field,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
         self.execute_selected_value_field_projection_with_slot(
@@ -200,12 +194,8 @@ where
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<PreparedScalarProjectionExecutionState<'_>, InternalError> {
         let target_field_name = target_field.field().to_string();
-        let authority = plan.authority();
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot_with_model(
-            authority.model(),
-            &target_field,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
         let op = PreparedScalarProjectionOp::from_request(request);
@@ -238,7 +228,7 @@ where
 
         match strategy {
             PreparedScalarProjectionStrategy::Materialized => {
-                let row_layout = RowLayout::from_model(prepared.authority.model());
+                let row_layout = prepared.authority.row_layout();
 
                 self.execute_materialized_scalar_projection_boundary(
                     boundary,
@@ -247,7 +237,7 @@ where
                 )
             }
             PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
-                let row_layout = RowLayout::from_model(prepared.authority.model());
+                let row_layout = prepared.authority.row_layout();
 
                 Self::execute_streaming_count_non_null_scalar_projection_boundary(
                     boundary,
@@ -281,7 +271,7 @@ where
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
-                prepared.authority.model().primary_key.name,
+                prepared.authority.primary_key_name(),
             )
         {
             let window = ScalarProjectionWindow {
@@ -448,7 +438,7 @@ where
             }
         }
 
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
 
         self.execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout)
     }
@@ -683,11 +673,20 @@ where
         let consistency = prepared.consistency();
         let store = prepared.store;
         let entity_tag = prepared.authority.entity_tag();
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
         let aggregate = if terminal_kind.is_extrema() {
-            AggregateExpr::field_target_extrema_for_kind(terminal_kind, target_field)
+            PreparedAggregateSpec::field_target(
+                terminal_kind,
+                PreparedAggregateTargetField::new(
+                    target_field.to_string(),
+                    field_slot,
+                    true,
+                    true,
+                    target_field == prepared.authority.primary_key_name(),
+                ),
+            )
         } else {
-            AggregateExpr::terminal_for_kind(terminal_kind)
+            PreparedAggregateSpec::terminal(terminal_kind)
         };
         let state =
             ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
@@ -897,7 +896,7 @@ where
     ) -> Result<u32, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
-            AggregateExpr::terminal_for_kind(AggregateKind::Count),
+            PreparedAggregateSpec::terminal(AggregateKind::Count),
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_count("projection COUNT helper result kind mismatch")
@@ -911,7 +910,7 @@ where
     ) -> Result<bool, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
-            AggregateExpr::terminal_for_kind(AggregateKind::Exists),
+            PreparedAggregateSpec::terminal(AggregateKind::Exists),
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_exists("projection EXISTS helper result kind mismatch")

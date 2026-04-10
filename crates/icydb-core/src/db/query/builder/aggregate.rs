@@ -69,6 +69,7 @@ impl AggregateExpr {
     }
 
     /// Build one non-field-target terminal aggregate expression from one kind.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn terminal_for_kind(kind: AggregateKind) -> Self {
         match kind {
@@ -85,6 +86,7 @@ impl AggregateExpr {
     }
 
     /// Build one field-target extrema aggregate expression from one kind.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn field_target_extrema_for_kind(
         kind: AggregateKind,

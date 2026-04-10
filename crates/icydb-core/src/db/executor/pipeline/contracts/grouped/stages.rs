@@ -138,15 +138,13 @@ pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
 }
 
 impl StructuralGroupedRowRuntime {
-    /// Build one grouped row runtime from structural store authority and model metadata.
+    /// Build one grouped row runtime from structural store authority and one
+    /// precomputed row-decode layout.
     #[must_use]
-    pub(in crate::db::executor) const fn new(
-        store: StoreHandle,
-        model: &'static crate::model::entity::EntityModel,
-    ) -> Self {
+    pub(in crate::db::executor) const fn new(store: StoreHandle, row_layout: RowLayout) -> Self {
         Self {
             store,
-            row_layout: RowLayout::from_model(model),
+            row_layout,
             row_decoder: RowDecoder::structural(),
         }
     }

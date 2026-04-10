@@ -7,7 +7,7 @@ use crate::db::{
     executor::{
         ExecutionPreparation,
         preparation::slot_map_for_model_plan,
-        route::{AggregateRouteShape, build_execution_route_plan_for_aggregate_spec_with_model},
+        route::{AggregateRouteShape, build_execution_route_plan_for_aggregate_spec},
     },
     query::{
         explain::{ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor},
@@ -22,17 +22,15 @@ use crate::db::executor::explain::descriptor::shared::{
 };
 
 // Assemble one canonical scalar aggregate execution descriptor through one
-// schema/model-owned explain boundary.
+// planner-owned aggregate route-shape boundary.
 #[inline(never)]
-pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
-    model: &'static crate::model::entity::EntityModel,
+pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
 ) -> ExplainExecutionDescriptor {
     let aggregation = aggregate.kind();
 
-    assemble_aggregate_terminal_execution_descriptor(
-        model,
+    assemble_aggregate_terminal_execution_descriptor_from_shape(
         plan,
         aggregate,
         aggregation,
@@ -44,22 +42,20 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model
 // one already-prepared SQL scalar strategy so EXPLAIN does not rediscover
 // aggregate kind or projected-field shape from raw SQL terminal variants.
 #[inline(never)]
-pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model(
-    model: &'static crate::model::entity::EntityModel,
+pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor(
     plan: &AccessPlannedQuery,
     strategy: &PreparedSqlScalarAggregateStrategy,
+    aggregate: AggregateRouteShape<'_>,
 ) -> ExplainExecutionDescriptor {
-    assemble_aggregate_terminal_execution_descriptor(
-        model,
+    assemble_aggregate_terminal_execution_descriptor_from_shape(
         plan,
-        AggregateRouteShape::new(strategy.aggregate_kind(), strategy.projected_field()),
+        aggregate,
         strategy.aggregate_kind(),
         strategy.projected_field(),
     )
 }
 
-fn assemble_aggregate_terminal_execution_descriptor(
-    model: &'static crate::model::entity::EntityModel,
+fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     aggregation: crate::db::query::plan::AggregateKind,
@@ -67,13 +63,9 @@ fn assemble_aggregate_terminal_execution_descriptor(
 ) -> ExplainExecutionDescriptor {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
     let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_execution_route_plan_for_aggregate_spec_with_model(
-        model,
-        plan,
-        aggregate,
-        &execution_preparation,
-    );
+        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+    let route_plan =
+        build_execution_route_plan_for_aggregate_spec(plan, aggregate, &execution_preparation);
     let route_shape = route_plan.shape();
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.

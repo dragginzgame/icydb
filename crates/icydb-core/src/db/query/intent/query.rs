@@ -7,11 +7,11 @@ use crate::{
     db::{
         executor::{
             BytesByProjectionMode, ExecutablePlan,
-            assemble_aggregate_terminal_execution_descriptor_with_model,
-            assemble_load_execution_node_descriptor_with_model,
-            assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
-            assemble_load_execution_verbose_diagnostics_with_model,
-            assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
+            assemble_aggregate_terminal_execution_descriptor,
+            assemble_load_execution_node_descriptor,
+            assemble_load_execution_node_descriptor_with_visible_indexes,
+            assemble_load_execution_verbose_diagnostics,
+            assemble_load_execution_verbose_diagnostics_with_visible_indexes,
             route::AggregateRouteShape,
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
@@ -244,8 +244,9 @@ impl StructuralQuery {
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
 
-        assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
-            self.intent.model(),
+        assemble_load_execution_node_descriptor_with_visible_indexes(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
             visible_indexes,
             &plan,
         )
@@ -259,8 +260,12 @@ impl StructuralQuery {
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         let plan = self.build_plan()?;
 
-        assemble_load_execution_node_descriptor_with_model(self.intent.model(), &plan)
-            .map_err(QueryError::execute)
+        assemble_load_execution_node_descriptor(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            &plan,
+        )
+        .map_err(QueryError::execute)
     }
 
     // Render one deterministic scalar load execution tree through the shared
@@ -298,12 +303,18 @@ impl StructuralQuery {
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
         let plan = self.build_plan()?;
-        let descriptor =
-            assemble_load_execution_node_descriptor_with_model(self.intent.model(), &plan)
-                .map_err(QueryError::execute)?;
-        let route_diagnostics =
-            assemble_load_execution_verbose_diagnostics_with_model(self.intent.model(), &plan)
-                .map_err(QueryError::execute)?;
+        let descriptor = assemble_load_execution_node_descriptor(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            &plan,
+        )
+        .map_err(QueryError::execute)?;
+        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            &plan,
+        )
+        .map_err(QueryError::execute)?;
         let explain = plan.explain_with_model(self.intent.model());
 
         // Phase 1: render descriptor tree with node-local metadata.
@@ -360,19 +371,20 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        let descriptor = assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
-            self.intent.model(),
+        let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
             visible_indexes,
             &plan,
         )
         .map_err(QueryError::execute)?;
-        let route_diagnostics =
-            assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
-                self.intent.model(),
-                visible_indexes,
-                &plan,
-            )
-            .map_err(QueryError::execute)?;
+        let route_diagnostics = assemble_load_execution_verbose_diagnostics_with_visible_indexes(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            visible_indexes,
+            &plan,
+        )
+        .map_err(QueryError::execute)?;
         let explain = plan.explain_with_model(self.intent.model());
 
         // Phase 1: render descriptor tree with node-local metadata.
@@ -432,11 +444,7 @@ impl StructuralQuery {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
         let query_explain = plan.explain_with_model(self.intent.model());
         let terminal = aggregate.kind();
-        let execution = assemble_aggregate_terminal_execution_descriptor_with_model(
-            self.intent.model(),
-            &plan,
-            aggregate,
-        );
+        let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate);
 
         Ok(ExplainAggregateTerminalPlan::new(
             query_explain,
@@ -459,7 +467,12 @@ impl StructuralQuery {
                 "prepared fluent aggregate explain requires an explain-visible aggregate kind",
             ));
         };
-        let aggregate = AggregateRouteShape::new(kind, strategy.explain_projected_field());
+        let aggregate = AggregateRouteShape::new_from_fields(
+            kind,
+            strategy.explain_projected_field(),
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+        );
 
         self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate)
     }
@@ -970,7 +983,12 @@ impl<E: EntityKind> Query<E> {
     {
         self.inner.explain_aggregate_terminal_with_visible_indexes(
             &VisibleIndexes::schema_owned(E::MODEL.indexes()),
-            AggregateRouteShape::from_aggregate_expr(&aggregate),
+            AggregateRouteShape::new_from_fields(
+                aggregate.kind(),
+                aggregate.target_field(),
+                E::MODEL.fields(),
+                E::MODEL.primary_key().name(),
+            ),
         )
     }
 

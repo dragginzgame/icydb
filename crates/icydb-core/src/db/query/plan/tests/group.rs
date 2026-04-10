@@ -87,6 +87,7 @@ fn load_plan_with_order_distinct_and_limit(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     }
 }
 
@@ -1165,7 +1166,7 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field }
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field, .. }
             if target_field == "tag"
     ));
     assert_eq!(
@@ -1217,7 +1218,7 @@ fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field }
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field, .. }
             if target_field == "rank"
     ));
     assert_eq!(
@@ -1246,7 +1247,7 @@ fn grouped_executor_handoff_lowers_global_distinct_avg_execution_strategy() {
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field }
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field, .. }
             if target_field == "rank"
     ));
     assert_eq!(

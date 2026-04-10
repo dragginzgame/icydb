@@ -110,7 +110,7 @@ impl GroupedAggregateExecutionSpec {
     /// Build one grouped aggregate execution spec from one grouped aggregate
     /// projection spec and one structural model context.
     pub(in crate::db) fn from_projection_spec_with_model(
-        model: &'static EntityModel,
+        model: &EntityModel,
         aggregate_projection_spec: &GroupedAggregateProjectionSpec,
     ) -> Result<Self, InternalError> {
         let target_field = aggregate_projection_spec
@@ -307,6 +307,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
     aggregate_projection_specs: Vec<GroupedAggregateProjectionSpec>,
+    grouped_aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection_layout: PlannedProjectionLayout,
     projection_is_identity: bool,
     grouped_plan_strategy: GroupedPlanStrategy,
@@ -335,6 +336,14 @@ impl<'a> GroupedExecutorHandoff<'a> {
         &self,
     ) -> &[GroupedAggregateProjectionSpec] {
         self.aggregate_projection_specs.as_slice()
+    }
+
+    /// Borrow grouped aggregate execution specs resolved during static planning.
+    #[must_use]
+    pub(in crate::db) const fn grouped_aggregate_execution_specs(
+        &self,
+    ) -> &[GroupedAggregateExecutionSpec] {
+        self.grouped_aggregate_execution_specs.as_slice()
     }
 
     /// Borrow grouped projection position layout derived by planner.
@@ -418,19 +427,34 @@ pub(in crate::db) fn grouped_executor_handoff(
             "grouped executor handoff must carry grouped strategy for grouped plans",
         )
     })?;
+    let grouped_aggregate_execution_specs = plan
+        .grouped_aggregate_execution_specs()
+        .ok_or_else(|| {
+            InternalError::planner_executor_invariant(
+                "grouped executor handoff requires frozen grouped aggregate execution specs",
+            )
+        })?
+        .to_vec();
     let grouped_fold_path = GroupedFoldPath::from_plan_strategy(grouped_plan_strategy);
-    let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
-        grouped.scalar.distinct,
-        grouped.having.is_some(),
-        grouped.group.group_fields.as_slice(),
-        grouped.group.aggregates.as_slice(),
-        grouped.having.as_ref(),
-    )?;
+    let grouped_distinct_policy_contract = GroupedDistinctPolicyContract::new(
+        match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having.is_some()) {
+            GroupDistinctAdmissibility::Allowed => None,
+            GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
+        },
+        plan.grouped_distinct_execution_strategy()
+            .ok_or_else(|| {
+                InternalError::planner_executor_invariant(
+                    "grouped executor handoff requires frozen grouped DISTINCT strategy",
+                )
+            })?
+            .clone(),
+    );
 
     Ok(GroupedExecutorHandoff {
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
         aggregate_projection_specs,
+        grouped_aggregate_execution_specs,
         projection_layout,
         projection_is_identity,
         grouped_plan_strategy,
@@ -444,7 +468,7 @@ pub(in crate::db) fn grouped_executor_handoff(
 /// Build grouped aggregate execution specs from planner-owned aggregate
 /// projection specs and one structural model context.
 pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
-    model: &'static EntityModel,
+    model: &EntityModel,
     aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
     aggregate_projection_specs
@@ -508,21 +532,29 @@ impl GroupedDistinctPolicyContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum GroupedDistinctExecutionStrategy {
     None,
-    GlobalDistinctFieldCount { target_field: String },
-    GlobalDistinctFieldSum { target_field: String },
-    GlobalDistinctFieldAvg { target_field: String },
+    GlobalDistinctFieldCount {
+        target_field: String,
+        target_slot: FieldSlot,
+    },
+    GlobalDistinctFieldSum {
+        target_field: String,
+        target_slot: FieldSlot,
+    },
+    GlobalDistinctFieldAvg {
+        target_field: String,
+        target_slot: FieldSlot,
+    },
 }
 
 impl GroupedDistinctExecutionStrategy {
-    /// Borrow the grouped DISTINCT target field when the dedicated global
-    /// field-target runtime path is active.
+    /// Borrow the planner-resolved target field slot used by grouped DISTINCT runtime.
     #[must_use]
-    pub(in crate::db) const fn global_distinct_target_field(&self) -> Option<&str> {
+    pub(in crate::db) const fn global_distinct_target_slot(&self) -> Option<&FieldSlot> {
         match self {
             Self::None => None,
-            Self::GlobalDistinctFieldCount { target_field }
-            | Self::GlobalDistinctFieldSum { target_field }
-            | Self::GlobalDistinctFieldAvg { target_field } => Some(target_field.as_str()),
+            Self::GlobalDistinctFieldCount { target_slot, .. }
+            | Self::GlobalDistinctFieldSum { target_slot, .. }
+            | Self::GlobalDistinctFieldAvg { target_slot, .. } => Some(target_slot),
         }
     }
 
@@ -539,56 +571,58 @@ impl GroupedDistinctExecutionStrategy {
     }
 }
 
-// Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
-fn grouped_distinct_execution_strategy(
+// Lower grouped DISTINCT execution strategy from validated grouped planner semantics
+// while freezing the field-target slot under planner ownership.
+pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
+    model: &EntityModel,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
     having: Option<&GroupHavingSpec>,
 ) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
     match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
-        Ok(Some(aggregate)) => match aggregate.kind() {
-            AggregateKind::Count => {
-                Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
-                    target_field: aggregate.target_field().to_string(),
-                })
+        Ok(Some(aggregate)) => {
+            let target_field = aggregate.target_field().to_string();
+            let target_slot =
+                resolve_aggregate_target_field_slot(model, aggregate.target_field()).map_err(
+                    |err| {
+                        InternalError::planner_executor_invariant(format!(
+                            "grouped DISTINCT strategy target slot resolution failed: field='{}', error={err}",
+                            aggregate.target_field(),
+                        ))
+                    },
+                )?;
+
+            match aggregate.kind() {
+                AggregateKind::Count => {
+                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
+                        target_field,
+                        target_slot,
+                    })
+                }
+                AggregateKind::Sum => {
+                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
+                        target_field,
+                        target_slot,
+                    })
+                }
+                AggregateKind::Avg => {
+                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
+                        target_field,
+                        target_slot,
+                    })
+                }
+                AggregateKind::Exists
+                | AggregateKind::Min
+                | AggregateKind::Max
+                | AggregateKind::First
+                | AggregateKind::Last => Err(InternalError::planner_executor_invariant(
+                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
+                )),
             }
-            AggregateKind::Sum => Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
-                target_field: aggregate.target_field().to_string(),
-            }),
-            AggregateKind::Avg => Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
-                target_field: aggregate.target_field().to_string(),
-            }),
-            AggregateKind::Exists
-            | AggregateKind::Min
-            | AggregateKind::Max
-            | AggregateKind::First
-            | AggregateKind::Last => Err(InternalError::planner_executor_invariant(
-                "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
-            )),
-        },
+        }
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
         Err(reason) => Err(reason.into_planner_handoff_internal_error()),
     }
-}
-
-// Build grouped DISTINCT executor policy contract from validated grouped semantics.
-fn grouped_distinct_policy_contract(
-    scalar_distinct: bool,
-    has_having: bool,
-    group_fields: &[FieldSlot],
-    aggregates: &[GroupAggregateSpec],
-    having: Option<&GroupHavingSpec>,
-) -> Result<GroupedDistinctPolicyContract, InternalError> {
-    let violation_for_executor = match grouped_distinct_admissibility(scalar_distinct, has_having) {
-        GroupDistinctAdmissibility::Allowed => None,
-        GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
-    };
-    let execution_strategy = grouped_distinct_execution_strategy(group_fields, aggregates, having)?;
-
-    Ok(GroupedDistinctPolicyContract::new(
-        violation_for_executor,
-        execution_strategy,
-    ))
 }
 
 // Derive grouped field/aggregate projection slots and grouped aggregate

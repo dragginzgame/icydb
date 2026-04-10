@@ -21,7 +21,10 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::{field::FieldKind, index::IndexModel},
+    model::{
+        field::{FieldKind, FieldModel},
+        index::IndexModel,
+    },
     serialize::serialize,
     traits::{EntitySchema, EntityValue, FieldProjection as _},
     types::Ulid,
@@ -34,9 +37,10 @@ use std::cmp::Ordering;
 #[cfg(feature = "sql")]
 use super::project_rows_from_projection;
 use super::{
-    GroupedRowView, compile_grouped_projection_plan, compile_scalar_projection_expr,
-    eval_canonical_scalar_projection_expr, eval_expr_grouped, eval_expr_with_required_value_reader,
-    eval_expr_with_slot_reader, eval_scalar_projection_expr, evaluate_grouped_projection_values,
+    GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr,
+    compile_grouped_projection_plan, compile_scalar_projection_expr,
+    eval_canonical_scalar_projection_expr, eval_grouped_projection_expr,
+    eval_scalar_projection_expr, evaluate_grouped_projection_values,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -100,11 +104,114 @@ fn row(
     (entity.id(), entity)
 }
 
+fn resolve_field_slot_from_fields(fields: &[FieldModel], field_name: &str) -> Option<usize> {
+    fields.iter().position(|field| field.name() == field_name)
+}
+
+/// Evaluate one projection expression through one runtime slot reader.
+fn eval_expr_with_slot_reader(
+    expr: &Expr,
+    fields: &[FieldModel],
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Value, ProjectionEvalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let Some(field_index) = resolve_field_slot_from_fields(fields, field_name) else {
+                return Err(ProjectionEvalError::UnknownField {
+                    field: field_name.to_string(),
+                });
+            };
+            let Some(value) = read_slot(field_index) else {
+                return Err(ProjectionEvalError::MissingFieldValue {
+                    field: field_name.to_string(),
+                    index: field_index,
+                });
+            };
+
+            Ok(value)
+        }
+        Expr::Literal(value) => Ok(value.clone()),
+        Expr::Unary { op, expr } => {
+            let operand = eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot)?;
+            super::eval_unary_expr(*op, operand)
+        }
+        Expr::Binary { op, left, right } => {
+            let left_value = eval_expr_with_slot_reader(left.as_ref(), fields, read_slot)?;
+            let right_value = eval_expr_with_slot_reader(right.as_ref(), fields, read_slot)?;
+
+            super::eval_binary_expr(*op, left_value, right_value)
+        }
+        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
+            kind: format!("{:?}", aggregate.kind()),
+        }),
+        Expr::Alias { expr, .. } => eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot),
+    }
+}
+
+/// Evaluate one projection expression through one required-value reader on the
+/// canonical structural row path.
+fn eval_expr_with_required_value_reader(
+    expr: &Expr,
+    fields: &[FieldModel],
+    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<Value, InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let Some(field_index) = resolve_field_slot_from_fields(fields, field_name) else {
+                return Err(ProjectionEvalError::UnknownField {
+                    field: field_name.to_string(),
+                }
+                .into_invalid_logical_plan_internal_error());
+            };
+
+            read_slot(field_index)
+        }
+        Expr::Literal(value) => Ok(value.clone()),
+        Expr::Unary { op, expr } => {
+            let operand = eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)?;
+            super::eval_unary_expr(*op, operand)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Binary { op, left, right } => {
+            let left_value =
+                eval_expr_with_required_value_reader(left.as_ref(), fields, read_slot)?;
+            let right_value =
+                eval_expr_with_required_value_reader(right.as_ref(), fields, read_slot)?;
+
+            super::eval_binary_expr(*op, left_value, right_value)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
+            kind: format!("{:?}", aggregate.kind()),
+        }
+        .into_invalid_logical_plan_internal_error()),
+        Expr::Alias { expr, .. } => {
+            eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)
+        }
+    }
+}
+
+/// Evaluate one projection expression against one grouped output row view.
+fn eval_expr_grouped(
+    expr: &Expr,
+    grouped_row: &GroupedRowView<'_>,
+) -> Result<Value, ProjectionEvalError> {
+    let compiled = compile_grouped_projection_expr(
+        expr,
+        grouped_row.group_fields,
+        grouped_row.aggregate_execution_specs,
+    )?;
+
+    eval_grouped_projection_expr(&compiled, grouped_row)
+}
+
 fn eval_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
 ) -> Result<Value, crate::db::executor::projection::ProjectionEvalError> {
-    eval_expr_with_slot_reader(expr, ProjectionEvalEntity::MODEL, &mut |slot| {
+    eval_expr_with_slot_reader(expr, ProjectionEvalEntity::MODEL.fields(), &mut |slot| {
         row.get_value_by_index(slot)
     })
 }
@@ -217,9 +324,11 @@ fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
 #[test]
 fn required_projection_eval_preserves_internal_slot_errors() {
     let expr = Expr::Field(FieldId::new("rank"));
-    let err = eval_expr_with_required_value_reader(&expr, ProjectionEvalEntity::MODEL, &mut |_| {
-        Err(InternalError::persisted_row_declared_field_missing("rank"))
-    })
+    let err = eval_expr_with_required_value_reader(
+        &expr,
+        ProjectionEvalEntity::MODEL.fields(),
+        &mut |_| Err(InternalError::persisted_row_declared_field_missing("rank")),
+    )
     .expect_err("required projection evaluation should preserve structural slot errors");
 
     assert_eq!(err.class(), ErrorClass::Corruption);

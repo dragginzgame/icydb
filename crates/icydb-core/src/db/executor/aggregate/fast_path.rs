@@ -166,7 +166,6 @@ impl ExecutionKernel {
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         match verified_route.route {
             FastPathOrder::PrimaryKey => Self::try_execute_primary_key_access_aggregate(
-                inputs.authority.model(),
                 inputs.store,
                 inputs.authority.entity_tag(),
                 inputs.logical_plan,
@@ -240,7 +239,6 @@ impl ExecutionKernel {
     // canonical routed key-stream boundary so all access-shape execution uses
     // one shared stream-construction path.
     fn try_execute_primary_key_access_aggregate(
-        model: &'static crate::model::entity::EntityModel,
         store: StoreHandle,
         entity_tag: crate::types::EntityTag,
         plan: &AccessPlannedQuery,
@@ -259,7 +257,7 @@ impl ExecutionKernel {
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(model, plan);
+        let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(plan);
         if has_residual_filter {
             return Ok(None);
         }

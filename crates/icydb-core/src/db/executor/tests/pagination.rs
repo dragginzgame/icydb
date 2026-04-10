@@ -182,6 +182,7 @@ fn build_scalar_limit_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -225,6 +226,7 @@ fn build_simple_union_page_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -260,6 +262,7 @@ fn build_simple_key_range_page_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -845,6 +848,7 @@ fn build_distinct_desc_index_range_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -920,6 +924,7 @@ fn build_distinct_index_range_offset_fast_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -2392,6 +2397,7 @@ fn build_simple_access_ordered_page_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -2425,6 +2431,7 @@ fn build_pushdown_access_ordered_page_plan(
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     })
 }
 
@@ -4596,6 +4603,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                     crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
                 planner_route_profile:
                     crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(false),
+                static_planning_shape: None,
             })
         };
 
@@ -5015,6 +5023,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     });
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     let (_page, trace) = load
@@ -5133,6 +5142,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     });
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     let (page, trace) = load
@@ -5201,6 +5211,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
             planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
                 false,
             ),
+            static_planning_shape: None,
         })
     };
 
@@ -6707,6 +6718,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     });
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
@@ -6770,6 +6782,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
             planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
                 false,
             ),
+            static_planning_shape: None,
         })
     };
 
@@ -6917,6 +6930,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                         crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
                     planner_route_profile:
                         crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(false),
+                    static_planning_shape: None,
                 })
             };
 

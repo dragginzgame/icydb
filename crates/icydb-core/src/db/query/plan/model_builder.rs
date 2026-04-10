@@ -32,6 +32,7 @@ impl FieldSlot {
         Self {
             index,
             field: field.into(),
+            kind: None,
         }
     }
 }

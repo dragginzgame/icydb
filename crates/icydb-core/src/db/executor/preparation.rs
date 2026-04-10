@@ -3,24 +3,17 @@
 //! Does not own: access planning or runtime route policy.
 //! Boundary: one-time preparation object consumed by execution paths.
 
-use crate::{
-    db::{
-        executor::ExecutableAccessPlan,
-        index::{
-            IndexCompilePolicy, IndexPredicateProgram, compile_index_program,
-            compile_index_program_for_targets,
-        },
-        predicate::{
-            IndexCompileTarget, PredicateCapabilityContext, PredicateCapabilityProfile,
-            PredicateExecutionModel, PredicateProgram, classify_predicate_capabilities,
-            classify_predicate_capabilities_for_targets,
-        },
-        query::plan::AccessPlannedQuery,
+use crate::db::{
+    index::{
+        IndexCompilePolicy, IndexPredicateProgram, compile_index_program,
+        compile_index_program_for_targets,
     },
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        index::IndexKeyItemsRef,
+    predicate::{
+        IndexCompileTarget, PredicateCapabilityContext, PredicateCapabilityProfile,
+        PredicateProgram, classify_predicate_capabilities,
+        classify_predicate_capabilities_for_targets,
     },
+    query::plan::AccessPlannedQuery,
 };
 
 ///
@@ -47,15 +40,6 @@ enum PreparationPredicateSource {
     EffectiveRuntime,
 }
 
-impl PreparationPredicateSource {
-    fn predicate_for_plan(self, plan: &AccessPlannedQuery) -> Option<PredicateExecutionModel> {
-        match self {
-            Self::ExecutionPreparation => plan.execution_preparation_predicate(),
-            Self::EffectiveRuntime => plan.effective_execution_predicate(),
-        }
-    }
-}
-
 // Build-time toggles for the canonical preparation builder.
 #[derive(Clone, Copy)]
 struct PreparationBuildConfig {
@@ -69,12 +53,10 @@ impl ExecutionPreparation {
     /// Build execution preparation once for one validated access-planned query.
     #[must_use]
     pub(in crate::db::executor) fn from_plan(
-        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
         Self::build(
-            model,
             plan,
             slot_map,
             PreparationBuildConfig {
@@ -96,12 +78,10 @@ impl ExecutionPreparation {
     /// consumes after route planning has already completed.
     #[must_use]
     pub(in crate::db::executor) fn from_runtime_plan(
-        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
         Self::build(
-            model,
             plan,
             slot_map,
             PreparationBuildConfig {
@@ -153,17 +133,20 @@ impl ExecutionPreparation {
     // Build the canonical preparation bundle once from one planner predicate
     // source plus the caller's requested index-program/capability outputs.
     fn build(
-        model: &'static EntityModel,
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
         config: PreparationBuildConfig,
     ) -> Self {
-        // Phase 1: compile the chosen planner predicate projection once.
-        let predicate = config.predicate_source.predicate_for_plan(plan);
-        let compiled_predicate = predicate
-            .as_ref()
-            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
-        let compile_targets = index_compile_targets_for_model_plan(model, plan);
+        // Phase 1: borrow the planner-compiled predicate projection once.
+        let compiled_predicate = match config.predicate_source {
+            PreparationPredicateSource::ExecutionPreparation => {
+                plan.execution_preparation_compiled_predicate().cloned()
+            }
+            PreparationPredicateSource::EffectiveRuntime => {
+                plan.effective_runtime_compiled_predicate().cloned()
+            }
+        };
+        let compile_targets = index_compile_targets_for_model_plan(plan);
 
         // Phase 2: derive the optional planner/explain capability snapshot.
         let predicate_capability_profile = if config.include_predicate_capability_profile {
@@ -248,63 +231,17 @@ fn compile_index_program_for_preparation(
     }
 }
 
-/// Resolve index field slots from a single-path index access shape using structural model data.
-pub(in crate::db::executor) fn resolved_index_slots_for_access_path<K>(
-    model: &'static EntityModel,
-    access: &ExecutableAccessPlan<'_, K>,
-) -> Option<Vec<usize>> {
-    let path = access.as_path()?;
-    let path_capabilities = path.capabilities();
-    let index_fields = path_capabilities.index_fields_for_slot_map()?;
-
-    let mut slots = Vec::with_capacity(index_fields.len());
-    for field_name in index_fields {
-        let slot = resolve_field_slot(model, field_name)?;
-        slots.push(slot);
-    }
-
-    Some(slots)
-}
-
-/// Resolve one structural slot map for one access-planned query using structural model data.
+/// Project one planner-frozen structural slot map from one access-planned query.
 pub(in crate::db::executor) fn slot_map_for_model_plan(
-    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<usize>> {
-    resolved_index_slots_for_access_path(model, plan.access.resolve_strategy().executable())
+    plan.slot_map().map(<[usize]>::to_vec)
 }
 
-// Resolve one structural key-item-aware compile target list for one
-// access-planned query using structural model data.
+// Project one planner-frozen key-item-aware compile target list from the plan.
 fn index_compile_targets_for_model_plan(
-    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<IndexCompileTarget>> {
-    let index = plan.access.as_path()?.selected_index_model()?;
-    let mut targets = Vec::new();
-
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => {
-            for (component_index, &field_name) in fields.iter().enumerate() {
-                let field_slot = resolve_field_slot(model, field_name)?;
-                targets.push(IndexCompileTarget {
-                    component_index,
-                    field_slot,
-                    key_item: crate::model::index::IndexKeyItem::Field(field_name),
-                });
-            }
-        }
-        IndexKeyItemsRef::Items(items) => {
-            for (component_index, &key_item) in items.iter().enumerate() {
-                let field_slot = resolve_field_slot(model, key_item.field())?;
-                targets.push(IndexCompileTarget {
-                    component_index,
-                    field_slot,
-                    key_item,
-                });
-            }
-        }
-    }
-
-    Some(targets)
+    plan.index_compile_targets()
+        .map(<[IndexCompileTarget]>::to_vec)
 }

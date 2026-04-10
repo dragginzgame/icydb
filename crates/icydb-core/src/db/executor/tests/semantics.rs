@@ -106,7 +106,6 @@ where
 
     // Phase 2: derive grouped route observability from grouped handoff contracts.
     let route_plan = build_execution_route_plan_for_grouped_plan(
-        E::MODEL,
         grouped_handoff.base(),
         grouped_handoff.grouped_plan_strategy(),
     );

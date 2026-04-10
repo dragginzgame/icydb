@@ -3,6 +3,8 @@
 //! Does not own: aggregate route planning decisions.
 //! Boundary: field-target aggregate helper surface used by aggregate executors.
 
+#[cfg(test)]
+use crate::model::field::FieldModel;
 use crate::{
     db::{
         direction::Direction,
@@ -13,10 +15,7 @@ use crate::{
         query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel},
-    },
+    model::field::FieldKind,
     types::Decimal,
     value::Value,
 };
@@ -77,15 +76,15 @@ impl AggregateFieldValueError {
 }
 
 // Resolve one field model entry by name and return its stable slot index.
+#[cfg(test)]
 fn field_model_with_index<'a>(
-    model: &'a EntityModel,
+    fields: &'a [FieldModel],
     field: &str,
 ) -> Option<(usize, &'a FieldModel)> {
-    model
-        .fields
+    fields
         .iter()
         .enumerate()
-        .find(|(_, candidate)| candidate.name == field)
+        .find(|(_, candidate)| candidate.name() == field)
 }
 
 ///
@@ -171,63 +170,59 @@ fn direct_compare_orderable_field_values(
 }
 
 /// Resolve one orderable aggregate target field into a stable projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_with_model(
-    model: &'static EntityModel,
+#[cfg(test)]
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fields(
+    fields: &[FieldModel],
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(model, target_field) else {
+    let Some((index, field)) = field_model_with_index(fields, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
-    if !field_kind_supports_aggregate_ordering(&field.kind) {
+    if !field_kind_supports_aggregate_ordering(&field.kind()) {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
-            kind: field.kind,
+            kind: field.kind(),
         });
     }
 
     Ok(FieldSlot {
         index,
-        kind: field.kind,
+        kind: field.kind(),
     })
 }
 
-/// Resolve one planner field slot into one orderable aggregate projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-    model: &'static EntityModel,
+/// Resolve one planner field slot into one orderable aggregate projection slot using planner-frozen field metadata.
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = model.fields.get(field_slot.index()) else {
+    let Some(kind) = field_slot.kind() else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
-    if field.name != target_field {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
-    }
-    if !field_kind_supports_aggregate_ordering(&field.kind) {
+    if !field_kind_supports_aggregate_ordering(&kind) {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
-            kind: field.kind,
+            kind,
         });
     }
 
     Ok(FieldSlot {
         index: field_slot.index(),
-        kind: field.kind,
+        kind,
     })
 }
 
 /// Resolve one aggregate target field into a stable projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_with_model(
-    model: &'static EntityModel,
+#[cfg(test)]
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_fields(
+    fields: &[FieldModel],
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(model, target_field) else {
+    let Some((index, field)) = field_model_with_index(fields, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -235,82 +230,71 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_with_model(
 
     Ok(FieldSlot {
         index,
-        kind: field.kind,
+        kind: field.kind(),
     })
 }
 
-/// Resolve one planner field slot into one aggregate projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot_with_model(
-    model: &'static EntityModel,
+/// Resolve one planner field slot into one aggregate projection slot using planner-frozen field metadata.
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = model.fields.get(field_slot.index()) else {
+    let Some(kind) = field_slot.kind() else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
-    if field.name != target_field {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
-    }
 
     Ok(FieldSlot {
         index: field_slot.index(),
-        kind: field.kind,
+        kind,
     })
 }
 
 /// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_with_model(
-    model: &'static EntityModel,
+#[cfg(test)]
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_fields(
+    fields: &[FieldModel],
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(model, target_field) else {
+    let Some((index, field)) = field_model_with_index(fields, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
-    if !field_kind_supports_numeric_aggregation(&field.kind) {
+    if !field_kind_supports_numeric_aggregation(&field.kind()) {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
-            kind: field.kind,
+            kind: field.kind(),
         });
     }
 
     Ok(FieldSlot {
         index,
-        kind: field.kind,
+        kind: field.kind(),
     })
 }
 
-/// Resolve one planner field slot into one numeric aggregate projection slot using structural model data.
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
-    model: &'static EntityModel,
+/// Resolve one planner field slot into one numeric aggregate projection slot using planner-frozen field metadata.
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = model.fields.get(field_slot.index()) else {
+    let Some(kind) = field_slot.kind() else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
-    if field.name != target_field {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
-    }
-    if !field_kind_supports_numeric_aggregation(&field.kind) {
+    if !field_kind_supports_numeric_aggregation(&kind) {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
-            kind: field.kind,
+            kind,
         });
     }
 
     Ok(FieldSlot {
         index: field_slot.index(),
-        kind: field.kind,
+        kind,
     })
 }
 

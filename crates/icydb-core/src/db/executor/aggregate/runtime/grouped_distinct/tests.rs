@@ -9,7 +9,7 @@ use crate::{
         executor::aggregate::runtime::grouped_distinct::{
             global_distinct_field_target_and_kind, page_global_distinct_grouped_row,
         },
-        query::plan::{AggregateKind, GroupedDistinctExecutionStrategy},
+        query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
     },
     value::Value,
 };
@@ -72,11 +72,12 @@ fn grouped_distinct_strategy_none_maps_to_no_global_field_spec() {
 fn grouped_distinct_count_strategy_maps_to_count_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
         target_field: "rank".to_string(),
+        target_slot: FieldSlot::from_parts_for_test(1, "rank"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)
         .expect("grouped distinct COUNT strategy should resolve");
 
-    assert_eq!(spec.0, "rank");
+    assert_eq!(spec.0.field(), "rank");
     assert!(matches!(spec.1, AggregateKind::Count));
 }
 
@@ -84,11 +85,12 @@ fn grouped_distinct_count_strategy_maps_to_count_field_spec() {
 fn grouped_distinct_sum_strategy_maps_to_sum_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
         target_field: "score".to_string(),
+        target_slot: FieldSlot::from_parts_for_test(2, "score"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)
         .expect("grouped distinct SUM strategy should resolve");
 
-    assert_eq!(spec.0, "score");
+    assert_eq!(spec.0.field(), "score");
     assert!(matches!(spec.1, AggregateKind::Sum));
 }
 
@@ -96,10 +98,11 @@ fn grouped_distinct_sum_strategy_maps_to_sum_field_spec() {
 fn grouped_distinct_avg_strategy_maps_to_avg_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
         target_field: "score".to_string(),
+        target_slot: FieldSlot::from_parts_for_test(2, "score"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)
         .expect("grouped distinct AVG strategy should resolve");
 
-    assert_eq!(spec.0, "score");
+    assert_eq!(spec.0.field(), "score");
     assert!(matches!(spec.1, AggregateKind::Avg));
 }

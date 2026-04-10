@@ -17,9 +17,6 @@ mod projection;
 pub(in crate::db::executor) mod runtime;
 mod terminals;
 
-use crate::db::executor::aggregate::field::{
-    AggregateFieldValueError, resolve_orderable_aggregate_target_slot_with_model,
-};
 use crate::{
     db::{
         data::DataRow,
@@ -28,23 +25,21 @@ use crate::{
             PreparedAggregatePlan,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
-                ProjectionMaterializationMode,
+                PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
-            route::{AggregateRouteShape, aggregate_materialized_fold_direction},
-            terminal::RowLayout,
+            route::aggregate_materialized_fold_direction,
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
-        query::builder::AggregateExpr,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
 pub(in crate::db::executor) use capability::{
-    AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
-    field_target_is_tie_free_probe_target_for_model,
+    AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
+    field_target_is_tie_free_probe_target,
 };
 pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
@@ -53,13 +48,14 @@ pub(in crate::db::executor) use contracts::{
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
-    PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
-    PreparedCoveringDistinctStrategy, PreparedFieldOrderSensitiveTerminalOp,
-    PreparedOrderSensitiveTerminalBoundary, PreparedOrderSensitiveTerminalExecutionState,
-    PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary,
-    PreparedScalarNumericExecutionState, PreparedScalarNumericOp, PreparedScalarNumericPayload,
-    PreparedScalarProjectionBoundary, PreparedScalarProjectionExecutionState,
-    PreparedScalarProjectionOp, PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
+    PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
+    PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
+    PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
+    PreparedOrderSensitiveTerminalExecutionState, PreparedScalarNumericAggregateStrategy,
+    PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
+    PreparedScalarNumericPayload, PreparedScalarProjectionBoundary,
+    PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
+    PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
     PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp, PreparedScalarTerminalStrategy,
     ScalarProjectionWindow,
 };
@@ -89,17 +85,15 @@ impl ExecutionKernel {
     // inputs so execution no longer reconstructs `ExecutablePlan<E>` shells.
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared(
         prepared: PreparedAggregateStreamingInputs<'_>,
-        aggregate: AggregateExpr,
+        aggregate: PreparedAggregateSpec,
     ) -> PreparedAggregateExecutionState<'_> {
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
-        let route_plan =
-            crate::db::executor::route::build_execution_route_plan_for_aggregate_spec_with_model(
-                prepared.authority.model(),
-                &prepared.logical_plan,
-                AggregateRouteShape::from_aggregate_expr(&aggregate),
-                &prepared.execution_preparation,
-            );
+        let route_plan = crate::db::executor::route::build_execution_route_plan_for_aggregate_spec(
+            &prepared.logical_plan,
+            aggregate.route_shape(),
+            &prepared.execution_preparation,
+        );
         let direction = route_plan.direction();
 
         PreparedAggregateExecutionState {
@@ -150,21 +144,14 @@ impl ExecutionKernel {
     fn execute_materialized_aggregate_spec<E>(
         executor: &LoadExecutor<E>,
         prepared: PreparedAggregateStreamingInputs<'_>,
-        aggregate: &AggregateExpr,
+        aggregate: &PreparedAggregateSpec,
     ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
         let kind = aggregate.kind();
         if let Some(target_field) = aggregate.target_field() {
-            // Validate field-target semantics before execution to preserve
-            // fail-fast unsupported behavior without scan-budget consumption.
-            let field_slot = resolve_orderable_aggregate_target_slot_with_model(
-                prepared.authority.model(),
-                target_field,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-            let row_layout = RowLayout::from_model(prepared.authority.model());
+            let row_layout = prepared.authority.row_layout();
             let page = executor.execute_scalar_materialized_page_stage(prepared)?;
             let (rows, _) = page.into_parts();
 
@@ -172,8 +159,8 @@ impl ExecutionKernel {
                 rows,
                 &row_layout,
                 kind,
-                target_field,
-                field_slot,
+                target_field.target_field_name(),
+                target_field.field_slot(),
             );
         }
         let page = executor.execute_scalar_materialized_page_stage(prepared)?;
@@ -236,7 +223,8 @@ impl ExecutionKernel {
             return Self::execute_field_target_extrema_aggregate(
                 &prepared,
                 kind,
-                target_field,
+                target_field.target_field_name(),
+                target_field.field_slot(),
                 descriptor.direction,
                 &descriptor.route_plan,
             );
@@ -272,16 +260,14 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             &prepared.logical_plan.access,
             crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),
             ),
-            prepared.store,
-            prepared.authority.model(),
         );
-        let execution_inputs = ExecutionInputs::new(
+        let execution_inputs = ExecutionInputs::new_prepared(
             &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
@@ -291,12 +277,9 @@ impl ExecutionKernel {
             },
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
-            crate::db::executor::pipeline::contracts::ExecutionInputPreparation {
-                model: prepared.authority.model(),
-                load_terminal_fast_path: descriptor.route_plan.load_terminal_fast_path(),
-                emit_cursor: true,
-            },
-        )?;
+            PreparedExecutionProjection::empty(),
+            false,
+        );
 
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = Self::resolve_execution_key_stream(

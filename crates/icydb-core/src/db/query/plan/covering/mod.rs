@@ -22,7 +22,7 @@ use crate::db::{
 };
 use crate::{
     model::{
-        entity::EntityModel,
+        field::FieldModel,
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     value::Value,
@@ -218,12 +218,11 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     strict_predicate_compatible
 }
 
-/// Derive one planner-owned scalar covering-read plan for direct field
-/// projections over index-backed scalar load shapes.
+/// Derive one planner-owned scalar covering-read plan from generated field-table
+/// authority plus the frozen projection contract on the plan.
 #[must_use]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) fn covering_read_plan(
-    model: &EntityModel,
+pub(in crate::db) fn covering_read_plan_from_fields(
+    fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
@@ -252,9 +251,9 @@ pub(in crate::db) fn covering_read_plan(
     // Phase 3: derive one source contract per output field in canonical
     // projection order. Any unsupported field shape falls back to the current
     // row-materialized path.
-    let projection = plan.projection_spec(model);
+    let projection = plan.frozen_projection_spec();
     let fields = covering_read_fields_from_projection(
-        model,
+        fields,
         &projection,
         metadata.coverable_component_fields.as_slice(),
         primary_key_name,
@@ -271,11 +270,11 @@ pub(in crate::db) fn covering_read_plan(
     })
 }
 
-/// Derive one execution-grade scalar covering-read plan from the existing
-/// planner-owned projection contract plus explicit row-presence semantics.
+/// Derive one execution-grade scalar covering-read plan from generated field-table
+/// authority plus the planner-owned projection contract.
 #[must_use]
-pub(in crate::db) fn covering_read_execution_plan(
-    model: &EntityModel,
+pub(in crate::db) fn covering_read_execution_plan_from_fields(
+    fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
@@ -285,7 +284,7 @@ pub(in crate::db) fn covering_read_execution_plan(
     // planning time, execution may trust that visible index path without a
     // separate executor-side authority resolver.
     if let Some(covering) =
-        covering_read_plan(model, plan, primary_key_name, strict_predicate_compatible)
+        covering_read_plan_from_fields(fields, plan, primary_key_name, strict_predicate_compatible)
     {
         return Some(CoveringReadExecutionPlan {
             fields: covering.fields,
@@ -298,7 +297,7 @@ pub(in crate::db) fn covering_read_execution_plan(
     // Phase 2: admit only authoritative primary-store traversal shapes as the
     // first planner-proven existing-row cohort. These keys come from the row
     // store itself, so they do not inherit secondary-index stale-entry risk.
-    primary_store_covering_execution_plan(model, plan, primary_key_name)
+    primary_store_covering_execution_plan(fields, plan, primary_key_name)
 }
 
 /// Derive one covering projection context from one access shape + scalar order
@@ -410,7 +409,7 @@ fn covering_projection_order_contract(
 //   presence checks because the access payload names keys rather than proving
 //   their existence
 fn primary_store_covering_execution_plan(
-    model: &EntityModel,
+    fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<CoveringReadExecutionPlan> {
@@ -434,8 +433,8 @@ fn primary_store_covering_execution_plan(
         false,
     )?;
     let fields = covering_read_fields_from_projection(
-        model,
-        &plan.projection_spec(model),
+        fields,
+        plan.frozen_projection_spec(),
         &[],
         primary_key_name,
         &plan.access,
@@ -575,17 +574,17 @@ fn primary_store_covering_order_supported<K>(
 // projection under one immutable covering access shape.
 #[cfg_attr(not(test), allow(dead_code))]
 fn covering_read_fields_from_projection(
-    model: &EntityModel,
+    fields: &[FieldModel],
     projection: &ProjectionSpec,
     coverable_component_fields: &[Option<&'static str>],
     primary_key_name: &'static str,
     access: &AccessPlan<Value>,
 ) -> Option<Vec<CoveringReadField>> {
-    let mut fields = Vec::with_capacity(projection.len());
+    let mut covering_fields = Vec::with_capacity(projection.len());
 
     for projection_field in projection.fields() {
         let field_name = projection_field_direct_field_name(projection_field)?;
-        let field_slot = FieldSlot::resolve(model, field_name)?;
+        let field_slot = resolve_covering_field_slot(fields, field_name)?;
         let source = covering_read_field_source(
             field_name,
             coverable_component_fields,
@@ -593,10 +592,25 @@ fn covering_read_fields_from_projection(
             access,
         )?;
 
-        fields.push(CoveringReadField { field_slot, source });
+        covering_fields.push(CoveringReadField { field_slot, source });
     }
 
-    Some(fields)
+    Some(covering_fields)
+}
+
+// Resolve one covering field against generated field-table authority without
+// reopening the wider semantic entity model.
+fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Option<FieldSlot> {
+    let (index, field) = fields
+        .iter()
+        .enumerate()
+        .find(|(_, field)| field.name() == field_name)?;
+
+    Some(FieldSlot {
+        index,
+        field: field.name().to_string(),
+        kind: Some(field.kind()),
+    })
 }
 
 // Resolve one covering-read field source for one direct projected field.

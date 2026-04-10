@@ -8,10 +8,9 @@ use crate::{
         cursor::CursorPlanError,
         direction::Direction,
         query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
-        scalar_expr::derive_expression_order_value,
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
     traits::FieldValue,
     value::{StorageKey, Value},
 };
@@ -37,67 +36,6 @@ pub(crate) enum CursorBoundarySlot {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct CursorBoundary {
     pub(crate) slots: Vec<CursorBoundarySlot>,
-}
-
-impl CursorBoundary {
-    /// Build one cursor boundary from one structural slot reader using canonical
-    /// order fields.
-    #[must_use]
-    pub(in crate::db) fn from_slot_reader<F>(
-        model: &EntityModel,
-        order: &OrderSpec,
-        read_slot: &mut F,
-    ) -> Self
-    where
-        F: FnMut(usize) -> Option<Value>,
-    {
-        Self {
-            slots: boundary_slots_from_slot_reader(model, order, read_slot),
-        }
-    }
-}
-
-/// Build boundary slots from one structural slot reader using canonical order fields.
-#[must_use]
-pub(in crate::db) fn boundary_slots_from_slot_reader<F>(
-    model: &EntityModel,
-    order: &OrderSpec,
-    read_slot: &mut F,
-) -> Vec<CursorBoundarySlot>
-where
-    F: FnMut(usize) -> Option<Value>,
-{
-    order
-        .fields
-        .iter()
-        .map(|(field, _)| {
-            let value = boundary_slot_value_from_reader(model, field, read_slot);
-
-            match value {
-                Some(value) => CursorBoundarySlot::Present(value),
-                None => CursorBoundarySlot::Missing,
-            }
-        })
-        .collect()
-}
-
-// Resolve one canonical boundary slot value from the underlying structural row.
-fn boundary_slot_value_from_reader<F>(
-    model: &EntityModel,
-    field: &str,
-    read_slot: &mut F,
-) -> Option<Value>
-where
-    F: FnMut(usize) -> Option<Value>,
-{
-    if let Some(expression) = ExpressionOrderTerm::parse(field) {
-        let slot = resolve_field_slot(model, expression.field())?;
-        let value = read_slot(slot)?;
-
-        return derive_expression_order_value(expression, &value);
-    }
-
-    resolve_field_slot(model, field).and_then(read_slot)
 }
 
 /// Apply one order direction to one base slot ordering.
@@ -289,15 +227,13 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
 }
 
 /// Decode the structural primary-key cursor slot from one validated cursor boundary.
-pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
-    model: &EntityModel,
+pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
+    pk_field: &str,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<StorageKey, CursorPlanError> {
-    let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let schema = boundary_schema(model);
-    let expected = boundary_order_field_type(schema, pk_field)?.to_string();
+    let expected = "storage key".to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
@@ -319,9 +255,9 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
 }
 
 /// Decode one structural primary-key boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
+pub(in crate::db) fn decode_pk_cursor_boundary_storage_key_for_name(
     boundary: Option<&CursorBoundary>,
-    model: &EntityModel,
+    primary_key_name: &str,
 ) -> Result<Option<StorageKey>, CursorPlanError> {
     let Some(boundary) = boundary else {
         return Ok(None);
@@ -334,8 +270,9 @@ pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
     );
 
     let order = OrderSpec {
-        fields: vec![(model.primary_key.name.to_string(), OrderDirection::Asc)],
+        fields: vec![(primary_key_name.to_string(), OrderDirection::Asc)],
     };
 
-    decode_structural_primary_key_cursor_slot(model, &order, boundary).map(Some)
+    decode_structural_primary_key_cursor_slot_from_name(primary_key_name, &order, boundary)
+        .map(Some)
 }

@@ -87,6 +87,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
                 <#ident as ::icydb::traits::Path>::PATH,
                 #entity_name,
                 &#model_fields_ident[#pk_index],
+                #pk_index,
                 &#model_fields_ident,
                 &#indexes_ident,
             );

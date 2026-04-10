@@ -5,25 +5,21 @@
 
 mod gates;
 
-use crate::{
-    db::{
-        executor::{
-            aggregate::AggregateKind,
-            continuation::ScalarContinuationContext,
-            route::{
-                AggregateRouteShape, GroupedExecutionMode, GroupedExecutionModeProjection,
-                RouteContinuationPlan, ScanHintPlan, aggregate_probe_fetch_hint_for_model,
-                aggregate_seek_spec_for_model, assess_index_range_limit_pushdown_for_model,
-                count_pushdown_fetch_hint, derive_aggregate_route_direction,
-                derive_execution_capabilities_for_model, derive_load_route_direction,
-                load_scan_budget_hint,
-                planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
-                top_n_seek_spec_for_model,
-            },
+use crate::db::{
+    executor::{
+        aggregate::AggregateKind,
+        continuation::ScalarContinuationContext,
+        route::{
+            AggregateRouteShape, GroupedExecutionMode, GroupedExecutionModeProjection,
+            RouteContinuationPlan, ScanHintPlan, aggregate_probe_fetch_hint, aggregate_seek_spec,
+            assess_index_range_limit_pushdown_for_model, count_pushdown_fetch_hint,
+            derive_aggregate_route_direction, derive_execution_capabilities_for_model,
+            derive_load_route_direction, load_scan_budget_hint,
+            planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
+            top_n_seek_spec_for_model,
         },
-        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
     },
-    model::entity::EntityModel,
+    query::plan::{AccessPlannedQuery, PlannerRouteProfile},
 };
 
 use crate::db::executor::route::planner::feasibility::gates::{
@@ -31,7 +27,6 @@ use crate::db::executor::route::planner::feasibility::gates::{
 };
 
 pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stage_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
@@ -42,7 +37,6 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
     let route_continuation = continuation.route_continuation_plan(plan, continuation_policy);
     let continuation_capabilities = route_continuation.capabilities();
     let derivation = derive_route_derivation_context_for_model(
-        model,
         plan,
         intent_stage,
         planner_route_profile,
@@ -56,7 +50,6 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
     let index_range_limit_spec = index_range_limit_pushdown_enabled
         .then(|| {
             assess_index_range_limit_pushdown_for_model(
-                model,
                 plan,
                 route_continuation,
                 derivation.scan_hints.physical_fetch_hint,
@@ -123,7 +116,6 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
 }
 
 pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
     intent_stage: &RouteIntentStage<'_>,
     planner_route_profile: &PlannerRouteProfile,
@@ -144,7 +136,6 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
         |aggregate| derive_aggregate_route_direction(plan, aggregate),
     );
     let capabilities = derive_execution_capabilities_for_model(
-        model,
         plan,
         planner_route_profile,
         direction,
@@ -163,24 +154,10 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
         .then(|| count_pushdown_fetch_hint(keep_access_window, capabilities))
         .flatten();
     let aggregate_terminal_probe_fetch_hint = aggregate_shape.and_then(|aggregate| {
-        aggregate_probe_fetch_hint_for_model(
-            model,
-            plan,
-            aggregate,
-            direction,
-            capabilities,
-            keep_access_window,
-        )
+        aggregate_probe_fetch_hint(plan, aggregate, direction, capabilities, keep_access_window)
     });
     let aggregate_seek_spec = aggregate_shape.and_then(|aggregate| {
-        aggregate_seek_spec_for_model(
-            model,
-            plan,
-            aggregate,
-            direction,
-            capabilities,
-            keep_access_window,
-        )
+        aggregate_seek_spec(plan, aggregate, direction, capabilities, keep_access_window)
     });
     let aggregate_physical_fetch_hint =
         count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);

@@ -10,16 +10,18 @@ pub(crate) const fn entity_model_from_static(
     path: &'static str,
     entity_name: &'static str,
     primary_key: &'static FieldModel,
+    primary_key_slot: usize,
     fields: &'static [FieldModel],
     indexes: &'static [&'static IndexModel],
 ) -> EntityModel {
-    EntityModel {
+    EntityModel::generated(
         path,
         entity_name,
         primary_key,
+        primary_key_slot,
         fields,
         indexes,
-    }
+    )
 }
 
 ///
@@ -140,6 +142,7 @@ macro_rules! impl_test_entity_model_storage {
                     concat!(module_path!(), "::", stringify!($entity)),
                     $entity_name,
                     &Self::FIELD_MODELS[$pk_index],
+                    $pk_index,
                     &Self::FIELD_MODELS,
                     &Self::INDEXES_DEF,
                 );

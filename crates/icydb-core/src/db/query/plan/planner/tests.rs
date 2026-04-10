@@ -39,6 +39,7 @@ static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
     "planner::canonical_test_entity",
     "PlannerCanonicalTestEntity",
     &PLANNER_CANONICAL_FIELDS[0],
+    0,
     &PLANNER_CANONICAL_FIELDS,
     &PLANNER_CANONICAL_INDEXES,
 );
@@ -59,6 +60,7 @@ static PLANNER_IN_EMPTY_MODEL: EntityModel = entity_model_from_static(
     "planner::in_empty_test_entity",
     "PlannerInEmptyTestEntity",
     &PLANNER_IN_EMPTY_FIELDS[0],
+    0,
     &PLANNER_IN_EMPTY_FIELDS,
     &PLANNER_IN_EMPTY_INDEX_REFS,
 );
@@ -79,6 +81,7 @@ static PLANNER_ORDER_MODEL: EntityModel = entity_model_from_static(
     "planner::order_test_entity",
     "PlannerOrderTestEntity",
     &PLANNER_ORDER_FIELDS[0],
+    0,
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_INDEX_REFS,
 );
@@ -94,6 +97,7 @@ static PLANNER_ORDER_FILTERED_MODEL: EntityModel = entity_model_from_static(
     "planner::order_filtered_test_entity",
     "PlannerOrderFilteredTestEntity",
     &PLANNER_ORDER_FIELDS[0],
+    0,
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_FILTERED_INDEX_REFS,
 );
@@ -119,6 +123,7 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_s
     "planner::order_filtered_composite_test_entity",
     "PlannerOrderFilteredCompositeTestEntity",
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS[0],
+    0,
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
     &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_REFS,
 );
@@ -140,6 +145,7 @@ static PLANNER_ORDER_COMPOSITE_MODEL: EntityModel = entity_model_from_static(
     "planner::order_composite_test_entity",
     "PlannerOrderCompositeTestEntity",
     &PLANNER_ORDER_COMPOSITE_FIELDS[0],
+    0,
     &PLANNER_ORDER_COMPOSITE_FIELDS,
     &PLANNER_ORDER_COMPOSITE_INDEX_REFS,
 );
@@ -158,6 +164,7 @@ static PLANNER_ORDER_EXPRESSION_MODEL: EntityModel = entity_model_from_static(
     "planner::order_expression_test_entity",
     "PlannerOrderExpressionTestEntity",
     &PLANNER_ORDER_FIELDS[0],
+    0,
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_EXPRESSION_INDEX_REFS,
 );
@@ -176,6 +183,7 @@ static PLANNER_ORDER_FILTERED_EXPRESSION_MODEL: EntityModel = entity_model_from_
     "planner::order_filtered_expression_test_entity",
     "PlannerOrderFilteredExpressionTestEntity",
     &PLANNER_ORDER_FIELDS[0],
+    0,
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_FILTERED_EXPRESSION_INDEX_REFS,
 );
@@ -198,6 +206,7 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_m
     "planner::order_filtered_composite_expression_test_entity",
     "PlannerOrderFilteredCompositeExpressionTestEntity",
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS[0],
+    0,
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
     &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS,
 );
@@ -229,6 +238,7 @@ static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
     "planner::ranking_test_entity",
     "PlannerRankingTestEntity",
     &PLANNER_RANKING_FIELDS[0],
+    0,
     &PLANNER_RANKING_FIELDS,
     &PLANNER_RANKING_INDEX_REFS,
 );
@@ -263,6 +273,7 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
     "planner::range_ranking_test_entity",
     "PlannerRangeRankingTestEntity",
     &PLANNER_RANGE_RANKING_FIELDS[0],
+    0,
     &PLANNER_RANGE_RANKING_FIELDS,
     &PLANNER_RANGE_RANKING_INDEX_REFS,
 );
@@ -295,6 +306,7 @@ static PLANNER_ORDER_ONLY_RANKING_MODEL: EntityModel = entity_model_from_static(
     "planner::order_only_ranking_test_entity",
     "PlannerOrderOnlyRankingTestEntity",
     &PLANNER_ORDER_ONLY_RANKING_FIELDS[0],
+    0,
     &PLANNER_ORDER_ONLY_RANKING_FIELDS,
     &PLANNER_ORDER_ONLY_RANKING_INDEX_REFS,
 );

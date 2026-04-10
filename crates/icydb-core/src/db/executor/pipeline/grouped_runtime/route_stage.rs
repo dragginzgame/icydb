@@ -17,7 +17,7 @@ use crate::{
             route::{RouteExecutionMode, build_execution_route_plan_for_grouped_plan},
             validate_executor_plan_for_authority,
         },
-        query::plan::{grouped_aggregate_execution_specs_with_model, grouped_executor_handoff},
+        query::plan::grouped_executor_handoff,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -44,17 +44,14 @@ where
         let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
         let grouped_fold_path = grouped_handoff.grouped_fold_path();
         let group_fields = grouped_handoff.group_fields().to_vec();
-        let grouped_aggregate_execution_specs = grouped_aggregate_execution_specs_with_model(
-            authority.model(),
-            grouped_handoff.aggregate_projection_specs(),
-        )?;
+        let grouped_aggregate_execution_specs =
+            grouped_handoff.grouped_aggregate_execution_specs().to_vec();
         let projection_layout = grouped_handoff.projection_layout().clone();
         let projection_is_identity = grouped_handoff.projection_is_identity();
         let grouped_distinct_execution_strategy =
             grouped_handoff.distinct_execution_strategy().clone();
         let grouped_having = grouped_handoff.having().cloned();
         let grouped_route_plan = build_execution_route_plan_for_grouped_plan(
-            authority.model(),
             grouped_handoff.base(),
             grouped_plan_strategy,
         );
@@ -101,7 +98,6 @@ where
         Ok(GroupedRouteStage {
             planner_payload: GroupedPlannerPayload {
                 plan,
-                entity_model: authority.model(),
                 grouped_execution,
                 grouped_fold_path,
                 group_fields,

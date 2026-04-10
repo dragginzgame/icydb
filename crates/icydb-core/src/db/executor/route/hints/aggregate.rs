@@ -3,20 +3,17 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        direction::Direction,
-        executor::{
-            aggregate::field_target_is_tie_free_probe_target_for_model,
-            route::{
-                AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilities,
-                aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
-                direction_allows_physical_fetch_hint,
-            },
+use crate::db::{
+    direction::Direction,
+    executor::{
+        aggregate::field_target_is_tie_free_probe_target,
+        route::{
+            AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilities,
+            aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
+            direction_allows_physical_fetch_hint,
         },
-        query::plan::{AccessPlannedQuery, AggregateKind},
     },
-    model::entity::EntityModel,
+    query::plan::{AccessPlannedQuery, AggregateKind},
 };
 
 pub(in crate::db::executor::route) const fn count_pushdown_fetch_hint(
@@ -30,8 +27,7 @@ pub(in crate::db::executor::route) const fn count_pushdown_fetch_hint(
     }
 }
 
-pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
@@ -39,8 +35,7 @@ pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
     access_window: AccessWindow,
 ) -> Option<usize> {
     let kind = aggregate.kind();
-    aggregate_probe_shape_supported_for_model(model, plan, aggregate, direction, capabilities)
-        .then_some(())?;
+    aggregate_probe_shape_supported(plan, aggregate, direction, capabilities).then_some(())?;
 
     (aggregate_supports_bounded_probe_hint(kind)
         && direction_allows_physical_fetch_hint(
@@ -53,8 +48,7 @@ pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
     aggregate_probe_window_fetch_hint(kind, direction, access_window)
 }
 
-pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor::route) fn aggregate_seek_spec(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
@@ -62,14 +56,8 @@ pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
     access_window: AccessWindow,
 ) -> Option<AggregateSeekSpec> {
     aggregate.kind().is_extrema().then_some(())?;
-    let fetch = aggregate_probe_fetch_hint_for_model(
-        model,
-        plan,
-        aggregate,
-        direction,
-        capabilities,
-        access_window,
-    )?;
+    let fetch =
+        aggregate_probe_fetch_hint(plan, aggregate, direction, capabilities, access_window)?;
 
     Some(match direction {
         Direction::Asc => AggregateSeekSpec::First { fetch },
@@ -79,8 +67,7 @@ pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
 
 // Apply the route capability snapshot to the aggregate probe shape before the
 // bounded fetch-hint layer interprets the access window.
-fn aggregate_probe_shape_supported_for_model(
-    model: &EntityModel,
+fn aggregate_probe_shape_supported(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
@@ -90,7 +77,7 @@ fn aggregate_probe_shape_supported_for_model(
         (Some(_), AggregateKind::Min, Direction::Asc) => capabilities.field_min_fast_path_eligible,
         (Some(_), AggregateKind::Max, Direction::Desc) => {
             capabilities.field_max_fast_path_eligible
-                && field_target_max_probe_shape_is_tie_free_for_model(model, plan, aggregate)
+                && field_target_max_probe_shape_is_tie_free(plan, aggregate)
         }
         (Some(_), _, _) => false,
         (None, _, _) => true,
@@ -115,18 +102,15 @@ fn aggregate_probe_window_fetch_hint(
     aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
 }
 
-fn field_target_max_probe_shape_is_tie_free_for_model(
-    model: &EntityModel,
+fn field_target_max_probe_shape_is_tie_free(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
 ) -> bool {
-    aggregate.target_field().is_some_and(|target_field| {
-        let access_class = plan.access_strategy().class();
-        let index_model = access_class
-            .single_path_index_prefix_details()
-            .or_else(|| access_class.single_path_index_range_details())
-            .map(|(index, _)| index);
+    let access_class = plan.access_strategy().class();
+    let index_model = access_class
+        .single_path_index_prefix_details()
+        .or_else(|| access_class.single_path_index_range_details())
+        .map(|(index, _)| index);
 
-        field_target_is_tie_free_probe_target_for_model(model, target_field, index_model)
-    })
+    field_target_is_tie_free_probe_target(aggregate, index_model)
 }

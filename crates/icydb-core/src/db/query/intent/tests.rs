@@ -193,6 +193,7 @@ static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
     "intent_tests::MapPlanEntity",
     "MapPlanEntity",
     &MAP_PLAN_FIELDS[0],
+    0,
     &MAP_PLAN_FIELDS,
     &MAP_PLAN_INDEXES,
 );
@@ -212,6 +213,7 @@ static ENUM_PLAN_MODEL: EntityModel = entity_model_from_static(
     "intent_tests::EnumPlanEntity",
     "EnumPlanEntity",
     &ENUM_PLAN_FIELDS[0],
+    0,
     &ENUM_PLAN_FIELDS,
     &ENUM_PLAN_INDEXES,
 );

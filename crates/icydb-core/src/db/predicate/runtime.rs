@@ -29,7 +29,7 @@ use std::cmp::Ordering;
 /// the same structural execution tree.
 ///
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PredicateProgram {
     executable: ExecutablePredicate,
     compiled: CompiledPredicate,
@@ -43,7 +43,7 @@ pub(in crate::db) struct PredicateProgram {
 /// structural slot evaluation.
 ///
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum CompiledPredicate {
     Scalar(ScalarPredicateProgram),
     Generic(GenericPredicateProgram),
@@ -58,7 +58,7 @@ enum CompiledPredicate {
 /// execution boundary.
 ///
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct GenericPredicateProgram;
 
 ///
@@ -68,14 +68,14 @@ struct GenericPredicateProgram;
 /// predicate tree.
 ///
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct ScalarPredicateProgram;
 
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
     pub(in crate::db) fn compile_with_model(
-        model: &'static EntityModel,
+        model: &EntityModel,
         predicate: &PredicateExecutionModel,
     ) -> Self {
         let executable = compile_predicate_program(model, predicate);
@@ -161,10 +161,10 @@ enum FieldPresence {
 
 /// Compile field-name predicates to stable field-slot predicates once per query.
 fn compile_predicate_program(
-    model: &'static EntityModel,
+    model: &EntityModel,
     predicate: &PredicateExecutionModel,
 ) -> ExecutablePredicate {
-    fn resolve_field(model: &'static EntityModel, field_name: &str) -> Option<usize> {
+    fn resolve_field(model: &EntityModel, field_name: &str) -> Option<usize> {
         resolve_field_slot(model, field_name)
     }
 
@@ -227,7 +227,7 @@ fn compile_predicate_program(
 // Admit scalar fast-path execution only when the canonical executable tree
 // stays entirely on the scalar slot seam.
 fn compile_scalar_predicate_program(
-    model: &'static EntityModel,
+    model: &EntityModel,
     predicate: &ExecutablePredicate,
 ) -> Option<ScalarPredicateProgram> {
     (classify_predicate_capabilities(predicate, PredicateCapabilityContext::runtime(model))
@@ -1428,6 +1428,7 @@ mod tests {
         "PredicateTestEntity",
         "PredicateTestEntity",
         &PREDICATE_FIELDS[0],
+        0,
         &PREDICATE_FIELDS,
         &[],
     );

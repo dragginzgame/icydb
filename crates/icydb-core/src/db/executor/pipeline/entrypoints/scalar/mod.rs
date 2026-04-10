@@ -6,7 +6,6 @@
 mod hints;
 mod surface;
 
-use crate::model::entity::EntityModel;
 use crate::{
     db::{
         Db,
@@ -54,7 +53,6 @@ type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
 ///
 
 struct ScalarExecutionStage<'a> {
-    model: &'static EntityModel,
     runtime: &'a dyn ExecutionRuntime,
     plan: &'a AccessPlannedQuery,
     execution_preparation: &'a ExecutionPreparation,
@@ -177,7 +175,7 @@ impl PreparedScalarMaterializedBoundary<'_> {
         };
 
         order
-            .primary_key_only_direction(self.authority.model().primary_key.name)
+            .primary_key_only_direction(self.authority.primary_key_name())
             .map(|direction| match direction {
                 OrderDirection::Asc => Direction::Asc,
                 OrderDirection::Desc => Direction::Desc,
@@ -190,7 +188,6 @@ fn execute_scalar_execution_stage(
     stage: ScalarExecutionStage<'_>,
 ) -> Result<ScalarPathExecution, InternalError> {
     let ScalarExecutionStage {
-        model: _model,
         runtime,
         plan,
         execution_preparation,
@@ -283,7 +280,7 @@ fn execute_prepared_scalar_path_execution(
         &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
-        authority.model(),
+        authority,
         CoveringComponentScanState {
             entity_tag: authority.entity_tag(),
             index_prefix_specs: index_prefix_specs.as_slice(),
@@ -292,7 +289,6 @@ fn execute_prepared_scalar_path_execution(
     );
 
     execute_scalar_execution_stage(ScalarExecutionStage {
-        model: authority.model(),
         runtime: &runtime,
         plan: &plan,
         execution_preparation: &execution_preparation,
@@ -351,17 +347,16 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan = crate::db::executor::route::build_execution_route_plan_for_load_with_model(
-        authority.model(),
+    let route_plan = crate::db::executor::route::build_execution_route_plan_for_load(
+        authority,
         &logical_plan,
         resolved_continuation.route_context(),
         None,
     )?;
-    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
+    let slot_map = slot_map_for_model_plan(&logical_plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
-        authority.model(),
+        authority,
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
@@ -406,17 +401,15 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
-            authority.model(),
-            &logical_plan,
-            None,
-        )?;
-    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
+    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
+        authority,
+        &logical_plan,
+        None,
+    )?;
+    let slot_map = slot_map_for_model_plan(&logical_plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
-        authority.model(),
+        authority,
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
@@ -495,17 +488,13 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
-            authority.model(),
-            &plan,
-            None,
-        )?;
-    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
+    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
+        authority, &plan, None,
+    )?;
+    let slot_map = slot_map_for_model_plan(&plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
-        authority.model(),
+        authority,
         &plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SqlImmediateMaterialization,
@@ -569,17 +558,13 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
-            authority.model(),
-            &plan,
-            None,
-        )?;
-    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
+    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
+        authority, &plan, None,
+    )?;
+    let slot_map = slot_map_for_model_plan(&plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
-        authority.model(),
+        authority,
         &plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SqlImmediateRenderedDispatch,
@@ -636,21 +621,19 @@ where
     );
 
     // Phase 1: resolve typed execution authority once at the boundary.
-    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
+    let slot_map = slot_map_for_model_plan(&logical_plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
         &logical_plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
-        authority.model(),
+        authority,
     );
-    let mut route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
-            authority.model(),
-            &logical_plan,
-            None,
-        )?;
+    let mut route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
+        authority,
+        &logical_plan,
+        None,
+    )?;
 
     // Phase 2: shared materialized scalar boundaries suppress routed scan
     // hints so route-owned ordered streaming contracts cannot leak back in as
@@ -658,7 +641,7 @@ where
     route_plan.scan_hints.physical_fetch_hint = None;
     route_plan.scan_hints.load_scan_budget_hint = None;
     let prepared_projection = PreparedExecutionProjection::compile(
-        authority.model(),
+        authority,
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
@@ -671,7 +654,6 @@ where
         mut trace,
         execution_time_micros,
     } = execute_scalar_execution_stage(ScalarExecutionStage {
-        model: authority.model(),
         runtime: &runtime,
         plan: &logical_plan,
         execution_preparation: &execution_preparation,

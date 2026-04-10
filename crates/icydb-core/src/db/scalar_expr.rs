@@ -242,7 +242,7 @@ pub(in crate::db) fn derive_expression_order_value(
 /// Compile one scalar field access into the shared scalar-expression program.
 #[must_use]
 pub(in crate::db) fn compile_scalar_field_program(
-    model: &'static EntityModel,
+    model: &EntityModel,
     field_name: &str,
 ) -> Option<ScalarValueProgram> {
     let slot = resolve_field_slot(model, field_name)?;
@@ -589,6 +589,7 @@ mod tests {
         "ScalarExprTestEntity",
         "ScalarExprTestEntity",
         &SCALAR_EXPR_FIELDS[0],
+        0,
         &SCALAR_EXPR_FIELDS,
         &[],
     );

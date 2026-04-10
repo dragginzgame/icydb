@@ -6,7 +6,6 @@
 use crate::{
     db::{executor::ExecutionPreparation, query::plan::AccessPlannedQuery},
     error::InternalError,
-    model::entity::EntityModel,
 };
 
 use crate::db::executor::route::FastPathOrder;
@@ -92,8 +91,7 @@ pub(in crate::db::executor::route) const fn aggregate_force_materialized_due_to_
 
 /// Return whether one plan shape supports primary-key ordered stream execution.
 #[must_use]
-pub(in crate::db::executor::route) fn pk_order_stream_fast_path_shape_supported_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor::route) fn pk_order_stream_fast_path_shape_supported(
     plan: &AccessPlannedQuery,
 ) -> bool {
     let logical = plan.scalar_plan();
@@ -114,5 +112,5 @@ pub(in crate::db::executor::route) fn pk_order_stream_fast_path_shape_supported_
 
     logical.mode.is_load()
         && supports_pk_stream_access
-        && order.is_primary_key_only(model.primary_key.name)
+        && order.is_primary_key_only(plan.primary_key_name())
 }

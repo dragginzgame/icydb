@@ -8,24 +8,22 @@ use crate::{
         cursor::{CursorBoundary, MaterializedCursorRow, next_cursor_for_materialized_rows},
         data::{DataKey, DataRow},
         executor::{
-            BudgetedOrderedKeyStream, ExecutionKernel, OrderReadableRow, OrderedKeyStream,
-            ScalarContinuationBindings, apply_structural_order_window,
+            BudgetedOrderedKeyStream, EntityAuthority, ExecutionKernel, OrderReadableRow,
+            OrderedKeyStream, ScalarContinuationBindings, apply_structural_order_window,
             compare_orderable_row_with_boundary, compute_page_keep_count,
             key_stream_budget_is_redundant,
+            order::cursor_boundary_from_orderable_row,
             pipeline::contracts::{CursorEmissionMode, PageCursor, StructuralCursorPage},
             pipeline::operators::PreparedSqlExecutionProjection,
             projection::{
                 PreparedSlotProjectionValidation, validate_prepared_projection_over_slot_rows,
             },
-            resolve_structural_order,
-            route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract_for_model},
+            route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
         },
-        index::IndexKey,
         predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
     error::InternalError,
-    model::entity::EntityModel,
     value::Value,
 };
 use std::{borrow::Cow, marker::PhantomData, ptr};
@@ -197,6 +195,14 @@ impl OrderReadableRow for KernelRow {
     }
 }
 
+fn resolved_order_required(plan: &AccessPlannedQuery) -> Result<&ResolvedOrder, InternalError> {
+    plan.resolved_order().ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "ordered execution must consume one planner-frozen resolved order program",
+        )
+    })
+}
+
 ///
 /// ScalarRowRuntimeVTable
 ///
@@ -312,7 +318,7 @@ impl Drop for ScalarRowRuntimeHandle<'_> {
 ///
 
 pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
-    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
@@ -336,7 +342,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
 ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     let KernelPageMaterializationRequest {
-        model,
+        authority,
         plan,
         predicate_slots,
         key_stream,
@@ -380,7 +386,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     // validation pass for surfaces that are not about to materialize the same
     // projection immediately afterwards.
     let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
-        model,
         plan,
         &mut rows,
         continuation.post_access_cursor_boundary(),
@@ -394,7 +399,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     // Phase 3: assemble the structural cursor boundary before typed page emission.
     let post_access_rows = rows.len();
     let next_cursor = if cursor_emission.enabled() {
-        let last_cursor_row = resolve_last_cursor_row(model, plan, rows.as_slice())?;
+        let last_cursor_row = resolve_last_cursor_row(authority, plan, rows.as_slice())?;
 
         next_cursor_for_materialized_rows(
             &plan.access,
@@ -463,11 +468,11 @@ fn validate_prepared_projection_rows(
 
 // Resolve the last structural cursor row before typed response decode.
 fn resolve_last_cursor_row(
-    model: &EntityModel,
+    authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     rows: &[KernelRow],
 ) -> Result<Option<MaterializedCursorRow>, InternalError> {
-    let Some(order) = plan.scalar_plan().order.as_ref() else {
+    let Some(resolved_order) = plan.resolved_order() else {
         return Ok(None);
     };
     let Some(row) = rows.last() else {
@@ -475,8 +480,7 @@ fn resolve_last_cursor_row(
     };
 
     // Phase 1: derive the structural boundary from already-materialized row slots.
-    let mut read_slot = |slot| row.slot(slot);
-    let boundary = CursorBoundary::from_slot_reader(model, order, &mut read_slot);
+    let boundary = cursor_boundary_from_orderable_row(row, resolved_order);
 
     // Phase 2: derive the optional raw index-range anchor once for index-range paths.
     let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
@@ -490,14 +494,9 @@ fn resolve_last_cursor_row(
             })?
             .0;
         let mut read_slot = |slot| row.slot(slot);
-        IndexKey::new_from_slot_reader(
-            data_key.entity_tag(),
-            data_key.storage_key(),
-            model,
-            index,
-            &mut read_slot,
-        )?
-        .map(|key| key.to_raw())
+        authority
+            .index_key_from_slot_reader(data_key.storage_key(), index, &mut read_slot)?
+            .map(|key| key.to_raw())
     } else {
         None
     };
@@ -507,7 +506,6 @@ fn resolve_last_cursor_row(
 
 // Run canonical post-access phases over kernel rows.
 fn apply_post_access_to_kernel_rows_dyn(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
     rows: &mut Vec<KernelRow>,
     cursor: Option<&CursorBoundary>,
@@ -546,14 +544,14 @@ fn apply_post_access_to_kernel_rows_dyn(
         }
 
         ordered = true;
-        if !access_order_satisfied_by_route_contract_for_model(model, plan) {
-            let resolved_order = resolve_structural_order(model, order);
+        if !access_order_satisfied_by_route_contract(plan) {
+            let resolved_order = resolved_order_required(plan)?;
             let ordered_total = rows.len();
 
             if rows.len() > 1 {
                 apply_structural_order_window(
                     rows,
-                    &resolved_order,
+                    resolved_order,
                     ExecutionKernel::bounded_order_keep_count(plan, cursor),
                 );
             }
@@ -564,15 +562,15 @@ fn apply_post_access_to_kernel_rows_dyn(
     // Phase 3: continuation boundary.
     let rows_after_cursor = if logical.mode.is_load() {
         if let Some(boundary) = cursor {
-            let Some(order) = logical.order.as_ref() else {
+            if logical.order.is_none() {
                 return Err(InternalError::scalar_page_cursor_boundary_order_required());
-            };
+            }
             if !ordered {
                 return Err(InternalError::scalar_page_cursor_boundary_after_ordering_required());
             }
-            let resolved_order = resolve_structural_order(model, order);
+            let resolved_order = resolved_order_required(plan)?;
             rows.retain(|row| {
-                compare_orderable_row_with_boundary(row, &resolved_order, boundary).is_gt()
+                compare_orderable_row_with_boundary(row, resolved_order, boundary).is_gt()
             });
             rows.len()
         } else {

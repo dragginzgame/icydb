@@ -329,6 +329,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.intent.scalar().projection_selection.clone(),
         );
         simplify_limit_one_page_for_by_key_access(&mut plan);
+        plan.finalize_static_planning_shape_for_model(self.model)
+            .map_err(QueryError::execute)?;
 
         // Phase 4: freeze the planner-owned route profile before validation so
         // policy gates that depend on finalized access/order contracts, such as

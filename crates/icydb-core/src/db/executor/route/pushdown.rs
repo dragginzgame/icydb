@@ -3,15 +3,12 @@
 //! Does not own: logical ORDER BY validation semantics.
 //! Boundary: route-owned capability assessment over validated logical+access plans.
 
-use crate::{
-    db::{
-        access::PushdownApplicability,
-        query::plan::{
-            AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
-            PlannerRouteProfile,
-        },
+use crate::db::{
+    access::PushdownApplicability,
+    query::plan::{
+        AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
+        PlannerRouteProfile,
     },
-    model::entity::EntityModel,
 };
 
 fn validated_secondary_order_contract(
@@ -49,8 +46,7 @@ pub(in crate::db::executor) const fn secondary_order_contract_active(
 
 /// Return whether access traversal already satisfies the logical `ORDER BY`
 /// contract under planner-owned pushdown eligibility decisions.
-pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
     plan: &AccessPlannedQuery,
 ) -> bool {
     let logical = plan.scalar_plan();
@@ -67,7 +63,7 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
     // order is already primary-key ordered. Secondary index paths stay ordered,
     // but that order is owned by the index key, so they must not claim PK-order
     // satisfaction merely because they are monotonic.
-    let primary_key_order_satisfied = order.is_primary_key_only(model.primary_key.name)
+    let primary_key_order_satisfied = order.is_primary_key_only(plan.primary_key_name())
         && access_class.ordered()
         && !has_index_path;
     let prefix_order_contract_safe =

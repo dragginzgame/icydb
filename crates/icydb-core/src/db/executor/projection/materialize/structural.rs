@@ -1,12 +1,12 @@
 //! Module: db::executor::projection::materialize::structural
 //! Responsibility: structural SQL projection row materialization over persisted slot rows.
-//! Does not own: grouped projection rendering, generic projection validation, or projection expression semantics.
+//! Does not own: grouped projection rendering, projection validation, or projection expression semantics.
 //! Boundary: the materialize root delegates here for the structural SQL row loop once projection shape has been fixed.
 
 use crate::{
     db::{
         Db,
-        data::{CanonicalSlotReader, DataRow, StructuralSlotReader},
+        data::{CanonicalSlotReader, DataRow},
         executor::pipeline::contracts::StructuralCursorPage,
         executor::{
             EntityAuthority,
@@ -18,17 +18,15 @@ use crate::{
                 PreparedProjectionShape, ProjectionEvalError,
                 eval::eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
                 materialize::{
-                    prepare_projection_shape,
+                    prepare_projection_shape_from_plan,
                     visit_prepared_projection_values_with_required_value_reader_cow,
-                    visit_projection_values_with_required_value_reader_cow,
                 },
             },
-            terminal::RetainedSlotRow,
+            terminal::{RetainedSlotRow, RowLayout},
         },
-        query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    model::entity::EntityModel,
     traits::CanisterKind,
     value::{Value, ValueEnum},
 };
@@ -71,7 +69,7 @@ impl SqlProjectionRows {
 ///
 /// Generic-free SQL projection row payload emitted directly as rendered text.
 /// This keeps the SQL dispatch fast path narrow: executor-owned direct
-/// covering reads can skip `Value` row materialization while generic callers
+/// covering reads can skip `Value` row materialization while structural callers
 /// continue using the existing `SqlProjectionRows` contract.
 ///
 
@@ -107,25 +105,31 @@ enum StructuralSqlProjectionMaterialization {
 pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
-    model: &'static EntityModel,
-    projection: ProjectionSpec,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
 ) -> Result<SqlProjectionRows, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 1: execute the scalar rows path once for the whole canister while
+    let row_layout = authority.row_layout();
+
+    // Phase 1: freeze the executor-consumed projection materialization
+    // contract from planner-owned static metadata before execution moves the
+    // plan into the structural row path.
+    let prepared_projection = prepare_projection_shape_from_plan(row_layout.field_count(), &plan);
+
+    // Phase 2: execute the scalar rows path once for the whole canister while
     // reusing the already-derived projection contract from the caller.
     let page = execute_initial_scalar_rows_for_canister(db, debug, authority, plan)?;
-    let projected = match materialize_structural_sql_projection_page(model, projection, page)? {
-        StructuralSqlProjectionMaterialization::Values(rows) => rows,
-        StructuralSqlProjectionMaterialization::Rendered(_) => {
-            return Err(InternalError::query_executor_invariant(
-                "value SQL projection path must not receive rendered-only projected rows",
-            ));
-        }
-    };
+    let projected =
+        match materialize_structural_sql_projection_page(row_layout, &prepared_projection, page)? {
+            StructuralSqlProjectionMaterialization::Values(rows) => rows,
+            StructuralSqlProjectionMaterialization::Rendered(_) => {
+                return Err(InternalError::query_executor_invariant(
+                    "value SQL projection path must not receive rendered-only projected rows",
+                ));
+            }
+        };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
@@ -137,23 +141,29 @@ where
 pub(in crate::db) fn execute_sql_projection_text_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
-    model: &'static EntityModel,
-    projection: ProjectionSpec,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
 ) -> Result<SqlProjectionTextRows, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 1: execute the scalar rows path once for the whole canister while
+    let row_layout = authority.row_layout();
+
+    // Phase 1: freeze the executor-consumed projection materialization
+    // contract from planner-owned static metadata before execution moves the
+    // plan into the structural row path.
+    let prepared_projection = prepare_projection_shape_from_plan(row_layout.field_count(), &plan);
+
+    // Phase 2: execute the scalar rows path once for the whole canister while
     // allowing the terminal short path to emit already-rendered SQL rows.
     let page = execute_initial_scalar_text_rows_for_canister(db, debug, authority, plan)?;
-    let rendered_rows = match materialize_structural_sql_projection_page(model, projection, page)? {
-        StructuralSqlProjectionMaterialization::Rendered(rows) => rows,
-        StructuralSqlProjectionMaterialization::Values(rows) => {
-            render_sql_projection_rows_from_values(rows)
-        }
-    };
+    let rendered_rows =
+        match materialize_structural_sql_projection_page(row_layout, &prepared_projection, page)? {
+            StructuralSqlProjectionMaterialization::Rendered(rows) => rows,
+            StructuralSqlProjectionMaterialization::Values(rows) => {
+                render_sql_projection_rows_from_values(rows)
+            }
+        };
     let row_count = u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionTextRows::new(rendered_rows, row_count))
@@ -161,8 +171,8 @@ where
 
 #[cfg(feature = "sql")]
 fn materialize_structural_sql_projection_page(
-    model: &'static EntityModel,
-    projection: ProjectionSpec,
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
     page: StructuralCursorPage,
 ) -> Result<StructuralSqlProjectionMaterialization, InternalError> {
     let (slot_rows, projected_rows, rendered_projected_rows, data_rows) = page.into_sql_parts();
@@ -185,17 +195,16 @@ fn materialize_structural_sql_projection_page(
 
     // Phase 2: project from retained slot rows when they are already
     // available, and fall back to persisted structural row reads last.
-    let prepared_projection = prepare_projection_shape(model, projection);
     let projected = if let Some(slot_rows) = slot_rows {
         #[cfg(any(test, feature = "structural-read-metrics"))]
         record_sql_projection_slot_rows_path_hit();
-        project_slot_rows_from_projection_structural(&prepared_projection, slot_rows)?
+        project_slot_rows_from_projection_structural(prepared_projection, slot_rows)?
     } else {
         #[cfg(any(test, feature = "structural-read-metrics"))]
         record_sql_projection_data_rows_path_hit();
         project_data_rows_from_projection_structural(
-            model,
-            &prepared_projection,
+            row_layout,
+            prepared_projection,
             data_rows.as_slice(),
         )?
     };
@@ -341,13 +350,12 @@ fn project_slot_rows_from_projection_structural(
 }
 
 #[cfg(feature = "sql")]
-// Project one dense retained slot-row page through the generic structural
-// projection evaluator without reopening persisted rows.
+// Project one dense retained slot-row page through the prepared compiled
+// structural projection evaluator without reopening persisted rows.
 fn project_dense_slot_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    let model = prepared_projection.model();
     let projection = prepared_projection.projection();
     let mut projected_rows = Vec::with_capacity(rows.len());
 
@@ -365,7 +373,6 @@ fn project_dense_slot_rows_from_projection_structural(
         visit_prepared_projection_values_with_required_value_reader_cow(
             prepared_projection.prepared(),
             projection,
-            model,
             &mut read_slot,
             &mut |value| values.push(value),
         )?;
@@ -404,39 +411,27 @@ fn project_slot_rows_from_direct_field_slots(
 
 #[cfg(feature = "sql")]
 fn project_data_rows_from_projection_structural(
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
     rows: &[DataRow],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    match prepared_projection.prepared() {
-        super::PreparedProjectionPlan::Generic => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_data_rows_generic_fallback_hit();
-            project_generic_data_rows_from_projection_structural(
-                model,
-                prepared_projection.projection(),
-                rows,
-                prepared_projection.projected_slot_mask(),
-            )
-        }
-        super::PreparedProjectionPlan::Scalar(compiled_fields) => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_data_rows_scalar_fallback_hit();
-            project_scalar_data_rows_from_projection_structural(
-                compiled_fields.as_slice(),
-                rows,
-                model,
-                prepared_projection.projected_slot_mask(),
-            )
-        }
-    }
+    let super::PreparedProjectionPlan::Scalar(compiled_fields) = prepared_projection.prepared();
+
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    record_sql_projection_data_rows_scalar_fallback_hit();
+    project_scalar_data_rows_from_projection_structural(
+        compiled_fields.as_slice(),
+        rows,
+        row_layout,
+        prepared_projection.projected_slot_mask(),
+    )
 }
 
 #[cfg(feature = "sql")]
 fn project_scalar_data_rows_from_projection_structural(
     compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
     rows: &[DataRow],
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     projected_slot_mask: &[bool],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(rows.len());
@@ -447,7 +442,7 @@ fn project_scalar_data_rows_from_projection_structural(
     // Phase 1: evaluate fully scalar projections through the compiled scalar
     // expression path only.
     for (data_key, raw_row) in rows {
-        let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
+        let row_fields = row_layout.open_raw_row(raw_row)?;
         row_fields.validate_storage_key(data_key)?;
 
         let mut values = Vec::with_capacity(compiled_fields.len());
@@ -465,49 +460,6 @@ fn project_scalar_data_rows_from_projection_structural(
             )?;
             values.push(value.into_owned());
         }
-        projected_rows.push(values);
-    }
-
-    Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-fn project_generic_data_rows_from_projection_structural(
-    model: &'static EntityModel,
-    projection: &ProjectionSpec,
-    rows: &[DataRow],
-    projected_slot_mask: &[bool],
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    let mut projected_rows = Vec::with_capacity(rows.len());
-
-    #[cfg(not(any(test, feature = "structural-read-metrics")))]
-    let _ = projected_slot_mask;
-
-    // Phase 1: keep the generic evaluator isolated to projection shapes that
-    // genuinely leave the scalar seam.
-    for (data_key, raw_row) in rows {
-        let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        // Phase 2: borrow decoded slot values directly from the structural
-        // row cache and materialize only when the projection output needs an
-        // owned `Value`.
-        let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot: usize| {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_data_rows_slot_access(
-                projected_slot_mask.get(slot).copied().unwrap_or(false),
-            );
-
-            row_fields.required_value_by_contract_cow(slot)
-        };
-        visit_projection_values_with_required_value_reader_cow(
-            projection,
-            model,
-            &mut read_slot,
-            &mut |value| values.push(value),
-        )?;
-
         projected_rows.push(values);
     }
 
@@ -587,14 +539,6 @@ fn record_sql_projection_data_rows_scalar_fallback_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_scalar_fallback_hits =
             metrics.data_rows_scalar_fallback_hits.saturating_add(1);
-    });
-}
-
-#[cfg(any(test, feature = "structural-read-metrics"))]
-fn record_sql_projection_data_rows_generic_fallback_hit() {
-    update_sql_projection_materialization_metrics(|metrics| {
-        metrics.data_rows_generic_fallback_hits =
-            metrics.data_rows_generic_fallback_hits.saturating_add(1);
     });
 }
 

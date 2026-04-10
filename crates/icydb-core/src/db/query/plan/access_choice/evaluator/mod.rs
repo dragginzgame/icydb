@@ -1,0 +1,115 @@
+//! Module: db::query::plan::access_choice::evaluator
+//! Responsibility: planner-owned access-choice candidate evaluation and ranking projection.
+//! Does not own: access-path execution, route decisions, or explain rendering.
+//! Boundary: exposes the evaluator boundary while keeping prefix/range/ranking logic in owner-local children.
+
+mod prefix;
+mod range;
+mod ranking;
+
+use crate::{
+    db::{
+        predicate::Predicate,
+        query::plan::{
+            OrderSpec,
+            access_choice::model::{
+                AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
+            },
+        },
+        schema::SchemaInfo,
+    },
+    model::{entity::EntityModel, index::IndexModel},
+};
+
+#[cfg(test)]
+pub(in crate::db::query::plan::access_choice) use prefix::{
+    evaluate_multi_lookup_candidate, evaluate_prefix_compare_candidate,
+};
+#[cfg(test)]
+pub(in crate::db::query::plan::access_choice) use range::evaluate_range_candidate;
+pub(in crate::db::query::plan::access_choice) use ranking::{
+    chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
+};
+
+pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static IndexModel> {
+    crate::db::query::plan::planner::sorted_model_indexes(indexes)
+}
+
+pub(super) fn evaluate_index_candidate(
+    family: AccessChoiceFamily,
+    index: &IndexModel,
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+) -> CandidateEvaluation {
+    if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
+        return evaluate_order_only_range_candidate(index, model, order);
+    }
+
+    let Some(predicate) = predicate else {
+        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::PredicateAbsent);
+    };
+
+    match family {
+        AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
+            prefix::evaluate_prefix_candidate(index, schema, predicate),
+            model,
+            order,
+            index,
+        ),
+        AccessChoiceFamily::MultiLookup => {
+            prefix::evaluate_multi_lookup_candidate(index, schema, predicate)
+        }
+        AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
+            range::evaluate_range_candidate(index, schema, predicate),
+            model,
+            order,
+            index,
+        ),
+        AccessChoiceFamily::NonIndex => {
+            CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonIndexAccess)
+        }
+    }
+}
+
+// Project one order-only range-family candidate for explain when planner fell
+// back from full-scan predicate planning onto deterministic visible-index
+// ordering. The canonical score still carries order compatibility so explain
+// can report why one visible index won the fallback.
+fn evaluate_order_only_range_candidate(
+    index: &IndexModel,
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+) -> CandidateEvaluation {
+    CandidateEvaluation::Eligible(crate::db::query::plan::planner::AccessCandidateScore::new(
+        0,
+        false,
+        crate::db::query::plan::planner::candidate_satisfies_secondary_order(
+            model, order, index, 0,
+        ),
+    ))
+}
+
+fn augment_candidate_with_order_compatibility(
+    evaluation: CandidateEvaluation,
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+) -> CandidateEvaluation {
+    match evaluation {
+        CandidateEvaluation::Eligible(score) => CandidateEvaluation::Eligible(
+            crate::db::query::plan::planner::AccessCandidateScore::new(
+                score.prefix_len,
+                score.exact,
+                crate::db::query::plan::planner::candidate_satisfies_secondary_order(
+                    model,
+                    order,
+                    index,
+                    score.prefix_len,
+                ),
+            ),
+        ),
+        CandidateEvaluation::Rejected(reason) => CandidateEvaluation::Rejected(reason),
+    }
+}

@@ -59,7 +59,6 @@ const SQL_COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 #[cfg(feature = "sql")]
 struct SqlCoveringMaterializationContext<'a> {
     plan: &'a AccessPlannedQuery,
-    model: &'static EntityModel,
     store: StoreHandle,
     covering_component_scan: Option<CoveringComponentScanState<'a>>,
     load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
@@ -316,21 +315,22 @@ use crate::{
             resolve_covering_projection_components_from_lowered_specs,
             route::{
                 LoadOrderRouteContract, LoadTerminalFastPathContract,
-                access_order_satisfied_by_route_contract_for_model,
+                access_order_satisfied_by_route_contract,
             },
-            terminal::page::{KernelRow, KernelRowPayloadMode, ScalarRowRuntimeHandle},
+            terminal::{
+                RowLayout,
+                page::{KernelRow, KernelRowPayloadMode, ScalarRowRuntimeHandle},
+            },
             traversal::row_read_consistency_for_plan,
         },
         predicate::PredicateProgram,
         query::plan::{
             AccessPlannedQuery, CoveringProjectionOrder, CoveringReadExecutionPlan,
             CoveringReadFieldSource, constant_covering_projection_value_from_access,
-            expr::projection_references_only_fields,
         },
         registry::StoreHandle,
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 
 impl ExecutionKernel {
@@ -340,7 +340,6 @@ impl ExecutionKernel {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn try_materialize_load_via_direct_covering_scan(
         request: DirectCoveringScanMaterializationRequest<'_>,
-        model: &'static EntityModel,
         store: StoreHandle,
         covering_component_scan: Option<CoveringComponentScanState<'_>>,
     ) -> Result<
@@ -366,7 +365,6 @@ impl ExecutionKernel {
 
         let sql_covering_context = SqlCoveringMaterializationContext {
             plan,
-            model,
             store,
             covering_component_scan,
             load_terminal_fast_path,
@@ -390,7 +388,6 @@ impl ExecutionKernel {
     #[cfg(not(feature = "sql"))]
     pub(in crate::db::executor) fn try_materialize_load_via_direct_covering_scan(
         request: DirectCoveringScanMaterializationRequest<'_>,
-        model: &'static EntityModel,
         store: StoreHandle,
         covering_component_scan: Option<CoveringComponentScanState<'_>>,
     ) -> Result<
@@ -401,7 +398,7 @@ impl ExecutionKernel {
         )>,
         InternalError,
     > {
-        let _ = (request, model, store, covering_component_scan);
+        let _ = (request, store, covering_component_scan);
 
         Ok(None)
     }
@@ -410,7 +407,6 @@ impl ExecutionKernel {
     // without changing cursor/pagination/filter semantics.
     pub(in crate::db::executor::pipeline::operators::terminal) fn load_row_collector_short_path_eligible(
         plan: &AccessPlannedQuery,
-        model: &'static EntityModel,
         cursor_boundary: Option<&CursorBoundary>,
         retain_slot_rows: bool,
     ) -> bool {
@@ -425,8 +421,7 @@ impl ExecutionKernel {
             && retain_slot_rows
             && cursor_boundary.is_none()
             && !logical.distinct
-            && (logical.order.is_none()
-                || access_order_satisfied_by_route_contract_for_model(model, plan));
+            && (logical.order.is_none() || access_order_satisfied_by_route_contract(plan));
 
         generic_short_path || sql_projection_short_path
     }
@@ -514,7 +509,6 @@ impl ExecutionKernel {
     // canonical scalar page kernel.
     pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'a>(
         request: RowCollectorMaterializationRequest<'a>,
-        model: &'static EntityModel,
         row_runtime: &mut ScalarRowRuntimeHandle<'a>,
         store: StoreHandle,
         covering_component_scan: Option<CoveringComponentScanState<'a>>,
@@ -545,12 +539,7 @@ impl ExecutionKernel {
             key_stream,
         } = request;
 
-        if !Self::load_row_collector_short_path_eligible(
-            plan,
-            model,
-            cursor_boundary,
-            retain_slot_rows,
-        ) {
+        if !Self::load_row_collector_short_path_eligible(plan, cursor_boundary, retain_slot_rows) {
             return Ok(None);
         }
 
@@ -559,7 +548,6 @@ impl ExecutionKernel {
         #[cfg(feature = "sql")]
         let sql_covering_context = SqlCoveringMaterializationContext {
             plan,
-            model,
             store,
             covering_component_scan,
             load_terminal_fast_path,
@@ -663,7 +651,6 @@ fn try_materialize_cursorless_sql_covering_scan_without_key_stream(
 > {
     if !ExecutionKernel::load_row_collector_short_path_eligible(
         context.plan,
-        context.model,
         cursor_boundary,
         retain_slot_rows,
     ) {
@@ -1005,7 +992,7 @@ fn strip_covering_projected_text_row_pairs(
 /// Build one prepared SQL projection bundle from plan-owned and route-owned
 /// metadata before execution begins.
 pub(in crate::db::executor) fn prepare_sql_execution_projection(
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
@@ -1019,10 +1006,10 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
     let direct_projection_slots = prepared_projection_shape
         .and_then(crate::db::executor::projection::PreparedProjectionShape::direct_projection_slots)
         .map(<[usize]>::to_vec)
-        .or_else(|| plan.direct_projection_slots(model));
+        .or_else(|| plan.frozen_direct_projection_slots().map(<[usize]>::to_vec));
     let route_covering_slot_layout = match load_terminal_fast_path {
         Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
-            sql_route_covering_slot_layout(model, covering, compiled_predicate)?
+            sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
         }
         None => None,
     };
@@ -1090,11 +1077,11 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
 
     let constant_covering_slot_template =
         sql_constant_covering_slot_row_template_from_route_contract(
-            model,
+            row_layout,
             load_terminal_fast_path,
             compiled_predicate,
         )
-        .or_else(|| sql_constant_covering_slot_row_template(plan, model, compiled_predicate));
+        .or_else(|| sql_constant_covering_slot_row_template(plan, row_layout, compiled_predicate));
 
     Ok(Some(PreparedSqlExecutionProjection {
         direct_projection_slots,
@@ -1904,23 +1891,15 @@ fn try_materialize_sql_route_covering_slot_rows(
 // SQL covering-read fast path and reject any residual predicate that reaches
 // beyond the fail-closed covered slot set.
 fn sql_route_covering_slot_layout(
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     covering: &CoveringReadExecutionPlan,
     predicate_slots: Option<&PredicateProgram>,
 ) -> Result<Option<SqlRouteCoveringSlotLayout>, InternalError> {
-    let primary_key_slot = model
-        .fields
-        .iter()
-        .position(|field| field.name == model.primary_key.name)
-        .ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "covering-read SQL short path requires a primary-key slot",
-            )
-        })?;
+    let primary_key_slot = row_layout.primary_key_slot();
     let mut constant_slots = Vec::new();
-    let mut covered_slots = vec![false; model.fields.len()];
+    let mut covered_slots = vec![false; row_layout.field_count()];
     let mut component_slots = Vec::<CoveringComponentSlotGroup>::new();
-    let mut slot_sources = vec![None; model.fields.len()];
+    let mut slot_sources = vec![None; row_layout.field_count()];
 
     // Phase 1: project one dense slot layout from the planner-owned contract and
     // group decoded component fields by their index component position.
@@ -1971,7 +1950,7 @@ fn sql_route_covering_slot_layout(
 
     Ok(Some(SqlRouteCoveringSlotLayout {
         primary_key_slot,
-        slot_count: model.fields.len(),
+        slot_count: row_layout.field_count(),
         constant_slots,
         component_slots,
         slot_sources,
@@ -2546,7 +2525,7 @@ const fn covering_component_scan_budget_hint(
 // covering-read contract when every projected value comes from a bound
 // constant or the primary key.
 fn sql_constant_covering_slot_row_template_from_route_contract(
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     predicate_slots: Option<&PredicateProgram>,
 ) -> Option<SqlConstantCoveringSlotTemplate> {
@@ -2554,11 +2533,8 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     if !sql_route_covering_allows_constant_short_path(load_terminal_fast_path) {
         return None;
     }
-    let primary_key_slot = model
-        .fields
-        .iter()
-        .position(|field| field.name == model.primary_key.name)?;
-    let mut covered_slots = vec![false; model.fields.len()];
+    let primary_key_slot = row_layout.primary_key_slot();
+    let mut covered_slots = vec![false; row_layout.field_count()];
     let mut constant_slots = Vec::new();
     covered_slots[primary_key_slot] = true;
 
@@ -2586,7 +2562,7 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     }
 
     Some(SqlConstantCoveringSlotTemplate {
-        slot_count: model.fields.len(),
+        slot_count: row_layout.field_count(),
         primary_key_slot,
         constant_slots,
     })
@@ -2597,37 +2573,39 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
 // fully within bound access-prefix fields plus the primary key.
 fn sql_constant_covering_slot_row_template(
     plan: &AccessPlannedQuery,
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     predicate_slots: Option<&PredicateProgram>,
 ) -> Option<SqlConstantCoveringSlotTemplate> {
-    let projection = plan.projection_spec(model);
-    let primary_key_slot = model
-        .fields
-        .iter()
-        .position(|field| field.name == model.primary_key.name)?;
-    let mut covered_slots = vec![false; model.fields.len()];
-    let mut covered_fields = vec![model.primary_key.name];
+    let primary_key_slot = row_layout.primary_key_slot();
+    let mut covered_slots = vec![false; row_layout.field_count()];
     let mut constant_slots = Vec::new();
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: recover every equality-bound index-prefix component once.
-    for (slot, field) in model.fields.iter().enumerate() {
+    for slot in 0..row_layout.field_count() {
         if slot == primary_key_slot {
             continue;
         }
 
+        let Some(field_name) = row_layout.field_name(slot) else {
+            return None;
+        };
+
         if let Some(value) =
-            constant_covering_projection_value_from_access(&plan.access, field.name)
+            constant_covering_projection_value_from_access(&plan.access, field_name)
         {
             constant_slots.push((slot, value));
             covered_slots[slot] = true;
-            covered_fields.push(field.name);
         }
     }
 
     // Phase 2: require both projection and residual predicate to stay within
     // the covered slot set before we stop reading persisted rows.
-    if !projection_references_only_fields(&projection, covered_fields.as_slice()) {
+    if plan
+        .projection_referenced_slots()
+        .iter()
+        .any(|slot| !covered_slots.get(*slot).copied().unwrap_or(false))
+    {
         return None;
     }
     if plan.has_residual_predicate()
@@ -2637,7 +2615,7 @@ fn sql_constant_covering_slot_row_template(
     }
 
     Some(SqlConstantCoveringSlotTemplate {
-        slot_count: model.fields.len(),
+        slot_count: row_layout.field_count(),
         primary_key_slot,
         constant_slots,
     })

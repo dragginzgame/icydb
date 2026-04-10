@@ -189,15 +189,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics.
-        let projected = execute_sql_projection_rows_for_canister(
-            &self.db,
-            self.debug,
-            authority.model(),
-            projection,
-            authority,
-            plan,
-        )
-        .map_err(QueryError::execute)?;
+        let projected =
+            execute_sql_projection_rows_for_canister(&self.db, self.debug, authority, plan)
+                .map_err(QueryError::execute)?;
         let (rows, row_count) = projected.into_parts();
 
         Ok(SqlProjectionPayload::new(columns, rows, row_count))
@@ -221,15 +215,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics while preferring rendered SQL rows.
-        let projected = execute_sql_projection_text_rows_for_canister(
-            &self.db,
-            self.debug,
-            authority.model(),
-            projection,
-            authority,
-            plan,
-        )
-        .map_err(QueryError::execute)?;
+        let projected =
+            execute_sql_projection_text_rows_for_canister(&self.db, self.debug, authority, plan)
+                .map_err(QueryError::execute)?;
         let (rows, row_count) = projected.into_parts();
 
         Ok(SqlDispatchResult::ProjectionText {

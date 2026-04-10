@@ -72,25 +72,22 @@ pub use executable_plan::ExecutionStrategy;
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan};
 pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
 pub(in crate::db) use explain::{
-    assemble_aggregate_terminal_execution_descriptor_with_model,
-    assemble_load_execution_node_descriptor_with_model,
-    assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
-    assemble_load_execution_verbose_diagnostics_with_model,
-    assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
-    assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
+    assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
+    assemble_load_execution_node_descriptor_with_visible_indexes,
+    assemble_load_execution_verbose_diagnostics,
+    assemble_load_execution_verbose_diagnostics_with_visible_indexes,
+    assemble_prepared_sql_scalar_aggregate_execution_descriptor,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
-    mark_structural_order_slots, resolve_structural_order,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
-pub(in crate::db::executor) use projection::mark_projection_referenced_slots;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,

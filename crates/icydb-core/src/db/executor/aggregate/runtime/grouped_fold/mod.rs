@@ -41,7 +41,7 @@ use crate::{
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntime, GroupedCursorPage, GroupedFoldStage,
                 GroupedRouteStage, GroupedRowRuntime, GroupedStreamStage, PageCursor,
-                ProjectionMaterializationMode, RowView,
+                PreparedExecutionProjection, ProjectionMaterializationMode, RowView,
             },
             plan_metrics::record_grouped_plan_metrics,
         },
@@ -49,7 +49,6 @@ use crate::{
         query::plan::FieldSlot,
     },
     error::InternalError,
-    model::entity::EntityModel,
     value::{Value, ValueHashWriter},
 };
 
@@ -398,16 +397,10 @@ fn materialize_group_key_from_row_view(
 pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
     route: &GroupedRouteStage,
     runtime: &dyn ExecutionRuntime,
-    entity_model: &'static EntityModel,
-    slot_map: Option<Vec<usize>>,
+    execution_preparation: ExecutionPreparation,
     row_runtime: Box<dyn GroupedRowRuntime + 'a>,
 ) -> Result<GroupedStreamStage<'a>, InternalError> {
-    // Grouped runtime only consumes the compiled row predicate plus the
-    // conservative index predicate used during key-stream resolution. It does
-    // not read explain-only capability snapshots or strict pushdown state.
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(entity_model, route.plan(), slot_map);
-    let execution_inputs = ExecutionInputs::new(
+    let execution_inputs = ExecutionInputs::new_prepared(
         runtime,
         route.plan(),
         AccessStreamBindings {
@@ -417,12 +410,9 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
         },
         &execution_preparation,
         ProjectionMaterializationMode::SharedValidation,
-        crate::db::executor::pipeline::contracts::ExecutionInputPreparation {
-            model: entity_model,
-            load_terminal_fast_path: None,
-            emit_cursor: true,
-        },
-    )?;
+        PreparedExecutionProjection::empty(),
+        true,
+    );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
         &execution_inputs,
@@ -457,7 +447,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
             && grouped_budget.aggregate_states() >= grouped_budget.groups(),
         "grouped budget observability invariants must hold at grouped route entry",
     );
-    let grouped_projection_spec = route.plan().projection_spec(route.entity_model());
+    let grouped_projection_spec = route.plan().frozen_projection_spec().clone();
 
     // Phase 2: route global DISTINCT grouped aggregates through their
     // dedicated grouped execution path when strategy permits it.
@@ -523,7 +513,6 @@ fn try_execute_global_distinct_grouped_fold_stage(
         resolved,
         compiled_predicate,
         grouped_execution_context,
-        route.entity_model(),
         route.grouped_distinct_execution_strategy(),
         (&mut scanned_rows, &mut filtered_rows),
     )?;

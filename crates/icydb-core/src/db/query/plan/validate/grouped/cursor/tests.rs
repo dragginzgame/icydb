@@ -17,6 +17,7 @@ fn grouped_spec() -> GroupSpec {
         group_fields: vec![FieldSlot {
             index: 0,
             field: "team".to_string(),
+            kind: None,
         }],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,

@@ -29,15 +29,15 @@ pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db) use contracts::{LoadOrderRouteContract, LoadOrderRouteReason};
 pub(in crate::db::executor::route) use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
-pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shape_supported_for_model;
+pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shape_supported;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(super) use guard::*;
 pub(in crate::db::executor) use hints::widened_residual_predicate_pushdown_fetch;
 pub(in crate::db::executor::route) use hints::{
-    aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,
-    assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,
-    count_pushdown_fetch_hint, load_scan_budget_hint, top_n_seek_spec_for_model,
+    aggregate_probe_fetch_hint, aggregate_seek_spec, assess_index_range_limit_pushdown_for_model,
+    bounded_probe_hint_is_safe, count_pushdown_fetch_hint, load_scan_budget_hint,
+    top_n_seek_spec_for_model,
 };
 pub(in crate::db::executor) use mode::{
     aggregate_non_count_streaming_allowed, load_streaming_allowed,
@@ -45,25 +45,24 @@ pub(in crate::db::executor) use mode::{
 pub(in crate::db::executor::route) use mode::{
     derive_aggregate_route_direction, derive_load_route_direction,
 };
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_aggregate_spec_with_model;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_aggregate_spec;
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_plan;
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_load_with_model;
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation_with_model;
-pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load_with_model;
-pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract_for_model;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_load;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation;
+pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load;
+pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load_with_fast_path;
+pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
 };
-#[cfg(test)]
-pub(in crate::db::executor) use terminal::derive_load_terminal_fast_path_contract_for_model;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
     LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,
     derive_exists_terminal_fast_path_contract_for_model,
-    derive_load_terminal_fast_path_contract_for_model_plan,
+    derive_load_terminal_fast_path_contract_for_plan,
 };
 
 #[cfg(test)]

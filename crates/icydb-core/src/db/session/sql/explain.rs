@@ -7,9 +7,9 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
-            EntityAuthority,
-            assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
-            assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
+            EntityAuthority, assemble_load_execution_node_descriptor_with_visible_indexes,
+            assemble_prepared_sql_scalar_aggregate_execution_descriptor,
+            route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
         session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
@@ -122,8 +122,9 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
         let plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
-        let descriptor = assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
-            authority.model(),
+        let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
+            authority.fields(),
+            authority.primary_key_name(),
             &visible_indexes,
             &plan,
         )
@@ -159,10 +160,16 @@ impl<C: CanisterKind> DbSession<C> {
                     .query()
                     .build_plan_with_visible_indexes(&visible_indexes)?;
                 let query_explain = plan.explain_with_model(model);
-                let execution =
-                    assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model(
-                        model, &plan, &strategy,
-                    );
+                let execution = assemble_prepared_sql_scalar_aggregate_execution_descriptor(
+                    &plan,
+                    &strategy,
+                    AggregateRouteShape::new_from_fields(
+                        strategy.aggregate_kind(),
+                        strategy.projected_field(),
+                        model.fields(),
+                        model.primary_key().name(),
+                    ),
+                );
                 let terminal_plan = ExplainAggregateTerminalPlan::new(
                     query_explain,
                     strategy.aggregate_kind(),

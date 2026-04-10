@@ -60,7 +60,7 @@ where
         field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<StorageKey>, InternalError> {
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
         let (rows, _) = page.into_parts();
 
@@ -82,7 +82,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<StorageKey>, InternalError> {
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
         let (rows, _) = page.into_parts();
 
@@ -98,7 +98,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<(StorageKey, StorageKey)>, InternalError> {
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let row_layout = prepared.authority.row_layout();
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
         let (rows, _) = page.into_parts();
 

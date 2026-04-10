@@ -3,29 +3,23 @@
 //! Does not own: fast-path execution dispatch or post-access kernel behavior.
 //! Boundary: capability and eligibility helpers for route planning.
 
-use crate::{
-    db::{
-        direction::Direction,
-        executor::{
-            aggregate::{
-                AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
-            },
-            route::{
-                AggregateRouteShape, LoadOrderRouteContract, LoadOrderRouteReason,
-                bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported_for_model,
-                secondary_order_contract_active,
-            },
+use crate::db::{
+    direction::Direction,
+    executor::{
+        aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
+        route::{
+            AggregateRouteShape, LoadOrderRouteContract, LoadOrderRouteReason,
+            access_order_satisfied_by_route_contract, bounded_probe_hint_is_safe,
+            pk_order_stream_fast_path_shape_supported, secondary_order_contract_active,
         },
-        query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
     },
-    model::entity::EntityModel,
+    query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
 };
 
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
 
 /// Derive budget-safety flags for one plan at the route capability boundary.
 pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
@@ -33,8 +27,7 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     // Guard predicates already proven by the chosen access path must not force
     // otherwise ordered index routes back to materialized execution.
     let has_residual_filter = plan.has_residual_predicate();
-    let access_order_satisfied_by_path =
-        crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(model, plan);
+    let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
     let has_order = logical
         .order
         .as_ref()
@@ -52,7 +45,6 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
 // verbose explain, and route tests can all consume the same contract+reason
 // pair without re-classifying fallback shapes downstream.
 fn derive_load_order_route_decision_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> (LoadOrderRouteContract, LoadOrderRouteReason) {
     if !plan.scalar_plan().mode.is_load() {
@@ -63,7 +55,7 @@ fn derive_load_order_route_decision_for_model(
     }
 
     let (has_residual_filter, _, requires_post_access_sort) =
-        derive_budget_safety_flags_for_model(model, plan);
+        derive_budget_safety_flags_for_model(plan);
     if has_residual_filter {
         return (
             LoadOrderRouteContract::MaterializedFallback,
@@ -141,7 +133,6 @@ impl ExecutionRoutePlan {
 }
 
 pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
     direction: Direction,
@@ -149,11 +140,10 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
 ) -> RouteCapabilities {
     let access_class = plan.access_strategy().class();
     let (has_residual_filter, _, requires_post_access_sort) =
-        derive_budget_safety_flags_for_model(model, plan);
+        derive_budget_safety_flags_for_model(plan);
     let (load_order_route_contract, load_order_route_reason) =
-        derive_load_order_route_decision_for_model(model, plan);
-    let aggregate_execution_policy = derive_aggregate_execution_policy_for_model(
-        model,
+        derive_load_order_route_decision_for_model(plan);
+    let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,
         aggregate_shape,
@@ -165,9 +155,7 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     RouteCapabilities {
         load_order_route_contract,
         load_order_route_reason,
-        pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported_for_model(
-            model, plan,
-        ),
+        pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported(plan),
         desc_physical_reverse_supported: desc_physical_reverse_traversal_supported(plan, direction),
         count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),
         count_pushdown_existing_rows_shape_supported: count_pushdown_existing_rows_shape_supported(

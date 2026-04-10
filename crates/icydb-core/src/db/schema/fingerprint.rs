@@ -230,6 +230,7 @@ mod tests {
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
+        0,
         &FIELD_MODELS,
         &INDEX_REFS_TRUE_A,
     );
@@ -237,6 +238,7 @@ mod tests {
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
+        0,
         &FIELD_MODELS,
         &INDEX_REFS_TRUE_B,
     );
@@ -244,6 +246,7 @@ mod tests {
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
+        0,
         &FIELD_MODELS,
         &INDEX_REFS_FALSE,
     );
@@ -251,6 +254,7 @@ mod tests {
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
+        0,
         &FIELD_MODELS,
         &INDEX_REFS_KEY_ITEMS_FIELD,
     );
@@ -258,6 +262,7 @@ mod tests {
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
+        0,
         &FIELD_MODELS,
         &INDEX_REFS_KEY_ITEMS_EXPR,
     );

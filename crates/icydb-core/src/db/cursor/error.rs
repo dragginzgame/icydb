@@ -341,6 +341,7 @@ impl CursorPlanError {
 
     /// Map one primary-key cursor decode failure into the executor-facing
     /// internal invariant taxonomy used by storage-key boundary adapters.
+    #[cfg(test)]
     pub(in crate::db) fn into_pk_cursor_decode_internal_error(self) -> InternalError {
         match self {
             Self::InvalidContinuationCursor { reason } => InternalError::cursor_executor_invariant(

@@ -42,7 +42,8 @@ pub(in crate::db) use structural_field::{
     validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
 };
 pub(in crate::db) use structural_row::{
-    StructuralRowDecodeError, StructuralRowFieldBytes, decode_structural_row_cbor,
+    StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
+    decode_structural_row_cbor,
 };
 
 #[cfg(test)]

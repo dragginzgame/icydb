@@ -133,6 +133,7 @@ fn plan_rejects_unorderable_field() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("unorderable field");
@@ -169,6 +170,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -206,6 +208,7 @@ fn plan_rejects_index_prefix_too_long() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix too long");
@@ -239,6 +242,7 @@ fn plan_rejects_empty_index_prefix() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix empty");
@@ -269,6 +273,7 @@ fn plan_accepts_model_based_validation() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     validate_query_semantics(&schema, model, &plan).expect("valid plan");
@@ -294,6 +299,7 @@ fn plan_rejects_empty_order_spec() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("empty order must fail");
@@ -324,6 +330,7 @@ fn delete_limit_requires_order() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -423,6 +430,7 @@ fn delete_plan_rejects_pagination() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -456,6 +464,7 @@ fn load_plan_rejects_delete_limit() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -490,6 +499,7 @@ fn plan_rejects_unordered_pagination() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -524,6 +534,7 @@ fn plan_rejects_limit_without_order() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -589,6 +600,7 @@ fn plan_accepts_ordered_pagination() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     validate_query_semantics(&schema, model, &plan).expect("ordered pagination is valid");
@@ -627,6 +639,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
     plan.finalize_planner_route_profile_for_model(model);
 
@@ -663,6 +676,7 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
     plan.finalize_planner_route_profile_for_model(model);
 
@@ -756,6 +770,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("missing PK tie-break");
@@ -793,6 +808,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)

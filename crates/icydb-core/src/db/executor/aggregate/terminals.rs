@@ -12,15 +12,16 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, PreparedAggregatePlan, TraversalRuntime,
             aggregate::{
-                AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
-                PreparedAggregateStreamingInputsCore, PreparedFieldOrderSensitiveTerminalOp,
+                AggregateFoldMode, AggregateKind, PreparedAggregateSpec,
+                PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
+                PreparedAggregateTargetField, PreparedFieldOrderSensitiveTerminalOp,
                 PreparedOrderSensitiveTerminalBoundary,
                 PreparedOrderSensitiveTerminalExecutionState, PreparedScalarTerminalBoundary,
                 PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp,
                 PreparedScalarTerminalStrategy, ScalarAggregateOutput,
                 field::{
                     AggregateFieldValueError,
-                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
+                    resolve_orderable_aggregate_target_slot_from_planner_slot,
                 },
             },
             pipeline::contracts::LoadExecutor,
@@ -28,7 +29,6 @@ use crate::{
             route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
         },
         index::predicate::IndexPredicateExecution,
-        query::builder::AggregateExpr,
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
         registry::StoreHandle,
     },
@@ -198,17 +198,27 @@ where
     E: EntityKind + EntityValue,
 {
     op.validate_kernel_request_kind()?;
-    let aggregate_expr = match op {
-        PreparedScalarTerminalOp::Count => AggregateExpr::terminal_for_kind(AggregateKind::Count),
-        PreparedScalarTerminalOp::Exists => AggregateExpr::terminal_for_kind(AggregateKind::Exists),
-        PreparedScalarTerminalOp::IdTerminal { kind } => AggregateExpr::terminal_for_kind(*kind),
+    let aggregate = match op {
+        PreparedScalarTerminalOp::Count => PreparedAggregateSpec::terminal(AggregateKind::Count),
+        PreparedScalarTerminalOp::Exists => PreparedAggregateSpec::terminal(AggregateKind::Exists),
+        PreparedScalarTerminalOp::IdTerminal { kind } => PreparedAggregateSpec::terminal(*kind),
         PreparedScalarTerminalOp::IdBySlot {
             kind,
             target_field_name,
-        } => AggregateExpr::field_target_extrema_for_kind(*kind, target_field_name.as_str()),
+            field_slot,
+        } => PreparedAggregateSpec::field_target(
+            *kind,
+            PreparedAggregateTargetField::new(
+                target_field_name.clone(),
+                *field_slot,
+                true,
+                true,
+                target_field_name.as_str() == prepared.authority.primary_key_name(),
+            ),
+        ),
     };
     let state =
-        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate_expr);
+        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
 
     ExecutionKernel::execute_prepared_aggregate_state(executor, state)
 }
@@ -491,16 +501,15 @@ where
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,
             },
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field } => {
-                resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-                    prepared.authority.model(),
-                    &target_field,
-                )
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+                let field_slot =
+                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 PreparedScalarTerminalBoundary {
                     op: PreparedScalarTerminalOp::IdBySlot {
                         kind,
                         target_field_name: target_field.field().to_string(),
+                        field_slot,
                     },
                     strategy: PreparedScalarTerminalStrategy::KernelAggregate,
                 }
@@ -525,7 +534,6 @@ where
         plan: PreparedAggregatePlan,
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<PreparedOrderSensitiveTerminalExecutionState<'_>, InternalError> {
-        let authority = plan.authority();
         let boundary = match request {
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => match kind {
                 AggregateKind::First | AggregateKind::Last => {
@@ -539,11 +547,8 @@ where
             },
             ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth } => {
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-                        authority.model(),
-                        &target_field,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 PreparedOrderSensitiveTerminalBoundary::FieldOrder {
                     target_field_name: target_field.field().to_string(),
@@ -553,11 +558,8 @@ where
             }
             ScalarTerminalBoundaryRequest::MedianBySlot { target_field } => {
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-                        authority.model(),
-                        &target_field,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 PreparedOrderSensitiveTerminalBoundary::FieldOrder {
                     target_field_name: target_field.field().to_string(),
@@ -567,11 +569,8 @@ where
             }
             ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field } => {
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
-                        authority.model(),
-                        &target_field,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 PreparedOrderSensitiveTerminalBoundary::FieldOrder {
                     target_field_name: target_field.field().to_string(),
@@ -623,7 +622,6 @@ where
         prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> PreparedScalarTerminalStrategy {
         crate::db::executor::route::derive_count_terminal_fast_path_contract_for_model(
-            prepared.authority.model(),
             &prepared.logical_plan,
             prepared.execution_preparation.strict_mode().is_some(),
         )

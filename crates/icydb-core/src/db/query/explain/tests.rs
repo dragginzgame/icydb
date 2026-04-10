@@ -100,6 +100,7 @@ fn explain_is_deterministic_for_by_keys() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
     let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -117,6 +118,7 @@ fn explain_is_deterministic_for_by_keys() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     assert_eq!(plan_a.explain(), plan_b.explain());
@@ -883,6 +885,7 @@ fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
         planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
             false,
         ),
+        static_planning_shape: None,
     };
 
     assert_eq!(

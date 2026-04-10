@@ -50,14 +50,14 @@ pub(in crate::db) enum IndexPredicateCapability {
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::db) struct PredicateCapabilityContext<'a> {
     compile_targets: Option<&'a [IndexCompileTarget]>,
-    model: Option<&'static EntityModel>,
+    model: Option<&'a EntityModel>,
     index_slots: Option<&'a [usize]>,
 }
 
 impl<'a> PredicateCapabilityContext<'a> {
     /// Construct one runtime capability context.
     #[must_use]
-    pub(in crate::db) const fn runtime(model: &'static EntityModel) -> Self {
+    pub(in crate::db) const fn runtime(model: &'a EntityModel) -> Self {
         Self {
             compile_targets: None,
             model: Some(model),
@@ -224,7 +224,7 @@ pub(in crate::db) fn lower_index_starts_with_prefix_for_target(
 
 // Classify whether one executable predicate can stay on the scalar slot seam.
 fn classify_scalar_capability(
-    model: &'static EntityModel,
+    model: &EntityModel,
     predicate: &ExecutablePredicate,
 ) -> ScalarPredicateCapability {
     if predicate_is_scalar_safe(model, predicate) {
@@ -368,7 +368,7 @@ fn merge_and_index_capability(
 }
 
 // Predicate classification remains exhaustive over the canonical executable tree.
-fn predicate_is_scalar_safe(model: &'static EntityModel, predicate: &ExecutablePredicate) -> bool {
+fn predicate_is_scalar_safe(model: &EntityModel, predicate: &ExecutablePredicate) -> bool {
     match predicate {
         ExecutablePredicate::True
         | ExecutablePredicate::False
@@ -392,7 +392,7 @@ fn predicate_is_scalar_safe(model: &'static EntityModel, predicate: &ExecutableP
 }
 
 // Classify whether one compare node can stay on the scalar slot seam.
-fn compare_is_scalar_safe(model: &'static EntityModel, cmp: &ExecutableComparePredicate) -> bool {
+fn compare_is_scalar_safe(model: &EntityModel, cmp: &ExecutableComparePredicate) -> bool {
     scalar_field_slot_supported(model, cmp.field_slot)
         && scalar_compare_op_supported(cmp.op)
         && scalar_compare_coercion_supported(cmp.coercion.id)
@@ -481,7 +481,7 @@ const fn scalar_compare_coercion_supported(coercion: CoercionId) -> bool {
 }
 
 // Scalar fast-path execution is only valid for scalar leaf codecs.
-fn scalar_field_slot_supported(model: &'static EntityModel, field_slot: Option<usize>) -> bool {
+fn scalar_field_slot_supported(model: &EntityModel, field_slot: Option<usize>) -> bool {
     let Some(field_slot) = field_slot else {
         return false;
     };
@@ -587,6 +587,7 @@ mod tests {
         "PredicateCapabilityEntity",
         "PredicateCapabilityEntity",
         &CAPABILITY_FIELDS[0],
+        0,
         &CAPABILITY_FIELDS,
         &[],
     );

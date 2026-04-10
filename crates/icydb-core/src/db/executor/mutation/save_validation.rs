@@ -7,13 +7,13 @@ use crate::{
     db::{
         PersistedRow,
         data::{CanonicalSlotReader, DataKey, RawRow, SlotReader, StructuralSlotReader},
-        executor::mutation::save::SaveExecutor,
+        executor::{EntityAuthority, mutation::save::SaveExecutor},
         predicate::canonical_cmp,
-        relation::{model_has_strong_relation_targets, validate_save_strong_relations},
+        relation::validate_save_strong_relations,
         schema::{SchemaInfo, literal_matches_type},
     },
     error::InternalError,
-    model::{entity::resolve_primary_key_slot, field::FieldKind},
+    model::field::FieldKind,
     sanitize::sanitize,
     traits::{EntityKind, EntityValue},
     validate::validate,
@@ -24,8 +24,9 @@ use std::cmp::Ordering;
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Execute the canonical save preflight pipeline before commit planning.
     pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
-        let schema = Self::schema_info();
-        let validate_relations = model_has_strong_relation_targets(E::MODEL);
+        let authority = EntityAuthority::for_type::<E>();
+        let schema = authority.schema_info();
+        let validate_relations = authority.has_strong_relation_targets();
 
         self.preflight_entity_with_cached_schema(entity, schema, validate_relations)
     }
@@ -36,8 +37,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
     ) -> Result<(), InternalError> {
-        let schema = Self::schema_info();
-        let row_fields = StructuralSlotReader::from_raw_row(row, E::MODEL)?;
+        let authority = EntityAuthority::for_type::<E>();
+        let schema = authority.schema_info();
+        let row_fields = authority.row_layout().open_raw_row(row)?;
         row_fields.validate_storage_key(data_key)?;
 
         Self::validate_structural_row_invariants(&row_fields, schema)
@@ -45,7 +47,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Load the trusted generated schema view for one entity type.
     pub(in crate::db::executor::mutation) fn schema_info() -> &'static SchemaInfo {
-        SchemaInfo::cached_for_entity_model(E::MODEL)
+        EntityAuthority::for_type::<E>().schema_info()
     }
 
     // Execute save preflight using already-resolved schema and relation metadata.
@@ -70,15 +72,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
-        let primary_key_name = E::MODEL.primary_key().name();
+        let authority = EntityAuthority::for_type::<E>();
+        let primary_key_name = authority.primary_key_name();
 
         // Phase 1: validate primary key field presence and *shape*.
-        let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
-            return Err(InternalError::mutation_entity_primary_key_missing(
-                E::PATH,
-                primary_key_name,
-            ));
-        };
+        let pk_field_index = authority.row_layout().primary_key_slot();
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
             InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
         })?;
@@ -116,7 +114,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+        for (field_index, field) in authority.fields().iter().enumerate() {
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 InternalError::mutation_entity_field_missing(
                     E::PATH,
@@ -164,7 +162,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         row_fields: &StructuralSlotReader<'_>,
         schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
-        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+        let authority = EntityAuthority::for_type::<E>();
+
+        for (field_index, field) in authority.fields().iter().enumerate() {
             if !row_fields.has(field_index) {
                 return Err(InternalError::mutation_entity_field_missing(
                     E::PATH,

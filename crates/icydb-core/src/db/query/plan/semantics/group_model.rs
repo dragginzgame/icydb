@@ -12,7 +12,10 @@ use crate::{
         },
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
+    model::{
+        entity::{EntityModel, resolve_field_slot},
+        field::FieldKind,
+    },
     value::Value,
 };
 
@@ -172,6 +175,7 @@ impl FieldSlot {
         Some(Self {
             index,
             field: canonical.to_string(),
+            kind: model.fields.get(index).map(|field| field.kind),
         })
     }
 
@@ -185,5 +189,11 @@ impl FieldSlot {
     #[must_use]
     pub(crate) fn field(&self) -> &str {
         &self.field
+    }
+
+    /// Return the planner-frozen field kind when the slot has been validated.
+    #[must_use]
+    pub(crate) const fn kind(&self) -> Option<FieldKind> {
+        self.kind
     }
 }

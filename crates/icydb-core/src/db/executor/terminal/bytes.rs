@@ -15,7 +15,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_from_decoded_slot,
-                resolve_any_aggregate_target_slot_from_planner_slot_with_model,
+                resolve_any_aggregate_target_slot_from_planner_slot,
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
             decode_single_covering_projection_pairs,
@@ -64,7 +64,7 @@ where
             prepared.consistency(),
             prepared.has_predicate(),
             target_field,
-            prepared.authority.model().primary_key.name,
+            prepared.authority.primary_key_name(),
         )
     }
 
@@ -161,13 +161,10 @@ where
                             return Ok(total);
                         }
 
-                        let row_layout = RowLayout::from_model(prepared.authority.model());
+                        let row_layout = prepared.authority.row_layout();
                         let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot_with_model(
-                                prepared.authority.model(),
-                                &target_field,
-                            )
-                            .map_err(AggregateFieldValueError::into_internal_error)?;
+                            resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
+                                .map_err(AggregateFieldValueError::into_internal_error)?;
                         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
                         Self::bytes_by_materialized_rows(
@@ -178,13 +175,10 @@ where
                         )
                     }
                     BytesByProjectionMode::Materialized => {
-                        let row_layout = RowLayout::from_model(prepared.authority.model());
+                        let row_layout = prepared.authority.row_layout();
                         let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot_with_model(
-                                prepared.authority.model(),
-                                &target_field,
-                            )
-                            .map_err(AggregateFieldValueError::into_internal_error)?;
+                            resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
+                                .map_err(AggregateFieldValueError::into_internal_error)?;
                         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
                         Self::bytes_by_materialized_rows(
@@ -236,7 +230,7 @@ where
             &prepared.logical_plan.access,
             prepared.order_spec(),
             target_field.field(),
-            prepared.authority.model().primary_key.name,
+            prepared.authority.primary_key_name(),
         ) else {
             return Ok(None);
         };

@@ -56,6 +56,32 @@ fn covering_read_model() -> &'static crate::model::entity::EntityModel {
     <CoveringReadEntity as EntitySchema>::MODEL
 }
 
+fn covering_read_plan(
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
+) -> Option<super::CoveringReadPlan> {
+    super::covering_read_plan_from_fields(
+        covering_read_model().fields(),
+        plan,
+        primary_key_name,
+        strict_predicate_compatible,
+    )
+}
+
+fn covering_read_execution_plan(
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
+) -> Option<super::CoveringReadExecutionPlan> {
+    super::covering_read_execution_plan_from_fields(
+        covering_read_model().fields(),
+        plan,
+        primary_key_name,
+        strict_predicate_compatible,
+    )
+}
+
 fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
     AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -357,7 +383,7 @@ fn covering_read_plan_accepts_direct_index_component_projection() {
         ],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_plan(&plan, "id", true)
         .expect("direct indexed field projection should derive one covering-read plan");
 
     assert_eq!(covering.prefix_len, 1);
@@ -392,7 +418,7 @@ fn covering_read_plan_accepts_multi_component_projection() {
         ],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_plan(&plan, "id", true)
         .expect("multi-component projection should derive one covering-read plan");
 
     assert_eq!(covering.prefix_len, 0);
@@ -421,7 +447,7 @@ fn covering_read_plan_accepts_primary_key_projection() {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_plan(&plan, "id", true)
         .expect("primary-key projection should derive one covering-read plan");
 
     assert_eq!(
@@ -444,7 +470,7 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_plan(&plan, "id", true)
         .expect("prefix-bound field projection should derive one covering-read plan");
 
     assert_eq!(covering.fields.len(), 1);
@@ -479,7 +505,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
         ],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_plan(&plan, "id", true)
         .expect("expression-suffix order with PK plus prefix constant projection should derive one covering-read plan");
 
     assert_eq!(covering.prefix_len, 1);
@@ -524,7 +550,7 @@ fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_ord
         ],
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    let covering = covering_read_plan(&plan, "id", true);
     assert!(
         covering.is_none(),
         "expression-index covering must not claim the original source field is stored in the derived component",
@@ -540,7 +566,7 @@ fn covering_read_plan_rejects_non_field_expression_projection() {
         right: Box::new(Expr::Literal(Value::Uint(1))),
     });
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    let covering = covering_read_plan(&plan, "id", true);
     assert!(
         covering.is_none(),
         "computed scalar projections must remain outside the phase-1 covering-read contract",
@@ -552,7 +578,7 @@ fn covering_read_plan_rejects_non_coverable_row_field_projection() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("label")]);
 
-    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    let covering = covering_read_plan(&plan, "id", true);
     assert!(
         covering.is_none(),
         "row-only projected fields must stay on the materialized read path",
@@ -566,11 +592,11 @@ fn covering_read_plan_requires_strict_predicate_compatibility() {
     plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
 
     assert!(
-        super::covering_read_plan(covering_read_model(), &plan, "id", false).is_none(),
+        covering_read_plan(&plan, "id", false).is_none(),
         "phase-1 covering reads must reject residual predicate shapes without strict compatibility",
     );
     assert!(
-        super::covering_read_plan(covering_read_model(), &plan, "id", true).is_some(),
+        covering_read_plan(&plan, "id", true).is_some(),
         "phase-1 covering reads should admit residual predicate shapes when strict compatibility is present",
     );
 }
@@ -586,7 +612,7 @@ fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() 
         ],
     });
 
-    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_execution_plan(&plan, "id", true)
         .expect("coverable projected load should derive one execution-grade covering plan");
 
     assert_eq!(covering.prefix_len, 1);
@@ -610,7 +636,7 @@ fn covering_read_execution_plan_marks_primary_store_pk_projection_as_planner_pro
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_execution_plan(&plan, "id", true)
         .expect("primary-store PK-only projections should derive one planner-proven covering plan");
 
     assert_eq!(covering.prefix_len, 0);
@@ -644,10 +670,9 @@ fn covering_read_execution_plan_marks_primary_store_pk_range_projection_as_plann
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
-        .expect(
-            "primary-store PK-range projections should derive one planner-proven covering plan",
-        );
+    let covering = covering_read_execution_plan(&plan, "id", true).expect(
+        "primary-store PK-range projections should derive one planner-proven covering plan",
+    );
 
     assert_eq!(covering.prefix_len, 0);
     assert_eq!(
@@ -677,7 +702,7 @@ fn covering_read_execution_plan_marks_by_key_primary_projection_as_row_check_req
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_execution_plan(&plan, "id", true)
         .expect("by-key PK-only projections should derive one row-check covering plan");
 
     assert_eq!(covering.prefix_len, 0);
@@ -711,7 +736,7 @@ fn covering_read_execution_plan_marks_by_keys_primary_projection_as_row_check_re
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+    let covering = covering_read_execution_plan(&plan, "id", true)
         .expect("by-keys PK-only projections should derive one row-check covering plan");
 
     assert_eq!(covering.prefix_len, 0);
@@ -746,7 +771,7 @@ fn covering_read_execution_plan_rejects_by_keys_desc_primary_projection_for_now(
     });
 
     assert!(
-        super::covering_read_execution_plan(covering_read_model(), &plan, "id", true).is_none(),
+        covering_read_execution_plan(&plan, "id", true).is_none(),
         "phase-1 multi-key PK covering should stay fail-closed on descending order until exact-key reorder is explicit",
     );
 }

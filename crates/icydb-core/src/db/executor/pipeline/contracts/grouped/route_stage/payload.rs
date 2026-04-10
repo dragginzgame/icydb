@@ -11,7 +11,6 @@ use crate::db::{
         PlannedProjectionLayout,
     },
 };
-use crate::model::entity::EntityModel;
 
 ///
 /// IndexSpecBundle
@@ -36,7 +35,6 @@ pub(in crate::db::executor) struct IndexSpecBundle {
 
 pub(in crate::db::executor) struct GroupedPlannerPayload {
     pub(in crate::db::executor) plan: AccessPlannedQuery,
-    pub(in crate::db::executor) entity_model: &'static EntityModel,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
     pub(in crate::db::executor) grouped_fold_path: GroupedFoldPath,
     pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,

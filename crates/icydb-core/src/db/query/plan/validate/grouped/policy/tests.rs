@@ -79,6 +79,7 @@ fn grouped_having_contains_operator_fails_in_planner_policy() {
             symbol: GroupHavingSymbol::GroupField(FieldSlot {
                 index: 0,
                 field: "team".to_string(),
+                kind: None,
             }),
             op: CompareOp::Contains,
             value: Value::Text("A".to_string()),

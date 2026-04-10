@@ -1,17 +1,17 @@
 //! Module: executor::order
 //! Responsibility: shared structural ordering helpers for executor row paths.
 //! Does not own: planner order semantics or cursor wire validation.
-//! Boundary: resolves order slots once and applies canonical ordering over slot-readable rows.
+//! Boundary: consumes planner-resolved order contracts and applies canonical ordering over slot-readable rows.
 
 use crate::{
     db::{
         contracts::canonical_value_compare,
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
-        query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
+        query::plan::{
+            ExpressionOrderTerm, OrderDirection, ResolvedOrder, ResolvedOrderValueSource,
+        },
         scalar_expr::derive_expression_order_value,
     },
-    error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering};
@@ -35,111 +35,6 @@ pub(in crate::db::executor) trait OrderReadableRow {
     fn read_order_slot(&self, slot: usize) -> Option<Value> {
         self.read_order_slot_cow(slot).map(Cow::into_owned)
     }
-}
-
-///
-/// ResolvedOrderField
-///
-/// One order slot resolved from field name to model slot index.
-/// Shared structural ordering keeps this resolved shape outside comparator
-/// loops so sorting does not repeat field-name lookups.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResolvedOrderValueSource {
-    Missing,
-    DirectField(usize),
-    ExpressionLower(usize),
-    ExpressionUpper(usize),
-}
-
-impl ResolvedOrderValueSource {
-    // Resolve one canonical ORDER BY field reference into its structural row source.
-    fn from_field_name(model: &EntityModel, field: &str) -> Self {
-        if let Some(expression) = ExpressionOrderTerm::parse(field) {
-            let Some(slot) = resolve_field_slot(model, expression.field()) else {
-                return Self::Missing;
-            };
-
-            return match expression {
-                ExpressionOrderTerm::Lower(_) => Self::ExpressionLower(slot),
-                ExpressionOrderTerm::Upper(_) => Self::ExpressionUpper(slot),
-            };
-        }
-
-        resolve_field_slot(model, field).map_or(Self::Missing, Self::DirectField)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ResolvedOrderField {
-    source: ResolvedOrderValueSource,
-    direction: OrderDirection,
-}
-
-///
-/// ResolvedOrder
-///
-/// Slot-resolved canonical ordering shape shared by executor row paths.
-/// This keeps sorting and cursor-boundary comparisons structural once the
-/// planner has already fixed the visible order contract.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ResolvedOrder {
-    fields: Vec<ResolvedOrderField>,
-}
-
-impl ResolvedOrder {
-    fn iter(&self) -> impl Iterator<Item = ResolvedOrderField> + '_ {
-        self.fields.iter().copied()
-    }
-}
-
-/// Resolve one order spec into slot indexes for structural executor use.
-#[must_use]
-pub(in crate::db::executor) fn resolve_structural_order(
-    model: &EntityModel,
-    order: &OrderSpec,
-) -> ResolvedOrder {
-    let fields = order
-        .fields
-        .iter()
-        .map(|(field, direction)| ResolvedOrderField {
-            source: ResolvedOrderValueSource::from_field_name(model, field),
-            direction: *direction,
-        })
-        .collect();
-
-    ResolvedOrder { fields }
-}
-
-/// Mark every structural slot that one ORDER BY contract needs at runtime.
-pub(in crate::db::executor) fn mark_structural_order_slots(
-    model: &EntityModel,
-    order: &OrderSpec,
-    required_slots: &mut [bool],
-) -> Result<(), InternalError> {
-    // Phase 1: resolve each order term onto the canonical structural slot
-    // source and reject unknown field references up front.
-    for (field, _) in &order.fields {
-        match ResolvedOrderValueSource::from_field_name(model, field) {
-            ResolvedOrderValueSource::Missing => {
-                return Err(InternalError::query_invalid_logical_plan(format!(
-                    "order expression references unknown field '{field}'",
-                )));
-            }
-            ResolvedOrderValueSource::DirectField(slot)
-            | ResolvedOrderValueSource::ExpressionLower(slot)
-            | ResolvedOrderValueSource::ExpressionUpper(slot) => {
-                if let Some(required) = required_slots.get_mut(slot) {
-                    *required = true;
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window.
@@ -215,6 +110,27 @@ where
     })
 }
 
+/// Materialize one cursor boundary directly from one already-decoded row under
+/// the planner-frozen resolved order contract.
+#[must_use]
+pub(in crate::db::executor) fn cursor_boundary_from_orderable_row<R>(
+    row: &R,
+    resolved_order: &ResolvedOrder,
+) -> CursorBoundary
+where
+    R: OrderReadableRow,
+{
+    CursorBoundary {
+        slots: cache_order_values_from_row(row, resolved_order)
+            .into_iter()
+            .map(|value| match value {
+                Some(value) => CursorBoundarySlot::Present(value),
+                None => CursorBoundarySlot::Missing,
+            })
+            .collect(),
+    }
+}
+
 // Compare two cached structural ordering tuples according to the resolved
 // canonical order without re-reading row slots inside the comparator.
 fn compare_cached_orderable_rows(
@@ -222,13 +138,12 @@ fn compare_cached_orderable_rows(
     right: &[Option<Value>],
     resolved_order: &ResolvedOrder,
 ) -> Ordering {
-    compare_structural_order_slots(resolved_order, |slot_index, field_index, direction| {
+    compare_structural_order_slots(resolved_order, |slot_index, _field_index, direction| {
         let left_slot = left.get(slot_index).and_then(Option::as_ref);
         let right_slot = right.get(slot_index).and_then(Option::as_ref);
 
         debug_assert!(
-            matches!(field_index, ResolvedOrderValueSource::Missing)
-                || left.get(slot_index).is_some() && right.get(slot_index).is_some(),
+            left.get(slot_index).is_some() && right.get(slot_index).is_some(),
             "cached order values must align with resolved order fields",
         );
         apply_order_direction(
@@ -245,9 +160,10 @@ where
     R: OrderReadableRow,
 {
     resolved_order
+        .fields()
         .iter()
-        .map(|field| match field.source {
-            ResolvedOrderValueSource::Missing => None,
+        .copied()
+        .map(|field| match field.source() {
             ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot(slot),
             ResolvedOrderValueSource::ExpressionLower(slot) => {
                 derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
@@ -267,8 +183,8 @@ fn compare_structural_order_slots<F>(
 where
     F: FnMut(usize, ResolvedOrderValueSource, OrderDirection) -> Ordering,
 {
-    for (slot_index, slot) in resolved_order.iter().enumerate() {
-        let ordering = compare_slot(slot_index, slot.source, slot.direction);
+    for (slot_index, field) in resolved_order.fields().iter().copied().enumerate() {
+        let ordering = compare_slot(slot_index, field.source(), field.direction());
         if ordering != Ordering::Equal {
             return ordering;
         }
@@ -283,7 +199,6 @@ fn order_value_from_row(
     source: ResolvedOrderValueSource,
 ) -> Option<Cow<'_, Value>> {
     match source {
-        ResolvedOrderValueSource::Missing => None,
         ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(slot),
         ResolvedOrderValueSource::ExpressionLower(slot) => {
             derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
@@ -340,6 +255,7 @@ fn compare_order_value_with_boundary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::plan::ResolvedOrderField;
     use std::{borrow::Cow, cell::Cell, rc::Rc};
 
     struct TestRow {
@@ -382,18 +298,18 @@ mod tests {
         }
     }
 
-    fn resolved_order(fields: &[(Option<usize>, OrderDirection)]) -> ResolvedOrder {
-        ResolvedOrder {
-            fields: fields
+    fn resolved_order(fields: &[(usize, OrderDirection)]) -> ResolvedOrder {
+        ResolvedOrder::new(
+            fields
                 .iter()
-                .map(|(field_index, direction)| ResolvedOrderField {
-                    source: field_index
-                        .map(ResolvedOrderValueSource::DirectField)
-                        .unwrap_or(ResolvedOrderValueSource::Missing),
-                    direction: *direction,
+                .map(|(field_index, direction)| {
+                    ResolvedOrderField::new(
+                        ResolvedOrderValueSource::direct_field(*field_index),
+                        *direction,
+                    )
                 })
                 .collect(),
-        }
+        )
     }
 
     #[test]
@@ -406,7 +322,7 @@ mod tests {
 
         apply_structural_order_window(
             &mut rows,
-            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            &resolved_order(&[(0, OrderDirection::Asc)]),
             None,
         );
 
@@ -435,7 +351,7 @@ mod tests {
 
         apply_structural_order_window(
             &mut rows,
-            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            &resolved_order(&[(0, OrderDirection::Asc)]),
             Some(2),
         );
 
@@ -455,7 +371,7 @@ mod tests {
 
         let ordering = compare_orderable_row_with_boundary(
             &row,
-            &resolved_order(&[(Some(0), OrderDirection::Desc)]),
+            &resolved_order(&[(0, OrderDirection::Desc)]),
             &boundary,
         );
 
@@ -475,7 +391,7 @@ mod tests {
 
         apply_structural_order_window(
             &mut rows,
-            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            &resolved_order(&[(0, OrderDirection::Asc)]),
             Some(2),
         );
 

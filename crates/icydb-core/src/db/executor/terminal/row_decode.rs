@@ -11,7 +11,10 @@ use crate::model::field::EnumVariantModel;
 use crate::types::Ulid;
 use crate::{
     db::{
-        data::{CanonicalSlotReader, DataRow, RawRow, StorageKey, StructuralSlotReader},
+        data::{
+            CanonicalSlotReader, DataRow, RawRow, StorageKey, StructuralRowContract,
+            StructuralSlotReader,
+        },
         executor::terminal::{RetainedSlotRow, page::KernelRow},
     },
     error::InternalError,
@@ -28,20 +31,50 @@ use crate::{
 /// entity materialization.
 ///
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct RowLayout {
-    model: &'static EntityModel,
+    contract: StructuralRowContract,
     field_count: usize,
+    primary_key_slot: usize,
 }
 
 impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[must_use]
     pub(in crate::db::executor) const fn from_model(model: &'static EntityModel) -> Self {
+        let contract = StructuralRowContract::from_model(model);
+
         Self {
-            model,
-            field_count: model.fields().len(),
+            contract,
+            field_count: contract.field_count(),
+            primary_key_slot: contract.primary_key_slot(),
         }
+    }
+
+    /// Borrow the frozen field-count authority carried by this layout.
+    #[must_use]
+    pub(in crate::db::executor) const fn field_count(self) -> usize {
+        self.field_count
+    }
+
+    /// Borrow the frozen primary-key slot authority carried by this layout.
+    #[must_use]
+    pub(in crate::db::executor) const fn primary_key_slot(self) -> usize {
+        self.primary_key_slot
+    }
+
+    /// Borrow one authoritative field name by structural slot index.
+    #[must_use]
+    pub(in crate::db::executor) fn field_name(self, slot: usize) -> Option<&'static str> {
+        self.contract.fields().get(slot).map(|field| field.name)
+    }
+
+    /// Open one raw row through the authority-owned structural decode contract.
+    pub(in crate::db::executor) fn open_raw_row<'a>(
+        self,
+        row: &'a RawRow,
+    ) -> Result<StructuralSlotReader<'a>, InternalError> {
+        StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
     }
 }
 
@@ -108,7 +141,7 @@ impl RowDecoder {
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
         // Phase 1: reuse the canonical row-open validation boundary once.
-        let reader = decode_row_fields(row, layout.model)?;
+        let reader = layout.open_raw_row(row)?;
         reader.validate_storage_key_value(expected_key)?;
 
         // Phase 2: decode only the caller-requested slot instead of staging a
@@ -125,7 +158,7 @@ impl RowDecoder {
         required_slots: &[usize],
     ) -> Result<RetainedSlotRow, InternalError> {
         // Phase 1: reuse the canonical row-open validation boundary once.
-        let reader = decode_row_fields(row, layout.model)?;
+        let reader = layout.open_raw_row(row)?;
         reader.validate_storage_key_value(expected_key)?;
 
         // Phase 2: retain only the caller-declared slot/value pairs while
@@ -157,7 +190,7 @@ fn decode_structural_slots(
     // Phase 1: build the canonical structural slot reader once so hot row
     // decode can reuse the existing persisted-row validation boundary instead
     // of re-encoding the decoded primary-key value back into `StorageKey`.
-    let reader = decode_row_fields(row, layout.model)?;
+    let reader = layout.open_raw_row(row)?;
 
     // Phase 2: keep authoritative storage-key validation on the
     // `StructuralSlotReader` boundary that already knows how to validate
@@ -218,14 +251,6 @@ fn decode_retained_structural_slots(
     }
 
     Ok(RetainedSlotRow::from_dense_slots(slots))
-}
-
-// Decode the persisted row envelope into slot-aligned encoded field payload spans.
-fn decode_row_fields<'a>(
-    row: &'a RawRow,
-    model: &'static EntityModel,
-) -> Result<StructuralSlotReader<'a>, InternalError> {
-    StructuralSlotReader::from_raw_row(row, model)
 }
 
 ///

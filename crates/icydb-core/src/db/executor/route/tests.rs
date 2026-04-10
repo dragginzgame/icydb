@@ -3,16 +3,15 @@
 //! Does not own: production route behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 
+use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, ExecutionModeRouteCase, FastPathOrder,
     GroupedExecutionMode, GroupedExecutionModeProjection, GroupedRouteDecisionOutcome,
     LOAD_FAST_PATH_ORDER, LoadOrderRouteContract, LoadOrderRouteReason,
     LoadTerminalFastPathContract, RouteCapabilities, RouteExecutionMode, TopNSeekSpec,
-    build_execution_route_plan_for_aggregate_spec_with_model,
-    build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
-    build_execution_route_plan_for_mutation_with_model,
-    build_initial_execution_route_plan_for_load_with_model,
-    derive_load_terminal_fast_path_contract_for_model,
+    build_execution_route_plan_for_aggregate_spec, build_execution_route_plan_for_grouped_plan,
+    build_execution_route_plan_for_load, build_execution_route_plan_for_mutation,
+    build_initial_execution_route_plan_for_load,
     grouped_ordered_runtime_revalidation_flag_count_guard, route_capability_flag_count_guard,
     route_execution_mode_case_count_guard, route_shape_kind_count_guard,
 };
@@ -22,7 +21,7 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionPlan, ExecutionPreparation,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation,
             aggregate::AggregateFoldMode,
             aggregate::capability::AggregateFieldExtremaIneligibilityReason,
             continuation::{ContinuationMode, ScalarContinuationContext},
@@ -45,7 +44,7 @@ use crate::{
             grouped_executor_handoff, grouped_plan_strategy,
         },
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{field::FieldKind, index::IndexModel},
     traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
@@ -164,37 +163,40 @@ fn initial_scalar_continuation_context() -> ScalarContinuationContext {
     ScalarContinuationContext::initial()
 }
 
-fn finalized_plan_for_model(
-    model: &'static EntityModel,
+fn route_capability_authority() -> EntityAuthority {
+    EntityAuthority::for_type::<RouteCapabilityEntity>()
+}
+
+fn unique_route_capability_authority() -> EntityAuthority {
+    EntityAuthority::for_type::<UniqueRouteCapabilityEntity>()
+}
+
+fn finalized_plan_for_authority(
+    authority: EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> AccessPlannedQuery {
     let mut finalized = plan.clone();
-    finalized.finalize_planner_route_profile_for_model(model);
+    authority.finalize_planner_route_profile(&mut finalized);
 
     finalized
 }
 
-fn build_load_route_plan_for_model(
-    model: &'static EntityModel,
+fn build_load_route_plan_for_authority(
+    authority: EntityAuthority,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    let finalized = finalized_plan_for_model(model, plan);
+    let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_execution_route_plan_for_load_with_model(
-        model,
-        &finalized,
-        continuation,
-        probe_fetch_hint,
-    )
+    build_execution_route_plan_for_load(authority, &finalized, continuation, probe_fetch_hint)
 }
 
 fn build_load_route_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_load_route_plan_for_model(
-        RouteCapabilityEntity::MODEL,
+    build_load_route_plan_for_authority(
+        route_capability_authority(),
         plan,
         &initial_scalar_continuation_context(),
         None,
@@ -205,15 +207,15 @@ fn build_load_route_plan_with_continuation(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_load_route_plan_for_model(RouteCapabilityEntity::MODEL, plan, continuation, None)
+    build_load_route_plan_for_authority(route_capability_authority(), plan, continuation, None)
 }
 
 fn build_load_route_plan_with_probe_hint(
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_load_route_plan_for_model(
-        RouteCapabilityEntity::MODEL,
+    build_load_route_plan_for_authority(
+        route_capability_authority(),
         plan,
         &initial_scalar_continuation_context(),
         probe_fetch_hint,
@@ -223,8 +225,8 @@ fn build_load_route_plan_with_probe_hint(
 fn build_unique_load_route_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_load_route_plan_for_model(
-        UniqueRouteCapabilityEntity::MODEL,
+    build_load_route_plan_for_authority(
+        unique_route_capability_authority(),
         plan,
         &initial_scalar_continuation_context(),
         None,
@@ -234,9 +236,10 @@ fn build_unique_load_route_plan(
 fn build_mutation_route_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
+    let authority = route_capability_authority();
+    let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_execution_route_plan_for_mutation_with_model(RouteCapabilityEntity::MODEL, &finalized)
+    build_execution_route_plan_for_mutation(authority, &finalized)
 }
 
 fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> ExecutionPlan {
@@ -257,17 +260,19 @@ fn build_aggregate_spec_route(
     plan: &AccessPlannedQuery,
     aggregate_expr: crate::db::query::builder::AggregateExpr,
 ) -> ExecutionPlan {
-    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
-    let execution_preparation = ExecutionPreparation::from_plan(
-        RouteCapabilityEntity::MODEL,
-        &finalized,
-        slot_map_for_model_plan(RouteCapabilityEntity::MODEL, &finalized),
-    );
+    let authority = route_capability_authority();
+    let finalized = finalized_plan_for_authority(authority, plan);
+    let execution_preparation =
+        ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
 
-    build_execution_route_plan_for_aggregate_spec_with_model(
-        RouteCapabilityEntity::MODEL,
+    build_execution_route_plan_for_aggregate_spec(
         &finalized,
-        AggregateRouteShape::from_aggregate_expr(&aggregate_expr),
+        AggregateRouteShape::new_from_fields(
+            aggregate_expr.kind(),
+            aggregate_expr.target_field(),
+            authority.fields(),
+            authority.primary_key_name(),
+        ),
         &execution_preparation,
     )
 }
@@ -373,12 +378,11 @@ fn grouped_field_slot(field: &str) -> FieldSlot {
 }
 
 fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
-    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
+    let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
     let grouped_handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     build_execution_route_plan_for_grouped_plan(
-        RouteCapabilityEntity::MODEL,
         grouped_handoff.base(),
         grouped_handoff.grouped_plan_strategy(),
     )
@@ -419,7 +423,6 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
         })
         .collect::<Vec<_>>();
     let route_plan = build_execution_route_plan_for_grouped_plan(
-        RouteCapabilityEntity::MODEL,
         handoff.base(),
         handoff.grouped_plan_strategy(),
     );
@@ -459,7 +462,6 @@ fn grouped_policy_snapshot(
     let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
     let route_plan = build_execution_route_plan_for_grouped_plan(
-        RouteCapabilityEntity::MODEL,
         handoff.base(),
         handoff.grouped_plan_strategy(),
     );
@@ -799,12 +801,11 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &projected,
-        true,
-    )
-    .expect("direct projected indexed field should derive one covering-read route contract");
+    let contract =
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .expect(
+                "direct projected indexed field should derive one covering-read route contract",
+            );
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -826,12 +827,8 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
         MissingRowPolicy::Ignore,
     );
     assert!(
-        derive_load_terminal_fast_path_contract_for_model(
-            RouteCapabilityEntity::MODEL,
-            &materialized,
-            true,
-        )
-        .is_none(),
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &materialized, true)
+            .is_none(),
         "all-field entity projection should stay on the materialized load route",
     );
 }
@@ -850,8 +847,8 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load_with_model(
-        RouteCapabilityEntity::MODEL,
+    let route_plan = build_execution_route_plan_for_load(
+        route_capability_authority(),
         &projected,
         &ScalarContinuationContext::initial(),
         None,
@@ -877,12 +874,9 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
 #[test]
 fn route_plan_initial_secondary_covering_is_planner_proven() {
     let plan = secondary_order_covering_plan();
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-    )
-    .expect("initial secondary covering route plan should build");
+    let route_plan =
+        build_initial_execution_route_plan_for_load(route_capability_authority(), &plan, None)
+            .expect("initial secondary covering route plan should build");
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("initial secondary covering route should retain a covering-read contract");
@@ -898,12 +892,9 @@ fn route_plan_initial_secondary_covering_is_planner_proven() {
 #[test]
 fn route_plan_initial_composite_secondary_covering_is_planner_proven() {
     let plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-    )
-    .expect("initial composite secondary covering route plan should build");
+    let route_plan =
+        build_initial_execution_route_plan_for_load(route_capability_authority(), &plan, None)
+            .expect("initial composite secondary covering route plan should build");
     let covering = route_plan.load_terminal_fast_path().expect(
         "initial composite secondary covering route should retain a covering-read contract",
     );
@@ -925,12 +916,11 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_pl
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &projected,
-        true,
-    )
-    .expect("PK-only full scan should derive one planner-proven covering-read route contract");
+    let contract =
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .expect(
+                "PK-only full scan should derive one planner-proven covering-read route contract",
+            );
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -959,12 +949,11 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_pl
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &projected,
-        true,
-    )
-    .expect("PK-only key range should derive one planner-proven covering-read route contract");
+    let contract =
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .expect(
+                "PK-only key range should derive one planner-proven covering-read route contract",
+            );
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -988,8 +977,8 @@ fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contr
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load_with_model(
-        RouteCapabilityEntity::MODEL,
+    let route_plan = build_execution_route_plan_for_load(
+        route_capability_authority(),
         &projected,
         &ScalarContinuationContext::initial(),
         None,
@@ -1026,8 +1015,8 @@ fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract()
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load_with_model(
-        RouteCapabilityEntity::MODEL,
+    let route_plan = build_execution_route_plan_for_load(
+        route_capability_authority(),
         &projected,
         &ScalarContinuationContext::initial(),
         None,
@@ -1061,12 +1050,11 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_c
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &projected,
-        true,
-    )
-    .expect("PK-only by-key lookup should derive one row-check covering-read route contract");
+    let contract =
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .expect(
+                "PK-only by-key lookup should derive one row-check covering-read route contract",
+            );
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -1095,12 +1083,11 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &projected,
-        true,
-    )
-    .expect("PK-only by-keys lookup should derive one row-check covering-read route contract");
+    let contract =
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .expect(
+                "PK-only by-keys lookup should derive one row-check covering-read route contract",
+            );
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -1130,12 +1117,8 @@ fn route_plan_load_terminal_covering_read_contract_rejects_pk_only_by_keys_desc_
     });
 
     assert!(
-        derive_load_terminal_fast_path_contract_for_model(
-            RouteCapabilityEntity::MODEL,
-            &projected,
-            true,
-        )
-        .is_none(),
+        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
+            .is_none(),
         "phase-1 multi-key PK covering should stay fail-closed on descending order until exact-key reorder is explicit",
     );
 }
@@ -2965,7 +2948,6 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
     );
 
     let route_plan = build_execution_route_plan_for_grouped_plan(
-        RouteCapabilityEntity::MODEL,
         grouped_handoff.base(),
         grouped_handoff.grouped_plan_strategy(),
     );
@@ -3040,7 +3022,6 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     assert_eq!(grouped_handoff.execution().max_groups(), 17);
     assert_eq!(grouped_handoff.execution().max_group_bytes(), 8192);
     let route_plan = build_execution_route_plan_for_grouped_plan(
-        RouteCapabilityEntity::MODEL,
         grouped_handoff.base(),
         grouped_handoff.grouped_plan_strategy(),
     );
@@ -3712,11 +3693,8 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
         offset: 0,
     });
 
-    let execution_preparation = ExecutionPreparation::from_plan(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        slot_map_for_model_plan(RouteCapabilityEntity::MODEL, &plan),
-    );
+    let execution_preparation =
+        ExecutionPreparation::from_plan(&plan, slot_map_for_model_plan(&plan));
     let predicate_slots = execution_preparation
         .compiled_predicate()
         .expect("predicate slots should compile for mixed strict/residual predicate");

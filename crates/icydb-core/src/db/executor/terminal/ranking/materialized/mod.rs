@@ -18,7 +18,6 @@ use crate::{
         },
     },
     error::InternalError,
-    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
     value::{StorageKey, Value},
 };
@@ -38,14 +37,14 @@ where
     // Reduce one materialized response into deterministic top-k ranked rows
     // ordered by `(field_value_desc, primary_key_asc)`.
     pub(super) fn top_k_ranked_rows_from_materialized(
-        model: &'static EntityModel,
+        row_layout: RowLayout,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(usize, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
-            model,
+            row_layout,
             rows,
             target_field,
             field_slot,
@@ -57,14 +56,14 @@ where
     // Reduce one materialized response into deterministic bottom-k ranked rows
     // ordered by `(field_value_asc, primary_key_asc)`.
     pub(super) fn bottom_k_ranked_rows_from_materialized(
-        model: &'static EntityModel,
+        row_layout: RowLayout,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(usize, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
-            model,
+            row_layout,
             rows,
             target_field,
             field_slot,
@@ -81,14 +80,13 @@ where
 // - Selection uses a bounded nth-style window so ranking terminals do not
 //   maintain one fully sorted vector during candidate ingestion.
 fn rank_k_rows_from_materialized_structural(
-    model: &'static EntityModel,
+    row_layout: RowLayout,
     rows: &[DataRow],
     target_field: &str,
     field_slot: FieldSlot,
     take_count: u32,
     direction: RankedFieldDirection,
 ) -> Result<Vec<(usize, Value)>, InternalError> {
-    let row_layout = RowLayout::from_model(model);
     let mut ranked_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: decode only the ranked target slot from borrowed raw rows and

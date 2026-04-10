@@ -11,7 +11,7 @@ use crate::{
             route::{
                 ExecutionRoutePlan, ExecutionRouteShape, LoadTerminalFastPathContract,
                 TopNSeekSpec, build_execution_route_plan_for_grouped_plan,
-                build_initial_execution_route_plan_for_load_with_model,
+                build_initial_execution_route_plan_for_load_with_fast_path,
             },
         },
         query::{
@@ -22,12 +22,14 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource, covering_read_reason_code_for_load_plan,
-                covering_strict_predicate_compatible, grouped_executor_handoff,
+                CoveringReadFieldSource, covering_read_execution_plan_from_fields,
+                covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
+                grouped_executor_handoff,
             },
         },
     },
     error::InternalError,
+    model::field::FieldModel,
     value::Value,
 };
 use std::borrow::Cow;
@@ -45,36 +47,40 @@ use crate::db::executor::explain::descriptor::shared::{
 };
 
 // Assemble one canonical scalar load execution descriptor tree through one
-// schema/model-owned explain boundary.
+// field-table and primary-key explain boundary.
 #[inline(never)]
-pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
-    model: &'static crate::model::entity::EntityModel,
+pub(in crate::db) fn assemble_load_execution_node_descriptor(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_execution_route_plan_for_explain_with_model(model, plan)?;
+    let route_plan = build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
 
-    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
+    Ok(assemble_load_execution_node_descriptor_with_route_plan(
+        plan,
+        &route_plan,
+    ))
 }
 
 #[inline(never)]
-pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
-    model: &'static crate::model::entity::EntityModel,
+pub(in crate::db) fn assemble_load_execution_node_descriptor_with_visible_indexes(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
     _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    assemble_load_execution_node_descriptor_with_model(model, plan)
+    assemble_load_execution_node_descriptor(fields, primary_key_name, plan)
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
 // caller-supplied route plan.
-fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
-    model: &'static crate::model::entity::EntityModel,
+fn assemble_load_execution_node_descriptor_with_route_plan(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
 ) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
+        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
@@ -112,7 +118,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
             Value::from(predicate_index_capability_label(capability)),
         );
     }
-    annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
+    annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan);
     annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
@@ -199,47 +205,45 @@ fn load_modifier_execution_nodes(
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one
-// schema/model-owned explain boundary.
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
-    model: &'static crate::model::entity::EntityModel,
+// field-table and primary-key explain boundary.
+pub(in crate::db) fn assemble_load_execution_verbose_diagnostics(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
-    let route_plan = build_execution_route_plan_for_explain_with_model(model, plan)?;
+    let route_plan = build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
 
-    Ok(
-        assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
-            model,
-            plan,
-            &route_plan,
-        ),
-    )
+    Ok(assemble_load_execution_verbose_diagnostics_with_route_plan(
+        plan,
+        &route_plan,
+    ))
 }
 
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
-    model: &'static crate::model::entity::EntityModel,
+pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_visible_indexes(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
     _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
-    assemble_load_execution_verbose_diagnostics_with_model(model, plan)
+    assemble_load_execution_verbose_diagnostics(fields, primary_key_name, plan)
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one
 // caller-supplied route plan.
-fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
-    model: &'static crate::model::entity::EntityModel,
+fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
 ) -> Vec<String> {
     // Phase 1: build canonical route/planner inputs for load mode.
     let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
+        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible = covering_strict_predicate_compatible(
         plan,
         execution_preparation_predicate_index_capability(&execution_preparation),
     );
     let projected_fields = plan
-        .projection_spec(model)
+        .frozen_projection_spec()
         .fields()
         .map(projection_field_label)
         .map(Cow::into_owned)
@@ -383,21 +387,54 @@ fn append_grouped_route_verbose_diagnostics(
 
 // Grouped execution descriptors must consume the planner-owned grouped handoff
 // so explain does not silently rebuild a scalar load route for grouped plans.
-fn build_execution_route_plan_for_explain_with_model(
-    model: &'static crate::model::entity::EntityModel,
+fn build_execution_route_plan_for_explain(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionRoutePlan, InternalError> {
     if plan.grouped_plan().is_some() {
         let grouped_handoff = grouped_executor_handoff(plan)?;
 
         return Ok(build_execution_route_plan_for_grouped_plan(
-            model,
             grouped_handoff.base(),
             grouped_handoff.grouped_plan_strategy(),
         ));
     }
 
-    build_initial_execution_route_plan_for_load_with_model(model, plan, None)
+    build_initial_execution_route_plan_for_load_with_fast_path(
+        plan,
+        None,
+        derive_explain_load_terminal_fast_path_contract(fields, primary_key_name, plan),
+    )
+}
+
+// Explain-only load routing derives covering-read eligibility from the same
+// generated field table and frozen PK identity that planner/authority paths use.
+fn derive_explain_load_terminal_fast_path_contract(
+    fields: &'static [FieldModel],
+    primary_key_name: &'static str,
+    plan: &AccessPlannedQuery,
+) -> Option<LoadTerminalFastPathContract> {
+    if !plan.scalar_plan().mode.is_load() {
+        return None;
+    }
+
+    let execution_preparation =
+        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+    let strict_predicate_compatible = covering_strict_predicate_compatible(
+        plan,
+        execution_preparation
+            .predicate_capability_profile()
+            .map(crate::db::predicate::PredicateCapabilityProfile::index),
+    );
+
+    covering_read_execution_plan_from_fields(
+        fields,
+        plan,
+        primary_key_name,
+        strict_predicate_compatible,
+    )
+    .map(LoadTerminalFastPathContract::CoveringRead)
 }
 
 // Annotate the access root with one stable scalar covering-read route label.

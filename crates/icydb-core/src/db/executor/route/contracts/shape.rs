@@ -3,9 +3,12 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::query::{
-    builder::AggregateExpr,
-    plan::{AggregateKind, GroupedPlanStrategy},
+use crate::{
+    db::{
+        executor::aggregate::capability::field_kind_supports_aggregate_ordering,
+        query::plan::{AggregateKind, GroupedPlanStrategy},
+    },
+    model::field::FieldModel,
 };
 
 ///
@@ -55,29 +58,71 @@ pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] =
 ///
 /// Borrowed aggregate semantic shape consumed by route planning for scalar
 /// aggregate routing.
-/// This route-owned contract keeps kind plus optional target-field metadata
-/// available without requiring owned `AggregateExpr` payloads in the route
-/// planner.
+/// This route-owned contract keeps kind plus planner-resolved target-field
+/// metadata available without requiring route policy to rediscover field-table
+/// semantics for field existence or orderability checks.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AggregateRouteShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
+    target_field_known: bool,
+    target_field_orderable: bool,
+    target_field_is_primary_key: bool,
 }
 
 impl<'a> AggregateRouteShape<'a> {
-    /// Construct one route-owned aggregate shape from semantic parts.
+    /// Construct one route-owned aggregate shape from already-resolved
+    /// planner/prepared metadata.
     #[must_use]
-    pub(in crate::db) const fn new(kind: AggregateKind, target_field: Option<&'a str>) -> Self {
-        Self { kind, target_field }
+    pub(in crate::db) const fn new_resolved(
+        kind: AggregateKind,
+        target_field: Option<&'a str>,
+        target_field_known: bool,
+        target_field_orderable: bool,
+        target_field_is_primary_key: bool,
+    ) -> Self {
+        Self {
+            kind,
+            target_field,
+            target_field_known,
+            target_field_orderable,
+            target_field_is_primary_key,
+        }
     }
 
-    /// Borrow one route-owned aggregate shape from a full aggregate
-    /// expression.
+    /// Construct one route-owned aggregate shape from field-table semantics.
     #[must_use]
-    pub(in crate::db) fn from_aggregate_expr(aggregate: &'a AggregateExpr) -> Self {
-        Self::new(aggregate.kind(), aggregate.target_field())
+    pub(in crate::db) fn new_from_fields(
+        kind: AggregateKind,
+        target_field: Option<&'a str>,
+        fields: &[FieldModel],
+        primary_key_name: &str,
+    ) -> Self {
+        let target_field_known = target_field.is_none_or(|target_field| {
+            fields
+                .iter()
+                .any(|field_model| field_model.name() == target_field)
+        });
+        let target_field_orderable = target_field.is_some_and(|target_field| {
+            fields
+                .iter()
+                .find(|field_model| field_model.name() == target_field)
+                .is_some_and(|field_model| {
+                    field_kind_supports_aggregate_ordering(&field_model.kind())
+                })
+        });
+        let target_field_is_primary_key =
+            target_field.is_some_and(|target_field| target_field == primary_key_name);
+
+        Self::new_resolved(
+            kind,
+            target_field,
+            target_field_known,
+            target_field_orderable,
+            target_field_is_primary_key,
+        )
     }
 
     /// Return aggregate kind.
@@ -90,6 +135,24 @@ impl<'a> AggregateRouteShape<'a> {
     #[must_use]
     pub(in crate::db) const fn target_field(self) -> Option<&'a str> {
         self.target_field
+    }
+
+    /// Return whether the optional target field resolved against schema authority.
+    #[must_use]
+    pub(in crate::db) const fn target_field_known(self) -> bool {
+        self.target_field_known
+    }
+
+    /// Return whether the optional target field supports aggregate ordering.
+    #[must_use]
+    pub(in crate::db) const fn target_field_orderable(self) -> bool {
+        self.target_field_orderable
+    }
+
+    /// Return whether the optional target field is the entity primary key.
+    #[must_use]
+    pub(in crate::db) const fn target_field_is_primary_key(self) -> bool {
+        self.target_field_is_primary_key
     }
 }
 

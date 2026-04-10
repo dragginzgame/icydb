@@ -4,9 +4,7 @@
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
 
 #[cfg(test)]
-use crate::db::executor::route::{
-    LoadTerminalFastPathContract, derive_load_terminal_fast_path_contract_for_model_plan,
-};
+use crate::db::executor::route::LoadTerminalFastPathContract;
 use crate::{
     db::{
         access::AccessPlan,
@@ -14,7 +12,7 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            explain::assemble_load_execution_node_descriptor_with_model, lower_index_prefix_specs,
+            explain::assemble_load_execution_node_descriptor, lower_index_prefix_specs,
             lower_index_range_specs, preparation::slot_map_for_model_plan,
             traversal::row_read_consistency_for_plan,
         },
@@ -209,13 +207,8 @@ impl ExecutablePlanCore {
             return Err(ExecutorPlanError::continuation_cursor_requires_load_plan());
         };
 
-        contract
-            .prepare_scalar_cursor(
-                authority.entity_path(),
-                authority.entity_tag(),
-                authority.model(),
-                cursor,
-            )
+        authority
+            .prepare_scalar_cursor(contract, cursor)
             .map_err(ExecutorPlanError::from)
     }
 
@@ -230,8 +223,8 @@ impl ExecutablePlanCore {
             );
         };
 
-        contract
-            .revalidate_scalar_cursor(authority.entity_tag(), authority.model(), cursor)
+        authority
+            .revalidate_scalar_cursor(contract, cursor)
             .map_err(CursorPlanError::into_internal_error)
     }
 
@@ -306,8 +299,10 @@ impl ExecutablePlanCore {
 // `ExecutablePlan<E>` shell or a structural follow-on rewrite.
 fn build_executable_plan_core(
     authority: EntityAuthority,
-    plan: AccessPlannedQuery,
+    mut plan: AccessPlannedQuery,
 ) -> ExecutablePlanCore {
+    authority.finalize_static_planning_shape(&mut plan);
+
     // Phase 0: derive immutable continuation contract once from planner semantics.
     let continuation = plan.continuation_contract(authority.entity_path());
 
@@ -461,17 +456,8 @@ pub(in crate::db::executor) struct PreparedAggregatePlan {
 
 impl PreparedAggregatePlan {
     #[must_use]
-    pub(in crate::db::executor) const fn authority(&self) -> EntityAuthority {
-        self.authority
-    }
-
-    #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
-        ExecutionPreparation::from_plan(
-            self.authority.model(),
-            self.core.plan(),
-            slot_map_for_model_plan(self.authority.model(), self.core.plan()),
-        )
+        ExecutionPreparation::from_plan(self.core.plan(), slot_map_for_model_plan(self.core.plan()))
     }
 
     pub(in crate::db::executor) fn into_streaming_parts(
@@ -521,7 +507,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     fn build(mut plan: AccessPlannedQuery) -> Self {
         let authority = EntityAuthority::for_type::<E>();
-        plan.finalize_planner_route_profile_for_model(E::MODEL);
+        authority.finalize_static_planning_shape(&mut plan);
+        authority.finalize_planner_route_profile(&mut plan);
 
         Self {
             core: build_executable_plan_core(authority, plan),
@@ -543,7 +530,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
             );
         }
 
-        assemble_load_execution_node_descriptor_with_model(E::MODEL, self.core.plan())
+        assemble_load_execution_node_descriptor(
+            E::MODEL.fields(),
+            E::MODEL.primary_key().name(),
+            self.core.plan(),
+        )
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.
@@ -611,7 +602,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             self.consistency(),
             self.has_predicate(),
             target_field,
-            authority.model().primary_key.name,
+            authority.primary_key_name(),
         )
     }
 
@@ -660,13 +651,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
     {
         // Phase 1: project all executor-owned summary fields from the logical plan.
         let plan = self.core.plan();
-        let projection_spec = plan.projection_spec(E::MODEL);
-        let projection_selection =
-            if plan.grouped_plan().is_some() || projection_spec.len() != E::MODEL.fields.len() {
-                "Declared"
-            } else {
-                "All"
-            };
+        let authority = EntityAuthority::for_type::<E>();
+        let projection_spec = plan.frozen_projection_spec();
+        let projection_selection = if plan.grouped_plan().is_some()
+            || projection_spec.len() != authority.row_layout().field_count()
+        {
+            "Declared"
+        } else {
+            "All"
+        };
         let projection_coverage_flag = plan.grouped_plan().is_some();
         let continuation_signature = self.core.continuation_signature_for_runtime()?;
         let ordering_direction = self
@@ -675,7 +668,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
             .order_contract()
             .direction();
         let load_terminal_fast_path =
-            derive_load_terminal_fast_path_contract_for_model_plan(E::MODEL, plan);
+            crate::db::executor::route::derive_load_terminal_fast_path_contract_for_plan(
+                authority, plan,
+            );
 
         // Phase 2: lower index-bound summaries into stable compact text.
         let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?);

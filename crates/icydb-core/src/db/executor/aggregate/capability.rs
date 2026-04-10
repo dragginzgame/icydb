@@ -10,11 +10,7 @@ use crate::{
         numeric::field_kind_supports_aggregate_numeric,
         query::plan::AccessPlannedQuery,
     },
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        field::FieldKind,
-        index::IndexModel,
-    },
+    model::{field::FieldKind, index::IndexModel},
 };
 
 /// Return true when the field kind is eligible for deterministic aggregate ordering.
@@ -58,23 +54,6 @@ pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
     kind: &FieldKind,
 ) -> bool {
     field_kind_supports_aggregate_numeric(kind)
-}
-
-/// Return whether the named field supports deterministic aggregate ordering.
-#[must_use]
-pub(in crate::db::executor) fn field_is_orderable_for_model(
-    model: &EntityModel,
-    field: &str,
-) -> bool {
-    let Some(field_model) = model
-        .fields
-        .iter()
-        .find(|candidate| candidate.name == field)
-    else {
-        return false;
-    };
-
-    field_kind_supports_aggregate_ordering(&field_model.kind)
 }
 
 ///
@@ -194,23 +173,20 @@ impl AggregateExecutionPolicy {
 }
 
 /// Derive aggregate execution policy from one validated plan and aggregate context.
-pub(in crate::db::executor) fn derive_aggregate_execution_policy_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     inputs: AggregateExecutionPolicyInputs,
 ) -> AggregateExecutionPolicy {
     let access_class = plan.access_strategy().class();
-    let field_min_fast_path = assess_field_extrema_fast_path_eligibility_for_model(
-        model,
+    let field_min_fast_path = assess_field_extrema_fast_path_eligibility(
         plan,
         direction,
         aggregate_shape,
         AggregateKind::Min,
     );
-    let field_max_fast_path = assess_field_extrema_fast_path_eligibility_for_model(
-        model,
+    let field_max_fast_path = assess_field_extrema_fast_path_eligibility(
         plan,
         direction,
         aggregate_shape,
@@ -228,8 +204,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy_for_model(
 }
 
 /// Derive aggregate-policy field-extrema fast-path eligibility for one plan.
-pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_model(
-    model: &EntityModel,
+pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
@@ -249,7 +224,7 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
             ),
         };
     }
-    let Some(target_field) = aggregate.target_field() else {
+    let Some(_target_field) = aggregate.target_field() else {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(
@@ -257,7 +232,7 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
             ),
         };
     };
-    if resolve_field_slot(model, target_field).is_none() {
+    if !aggregate.target_field_known() {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(
@@ -265,7 +240,7 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
             ),
         };
     }
-    if !field_is_orderable_for_model(model, target_field) {
+    if !aggregate.target_field_orderable() {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(
@@ -303,7 +278,7 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
             ),
         };
     }
-    if !field_extrema_target_has_matching_index_for_model(model, plan, target_field) {
+    if !field_extrema_target_has_matching_index(plan, aggregate) {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(AggregateFieldExtremaIneligibilityReason::NoMatchingIndex),
@@ -337,18 +312,20 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
     }
 }
 
-fn field_extrema_target_has_matching_index_for_model(
-    model: &EntityModel,
+fn field_extrema_target_has_matching_index(
     plan: &AccessPlannedQuery,
-    target_field: &str,
+    aggregate: AggregateRouteShape<'_>,
 ) -> bool {
     let access_class = plan.access_strategy().class();
     if !access_class.single_path() {
         return false;
     }
-    if field_target_is_primary_key_for_model(model, target_field) {
+    if aggregate.target_field_is_primary_key() {
         return access_class.single_path_supports_pk_stream_access();
     }
+    let Some(target_field) = aggregate.target_field() else {
+        return false;
+    };
     access_class
         .single_path_index_prefix_details()
         .or_else(|| access_class.single_path_index_range_details())
@@ -362,11 +339,10 @@ fn field_extrema_target_has_matching_index_for_model(
 
 /// Return whether one aggregate field target is the entity primary key.
 #[must_use]
-pub(in crate::db::executor) fn field_target_is_primary_key_for_model(
-    model: &EntityModel,
-    target_field: &str,
+pub(in crate::db::executor) fn field_target_is_primary_key(
+    aggregate: AggregateRouteShape<'_>,
 ) -> bool {
-    target_field == model.primary_key.name
+    aggregate.target_field_is_primary_key()
 }
 
 /// Return whether one field-target MAX probe can be treated as tie-free.
@@ -374,13 +350,14 @@ pub(in crate::db::executor) fn field_target_is_primary_key_for_model(
 /// - target is the primary key, or
 /// - target is backed by one unique single-field index.
 #[must_use]
-pub(in crate::db::executor) fn field_target_is_tie_free_probe_target_for_model(
-    model: &EntityModel,
-    target_field: &str,
+pub(in crate::db::executor) fn field_target_is_tie_free_probe_target(
+    aggregate: AggregateRouteShape<'_>,
     index_model: Option<IndexModel>,
 ) -> bool {
-    field_target_is_primary_key_for_model(model, target_field)
-        || field_target_is_unique_single_field_index_head(target_field, index_model)
+    field_target_is_primary_key(aggregate)
+        || aggregate.target_field().is_some_and(|target_field| {
+            field_target_is_unique_single_field_index_head(target_field, index_model)
+        })
 }
 
 fn field_target_is_unique_single_field_index_head(

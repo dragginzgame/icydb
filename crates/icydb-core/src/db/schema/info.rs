@@ -147,6 +147,7 @@ mod tests {
         "schema::info::tests::Entity",
         "Entity",
         &FIELDS[1],
+        1,
         &FIELDS,
         &INDEXES,
     );

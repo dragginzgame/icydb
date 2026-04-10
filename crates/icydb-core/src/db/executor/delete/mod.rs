@@ -4,7 +4,7 @@
 //! Boundary: delete-specific preflight/decode/apply flow over executable plans.
 
 #[cfg(feature = "sql")]
-use crate::db::executor::terminal::{KernelRow, RowDecoder, RowLayout};
+use crate::db::executor::terminal::{KernelRow, RowDecoder};
 #[cfg(feature = "sql")]
 use crate::db::schema::commit_schema_fingerprint_for_model;
 use crate::{
@@ -238,11 +238,8 @@ fn prepare_delete_execution_state(
     preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
 
     // Phase 2: build reusable delete predicate/index preparation once.
-    let execution_preparation = ExecutionPreparation::from_plan(
-        authority.entity.model(),
-        &logical_plan,
-        slot_map_for_model_plan(authority.entity.model(), &logical_plan),
-    );
+    let execution_preparation =
+        ExecutionPreparation::from_plan(&logical_plan, slot_map_for_model_plan(&logical_plan));
 
     Ok(PreparedDeleteExecutionState {
         authority,
@@ -310,7 +307,6 @@ where
 
     // Phase 2: apply typed delete post-access filtering and ordering.
     let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        prepared.authority.entity.model(),
         &prepared.logical_plan,
         &mut rows,
         prepared.execution_preparation.compiled_predicate(),
@@ -352,7 +348,6 @@ where
 
     // Phase 2: apply typed delete post-access filtering and ordering.
     let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        prepared.authority.entity.model(),
         &prepared.logical_plan,
         &mut rows,
         prepared.execution_preparation.compiled_predicate(),
@@ -385,7 +380,7 @@ fn prepare_structural_delete_rows(
     data_rows: Vec<DataRow>,
 ) -> Result<DeletePreparation, InternalError> {
     // Phase 1: decode structural access rows directly into slot-indexed kernel rows.
-    let row_layout = RowLayout::from_model(prepared.authority.entity.model());
+    let row_layout = prepared.authority.entity.row_layout();
     let row_decoder = RowDecoder::structural();
     let mut rows = data_rows
         .into_iter()
@@ -394,7 +389,6 @@ fn prepare_structural_delete_rows(
 
     // Phase 2: apply delete-only post-access semantics on the structural row shape.
     let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        prepared.authority.entity.model(),
         &prepared.logical_plan,
         &mut rows,
         prepared.execution_preparation.compiled_predicate(),

@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::query::plan::{AggregateKind, GroupedDistinctExecutionStrategy};
+use crate::db::query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy};
 
 ///
 /// global_distinct_field_target_and_kind
@@ -14,8 +14,8 @@ use crate::db::query::plan::{AggregateKind, GroupedDistinctExecutionStrategy};
 ///
 pub(in crate::db::executor) fn global_distinct_field_target_and_kind(
     strategy: &GroupedDistinctExecutionStrategy,
-) -> Option<(&str, AggregateKind)> {
-    let target_field = strategy.global_distinct_target_field()?;
+) -> Option<(&FieldSlot, AggregateKind)> {
+    let target_field = strategy.global_distinct_target_slot()?;
     let aggregate_kind = strategy.global_distinct_aggregate_kind()?;
 
     Some((target_field, aggregate_kind))

@@ -48,13 +48,6 @@ impl GroupedRouteStage {
         &self.planner_payload.plan
     }
 
-    /// Borrow the structural entity model for this grouped runtime shape.
-    pub(in crate::db::executor) const fn entity_model(
-        &self,
-    ) -> &'static crate::model::entity::EntityModel {
-        self.planner_payload.entity_model
-    }
-
     /// Return planner-projected grouped execution configuration.
     pub(in crate::db::executor) const fn grouped_execution(&self) -> GroupedExecutionConfig {
         self.planner_payload.grouped_execution

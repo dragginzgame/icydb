@@ -16,12 +16,12 @@ use crate::{
                     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                     compare_orderable_field_values_with_slot,
                     extract_orderable_field_value_from_decoded_slot,
-                    resolve_orderable_aggregate_target_slot_with_model,
                 },
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntimeAdapter, ProjectionMaterializationMode,
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
+                ProjectionMaterializationMode,
             },
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
@@ -183,6 +183,7 @@ impl ExecutionKernel {
         prepared: &PreparedAggregateStreamingInputs<'_>,
         kind: AggregateKind,
         target_field: &str,
+        field_slot: crate::db::executor::aggregate::field::FieldSlot,
         direction: Direction,
         route_plan: &crate::db::executor::ExecutionPlan,
     ) -> Result<ScalarAggregateOutput, InternalError> {
@@ -201,11 +202,7 @@ impl ExecutionKernel {
         // unsupported targets fail without scan-budget consumption.
         let spec = FieldExtremaFoldSpec {
             target_field,
-            field_slot: resolve_orderable_aggregate_target_slot_with_model(
-                prepared.authority.model(),
-                target_field,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?,
+            field_slot,
             kind,
             direction,
         };
@@ -256,17 +253,15 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         spec: &FieldExtremaFoldSpec<'_>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
-        let row_layout = RowLayout::from_model(prepared.authority.model());
-        let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+        let row_layout = prepared.authority.row_layout();
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             &prepared.logical_plan.access,
             crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),
             ),
-            prepared.store,
-            prepared.authority.model(),
         );
-        let execution_inputs = ExecutionInputs::new(
+        let execution_inputs = ExecutionInputs::new_prepared(
             &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
@@ -276,12 +271,9 @@ impl ExecutionKernel {
             },
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
-            crate::db::executor::pipeline::contracts::ExecutionInputPreparation {
-                model: prepared.authority.model(),
-                load_terminal_fast_path: route_plan.load_terminal_fast_path(),
-                emit_cursor: true,
-            },
-        )?;
+            PreparedExecutionProjection::empty(),
+            false,
+        );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
             route_plan,

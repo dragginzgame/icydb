@@ -6,7 +6,7 @@
 use crate::{
     db::{codec::ROW_FORMAT_VERSION_CURRENT, data::RawRow},
     error::InternalError,
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldModel},
 };
 use serde_cbor::Value as CborValue;
 use std::borrow::Cow;
@@ -15,6 +15,58 @@ use thiserror::Error as ThisError;
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
+
+///
+/// StructuralRowContract
+///
+/// StructuralRowContract is the compact static row-shape authority used by
+/// structural row readers that do not need the full semantic `EntityModel`.
+/// It keeps only the entity path, field table, and primary-key slot required
+/// to open canonical persisted rows through the data-layer decode boundary.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db) struct StructuralRowContract {
+    entity_path: &'static str,
+    fields: &'static [FieldModel],
+    primary_key_slot: usize,
+}
+
+impl StructuralRowContract {
+    /// Build one structural row contract from the generated entity model.
+    #[must_use]
+    pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
+        Self {
+            entity_path: model.path(),
+            fields: model.fields(),
+            primary_key_slot: model.primary_key_slot(),
+        }
+    }
+
+    /// Borrow the owning entity path for diagnostics.
+    #[must_use]
+    pub(in crate::db) const fn entity_path(self) -> &'static str {
+        self.entity_path
+    }
+
+    /// Borrow the static field table for slot-indexed decode.
+    #[must_use]
+    pub(in crate::db) const fn fields(self) -> &'static [FieldModel] {
+        self.fields
+    }
+
+    /// Return the declared structural field count.
+    #[must_use]
+    pub(in crate::db) const fn field_count(self) -> usize {
+        self.fields.len()
+    }
+
+    /// Return the authoritative primary-key slot.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot(self) -> usize {
+        self.primary_key_slot
+    }
+}
 
 ///
 /// StructuralRowFieldBytes
@@ -32,13 +84,13 @@ pub(in crate::db) struct StructuralRowFieldBytes<'a> {
 }
 
 impl<'a> StructuralRowFieldBytes<'a> {
-    /// Decode one raw row payload into model slot-aligned encoded field spans.
-    pub(in crate::db) fn from_row_bytes(
+    /// Decode one raw row payload into contract slot-aligned encoded field spans.
+    pub(in crate::db) fn from_row_bytes_with_contract(
         row_bytes: &'a [u8],
-        model: &'static EntityModel,
+        contract: StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
         let payload = decode_structural_row_payload_bytes(row_bytes)?;
-        let (payload, spans) = decode_row_field_spans(payload, model)?;
+        let (payload, spans) = decode_row_field_spans(payload, contract)?;
 
         Ok(Self { payload, spans })
     }
@@ -48,7 +100,15 @@ impl<'a> StructuralRowFieldBytes<'a> {
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, StructuralRowDecodeError> {
-        Self::from_row_bytes(raw_row.as_bytes(), model)
+        Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
+    }
+
+    /// Decode one raw row into contract slot-aligned encoded field payload spans.
+    pub(in crate::db) fn from_raw_row_with_contract(
+        raw_row: &'a RawRow,
+        contract: StructuralRowContract,
+    ) -> Result<Self, StructuralRowDecodeError> {
+        Self::from_row_bytes_with_contract(raw_row.as_bytes(), contract)
     }
 
     /// Borrow one encoded persisted field payload by stable slot index.
@@ -213,7 +273,7 @@ fn decode_structural_row_payload_bytes(
 // Decode the canonical slot-container header into slot-aligned payload spans.
 fn decode_row_field_spans<'a>(
     payload: Cow<'a, [u8]>,
-    model: &'static EntityModel,
+    contract: StructuralRowContract,
 ) -> Result<RowFieldSpans<'a>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
@@ -223,10 +283,10 @@ fn decode_row_field_spans<'a>(
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
-    if field_count != model.fields().len() {
+    if field_count != contract.field_count() {
         return Err(StructuralRowDecodeError::corruption(format!(
             "row decode: slot count mismatch: expected {}, found {}",
-            model.fields().len(),
+            contract.field_count(),
             field_count,
         )));
     }
@@ -242,7 +302,7 @@ fn decode_row_field_spans<'a>(
     let data_section = bytes
         .get(data_start..)
         .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
-    let mut spans: SlotSpans = vec![None; model.fields().len()];
+    let mut spans: SlotSpans = vec![None; contract.field_count()];
 
     for (slot, span) in spans.iter_mut().enumerate() {
         let entry_start = slot.checked_mul(8).ok_or_else(|| {

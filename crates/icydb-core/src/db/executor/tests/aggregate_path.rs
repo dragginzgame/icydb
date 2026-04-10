@@ -163,11 +163,13 @@ fn planned_slot<E>(field: &str) -> crate::db::query::plan::FieldSlot
 where
     E: EntityKind,
 {
-    let index = resolve_field_slot(E::MODEL, field).unwrap_or(0);
+    let resolved_index = resolve_field_slot(E::MODEL, field);
+    let index = resolved_index.unwrap_or(0);
 
     crate::db::query::plan::FieldSlot {
         index,
         field: field.to_string(),
+        kind: resolved_index.and_then(|index| E::MODEL.fields.get(index).map(|field| field.kind)),
     }
 }
 
