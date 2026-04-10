@@ -58,7 +58,7 @@ impl EntityAuthority {
 
     /// Build authority from one resolved entity type.
     #[must_use]
-    pub fn for_type<E: EntityKind>() -> Self {
+    pub const fn for_type<E: EntityKind>() -> Self {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
