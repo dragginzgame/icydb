@@ -10075,7 +10075,7 @@ fn sql_canister_perf_probe_reports_timing_trace() {
         .unwrap_or_else(|err| panic!("failed to acquire PocketIC serial guard: {err}"));
     log_perf_probe_phase(started_at, "serial-guard-acquired");
 
-    let pic = match try_pic() {
+    let _pic = match try_pic() {
         Ok(pic) => pic,
         Err(err) if should_skip_pic_start(&err) => {
             skip_sql_canister_test(err);
