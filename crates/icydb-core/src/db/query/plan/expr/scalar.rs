@@ -51,7 +51,7 @@ pub(in crate::db) struct ScalarProjectionField {
     field: String,
     slot: usize,
     #[cfg(test)]
-    program: ScalarValueProgram,
+    program: Option<ScalarValueProgram>,
 }
 
 impl ScalarProjectionField {
@@ -70,8 +70,8 @@ impl ScalarProjectionField {
     #[cfg(test)]
     /// Borrow the test-only scalar slot program used by slot-reader tests.
     #[must_use]
-    pub(in crate::db) const fn program(&self) -> &ScalarValueProgram {
-        &self.program
+    pub(in crate::db) const fn program(&self) -> Option<&ScalarValueProgram> {
+        self.program.as_ref()
     }
 }
 
@@ -86,7 +86,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
         Expr::Field(field_id) => {
             let slot = resolve_field_slot(model, field_id.as_str())?;
             #[cfg(test)]
-            let program = compile_scalar_field_program(model, field_id.as_str())?;
+            let program = compile_scalar_field_program(model, field_id.as_str());
 
             Some(ScalarProjectionExpr::Field(ScalarProjectionField {
                 field: field_id.as_str().to_string(),

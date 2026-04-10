@@ -56,14 +56,25 @@ fn covering_read_model() -> &'static crate::model::entity::EntityModel {
     <CoveringReadEntity as EntitySchema>::MODEL
 }
 
+fn finalized_covering_read_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
+    let mut finalized = plan.clone();
+    finalized
+        .finalize_static_planning_shape_for_model(covering_read_model())
+        .expect("covering tests require planner-frozen projection metadata");
+
+    finalized
+}
+
 fn covering_read_plan(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<super::CoveringReadPlan> {
+    let finalized = finalized_covering_read_plan(plan);
+
     super::covering_read_plan_from_fields(
         covering_read_model().fields(),
-        plan,
+        &finalized,
         primary_key_name,
         strict_predicate_compatible,
     )
@@ -74,9 +85,11 @@ fn covering_read_execution_plan(
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<super::CoveringReadExecutionPlan> {
+    let finalized = finalized_covering_read_plan(plan);
+
     super::covering_read_execution_plan_from_fields(
         covering_read_model().fields(),
-        plan,
+        &finalized,
         primary_key_name,
         strict_predicate_compatible,
     )

@@ -223,10 +223,10 @@ fn eval_scalar_expr_for_row(
     let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
     let raw_row = RawRow::from_entity(row).expect("persisted row should encode");
-    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
+    let mut row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
         .expect("persisted row should decode structurally");
 
-    eval_scalar_projection_expr(&compiled, &row_fields)
+    eval_scalar_projection_expr(&compiled, &mut row_fields)
 }
 
 fn grouped_execution_specs<const N: usize>(

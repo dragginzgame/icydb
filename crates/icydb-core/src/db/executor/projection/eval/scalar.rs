@@ -52,7 +52,7 @@ impl ScalarProjectionEvalError {
 /// Evaluate one compiled scalar projection expression against one slot reader.
 pub(in crate::db::executor) fn eval_scalar_projection_expr(
     expr: &ScalarProjectionExpr,
-    slots: &dyn SlotReader,
+    slots: &mut dyn SlotReader,
 ) -> Result<Value, ScalarProjectionEvalError> {
     eval_scalar_projection_expr_core(
         expr,
@@ -152,20 +152,41 @@ fn eval_scalar_projection_expr_core<'a, E>(
 #[cfg(test)]
 fn eval_scalar_projection_field(
     field: &ScalarProjectionField,
-    slots: &dyn SlotReader,
+    slots: &mut dyn SlotReader,
 ) -> Result<Cow<'static, Value>, ScalarProjectionEvalError> {
-    let Some(value) = eval_scalar_value_program(field.program(), slots)
-        .map_err(ScalarProjectionEvalError::Internal)?
-    else {
-        return Err(ScalarProjectionEvalError::Eval(
-            ProjectionEvalError::MissingFieldValue {
-                field: field.field().to_string(),
-                index: field.slot(),
-            },
-        ));
+    // Scalar fields keep the fast scalar-expression seam in tests. Non-scalar
+    // projected fields still need to compile for planner/executor contract
+    // tests, so fall back to slot-contract decoding there.
+    let value = if let Some(program) = field.program() {
+        let Some(value) = eval_scalar_value_program(program, slots)
+            .map_err(ScalarProjectionEvalError::Internal)?
+        else {
+            return Err(ScalarProjectionEvalError::Eval(
+                ProjectionEvalError::MissingFieldValue {
+                    field: field.field().to_string(),
+                    index: field.slot(),
+                },
+            ));
+        };
+
+        scalar_expr_value_into_value(value)
+    } else {
+        let Some(value) = slots
+            .get_value(field.slot())
+            .map_err(ScalarProjectionEvalError::Internal)?
+        else {
+            return Err(ScalarProjectionEvalError::Eval(
+                ProjectionEvalError::MissingFieldValue {
+                    field: field.field().to_string(),
+                    index: field.slot(),
+                },
+            ));
+        };
+
+        value
     };
 
-    Ok(Cow::Owned(scalar_expr_value_into_value(value)))
+    Ok(Cow::Owned(value))
 }
 
 #[cfg(test)]
@@ -173,7 +194,11 @@ fn eval_canonical_scalar_projection_field(
     field: &ScalarProjectionField,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Cow<'static, Value>, InternalError> {
-    let value = eval_canonical_scalar_value_program(field.program(), slots)?;
+    let value = if let Some(program) = field.program() {
+        scalar_expr_value_into_value(eval_canonical_scalar_value_program(program, slots)?)
+    } else {
+        slots.required_value_by_contract(field.slot())?
+    };
 
-    Ok(Cow::Owned(scalar_expr_value_into_value(value)))
+    Ok(Cow::Owned(value))
 }

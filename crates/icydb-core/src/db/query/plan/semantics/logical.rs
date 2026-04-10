@@ -129,9 +129,11 @@ impl AccessPlannedQuery {
     /// Lower this plan into one canonical planner-owned projection semantic spec.
     #[must_use]
     pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
-        let _ = model;
+        if let Some(static_shape) = &self.static_planning_shape {
+            return static_shape.projection_spec.clone();
+        }
 
-        self.static_planning_shape().projection_spec.clone()
+        lower_projection_intent(model, &self.logical, &self.projection_selection)
     }
 
     /// Lower this plan into one projection semantic shape for identity hashing.

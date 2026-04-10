@@ -142,6 +142,17 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
     }
 }
 
+fn finalized_grouped_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
+    let mut finalized = plan.clone();
+    finalized
+        .finalize_static_planning_shape_for_model(
+            <PlanValidateGroupedEntity as EntitySchema>::MODEL,
+        )
+        .expect("grouped plan tests require planner-frozen execution shape");
+
+    finalized
+}
+
 fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
     match err {
         PlanError::User(inner) => match inner.as_ref() {
@@ -1094,8 +1105,9 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
         execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
     });
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert!(
         handoff.projection_is_identity(),
@@ -1160,8 +1172,9 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
         }],
     );
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
@@ -1189,8 +1202,9 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
         }],
     );
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(
         handoff.grouped_fold_path(),
@@ -1212,8 +1226,9 @@ fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
         }],
     );
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
@@ -1241,8 +1256,9 @@ fn grouped_executor_handoff_lowers_global_distinct_avg_execution_strategy() {
         }],
     );
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(handoff.group_fields().len(), 0);
     assert_eq!(handoff.aggregate_projection_specs().len(), 1);
     assert!(matches!(
@@ -1271,8 +1287,9 @@ fn grouped_executor_handoff_projects_scalar_distinct_policy_violation_for_execut
     );
     grouped.scalar_plan_mut().distinct = true;
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(
         handoff.distinct_policy_violation_for_executor(),
         Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
@@ -1307,8 +1324,9 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
         }),
     );
 
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     let having = handoff
         .having()
         .expect("grouped handoff should preserve having clause payload");
@@ -1337,8 +1355,9 @@ fn grouped_executor_handoff_snapshot_vector(
     group: &GroupSpec,
 ) -> GroupedExecutorHandoffSnapshotVector {
     let grouped = base.clone().into_grouped(group.clone());
+    let finalized = finalized_grouped_plan(&grouped);
     let handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     let aggregate_vector = handoff
         .aggregate_projection_specs()
         .iter()

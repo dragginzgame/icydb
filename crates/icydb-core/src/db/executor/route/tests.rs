@@ -176,6 +176,7 @@ fn finalized_plan_for_authority(
     plan: &AccessPlannedQuery,
 ) -> AccessPlannedQuery {
     let mut finalized = plan.clone();
+    authority.finalize_static_planning_shape(&mut finalized);
     authority.finalize_planner_route_profile(&mut finalized);
 
     finalized
@@ -240,6 +241,25 @@ fn build_mutation_route_plan(
     let finalized = finalized_plan_for_authority(authority, plan);
 
     build_execution_route_plan_for_mutation(authority, &finalized)
+}
+
+fn build_initial_load_route_plan(
+    plan: &AccessPlannedQuery,
+) -> Result<ExecutionPlan, crate::error::InternalError> {
+    let authority = route_capability_authority();
+    let finalized = finalized_plan_for_authority(authority, plan);
+
+    build_initial_execution_route_plan_for_load(authority, &finalized, None)
+}
+
+fn derive_load_terminal_fast_path_contract_for_test(
+    plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
+) -> Option<LoadTerminalFastPathContract> {
+    let authority = route_capability_authority();
+    let finalized = finalized_plan_for_authority(authority, plan);
+
+    derive_load_terminal_fast_path_contract(authority, &finalized, strict_predicate_compatible)
 }
 
 fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> ExecutionPlan {
@@ -407,9 +427,11 @@ fn scalar_aggregate_route_snapshot(
 }
 
 fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
-    let planner_strategy =
-        grouped_plan_strategy(plan).expect("grouped route snapshot requires grouped strategy");
-    let handoff = grouped_executor_handoff(plan).expect("grouped route snapshot requires handoff");
+    let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
+    let planner_strategy = grouped_plan_strategy(&finalized)
+        .expect("grouped route snapshot requires grouped strategy");
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped route snapshot requires handoff");
     let aggregate_contracts = handoff
         .aggregate_projection_specs()
         .iter()
@@ -457,9 +479,11 @@ fn grouped_policy_snapshot(
     GroupedExecutionMode,
     bool,
 ) {
+    let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
     let planner_strategy =
-        grouped_plan_strategy(plan).expect("grouped plans should project planner strategy");
-    let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
+        grouped_plan_strategy(&finalized).expect("grouped plans should project planner strategy");
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
     let route_plan = build_execution_route_plan_for_grouped_plan(
         handoff.base(),
@@ -801,11 +825,8 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract =
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .expect(
-                "direct projected indexed field should derive one covering-read route contract",
-            );
+    let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
+        .expect("direct projected indexed field should derive one covering-read route contract");
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -827,8 +848,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
         MissingRowPolicy::Ignore,
     );
     assert!(
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &materialized, true)
-            .is_none(),
+        derive_load_terminal_fast_path_contract_for_test(&materialized, true).is_none(),
         "all-field entity projection should stay on the materialized load route",
     );
 }
@@ -847,13 +867,8 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load(
-        route_capability_authority(),
-        &projected,
-        &ScalarContinuationContext::initial(),
-        None,
-    )
-    .expect("execution route plan should build for coverable projected load");
+    let route_plan = build_load_route_plan(&projected)
+        .expect("execution route plan should build for coverable projected load");
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the route-owned covering-read contract");
@@ -874,9 +889,8 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
 #[test]
 fn route_plan_initial_secondary_covering_is_planner_proven() {
     let plan = secondary_order_covering_plan();
-    let route_plan =
-        build_initial_execution_route_plan_for_load(route_capability_authority(), &plan, None)
-            .expect("initial secondary covering route plan should build");
+    let route_plan = build_initial_load_route_plan(&plan)
+        .expect("initial secondary covering route plan should build");
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("initial secondary covering route should retain a covering-read contract");
@@ -892,9 +906,8 @@ fn route_plan_initial_secondary_covering_is_planner_proven() {
 #[test]
 fn route_plan_initial_composite_secondary_covering_is_planner_proven() {
     let plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
-    let route_plan =
-        build_initial_execution_route_plan_for_load(route_capability_authority(), &plan, None)
-            .expect("initial composite secondary covering route plan should build");
+    let route_plan = build_initial_load_route_plan(&plan)
+        .expect("initial composite secondary covering route plan should build");
     let covering = route_plan.load_terminal_fast_path().expect(
         "initial composite secondary covering route should retain a covering-read contract",
     );
@@ -916,11 +929,8 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_pl
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract =
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .expect(
-                "PK-only full scan should derive one planner-proven covering-read route contract",
-            );
+    let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
+        .expect("PK-only full scan should derive one planner-proven covering-read route contract");
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -949,11 +959,8 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_pl
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract =
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .expect(
-                "PK-only key range should derive one planner-proven covering-read route contract",
-            );
+    let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
+        .expect("PK-only key range should derive one planner-proven covering-read route contract");
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -977,13 +984,8 @@ fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contr
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load(
-        route_capability_authority(),
-        &projected,
-        &ScalarContinuationContext::initial(),
-        None,
-    )
-    .expect("execution route plan should build for PK-only planner-proven covering load");
+    let route_plan = build_load_route_plan(&projected)
+        .expect("execution route plan should build for PK-only planner-proven covering load");
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the planner-proven covering-read contract");
@@ -1015,13 +1017,8 @@ fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract()
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let route_plan = build_execution_route_plan_for_load(
-        route_capability_authority(),
-        &projected,
-        &ScalarContinuationContext::initial(),
-        None,
-    )
-    .expect("execution route plan should build for PK-only planner-proven covering key range");
+    let route_plan = build_load_route_plan(&projected)
+        .expect("execution route plan should build for PK-only planner-proven covering key range");
     let covering = route_plan
         .load_terminal_fast_path()
         .expect("execution route plan should retain the planner-proven covering-read contract");
@@ -1050,11 +1047,8 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_c
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract =
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .expect(
-                "PK-only by-key lookup should derive one row-check covering-read route contract",
-            );
+    let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
+        .expect("PK-only by-key lookup should derive one row-check covering-read route contract");
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -1083,11 +1077,8 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
-    let contract =
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .expect(
-                "PK-only by-keys lookup should derive one row-check covering-read route contract",
-            );
+    let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
+        .expect("PK-only by-keys lookup should derive one row-check covering-read route contract");
 
     let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
     assert_eq!(covering.fields.len(), 1);
@@ -1117,8 +1108,7 @@ fn route_plan_load_terminal_covering_read_contract_rejects_pk_only_by_keys_desc_
     });
 
     assert!(
-        derive_load_terminal_fast_path_contract(route_capability_authority(), &projected, true)
-            .is_none(),
+        derive_load_terminal_fast_path_contract_for_test(&projected, true).is_none(),
         "phase-1 multi-key PK covering should stay fail-closed on descending order until exact-key reorder is explicit",
     );
 }
@@ -2605,8 +2595,9 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
         });
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &grouped);
     let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(grouped_handoff.group_fields().len(), 1);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
@@ -2638,8 +2629,9 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
             }],
             execution: GroupedExecutionConfig::unbounded(),
         });
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &grouped);
     let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
@@ -2682,8 +2674,9 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
         });
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &grouped);
     let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
@@ -2937,8 +2930,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
         execution: GroupedExecutionConfig::unbounded(),
     });
 
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &grouped);
     let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("mixed grouped plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("mixed grouped plans should build handoff");
     assert_eq!(
         grouped_handoff.grouped_plan_strategy(),
         GroupedPlanStrategy::ordered_group_with_aggregate_family(
@@ -3017,8 +3011,9 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         "grouped explain projection must preserve strategy, fields, aggregates, having, and hard limits",
     );
 
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &grouped);
     let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(grouped_handoff.execution().max_groups(), 17);
     assert_eq!(grouped_handoff.execution().max_group_bytes(), 8192);
     let route_plan = build_execution_route_plan_for_grouped_plan(
@@ -3692,9 +3687,10 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
         limit: Some(2),
         offset: 0,
     });
+    let finalized = finalized_plan_for_authority(route_capability_authority(), &plan);
 
     let execution_preparation =
-        ExecutionPreparation::from_plan(&plan, slot_map_for_model_plan(&plan));
+        ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
     let predicate_slots = execution_preparation
         .compiled_predicate()
         .expect("predicate slots should compile for mixed strict/residual predicate");

@@ -329,8 +329,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.intent.scalar().projection_selection.clone(),
         );
         simplify_limit_one_page_for_by_key_access(&mut plan);
-        plan.finalize_static_planning_shape_for_model(self.model)
-            .map_err(QueryError::execute)?;
 
         // Phase 4: freeze the planner-owned route profile before validation so
         // policy gates that depend on finalized access/order contracts, such as
@@ -345,7 +343,13 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             validate_query_semantics(schema_info, self.model, &plan)?;
         }
 
-        // Phase 6: freeze the access-choice explain snapshot after validation
+        // Phase 6: freeze planner-owned execution metadata only after semantic
+        // validation succeeds so user-facing projection/order errors remain
+        // planner-domain failures instead of executor invariant violations.
+        plan.finalize_static_planning_shape_for_model(self.model)
+            .map_err(QueryError::execute)?;
+
+        // Phase 7: freeze the access-choice explain snapshot after validation
         // so downstream execution and explain surfaces reuse the exact planner
         // winner metadata for the accepted plan.
         let access_choice = project_access_choice_explain_snapshot_with_indexes(
