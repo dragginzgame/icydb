@@ -5,21 +5,25 @@
 
 use crate::db::registry::StoreHandle;
 use crate::{
-    db::executor::{
-        EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
-        aggregate::runtime::{
-            GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
-            execute_group_fold_stage, finalize_grouped_output_with_observer,
+    db::{
+        executor::{
+            EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
+            PreparedLoadPlan,
+            aggregate::runtime::{
+                GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
+                execute_group_fold_stage, finalize_grouped_output_with_observer,
+            },
+            pipeline::contracts::{
+                ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
+                GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
+            },
+            pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+            pipeline::grouped_runtime::resolve_grouped_route_for_plan,
+            pipeline::orchestrator::LoadExecutionSurface,
+            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+            stream::access::TraversalRuntime,
         },
-        pipeline::contracts::{
-            ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
-            GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
-        },
-        pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
-        pipeline::grouped_runtime::resolve_grouped_route_for_plan,
-        pipeline::orchestrator::LoadExecutionSurface,
-        pipeline::timing::{elapsed_execution_micros, start_execution_timer},
-        stream::access::TraversalRuntime,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -136,7 +140,7 @@ pub(in crate::db) fn execute_initial_grouped_rows_for_canister<C>(
     db: &crate::db::Db<C>,
     debug: bool,
     authority: EntityAuthority,
-    plan: crate::db::query::plan::AccessPlannedQuery,
+    plan: AccessPlannedQuery,
 ) -> Result<GroupedCursorPage, InternalError>
 where
     C: CanisterKind,
