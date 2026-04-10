@@ -251,9 +251,9 @@ mod tests {
 
     #[test]
     fn query_validate_maps_to_validate_kind() {
-        let err = QueryError::Validate(ValidateError::UnknownField {
+        let err = QueryError::Validate(Box::new(ValidateError::UnknownField {
             field: "field".to_string(),
-        });
+        }));
         let facade = Error::from(err);
 
         assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Validate));

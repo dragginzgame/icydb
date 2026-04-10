@@ -63,8 +63,38 @@ use crate::{
 /// behavior.
 ///
 
+#[cfg(feature = "structural-read-metrics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GroupedCountFoldMetrics {
+    pub fold_stage_runs: u64,
+    pub rows_folded: u64,
+    pub borrowed_probe_rows: u64,
+    pub borrowed_hash_computations: u64,
+    pub owned_group_fallback_rows: u64,
+    pub owned_key_materializations: u64,
+    pub bucket_candidate_checks: u64,
+    pub existing_group_hits: u64,
+    pub new_group_inserts: u64,
+    pub finalize_stage_runs: u64,
+    pub finalized_group_count: u64,
+    pub window_rows_considered: u64,
+    pub having_rows_rejected: u64,
+    pub resume_boundary_rows_rejected: u64,
+    pub candidate_rows_qualified: u64,
+    pub bounded_selection_candidates_seen: u64,
+    pub bounded_selection_heap_replacements: u64,
+    pub bounded_selection_rows_sorted: u64,
+    pub unbounded_selection_rows_sorted: u64,
+    pub page_rows_skipped_for_offset: u64,
+    pub projection_rows_input: u64,
+    pub page_rows_emitted: u64,
+    pub cursor_construction_attempts: u64,
+    pub next_cursor_emitted: u64,
+}
+
+#[cfg(not(feature = "structural-read-metrics"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct GroupedCountFoldMetrics {
     pub fold_stage_runs: u64,
     pub rows_folded: u64,
     pub borrowed_probe_rows: u64,
