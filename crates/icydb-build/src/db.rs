@@ -110,8 +110,8 @@ fn store_wiring_tokens(
         #index_defs
         #entity_runtime_hooks
         thread_local! {
-            #[expect(unused_mut)]
-            #[expect(clippy::let_and_return)]
+            #[allow(unused_mut)]
+            #[allow(clippy::let_and_return)]
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
             {
