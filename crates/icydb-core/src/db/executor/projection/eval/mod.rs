@@ -17,7 +17,9 @@ pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
+#[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
+pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::{ScalarProjectionEvalError, eval_scalar_projection_expr};
 

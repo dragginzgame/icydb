@@ -54,9 +54,9 @@ type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
 /// PreparedExecutionProjection
 ///
 /// PreparedExecutionProjection is the executor-owned fixed projection state
-/// recovered once before execution begins. It freezes retained-slot layout and
-/// SQL short-path projection metadata so the hot execution path does not
-/// rebuild projection shape from the logical plan.
+/// recovered once before execution begins. It freezes only the projection
+/// metadata that the chosen execution lane actually consumes so the hot path
+/// does not rebuild unused validation shape from the logical plan.
 ///
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
@@ -98,9 +98,9 @@ impl PreparedExecutionProjection {
             projection_materialization,
         );
         let projection_validation_enabled = projection_materialization.validate_projection();
-        let prepared_shape = (projection_validation_enabled
-            || projection_materialization.retain_slot_rows())
-        .then(|| prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan));
+        let prepared_shape = projection_validation_enabled.then(|| {
+            prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan)
+        });
 
         #[cfg(feature = "sql")]
         let sql = crate::db::executor::pipeline::operators::prepare_sql_execution_projection(
@@ -109,7 +109,6 @@ impl PreparedExecutionProjection {
             compiled_predicate,
             projection_materialization,
             load_terminal_fast_path,
-            prepared_shape.as_ref(),
         )?;
 
         Ok(Self {

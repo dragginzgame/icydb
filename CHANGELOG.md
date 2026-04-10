@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.75.x] 🧭 - 2026-04-10 - Crosscutting Audit Refresh
 
+- `0.75.1` reclaims the generic SQL execute-preparation regression that had crept back into tiny projected reads, so direct `SELECT id ... ORDER BY id LIMIT 1` queries return to the projected-row fast path and run materially cheaper again without adding new route-specific shortcuts.
 - `0.75.0` starts the next crosscutting cleanup line by rerunning the complexity audit, splitting several of the largest internal DB hotspot modules into smaller owner-local pieces, and finishing the static `EntityModel` pass so executor runtime now relies more on planner-frozen query metadata and authority-owned row layout contracts instead of re-deriving schema facts during execution.
 
 See detailed breakdown:

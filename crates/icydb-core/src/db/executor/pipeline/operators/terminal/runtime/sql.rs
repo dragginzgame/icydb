@@ -112,6 +112,7 @@ struct SqlRouteCoveringSlotLayout {
     slot_count: usize,
     constant_slots: Vec<(usize, Value)>,
     component_slots: Vec<CoveringComponentSlotGroup>,
+    component_indices: Vec<usize>,
     slot_sources: Vec<Option<SqlRouteCoveringSlotSource>>,
 }
 
@@ -145,6 +146,7 @@ struct SqlConstantCoveringSlotTemplate {
     slot_count: usize,
     primary_key_slot: usize,
     constant_slots: Vec<(usize, Value)>,
+    slot_to_constant_index: Vec<Option<usize>>,
 }
 
 ///
@@ -291,6 +293,16 @@ impl PreparedSqlExecutionProjection {
     #[must_use]
     const fn constant_covering_slot_template(&self) -> Option<&SqlConstantCoveringSlotTemplate> {
         self.constant_covering_slot_template.as_ref()
+    }
+
+    #[must_use]
+    const fn uses_constant_projected_only_path(&self) -> bool {
+        self.route_constant_projected_source_layout.is_some()
+            && self.route_covering_slot_layout.is_none()
+            && self.route_direct_projected_source_layout.is_none()
+            && self
+                .route_single_component_projected_source_layout
+                .is_none()
     }
 }
 
@@ -594,11 +606,12 @@ impl ExecutionKernel {
         if validate_projection {
             let prepared_projection_validation =
                 required_prepared_projection_validation(prepared_projection_validation)?;
-            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
-                prepared_projection_validation,
-                rows.len(),
-                &mut |row_index, slot| rows[row_index].slot(slot),
-            )?;
+            for row in &rows {
+                crate::db::executor::projection::validate_prepared_projection_row(
+                    prepared_projection_validation,
+                    &mut |slot| row.slot_ref(slot),
+                )?;
+            }
         }
         let post_access_rows = rows.len();
         let page = finalize_cursorless_row_collector_page(rows, retain_slot_rows)?;
@@ -727,11 +740,12 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
         if validate_projection {
             let prepared_projection_validation =
                 required_prepared_projection_validation(context.prepared_projection_validation)?;
-            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
-                prepared_projection_validation,
-                slot_rows.len(),
-                &mut |row_index, slot| slot_rows[row_index].slot(slot),
-            )?;
+            for row in &slot_rows {
+                crate::db::executor::projection::validate_prepared_projection_row(
+                    prepared_projection_validation,
+                    &mut |slot| row.slot_ref(slot),
+                )?;
+            }
         }
         let post_access_rows = slot_rows.len();
         let page =
@@ -809,11 +823,12 @@ fn try_materialize_cursorless_sql_key_stream_short_path(
         if validate_projection {
             let prepared_projection_validation =
                 required_prepared_projection_validation(context.prepared_projection_validation)?;
-            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
-                prepared_projection_validation,
-                slot_rows.len(),
-                &mut |row_index, slot| slot_rows[row_index].slot(slot),
-            )?;
+            for row in &slot_rows {
+                crate::db::executor::projection::validate_prepared_projection_row(
+                    prepared_projection_validation,
+                    &mut |slot| row.slot_ref(slot),
+                )?;
+            }
         }
         let post_access_rows = slot_rows.len();
         let page =
@@ -991,69 +1006,22 @@ fn strip_covering_projected_text_row_pairs(
 #[cfg(feature = "sql")]
 /// Build one prepared SQL projection bundle from plan-owned and route-owned
 /// metadata before execution begins.
+#[expect(
+    clippy::too_many_lines,
+    reason = "shared SQL projection preparation still owns the generic non-path-specific layout gating in one boundary"
+)]
 pub(in crate::db::executor) fn prepare_sql_execution_projection(
     row_layout: RowLayout,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
-    prepared_projection_shape: Option<&crate::db::executor::projection::PreparedProjectionShape>,
 ) -> Result<Option<PreparedSqlExecutionProjection>, InternalError> {
     if !projection_materialization.retain_slot_rows() {
         return Ok(None);
     }
 
-    let direct_projection_slots = prepared_projection_shape
-        .and_then(crate::db::executor::projection::PreparedProjectionShape::direct_projection_slots)
-        .map(<[usize]>::to_vec)
-        .or_else(|| plan.frozen_direct_projection_slots().map(<[usize]>::to_vec));
-    let route_covering_slot_layout = match load_terminal_fast_path {
-        Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
-            sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
-        }
-        None => None,
-    };
-    let route_direct_projected_source_layout = match (
-        load_terminal_fast_path,
-        direct_projection_slots.as_deref(),
-        route_covering_slot_layout.as_ref(),
-    ) {
-        (
-            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
-            Some(projection_field_slots),
-            Some(route_covering_slot_layout),
-        ) => sql_route_direct_projected_field_sources(
-            covering,
-            projection_field_slots,
-            route_covering_slot_layout.component_slots.as_slice(),
-        )?
-        .map(|(projected_field_sources, constant_values)| {
-            PreparedSqlDirectProjectedSourceLayout {
-                projected_field_sources,
-                constant_values,
-            }
-        }),
-        _ => None,
-    };
-    let route_single_component_projected_source_layout =
-        match (load_terminal_fast_path, direct_projection_slots.as_deref()) {
-            (
-                Some(LoadTerminalFastPathContract::CoveringRead(covering)),
-                Some(projection_field_slots),
-            ) => {
-                sql_route_single_component_projected_field_sources(covering, projection_field_slots)
-                    .map(
-                        |(component_index, projected_field_sources, constant_values)| {
-                            PreparedSqlSingleComponentProjectedSourceLayout {
-                                component_index,
-                                projected_field_sources,
-                                constant_values,
-                            }
-                        },
-                    )
-            }
-            _ => None,
-        };
+    let direct_projection_slots = plan.frozen_direct_projection_slots().map(<[usize]>::to_vec);
     let route_constant_projected_source_layout =
         match (load_terminal_fast_path, direct_projection_slots.as_deref()) {
             (
@@ -1069,19 +1037,85 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
             ),
             _ => None,
         };
-    sql_validate_prepared_projected_source_layouts(
-        route_direct_projected_source_layout.as_ref(),
-        route_single_component_projected_source_layout.as_ref(),
-        route_constant_projected_source_layout.as_ref(),
-    )?;
+    let route_covering_slot_layout = if route_constant_projected_source_layout.is_some() {
+        None
+    } else {
+        match load_terminal_fast_path {
+            Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
+                sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
+            }
+            None => None,
+        }
+    };
+    let route_direct_projected_source_layout = match (
+        load_terminal_fast_path,
+        direct_projection_slots.as_deref(),
+        route_covering_slot_layout.as_ref(),
+    ) {
+        (
+            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
+            Some(projection_field_slots),
+            Some(route_covering_slot_layout),
+        ) => sql_route_direct_projected_field_sources(
+            covering,
+            projection_field_slots,
+            route_covering_slot_layout,
+        )?
+        .map(|(projected_field_sources, constant_values)| {
+            PreparedSqlDirectProjectedSourceLayout {
+                projected_field_sources,
+                constant_values,
+            }
+        }),
+        _ => None,
+    };
+    let route_single_component_projected_source_layout = match (
+        load_terminal_fast_path,
+        direct_projection_slots.as_deref(),
+        route_covering_slot_layout.as_ref(),
+    ) {
+        (
+            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
+            Some(projection_field_slots),
+            Some(route_covering_slot_layout),
+        ) => sql_route_single_component_projected_field_sources(
+            covering,
+            projection_field_slots,
+            route_covering_slot_layout,
+        )
+        .map(
+            |(component_index, projected_field_sources, constant_values)| {
+                PreparedSqlSingleComponentProjectedSourceLayout {
+                    component_index,
+                    projected_field_sources,
+                    constant_values,
+                }
+            },
+        ),
+        _ => None,
+    };
+    debug_assert!(
+        sql_validate_prepared_projected_source_layouts(
+            route_direct_projected_source_layout.as_ref(),
+            route_single_component_projected_source_layout.as_ref(),
+            route_constant_projected_source_layout.as_ref(),
+        )
+        .is_ok(),
+        "prepared SQL projected-source layouts must remain internally consistent"
+    );
 
-    let constant_covering_slot_template =
+    let constant_covering_slot_template = if route_constant_projected_source_layout.is_some()
+        && !plan.has_residual_predicate()
+    {
+        None
+    } else {
         sql_constant_covering_slot_row_template_from_route_contract(
             row_layout,
             load_terminal_fast_path,
             compiled_predicate,
         )
-        .or_else(|| sql_constant_covering_slot_row_template(plan, row_layout, compiled_predicate));
+        .or_else(|| sql_constant_covering_slot_row_template(plan, row_layout, compiled_predicate))
+    };
 
     Ok(Some(PreparedSqlExecutionProjection {
         direct_projection_slots,
@@ -1152,6 +1186,13 @@ where
     let Some(projection_field_slots) = projection_field_slots else {
         return Ok(None);
     };
+
+    if context
+        .prepared_sql_projection
+        .is_some_and(PreparedSqlExecutionProjection::uses_constant_projected_only_path)
+    {
+        return try_route_constant(context, key_stream, projection_field_slots);
+    }
 
     if let Some(projected_rows) = try_route_covering(context, projection_field_slots)? {
         return Ok(Some(projected_rows));
@@ -1245,7 +1286,7 @@ fn try_materialize_sql_route_covering_projected_text_rows(
         scan_state,
         covering,
         context.scan_budget_hint,
-        layout.component_slots.as_slice(),
+        layout,
     )?
     else {
         return Ok(None);
@@ -1415,7 +1456,7 @@ fn try_materialize_sql_route_covering_projected_rows(
         scan_state,
         covering,
         context.scan_budget_hint,
-        layout.component_slots.as_slice(),
+        layout,
     )?
     else {
         return Ok(None);
@@ -1583,6 +1624,8 @@ fn try_materialize_sql_route_constant_projected_text_rows(
     else {
         return Ok(None);
     };
+    let projected_field_sources = projected_source_layout.projected_field_sources();
+    let constant_values = projected_source_layout.constant_values();
 
     let consistency = row_read_consistency_for_plan(context.plan);
     let row_check_required = sql_route_covering_row_check_required(context.load_terminal_fast_path);
@@ -1604,8 +1647,8 @@ fn try_materialize_sql_route_constant_projected_text_rows(
             }
 
             rows.push(sql_project_text_row_from_constant_covering_sources(
-                projected_source_layout.projected_field_sources(),
-                projected_source_layout.constant_values(),
+                projected_field_sources,
+                constant_values,
                 &key.storage_key(),
             )?);
         }
@@ -1619,8 +1662,8 @@ fn try_materialize_sql_route_constant_projected_text_rows(
             }
 
             rows.push(sql_project_text_row_from_constant_covering_sources(
-                projected_source_layout.projected_field_sources(),
-                projected_source_layout.constant_values(),
+                projected_field_sources,
+                constant_values,
                 &key.storage_key(),
             )?);
         }
@@ -1653,6 +1696,8 @@ fn try_materialize_sql_route_constant_projected_rows(
     else {
         return Ok(None);
     };
+    let projected_field_sources = projected_source_layout.projected_field_sources();
+    let constant_values = projected_source_layout.constant_values();
 
     let consistency = row_read_consistency_for_plan(context.plan);
     let row_check_required = sql_route_covering_row_check_required(context.load_terminal_fast_path);
@@ -1674,8 +1719,8 @@ fn try_materialize_sql_route_constant_projected_rows(
             }
 
             rows.push(sql_project_row_from_constant_covering_sources(
-                projected_source_layout.projected_field_sources(),
-                projected_source_layout.constant_values(),
+                projected_field_sources,
+                constant_values,
                 &key.storage_key(),
             ));
         }
@@ -1689,8 +1734,8 @@ fn try_materialize_sql_route_constant_projected_rows(
             }
 
             rows.push(sql_project_row_from_constant_covering_sources(
-                projected_source_layout.projected_field_sources(),
-                projected_source_layout.constant_values(),
+                projected_field_sources,
+                constant_values,
                 &key.storage_key(),
             ));
         }
@@ -1867,7 +1912,7 @@ fn try_materialize_sql_route_covering_slot_rows(
         scan_state,
         covering,
         context.scan_budget_hint,
-        layout.component_slots.as_slice(),
+        layout,
     )?
     else {
         return Ok(None);
@@ -1903,6 +1948,7 @@ fn sql_route_covering_slot_layout(
     let mut constant_slots = Vec::new();
     let mut covered_slots = vec![false; row_layout.field_count()];
     let mut component_slots = Vec::<CoveringComponentSlotGroup>::new();
+    let mut component_indices = Vec::new();
     let mut slot_sources = vec![None; row_layout.field_count()];
 
     // Phase 1: project one dense slot layout from the planner-owned contract and
@@ -1933,6 +1979,7 @@ fn sql_route_covering_slot_layout(
                     decoded_component_index
                 } else {
                     component_slots.push((*component_index, vec![field.field_slot.index]));
+                    component_indices.push(*component_index);
                     component_slots.len().saturating_sub(1)
                 };
                 covered_slots[field.field_slot.index] = true;
@@ -1957,6 +2004,7 @@ fn sql_route_covering_slot_layout(
         slot_count: row_layout.field_count(),
         constant_slots,
         component_slots,
+        component_indices,
         slot_sources,
     }))
 }
@@ -1967,48 +2015,48 @@ fn sql_route_covering_slot_layout(
 fn sql_route_direct_projected_field_sources(
     covering: &CoveringReadExecutionPlan,
     projection_field_slots: &[usize],
-    component_slots: &[CoveringComponentSlotGroup],
+    route_covering_slot_layout: &SqlRouteCoveringSlotLayout,
 ) -> Result<Option<SqlDirectProjectedSourceLayout>, InternalError> {
     let mut projected_field_sources = Vec::with_capacity(projection_field_slots.len());
     let mut constant_values = Vec::new();
 
     for field_slot in projection_field_slots {
-        let Some(covering_field_index) = covering
-            .fields
-            .iter()
-            .position(|field| field.field_slot.index == *field_slot)
+        let Some(slot_source) = route_covering_slot_layout
+            .slot_sources
+            .get(*field_slot)
+            .and_then(Option::as_ref)
         else {
             return Ok(None);
         };
-        let covering_field = &covering.fields[covering_field_index];
 
-        let projected_source = match &covering_field.source {
-            CoveringReadFieldSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
-            CoveringReadFieldSource::Constant(value) => {
+        let projected_source = match slot_source {
+            SqlRouteCoveringSlotSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
+            SqlRouteCoveringSlotSource::Constant(constant_slot_index) => {
+                let Some((_, value)) = route_covering_slot_layout
+                    .constant_slots
+                    .get(*constant_slot_index)
+                else {
+                    return Err(InternalError::query_executor_invariant(
+                        "covering-read SQL projected-row path referenced a missing constant slot source",
+                    ));
+                };
                 constant_values.push(value.clone());
 
                 SqlDirectProjectedFieldSource::Constant {
                     constant_index: constant_values.len().saturating_sub(1),
                 }
             }
-            CoveringReadFieldSource::IndexComponent { component_index } => {
-                let Some(decoded_component_index) = component_slots
-                    .iter()
-                    .position(|(group_index, _)| group_index == component_index)
-                else {
-                    return Err(InternalError::query_executor_invariant(
-                        "covering-read SQL projected-row path requires one decoded component source per projected field",
-                    ));
-                };
-
+            SqlRouteCoveringSlotSource::DecodedComponent(decoded_component_index) => {
                 SqlDirectProjectedFieldSource::IndexComponent {
-                    decoded_component_index,
+                    decoded_component_index: *decoded_component_index,
                 }
             }
         };
 
         projected_field_sources.push(projected_source);
     }
+
+    let _ = covering;
 
     Ok(Some((projected_field_sources, constant_values)))
 }
@@ -2040,6 +2088,7 @@ fn sql_validate_direct_projected_field_sources(
 fn sql_route_single_component_projected_field_sources(
     covering: &CoveringReadExecutionPlan,
     projection_field_slots: &[usize],
+    route_covering_slot_layout: &SqlRouteCoveringSlotLayout,
 ) -> Option<(usize, Vec<SqlDirectProjectedFieldSource>, Vec<Value>)> {
     if !matches!(
         covering.order_contract,
@@ -2053,25 +2102,28 @@ fn sql_route_single_component_projected_field_sources(
     let mut constant_values = Vec::new();
 
     for field_slot in projection_field_slots {
-        let covering_field = covering
-            .fields
-            .iter()
-            .find(|field| field.field_slot.index == *field_slot)?;
+        let slot_source = route_covering_slot_layout
+            .slot_sources
+            .get(*field_slot)
+            .and_then(Option::as_ref)?;
 
-        let projected_source = match &covering_field.source {
-            CoveringReadFieldSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
-            CoveringReadFieldSource::Constant(value) => {
+        let projected_source = match slot_source {
+            SqlRouteCoveringSlotSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
+            SqlRouteCoveringSlotSource::Constant(constant_slot_index) => {
+                let (_, value) = route_covering_slot_layout
+                    .constant_slots
+                    .get(*constant_slot_index)?;
                 constant_values.push(value.clone());
 
                 SqlDirectProjectedFieldSource::Constant {
                     constant_index: constant_values.len().saturating_sub(1),
                 }
             }
-            CoveringReadFieldSource::IndexComponent { component_index } => {
+            SqlRouteCoveringSlotSource::DecodedComponent(decoded_component_index) => {
                 match shared_component_index {
-                    Some(existing) if existing != *component_index => return None,
+                    Some(existing) if existing != *decoded_component_index => return None,
                     Some(_) => {}
-                    None => shared_component_index = Some(*component_index),
+                    None => shared_component_index = Some(*decoded_component_index),
                 }
 
                 SqlDirectProjectedFieldSource::IndexComponent {
@@ -2120,6 +2172,8 @@ fn sql_route_constant_projected_field_sources(
 
         projected_field_sources.push(projected_source);
     }
+
+    let _ = covering;
 
     Some((projected_field_sources, constant_values))
 }
@@ -2186,16 +2240,11 @@ fn sql_route_covering_component_text_rows(
     scan_state: CoveringComponentScanState<'_>,
     covering: &CoveringReadExecutionPlan,
     scan_budget_hint: Option<usize>,
-    component_slots: &[CoveringComponentSlotGroup],
+    route_covering_slot_layout: &SqlRouteCoveringSlotLayout,
 ) -> Result<Option<(RenderedCoveringComponentRows, usize)>, InternalError> {
     let scan_direction = covering_projection_scan_direction(covering.order_contract);
     let effective_scan_budget_hint =
         covering_component_scan_budget_hint(covering.order_contract, scan_budget_hint);
-    let component_indices = component_slots
-        .iter()
-        .map(|(component_index, _)| *component_index)
-        .collect::<Vec<_>>();
-
     let raw_pairs: CoveringProjectionComponentRows =
         resolve_covering_projection_components_from_lowered_specs(
             scan_state.entity_tag,
@@ -2203,7 +2252,7 @@ fn sql_route_covering_component_text_rows(
             scan_state.index_range_specs,
             scan_direction,
             effective_scan_budget_hint.unwrap_or(usize::MAX),
-            component_indices.as_slice(),
+            route_covering_slot_layout.component_indices.as_slice(),
             |_| Ok(store),
         )?;
     let keys_scanned = raw_pairs.len();
@@ -2228,16 +2277,11 @@ fn sql_route_covering_component_rows(
     scan_state: CoveringComponentScanState<'_>,
     covering: &CoveringReadExecutionPlan,
     scan_budget_hint: Option<usize>,
-    component_slots: &[CoveringComponentSlotGroup],
+    route_covering_slot_layout: &SqlRouteCoveringSlotLayout,
 ) -> Result<Option<(DecodedCoveringComponentRows, usize)>, InternalError> {
     let scan_direction = covering_projection_scan_direction(covering.order_contract);
     let effective_scan_budget_hint =
         covering_component_scan_budget_hint(covering.order_contract, scan_budget_hint);
-    let component_indices = component_slots
-        .iter()
-        .map(|(component_index, _)| *component_index)
-        .collect::<Vec<_>>();
-
     let raw_pairs: CoveringProjectionComponentRows =
         resolve_covering_projection_components_from_lowered_specs(
             scan_state.entity_tag,
@@ -2245,7 +2289,7 @@ fn sql_route_covering_component_rows(
             scan_state.index_range_specs,
             scan_direction,
             effective_scan_budget_hint.unwrap_or(usize::MAX),
-            component_indices.as_slice(),
+            route_covering_slot_layout.component_indices.as_slice(),
             |_| Ok(store),
         )?;
     let keys_scanned = raw_pairs.len();
@@ -2256,7 +2300,7 @@ fn sql_route_covering_component_rows(
         consistency,
         covering.existing_row_mode,
         |decoded| {
-            if decoded.len() != component_slots.len() {
+            if decoded.len() != route_covering_slot_layout.component_slots.len() {
                 return Err(InternalError::query_executor_invariant(
                     "covering-read SQL short path component scan returned mismatched component count",
                 ));
@@ -2414,7 +2458,6 @@ fn sql_project_row_from_constant_covering_sources(
     projected_row
 }
 
-#[cfg(feature = "sql")]
 // Project one SQL row directly into rendered text from the authoritative
 // primary key plus any bound covering constants.
 fn sql_project_text_row_from_constant_covering_sources(
@@ -2438,7 +2481,6 @@ fn sql_project_text_row_from_constant_covering_sources(
     Ok(projected_row)
 }
 
-#[cfg(feature = "sql")]
 // Project one SQL row directly from a single decoded covering component plus
 // the authoritative primary key.
 fn sql_project_row_from_single_covering_component(
@@ -2540,6 +2582,7 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     let primary_key_slot = row_layout.primary_key_slot();
     let mut covered_slots = vec![false; row_layout.field_count()];
     let mut constant_slots = Vec::new();
+    let mut slot_to_constant_index = vec![None; row_layout.field_count()];
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: project one canonical slot template directly from the route
@@ -2553,6 +2596,8 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
             }
             CoveringReadFieldSource::Constant(value) => {
                 constant_slots.push((field.field_slot.index, value.clone()));
+                slot_to_constant_index[field.field_slot.index] =
+                    Some(constant_slots.len().saturating_sub(1));
                 covered_slots[field.field_slot.index] = true;
             }
             CoveringReadFieldSource::IndexComponent { .. } => return None,
@@ -2569,6 +2614,7 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
         slot_count: row_layout.field_count(),
         primary_key_slot,
         constant_slots,
+        slot_to_constant_index,
     })
 }
 
@@ -2583,6 +2629,7 @@ fn sql_constant_covering_slot_row_template(
     let primary_key_slot = row_layout.primary_key_slot();
     let mut covered_slots = vec![false; row_layout.field_count()];
     let mut constant_slots = Vec::new();
+    let mut slot_to_constant_index = vec![None; row_layout.field_count()];
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: recover every equality-bound index-prefix component once.
@@ -2601,6 +2648,7 @@ fn sql_constant_covering_slot_row_template(
             constant_covering_projection_value_from_access(&plan.access, field_name)
         {
             constant_slots.push((slot, value));
+            slot_to_constant_index[slot] = Some(constant_slots.len().saturating_sub(1));
             *covered = true;
         }
     }
@@ -2624,6 +2672,7 @@ fn sql_constant_covering_slot_row_template(
         slot_count: row_layout.field_count(),
         primary_key_slot,
         constant_slots,
+        slot_to_constant_index,
     })
 }
 
@@ -2637,10 +2686,15 @@ fn sql_constant_covering_slot_ref<'a>(
         return Some(primary_key_value);
     }
 
+    let constant_index = template
+        .slot_to_constant_index
+        .get(slot)
+        .copied()
+        .flatten()?;
     template
         .constant_slots
-        .iter()
-        .find_map(|(constant_slot, value)| (*constant_slot == slot).then_some(value))
+        .get(constant_index)
+        .map(|(_, value)| value)
 }
 
 #[cfg(feature = "sql")]

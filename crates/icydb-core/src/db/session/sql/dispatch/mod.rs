@@ -17,10 +17,7 @@ use crate::{
         query::intent::StructuralQuery,
         session::sql::{
             SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
-            aggregate::{
-                SqlAggregateSurface, parsed_requires_dedicated_sql_aggregate_lane,
-                unsupported_sql_aggregate_lane_message,
-            },
+            aggregate::parsed_requires_dedicated_sql_aggregate_lane,
             computed_projection,
             projection::{
                 SqlProjectionPayload, projection_labels_from_fields,
@@ -28,8 +25,11 @@ use crate::{
             },
         },
         sql::lowering::{
-            LoweredSqlCommand, LoweredSqlQuery, bind_lowered_sql_query,
-            lower_sql_command_from_prepared_statement,
+            LoweredSqlQuery, bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
+        },
+        sql::parser::{
+            SqlAggregateCall, SqlAggregateKind, SqlProjection, SqlSelectItem, SqlStatement,
+            SqlTextFunction,
         },
     },
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -85,8 +85,6 @@ impl GeneratedSqlDispatchAttempt {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlGroupingSurface {
     Scalar,
-    Dispatch,
-    GeneratedQuerySurface,
     Grouped,
 }
 
@@ -94,12 +92,6 @@ const fn unsupported_sql_grouping_message(surface: SqlGroupingSurface) -> &'stat
     match surface {
         SqlGroupingSurface::Scalar => {
             "execute_sql rejects grouped SELECT; use execute_sql_grouped(...)"
-        }
-        SqlGroupingSurface::Dispatch => {
-            "execute_sql_dispatch rejects grouped SELECT execution; use execute_sql_grouped(...)"
-        }
-        SqlGroupingSurface::GeneratedQuerySurface => {
-            "generated SQL query surface rejects grouped SELECT execution; use execute_sql_grouped(...)"
         }
         SqlGroupingSurface::Grouped => "execute_sql_grouped requires grouped SQL query intent",
     }
@@ -128,6 +120,80 @@ fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
     }
 
     entities
+}
+
+// Project grouped SELECT item labels into one stable outward column contract.
+fn grouped_sql_projection_labels_from_statement(
+    statement: &SqlStatement,
+) -> Result<Vec<String>, QueryError> {
+    let SqlStatement::Select(select) = statement else {
+        return Err(QueryError::invariant(
+            "grouped SQL projection labels require SELECT statement shape",
+        ));
+    };
+    let SqlProjection::Items(items) = &select.projection else {
+        return Err(QueryError::unsupported_query(
+            "grouped SQL dispatch requires explicit grouped projection items",
+        ));
+    };
+
+    Ok(items
+        .iter()
+        .map(grouped_sql_projection_item_label)
+        .collect())
+}
+
+// Render one grouped SELECT item into the public grouped-column label used by
+// unified dispatch results.
+fn grouped_sql_projection_item_label(item: &SqlSelectItem) -> String {
+    match item {
+        SqlSelectItem::Field(field) => field.clone(),
+        SqlSelectItem::Aggregate(aggregate) => grouped_sql_aggregate_call_label(aggregate),
+        SqlSelectItem::TextFunction(call) => {
+            format!(
+                "{}({})",
+                grouped_sql_text_function_name(call.function),
+                call.field
+            )
+        }
+    }
+}
+
+// Render one aggregate call into one canonical SQL-style label.
+fn grouped_sql_aggregate_call_label(aggregate: &SqlAggregateCall) -> String {
+    let kind = match aggregate.kind {
+        SqlAggregateKind::Count => "COUNT",
+        SqlAggregateKind::Sum => "SUM",
+        SqlAggregateKind::Avg => "AVG",
+        SqlAggregateKind::Min => "MIN",
+        SqlAggregateKind::Max => "MAX",
+    };
+
+    match aggregate.field.as_deref() {
+        Some(field) => format!("{kind}({field})"),
+        None => format!("{kind}(*)"),
+    }
+}
+
+// Render one reduced SQL text-function identifier into one stable uppercase
+// SQL label for outward column metadata.
+const fn grouped_sql_text_function_name(function: SqlTextFunction) -> &'static str {
+    match function {
+        SqlTextFunction::Trim => "TRIM",
+        SqlTextFunction::Ltrim => "LTRIM",
+        SqlTextFunction::Rtrim => "RTRIM",
+        SqlTextFunction::Lower => "LOWER",
+        SqlTextFunction::Upper => "UPPER",
+        SqlTextFunction::Length => "LENGTH",
+        SqlTextFunction::Left => "LEFT",
+        SqlTextFunction::Right => "RIGHT",
+        SqlTextFunction::StartsWith => "STARTS_WITH",
+        SqlTextFunction::EndsWith => "ENDS_WITH",
+        SqlTextFunction::Contains => "CONTAINS",
+        SqlTextFunction::Position => "POSITION",
+        SqlTextFunction::Replace => "REPLACE",
+        SqlTextFunction::Substring => "SUBSTRING",
+    }
 }
 
 // Resolve one generated query route onto the descriptor-owned authority table.
@@ -174,7 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one structural SQL load query and return only row-oriented SQL
     // projection values, keeping typed projection rows out of the shared SQL
     // query-lane path.
-    fn execute_structural_sql_projection(
+    pub(in crate::db::session::sql) fn execute_structural_sql_projection(
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
@@ -261,52 +327,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind,
     {
         match (surface, query.has_grouping()) {
-            (
-                SqlGroupingSurface::Scalar
-                | SqlGroupingSurface::Dispatch
-                | SqlGroupingSurface::GeneratedQuerySurface,
-                false,
-            )
-            | (SqlGroupingSurface::Grouped, true) => Ok(()),
-            (
-                SqlGroupingSurface::Scalar
-                | SqlGroupingSurface::Dispatch
-                | SqlGroupingSurface::GeneratedQuerySurface,
-                true,
-            )
-            | (SqlGroupingSurface::Grouped, false) => Err(QueryError::unsupported_query(
-                unsupported_sql_grouping_message(surface),
-            )),
-        }
-    }
-
-    // Validate one lowered shared SQL query shape against the grouped/scalar
-    // contract for surfaces that do not materialize a typed `Query<E>`.
-    pub(in crate::db::session::sql) fn ensure_lowered_sql_query_grouping(
-        lowered: &LoweredSqlCommand,
-        surface: SqlGroupingSurface,
-    ) -> Result<(), QueryError> {
-        let Some(query) = lowered.query() else {
-            return Ok(());
-        };
-
-        match (surface, query.has_grouping()) {
-            (
-                SqlGroupingSurface::Scalar
-                | SqlGroupingSurface::Dispatch
-                | SqlGroupingSurface::GeneratedQuerySurface,
-                false,
-            )
-            | (SqlGroupingSurface::Grouped, true) => Ok(()),
-            (
-                SqlGroupingSurface::Scalar
-                | SqlGroupingSurface::Dispatch
-                | SqlGroupingSurface::GeneratedQuerySurface,
-                true,
-            )
-            | (SqlGroupingSurface::Grouped, false) => Err(QueryError::unsupported_query(
-                unsupported_sql_grouping_message(surface),
-            )),
+            (SqlGroupingSurface::Scalar, false) | (SqlGroupingSurface::Grouped, true) => Ok(()),
+            (SqlGroupingSurface::Scalar, true) | (SqlGroupingSurface::Grouped, false) => Err(
+                QueryError::unsupported_query(unsupported_sql_grouping_message(surface)),
+            ),
         }
     }
 
@@ -331,11 +355,11 @@ impl<C: CanisterKind> DbSession<C> {
         match parsed.route() {
             SqlStatementRoute::Query { .. } => {
                 if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
-                    return Err(QueryError::unsupported_query(
-                        unsupported_sql_aggregate_lane_message(
-                            SqlAggregateSurface::ExecuteSqlDispatch,
-                        ),
-                    ));
+                    let authority = EntityAuthority::for_type::<E>();
+                    let command =
+                        Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
+
+                    return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
                 }
 
                 if let Some(plan) =
@@ -349,18 +373,27 @@ impl<C: CanisterKind> DbSession<C> {
                 // `DELETE` branch that still owns typed commit semantics.
                 let lowered = parsed
                     .lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key.name)?;
-
-                Self::ensure_lowered_sql_query_grouping(&lowered, SqlGroupingSurface::Dispatch)?;
+                let grouped_columns = lowered
+                    .query()
+                    .filter(|query| query.has_grouping())
+                    .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
+                    .transpose()?;
 
                 // Phase 2: dispatch `SELECT` directly from the lowered shape so
                 // typed SQL projection does not rebuild and discard a typed
                 // `Query<E>` before returning to the structural executor path.
                 match lowered.into_query() {
-                    Some(LoweredSqlQuery::Select(select)) => self
-                        .execute_lowered_sql_dispatch_select_core(
+                    Some(LoweredSqlQuery::Select(select)) => match grouped_columns {
+                        Some(columns) => self.execute_lowered_sql_grouped_dispatch_select_core(
+                            select,
+                            EntityAuthority::for_type::<E>(),
+                            columns,
+                        ),
+                        None => self.execute_lowered_sql_dispatch_select_core(
                             select,
                             EntityAuthority::for_type::<E>(),
                         ),
+                    },
                     Some(LoweredSqlQuery::Delete(delete)) => {
                         let typed_query = bind_lowered_sql_query::<E>(
                             LoweredSqlQuery::Delete(delete),
@@ -429,11 +462,10 @@ impl<C: CanisterKind> DbSession<C> {
         match parsed.route() {
             SqlStatementRoute::Query { .. } => {
                 if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
-                    return Err(QueryError::unsupported_query(
-                        unsupported_sql_aggregate_lane_message(
-                            SqlAggregateSurface::GeneratedQuerySurface,
-                        ),
-                    ));
+                    let command =
+                        Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
+
+                    return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
                 }
 
                 if let Some(plan) =
@@ -447,13 +479,28 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.model().name(),
                     authority.model().primary_key.name,
                 )?;
+                let grouped_columns = lowered
+                    .query()
+                    .filter(|query| query.has_grouping())
+                    .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
+                    .transpose()?;
 
-                Self::ensure_lowered_sql_query_grouping(
-                    &lowered,
-                    SqlGroupingSurface::GeneratedQuerySurface,
-                )?;
-
-                self.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
+                match lowered.into_query() {
+                    Some(LoweredSqlQuery::Select(select)) => match grouped_columns {
+                        Some(columns) => self.execute_lowered_sql_grouped_dispatch_select_core(
+                            select, authority, columns,
+                        ),
+                        None => {
+                            self.execute_lowered_sql_dispatch_select_text_core(select, authority)
+                        }
+                    },
+                    Some(LoweredSqlQuery::Delete(delete)) => {
+                        self.execute_lowered_sql_dispatch_delete_core(&delete, authority)
+                    }
+                    None => Err(QueryError::unsupported_query(
+                        "generated SQL query surface requires query or EXPLAIN statement lanes",
+                    )),
+                }
             }
             SqlStatementRoute::Explain { .. } => {
                 if let Some((mode, plan)) =

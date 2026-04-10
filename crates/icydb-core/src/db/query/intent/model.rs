@@ -37,7 +37,7 @@ use crate::{
 /// Consumes an `EntityModel` derived from typed entity definitions.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct QueryModel<'m, K> {
     model: &'m EntityModel,
     intent: QueryIntent<K>,

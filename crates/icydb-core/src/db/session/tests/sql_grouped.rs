@@ -1111,12 +1111,12 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
         &session,
         "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
     )
-    .expect_err("projection SQL API should reject grouped aggregate SQL intent");
+    .expect_err("projection row helper should reject grouped dispatch payloads");
 
     assert!(
         err.to_string()
-            .contains("execute_sql_dispatch rejects grouped SELECT execution"),
-        "projection SQL API must preserve explicit grouped dispatch-lane guidance",
+            .contains("projection row dispatch only supports value-row SQL projection payloads"),
+        "projection row helper must preserve its value-row-only contract for grouped payloads",
     );
 }
 
@@ -1480,21 +1480,65 @@ fn execute_sql_rejects_grouped_sql_intent_without_grouped_api() {
 }
 
 #[test]
-fn execute_sql_dispatch_rejects_grouped_sql_execution_in_current_lane() {
+fn execute_sql_dispatch_returns_grouped_payload_for_grouped_sql_execution() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_dispatch::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-        )
-        .expect_err("dispatch SQL API should reject grouped SQL execution");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-a".to_string(),
+            age: 20,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-b".to_string(),
+            age: 20,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-c".to_string(),
+            age: 32,
+        })
+        .expect("seed insert should succeed");
 
-    assert!(
-        err.to_string()
-            .contains("execute_sql_dispatch rejects grouped SELECT execution"),
-        "dispatch SQL API must preserve grouped explicit-entrypoint guidance",
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+        )
+        .expect("dispatch SQL API should execute grouped SQL through the unified surface");
+
+    let SqlDispatchResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+    } = payload
+    else {
+        panic!("dispatch SQL API should return grouped payload for grouped SQL");
+    };
+
+    assert_eq!(
+        columns,
+        vec!["age".to_string(), "COUNT(*)".to_string()],
+        "dispatch grouped SQL should preserve grouped projection labels",
     );
+    assert_eq!(
+        row_count, 2,
+        "dispatch grouped SQL should report grouped row count"
+    );
+    assert!(
+        next_cursor.is_none(),
+        "dispatch grouped SQL should not emit cursor for fully materialized page"
+    );
+    assert_eq!(rows[0].group_key(), [Value::Uint(20)]);
+    assert_eq!(rows[0].aggregate_values(), [Value::Uint(2)]);
+    assert_eq!(rows[1].group_key(), [Value::Uint(32)]);
+    assert_eq!(rows[1].aggregate_values(), [Value::Uint(1)]);
 }
 
 #[test]

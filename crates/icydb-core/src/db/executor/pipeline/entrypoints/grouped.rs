@@ -16,12 +16,13 @@ use crate::{
             GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
         },
         pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+        pipeline::grouped_runtime::resolve_grouped_route_for_plan,
         pipeline::orchestrator::LoadExecutionSurface,
         pipeline::timing::{elapsed_execution_micros, start_execution_timer},
         stream::access::TraversalRuntime,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue},
 };
 
 ///
@@ -124,6 +125,53 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
     } = prepared;
 
     execute_grouped_route_path(&runtime, route, execution_preparation)
+}
+
+/// Execute one initial grouped rows path directly from one structural load plan.
+///
+/// This SQL-only helper keeps the generated query surface on the same grouped
+/// runtime spine without reopening a typed `LoadExecutor<E>` boundary.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_initial_grouped_rows_for_canister<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: crate::db::query::plan::AccessPlannedQuery,
+) -> Result<GroupedCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: finalize one generic-free grouped route from the initial
+    // continuation state and structural authority.
+    let plan = PreparedLoadPlan::from_plan(authority, plan);
+    let route = resolve_grouped_route_for_plan(
+        plan,
+        crate::db::cursor::GroupedPlannedCursor::none(),
+        debug,
+    )?;
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(
+        route.plan(),
+        route.plan().slot_map().map(<[usize]>::to_vec),
+    );
+    let store = db.recovered_store(authority.store_path())?;
+    let prepared = PreparedGroupedRouteRuntime {
+        route,
+        runtime: GroupedPathRuntimeCore {
+            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
+            row_store: store,
+            authority,
+            output_observer: GroupedOutputRuntimeObserverBindings::for_path(
+                authority.entity_path(),
+            ),
+        },
+        execution_preparation,
+    };
+
+    // Phase 2: execute one grouped page and return the grouped cursor payload
+    // directly so SQL surfaces can format the outward cursor as needed.
+    let (page, _) = execute_prepared_grouped_route_runtime(prepared)?;
+
+    Ok(page)
 }
 
 impl<E> LoadExecutor<E>

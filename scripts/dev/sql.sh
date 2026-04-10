@@ -9,6 +9,8 @@ Usage:
 
 Examples:
   sql.sh "select name, charisma from character order by charisma desc"
+  sql.sh "select species, count(*) from character group by species order by species asc"
+  sql.sh "explain select count(*) from character"
   sql.sh "describe character"
   sql.sh "show entities"
   sql.sh "show indexes character"
@@ -117,6 +119,12 @@ printf '%s\n' "$raw_json" | jq -r '
       ("columns: " + ($p.columns | join(", ")))
     ] + ($p.rows | map("row: " + join(" | ")));
 
+  def grouped_lines($g):
+    [
+      "surface=grouped entity=\($g.entity) row_count=\($g.row_count) next_cursor=\($g.next_cursor // "none")",
+      ("columns: " + ($g.columns | join(", ")))
+    ] + ($g.rows | map("row: " + join(" | ")));
+
   def describe_lines($d):
     [
       "entity: \($d.entity_name)",
@@ -148,6 +156,8 @@ printf '%s\n' "$raw_json" | jq -r '
   def query_result_lines($ok):
     if ($ok | has("Projection")) then
       projection_lines($ok.Projection)
+    elif ($ok | has("Grouped")) then
+      grouped_lines($ok.Grouped)
     elif ($ok | has("Explain")) then
       ["surface=explain"] + ($ok.Explain.explain | split("\n"))
     elif ($ok | has("Describe")) then

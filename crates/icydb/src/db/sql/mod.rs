@@ -85,10 +85,21 @@ impl SqlQueryRowsOutput {
     }
 }
 
+#[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlGroupedRowsOutput {
+    pub entity: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub row_count: u32,
+    pub next_cursor: Option<String>,
+}
+
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
     Projection(SqlQueryRowsOutput),
+    Grouped(SqlGroupedRowsOutput),
     Explain {
         entity: String,
         explain: String,
@@ -115,6 +126,7 @@ impl SqlQueryResult {
             Self::Projection(rows) => {
                 render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows())
             }
+            Self::Grouped(rows) => render_grouped_lines(rows),
             Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
             Self::Describe(description) => render_describe_lines(description),
             Self::ShowIndexes { entity, indexes } => {
@@ -373,6 +385,55 @@ pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> 
     lines.push(render_table_row(projection.columns(), widths.as_slice()));
     lines.push(separator.clone());
     for row in projection.rows() {
+        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
+    }
+    lines.push(separator);
+
+    lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one grouped SQL payload into pretty table lines for shell output."
+)]
+#[must_use]
+pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
+    // Phase 1: seed grouped header metadata and expose the outward continuation
+    // cursor on its own line when grouped pagination has more rows.
+    let mut lines = vec![format!(
+        "surface=grouped entity={} row_count={}",
+        grouped.entity, grouped.row_count
+    )];
+    if let Some(next_cursor) = &grouped.next_cursor {
+        lines.push(format!("next_cursor={next_cursor}"));
+    }
+    if grouped.columns.is_empty() {
+        lines.push("(no grouped columns)".to_string());
+        return lines;
+    }
+
+    // Phase 2: compute per-column display widths from headers + grouped row values.
+    let mut widths = grouped.columns.iter().map(String::len).collect::<Vec<_>>();
+    for row in &grouped.rows {
+        for (index, value) in row.iter().enumerate() {
+            if index >= widths.len() {
+                widths.push(value.len());
+            } else {
+                widths[index] = widths[index].max(value.len());
+            }
+        }
+    }
+
+    // Phase 3: render the grouped page as the same deterministic ASCII table
+    // shape used by projection payloads.
+    let separator = render_table_separator(widths.as_slice());
+    lines.push(separator.clone());
+    lines.push(render_table_row(
+        grouped.columns.as_slice(),
+        widths.as_slice(),
+    ));
+    lines.push(separator.clone());
+    for row in &grouped.rows {
         lines.push(render_table_row(row.as_slice(), widths.as_slice()));
     }
     lines.push(separator);

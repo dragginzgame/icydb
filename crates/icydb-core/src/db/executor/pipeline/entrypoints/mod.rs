@@ -28,6 +28,8 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };

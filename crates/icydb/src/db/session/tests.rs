@@ -111,6 +111,7 @@ where
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
         SqlQueryResult::Explain { explain, .. } => Ok(explain),
         SqlQueryResult::Projection(_)
+        | SqlQueryResult::Grouped(_)
         | SqlQueryResult::Describe(_)
         | SqlQueryResult::ShowIndexes { .. }
         | SqlQueryResult::ShowColumns { .. }
@@ -137,6 +138,7 @@ where
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
         SqlQueryResult::Describe(description) => Ok(description),
         SqlQueryResult::Projection(_)
+        | SqlQueryResult::Grouped(_)
         | SqlQueryResult::Explain { .. }
         | SqlQueryResult::ShowIndexes { .. }
         | SqlQueryResult::ShowColumns { .. }
@@ -163,6 +165,7 @@ where
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
         SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
         SqlQueryResult::Projection(_)
+        | SqlQueryResult::Grouped(_)
         | SqlQueryResult::Explain { .. }
         | SqlQueryResult::Describe(_)
         | SqlQueryResult::ShowColumns { .. }
@@ -189,6 +192,7 @@ where
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
         SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
         SqlQueryResult::Projection(_)
+        | SqlQueryResult::Grouped(_)
         | SqlQueryResult::Explain { .. }
         | SqlQueryResult::Describe(_)
         | SqlQueryResult::ShowIndexes { .. }
@@ -306,32 +310,6 @@ where
             context.as_str(),
         );
     }
-}
-
-fn assert_scalar_surface_lane_rejection<T, U, F, G>(
-    sql: &str,
-    execute_expected_substring: &str,
-    dispatch_expected_substring: &str,
-    execute: F,
-    dispatch: G,
-    context: &str,
-) where
-    F: FnOnce(&str) -> Result<T, Error>,
-    G: FnOnce(&str) -> Result<U, Error>,
-{
-    let execute_context = format!("{context}: execute_sql");
-    let dispatch_context = format!("{context}: execute_sql_dispatch");
-
-    assert_unsupported_sql_runtime_result_contains(
-        execute(sql),
-        execute_expected_substring,
-        execute_context.as_str(),
-    );
-    assert_unsupported_sql_runtime_result_contains(
-        dispatch(sql),
-        dispatch_expected_substring,
-        dispatch_context.as_str(),
-    );
 }
 
 #[test]
@@ -1290,19 +1268,41 @@ fn facade_execute_sql_projection_preserves_unsupported_runtime_contract() {
 }
 
 #[test]
-fn facade_scalar_sql_surfaces_reject_global_aggregate_execution_in_current_lane() {
+fn facade_execute_sql_rejects_global_aggregate_sql_while_dispatch_returns_projection_payload() {
     let session = fresh_facade_session();
     let sql = "SELECT COUNT(*) FROM FacadeSqlEntity";
 
-    // Phase 1: keep scalar row-shaped execution fail-closed for global
-    // aggregate SQL so the dedicated aggregate lane remains explicit.
-    assert_scalar_surface_lane_rejection(
-        sql,
-        "execute_sql rejects global aggregate SELECT",
-        "execute_sql_dispatch rejects global aggregate SELECT",
-        |sql| session.execute_sql::<FacadeSqlEntity>(sql),
-        |sql| session.execute_sql_dispatch::<FacadeSqlEntity>(sql),
-        "facade scalar global aggregate lane",
+    let err = session.execute_sql::<FacadeSqlEntity>(sql).expect_err(
+        "facade execute_sql should keep global aggregate SQL off the scalar entity lane",
+    );
+    assert!(
+        err.to_string()
+            .contains("execute_sql rejects global aggregate SELECT"),
+        "facade execute_sql should preserve explicit aggregate-entrypoint guidance",
+    );
+
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(sql)
+        .expect("facade execute_sql_dispatch should execute global aggregate SQL through projection payload");
+
+    let SqlQueryResult::Projection(rows) = payload else {
+        panic!(
+            "facade execute_sql_dispatch should return projection payload for global aggregate SQL"
+        );
+    };
+    assert_eq!(
+        rows.columns,
+        vec!["COUNT(*)".to_string()],
+        "facade aggregate dispatch payload should preserve aggregate projection label",
+    );
+    assert_eq!(
+        rows.rows,
+        vec![vec!["0".to_string()]],
+        "facade aggregate dispatch payload should render one scalar aggregate row",
+    );
+    assert_eq!(
+        rows.row_count, 1,
+        "facade aggregate dispatch payload should expose one scalar aggregate row",
     );
 }
 
@@ -1406,17 +1406,41 @@ fn facade_execute_sql_aggregate_rejects_grouped_select_execution_in_current_lane
 }
 
 #[test]
-fn facade_scalar_sql_surfaces_reject_grouped_sql_execution_in_current_lane() {
+fn facade_execute_sql_rejects_grouped_sql_while_dispatch_returns_grouped_payload() {
     let session = fresh_facade_session();
-    let sql = "SELECT age, COUNT(*) FROM FacadeSqlEntity GROUP BY age";
+    let grouped_sql =
+        "SELECT age, COUNT(*) FROM FacadeSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10";
 
-    assert_scalar_surface_lane_rejection(
-        sql,
-        "execute_sql rejects grouped SELECT",
-        "execute_sql_dispatch rejects grouped SELECT execution",
-        |sql| session.execute_sql::<FacadeSqlEntity>(sql),
-        |sql| session.execute_sql_dispatch::<FacadeSqlEntity>(sql),
-        "facade scalar grouped SQL lane",
+    let err = session
+        .execute_sql::<FacadeSqlEntity>(grouped_sql)
+        .expect_err("facade execute_sql should keep grouped SQL on the unified dispatch surface");
+    assert!(
+        err.to_string()
+            .contains("execute_sql rejects grouped SELECT"),
+        "facade execute_sql should preserve grouped explicit-entrypoint guidance",
+    );
+
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(grouped_sql)
+        .expect(
+            "facade execute_sql_dispatch should execute grouped SQL through the unified surface",
+        );
+
+    let SqlQueryResult::Grouped(rows) = payload else {
+        panic!("facade execute_sql_dispatch should return grouped payload for grouped SQL");
+    };
+    assert_eq!(
+        rows.columns,
+        vec!["age".to_string(), "COUNT(*)".to_string()],
+        "facade grouped payload should preserve grouped projection labels",
+    );
+    assert_eq!(
+        rows.row_count, 0,
+        "facade grouped payload should report empty grouped row count"
+    );
+    assert!(
+        rows.next_cursor.is_none(),
+        "facade grouped payload should not emit cursor on empty result"
     );
 }
 

@@ -6,4 +6,5 @@
 mod route_stage;
 mod runtime;
 
+pub(in crate::db::executor) use route_stage::resolve_grouped_route_for_plan;
 pub(in crate::db::executor) use runtime::GroupedExecutionContext;

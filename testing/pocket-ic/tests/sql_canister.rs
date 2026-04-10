@@ -3,14 +3,16 @@ use canic_testkit::pic::{
     Pic, PicStartError, StandaloneCanisterFixture, StandaloneCanisterFixtureError,
     try_acquire_pic_serial_guard, try_install_prebuilt_canister_with_cycles, try_pic,
 };
-use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
+use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_canister;
 use serde::Serialize;
-use std::{fs, sync::OnceLock};
+use std::{fs, sync::OnceLock, time::Instant};
 
 const INIT_CYCLES: u128 = 50_000_000_000_000;
 const ANY_PROJECTION_VALUE: &str = "<any>";
 const SQL_PERF_PROBE_SQL_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQL";
+const SQL_PERF_PROBE_SQLS_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQLS";
+const SQL_PERF_PROBE_SQL_FILE_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQL_FILE";
 const SQL_PERF_PROBE_SURFACE_ENV: &str = "ICYDB_SQL_PERF_PROBE_SURFACE";
 const SQL_PERF_PROBE_CURSOR_ENV: &str = "ICYDB_SQL_PERF_PROBE_CURSOR";
 const SQL_PERF_PROBE_REPEAT_ENV: &str = "ICYDB_SQL_PERF_PROBE_REPEAT_COUNT";
@@ -259,6 +261,19 @@ fn query_projection_rows(
     match payload {
         SqlQueryResult::Projection(rows) => rows,
         other => panic!("{context}: expected Projection payload, got {other:?}"),
+    }
+}
+
+fn query_grouped_rows(
+    pic: &Pic,
+    canister_id: Principal,
+    sql: &str,
+    context: &str,
+) -> SqlGroupedRowsOutput {
+    let payload = query_result(pic, canister_id, sql).expect(context);
+    match payload {
+        SqlQueryResult::Grouped(rows) => rows,
+        other => panic!("{context}: expected Grouped payload, got {other:?}"),
     }
 }
 
@@ -705,6 +720,49 @@ fn sql_perf_probe_sql() -> String {
         .unwrap_or_else(|| DEFAULT_SQL_PERF_PROBE_SQL.to_string())
 }
 
+// Resolve one batch SQL probe list from the first explicit batch source.
+//
+// The manual PocketIC perf workflow needs a mode that can reuse one loaded
+// canister across many queries. Keeping batch parsing here avoids building a
+// separate ad hoc runner crate just to amortize fixture startup cost.
+fn sql_perf_probe_sql_batch() -> Vec<String> {
+    // Phase 1: prefer an explicit file input so long query sets stay easy to
+    // maintain and shell quoting does not dominate the measurement workflow.
+    if let Some(path) = optional_non_empty_env(SQL_PERF_PROBE_SQL_FILE_ENV) {
+        let raw = fs::read_to_string(&path).unwrap_or_else(|err| {
+            panic!("failed to read {SQL_PERF_PROBE_SQL_FILE_ENV} file at '{path}': {err}")
+        });
+
+        return parse_sql_perf_probe_batch(raw.as_str());
+    }
+
+    // Phase 2: otherwise accept one inline newline-delimited batch env for
+    // quick local triage without another temp file.
+    if let Some(raw_sqls) = optional_non_empty_env(SQL_PERF_PROBE_SQLS_ENV) {
+        return parse_sql_perf_probe_batch(raw_sqls.as_str());
+    }
+
+    vec![sql_perf_probe_sql()]
+}
+
+// Parse one newline-delimited SQL probe batch while ignoring blank lines and
+// shell-friendly comment lines.
+fn parse_sql_perf_probe_batch(raw: &str) -> Vec<String> {
+    let queries = raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    assert!(
+        !queries.is_empty(),
+        "sql perf batch must contain at least one non-empty SQL statement",
+    );
+
+    queries
+}
+
 fn sql_perf_probe_cursor_token() -> Option<String> {
     optional_non_empty_env(SQL_PERF_PROBE_CURSOR_ENV)
 }
@@ -719,6 +777,18 @@ fn sql_perf_probe_repeat_count() -> u32 {
             "{SQL_PERF_PROBE_REPEAT_ENV} must parse as a positive u32 repeat count, got '{raw_repeat_count}': {err}"
         )
     })
+}
+
+// Emit one manual perf-probe phase timestamp relative to one shared start.
+//
+// The PocketIC perf workflow has become opaque enough that we need an
+// explicit timing trace before optimizing further. Keeping the helper local
+// to this harness avoids another ad hoc debug runner binary.
+fn log_perf_probe_phase(started_at: Instant, label: &str) {
+    eprintln!(
+        "[sql-perf-probe] +{:.3}s {label}",
+        started_at.elapsed().as_secs_f64()
+    );
 }
 
 #[expect(clippy::too_many_lines)]
@@ -3021,30 +3091,56 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_
 }
 
 #[test]
-fn sql_canister_query_lane_rejects_grouped_sql_execution() {
+fn sql_canister_query_lane_returns_projection_payload_for_global_aggregate_execution() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let err = query_result(
+        let payload = query_projection_rows(
             pic,
             canister_id,
-            "SELECT age, COUNT(*) FROM Customer GROUP BY age",
-        )
-        .expect_err("query grouped SQL execution should fail closed");
+            "SELECT COUNT(*) FROM Customer",
+            "query global aggregate SQL execution should return projection payload",
+        );
 
-        assert!(
-            matches!(
-                err.kind(),
-                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
-            ),
-            "grouped SQL execution should map to Runtime::Unsupported: {err:?}",
+        assert_projection_window(
+            &payload,
+            "Customer",
+            &["COUNT(*)"],
+            &[&["3"]],
+            "global aggregate query payload should render one scalar aggregate row through the unified query surface",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_returns_grouped_payload_for_grouped_sql_execution() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_grouped_rows(
+            pic,
+            canister_id,
+            "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10",
+            "query grouped SQL execution should return grouped payload",
+        );
+
+        assert_eq!(
+            payload.columns,
+            vec!["age".to_string(), "COUNT(*)".to_string()],
+            "grouped query payload should preserve grouped projection labels",
+        );
+        assert_eq!(
+            payload.rows,
+            vec![
+                vec!["24".to_string(), "1".to_string()],
+                vec!["31".to_string(), "1".to_string()],
+                vec!["43".to_string(), "1".to_string()],
+            ],
+            "grouped query payload should render grouped rows through the unified query surface",
+        );
+        assert_eq!(
+            payload.row_count, 3,
+            "grouped query payload should report grouped row count"
         );
         assert!(
-            err.message()
-                .contains("generated SQL query surface rejects grouped SELECT execution"),
-            "grouped SQL execution should preserve explicit generated grouped-lane guidance: {err:?}",
-        );
-        assert!(
-            err.message().contains("execute_sql_grouped(...)"),
-            "grouped SQL execution should preserve explicit grouped entrypoint guidance: {err:?}",
+            payload.next_cursor.is_none(),
+            "grouped query payload should not emit continuation cursor for one-page result",
         );
     });
 }
@@ -9966,6 +10062,111 @@ fn sql_canister_perf_probe_reports_sample_as_json() {
             }))
             .expect("manual perf probe sample should serialize to JSON")
         );
+    });
+}
+
+#[test]
+#[ignore = "manual perf probe timing trace"]
+fn sql_canister_perf_probe_reports_timing_trace() {
+    let started_at = Instant::now();
+    log_perf_probe_phase(started_at, "start");
+
+    let _serial_guard = try_acquire_pic_serial_guard()
+        .unwrap_or_else(|err| panic!("failed to acquire PocketIC serial guard: {err}"));
+    log_perf_probe_phase(started_at, "serial-guard-acquired");
+
+    let pic = match try_pic() {
+        Ok(pic) => pic,
+        Err(err) if should_skip_pic_start(&err) => {
+            skip_sql_canister_test(err);
+            return;
+        }
+        Err(err) => panic!("failed to start PocketIC: {err}"),
+    };
+    log_perf_probe_phase(started_at, "pic-started");
+
+    let Some(fixture) = install_fresh_fixture(sql_perf_probe_canister()) else {
+        return;
+    };
+    log_perf_probe_phase(started_at, "fixture-installed");
+
+    load_perf_audit_fixtures(fixture.pic(), fixture.canister_id());
+    log_perf_probe_phase(started_at, "perf-fixtures-loaded");
+
+    let request = SqlPerfRequest {
+        surface: sql_perf_probe_sample_surface(),
+        sql: sql_perf_probe_sql(),
+        cursor_token: sql_perf_probe_cursor_token(),
+        repeat_count: sql_perf_probe_repeat_count(),
+    };
+    log_perf_probe_phase(started_at, "sample-request-built");
+
+    let sample = sql_perf_sample(fixture.pic(), fixture.canister_id(), &request);
+    log_perf_probe_phase(started_at, "sample-returned");
+
+    assert!(
+        sample.first_local_instructions > 0,
+        "manual perf probe timing trace first instruction sample must be positive: {sample:?}",
+    );
+    assert!(
+        sample.outcome.success,
+        "manual perf probe timing trace should stay on a successful SQL surface: {sample:?}",
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "mode": "sample-timing-trace",
+            "request": request,
+            "elapsed_ms": started_at.elapsed().as_millis(),
+            "sample": sample,
+        }))
+        .expect("manual perf probe timing trace should serialize to JSON")
+    );
+}
+
+#[test]
+#[ignore = "manual batch perf probe for before/after measurement runs"]
+fn sql_canister_perf_probe_reports_batch_as_json() {
+    run_with_perf_fixture_canister(sql_perf_probe_canister(), |pic, canister_id| {
+        // Phase 1: resolve one shared probe envelope that stays constant for
+        // the whole batch so the loaded canister and fixture dataset are
+        // reused across every query in this run.
+        let surface = sql_perf_probe_sample_surface();
+        let cursor_token = sql_perf_probe_cursor_token();
+        let repeat_count = sql_perf_probe_repeat_count();
+        let queries = sql_perf_probe_sql_batch();
+
+        // Phase 2: run one sample per query against the same loaded canister
+        // and emit each JSON record immediately so long runs remain observable.
+        for sql in queries {
+            let request = SqlPerfRequest {
+                surface,
+                sql,
+                cursor_token: cursor_token.clone(),
+                repeat_count,
+            };
+            let sample = sql_perf_sample(pic, canister_id, &request);
+
+            assert!(
+                sample.first_local_instructions > 0,
+                "manual batch perf probe first instruction sample must be positive: {sample:?}",
+            );
+            assert!(
+                sample.outcome.success,
+                "manual batch perf probe should stay on a successful SQL surface: {sample:?}",
+            );
+
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "mode": "sample-batch",
+                    "request": request,
+                    "sample": sample,
+                }))
+                .expect("manual batch perf probe sample should serialize to JSON")
+            );
+        }
     });
 }
 

@@ -97,6 +97,7 @@ pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr_with_requir
 
 /// Evaluate one compiled scalar projection expression through one pure value
 /// reader that resolves slots directly into runtime `Value`s.
+#[cfg(test)]
 pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_reader(
     expr: &ScalarProjectionExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
@@ -112,6 +113,29 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_reader(
             };
 
             Ok(Cow::Owned(value))
+        },
+        &mut |err| err,
+    )
+    .map(Cow::into_owned)
+}
+
+/// Evaluate one compiled scalar projection expression through one borrowed
+/// value reader and materialize the final runtime `Value`.
+pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_ref_reader<'a>(
+    expr: &ScalarProjectionExpr,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Value, ProjectionEvalError> {
+    eval_scalar_projection_expr_core(
+        expr,
+        &mut |field| {
+            let Some(value) = read_slot(field.slot()) else {
+                return Err(ProjectionEvalError::MissingFieldValue {
+                    field: field.field().to_string(),
+                    index: field.slot(),
+                });
+            };
+
+            Ok(Cow::Borrowed(value))
         },
         &mut |err| err,
     )

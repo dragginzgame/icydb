@@ -6,7 +6,10 @@
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
-        executor::{EntityAuthority, execute_sql_delete_projection_for_canister},
+        executor::{
+            EntityAuthority, execute_initial_grouped_rows_for_canister,
+            execute_sql_delete_projection_for_canister,
+        },
         session::sql::{
             SqlDispatchResult,
             projection::{
@@ -73,7 +76,7 @@ impl<C: CanisterKind> DbSession<C> {
     // surface when the terminal short path can prove rendered SQL rows
     // directly.
     #[inline(never)]
-    fn execute_lowered_sql_dispatch_select_text_core(
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_text_core(
         &self,
         select: LoweredSelectShape,
         authority: EntityAuthority,
@@ -83,9 +86,52 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_structural_sql_projection_text(structural, authority)
     }
 
+    // Execute one lowered grouped SQL SELECT command through the shared
+    // structural grouped runtime and package the page for dispatch consumers.
+    #[inline(never)]
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_grouped_dispatch_select_core(
+        &self,
+        select: LoweredSelectShape,
+        authority: EntityAuthority,
+        columns: Vec<String>,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        let structural = Self::structural_query_from_lowered_select(select, authority)?;
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let page = execute_initial_grouped_rows_for_canister(
+            &self.db,
+            self.debug,
+            authority,
+            structural.build_plan_with_visible_indexes(&visible_indexes)?,
+        )
+        .map_err(QueryError::execute)?;
+        let next_cursor = page
+            .next_cursor
+            .map(|cursor| {
+                let Some(token) = cursor.as_grouped() else {
+                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
+                };
+
+                token.encode_hex().map_err(|err| {
+                    QueryError::serialize_internal(format!(
+                        "failed to serialize grouped continuation cursor: {err}"
+                    ))
+                })
+            })
+            .transpose()?;
+        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
+
+        Ok(SqlDispatchResult::Grouped {
+            columns,
+            rows: page.rows,
+            row_count,
+            next_cursor,
+        })
+    }
+
     // Execute one lowered SQL DELETE command through the shared structural
     // delete projection path.
-    fn execute_lowered_sql_dispatch_delete_core(
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_delete_core(
         &self,
         delete: &LoweredBaseQueryShape,
         authority: EntityAuthority,
@@ -154,7 +200,8 @@ impl<C: CanisterKind> DbSession<C> {
                         rows,
                         row_count,
                     } => Ok((columns, rows, row_count)),
-                    SqlDispatchResult::ProjectionText { .. }
+                    SqlDispatchResult::Grouped { .. }
+                    | SqlDispatchResult::ProjectionText { .. }
                     | SqlDispatchResult::Explain(_)
                     | SqlDispatchResult::Describe(_)
                     | SqlDispatchResult::ShowIndexes(_)

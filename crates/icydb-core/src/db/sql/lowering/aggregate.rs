@@ -559,6 +559,25 @@ pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
     )
 }
 
+// Lower one already-prepared SQL statement into the generic-free global
+// aggregate command envelope so dynamic SQL surfaces can share the same
+// aggregate-shape authority before choosing their outward payload contract.
+pub(in crate::db) fn compile_sql_global_aggregate_command_core_from_prepared(
+    prepared: PreparedSqlStatement,
+    model: &'static EntityModel,
+    consistency: MissingRowPolicy,
+) -> Result<SqlGlobalAggregateCommandCore, SqlLoweringError> {
+    let SqlStatement::Select(statement) = prepared.statement else {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    };
+
+    Ok(bind_lowered_sql_global_aggregate_command_structural(
+        model,
+        lower_global_aggregate_select_shape(statement)?,
+        consistency,
+    ))
+}
+
 fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
     terminal: SqlGlobalAggregateTerminal,
 ) -> Result<TypedSqlGlobalAggregateTerminal, SqlLoweringError> {

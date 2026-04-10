@@ -27,6 +27,7 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
+pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
 pub(crate) use aggregate::compile_sql_global_aggregate_command_from_prepared;
 pub(in crate::db) use aggregate::is_sql_global_aggregate_statement;
 #[cfg(test)]

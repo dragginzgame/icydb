@@ -42,7 +42,7 @@ use core::marker::PhantomData;
 /// remain entity-specific at the outer API boundary.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralQuery {
     intent: QueryModel<'static, Value>,
 }

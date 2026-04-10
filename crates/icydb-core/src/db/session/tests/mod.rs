@@ -2799,7 +2799,8 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Projection { columns, .. }
-        | SqlDispatchResult::ProjectionText { columns, .. } => Ok(columns),
+        | SqlDispatchResult::ProjectionText { columns, .. }
+        | SqlDispatchResult::Grouped { columns, .. } => Ok(columns),
         SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
@@ -2819,9 +2820,11 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Projection { rows, .. } => Ok(rows),
-        SqlDispatchResult::ProjectionText { .. } => Err(unsupported_sql_dispatch_query_error(
-            "projection row dispatch only supports value-row SQL projection payloads",
-        )),
+        SqlDispatchResult::ProjectionText { .. } | SqlDispatchResult::Grouped { .. } => {
+            Err(unsupported_sql_dispatch_query_error(
+                "projection row dispatch only supports value-row SQL projection payloads",
+            ))
+        }
         SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
@@ -2843,6 +2846,7 @@ where
         SqlDispatchResult::Explain(explain) => Ok(explain),
         SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
+        | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -2881,6 +2885,7 @@ where
         SqlDispatchResult::Describe(description) => Ok(description),
         SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
+        | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -2901,6 +2906,7 @@ where
         SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
         SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
+        | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -2921,6 +2927,7 @@ where
         SqlDispatchResult::ShowColumns(columns) => Ok(columns),
         SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
+        | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
@@ -9549,20 +9556,40 @@ fn execute_sql_rejects_aggregate_projection_in_current_slice() {
 }
 
 #[test]
-fn execute_sql_dispatch_rejects_global_aggregate_execution_in_current_lane() {
+fn execute_sql_dispatch_returns_projection_payload_for_global_aggregate_execution() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
+    let payload = session
         .execute_sql_dispatch::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect_err(
-            "execute_sql_dispatch should keep global aggregate execution on the dedicated aggregate lane",
+        .expect(
+            "execute_sql_dispatch should execute global aggregate SQL through projection payload",
         );
 
-    assert!(
-        err.to_string()
-            .contains("execute_sql_dispatch rejects global aggregate SELECT"),
-        "execute_sql_dispatch should preserve the dedicated aggregate-lane boundary message",
+    let SqlDispatchResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = payload
+    else {
+        panic!(
+            "execute_sql_dispatch should return one projection payload for global aggregate SQL"
+        );
+    };
+
+    assert_eq!(
+        columns,
+        vec!["COUNT(*)".to_string()],
+        "global aggregate dispatch payload should preserve aggregate projection label",
+    );
+    assert_eq!(
+        rows,
+        vec![vec![Value::Uint(0)]],
+        "global aggregate dispatch payload should preserve empty-store scalar aggregate value",
+    );
+    assert_eq!(
+        row_count, 1,
+        "global aggregate dispatch payload should expose one scalar aggregate row",
     );
 }
 

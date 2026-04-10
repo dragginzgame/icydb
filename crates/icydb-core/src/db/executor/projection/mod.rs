@@ -17,7 +17,7 @@ pub(in crate::db::executor::projection) use materialize::project_rows_from_proje
 pub(in crate::db::executor) use materialize::record_sql_projection_full_row_decode_materialization;
 pub(in crate::db::executor) use materialize::{
     PreparedProjectionShape, PreparedSlotProjectionValidation, prepare_projection_shape_from_plan,
-    validate_prepared_projection_over_slot_rows,
+    validate_prepared_projection_row,
 };
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use materialize::{

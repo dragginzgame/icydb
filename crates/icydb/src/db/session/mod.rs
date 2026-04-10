@@ -9,7 +9,10 @@ mod tests;
 #[cfg(feature = "sql")]
 use crate::db::{
     SqlStatementRoute,
-    sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text},
+    sql::{
+        SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput,
+        render_value_text,
+    },
 };
 use crate::{
     db::{
@@ -269,6 +272,18 @@ impl<C: CanisterKind> DbSession<C> {
                 entity_name,
                 SqlProjectionRows::new(columns, rows, row_count),
             )),
+            core::db::SqlDispatchResult::Grouped {
+                columns,
+                rows,
+                row_count,
+                next_cursor,
+            } => SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+                entity: entity_name,
+                columns,
+                rows: Self::grouped_rows_from_values(rows),
+                row_count,
+                next_cursor,
+            }),
             core::db::SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
                 entity: entity_name,
                 explain,
@@ -315,6 +330,21 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         SqlProjectionRows::new(columns, rendered_rows, row_count)
+    }
+
+    #[cfg(feature = "sql")]
+    fn grouped_rows_from_values(rows: Vec<core::db::GroupedRow>) -> Vec<Vec<String>> {
+        let mut rendered_rows = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let mut rendered_row =
+                Vec::with_capacity(row.group_key().len() + row.aggregate_values().len());
+            rendered_row.extend(row.group_key().iter().map(render_value_text));
+            rendered_row.extend(row.aggregate_values().iter().map(render_value_text));
+            rendered_rows.push(rendered_row);
+        }
+
+        rendered_rows
     }
 
     #[cfg(feature = "sql")]

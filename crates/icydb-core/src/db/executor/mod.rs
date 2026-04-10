@@ -86,6 +86,8 @@ pub(in crate::db::executor) use order::{
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
+#[cfg(feature = "sql")]
+pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]

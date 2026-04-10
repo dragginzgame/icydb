@@ -1,8 +1,8 @@
 mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, PlannerChoice, PlannerPrefixChoice,
-        PlannerUniquePrefixChoice,
-        SqlQueryResult, db, fixtures_load_default, fixtures_mark_customer_index_building,
+        PlannerUniquePrefixChoice, SqlQueryResult, db, fixtures_load_default,
+        fixtures_mark_customer_index_building,
         perf::{SqlPerfRequest, SqlPerfSurface, sample_sql_surface},
         sql_dispatch,
     };
@@ -81,10 +81,6 @@ mod tests {
         test_db().execute_sql_dispatch::<E>(sql)
     }
 
-    fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
-        typed_result_for_sql_unchecked_as::<Customer>(sql)
-    }
-
     // Execute one constrained global aggregate SQL statement through the typed
     // aggregate lane so parity tests can lock the dedicated scalar surface
     // directly instead of inferring it through dispatch rejection.
@@ -141,7 +137,12 @@ mod tests {
     fn grouped_page_rows(page: &PagedGroupedResponse) -> Vec<(Value, Value)> {
         page.items()
             .iter()
-            .map(|row| (row.group_key()[0].clone(), row.aggregate_values()[0].clone()))
+            .map(|row| {
+                (
+                    row.group_key()[0].clone(),
+                    row.aggregate_values()[0].clone(),
+                )
+            })
             .collect::<Vec<_>>()
     }
 
@@ -291,9 +292,8 @@ mod tests {
         expected_name: &str,
         context: &str,
     ) {
-        let required = format!(
-            "\"access\":{{\"type\":\"{expected_type}\",\"name\":\"{expected_name}\""
-        );
+        let required =
+            format!("\"access\":{{\"type\":\"{expected_type}\",\"name\":\"{expected_name}\"");
 
         assert!(
             explain.contains(required.as_str()),
@@ -360,7 +360,6 @@ mod tests {
             "typed query access plan and sql_dispatch explain access line should stay equivalent",
         );
     }
-
 
     #[test]
     fn typed_execute_sql_dispatch_supports_show_entities_lane() {
@@ -528,7 +527,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_expression_key_only_order_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_expression_key_only_order_projection_matches_typed_surface()
+    {
         assert_dispatch_result_matches_typed(
             "SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer expression key-only order projection parity",
@@ -548,8 +548,9 @@ mod tests {
      {
         reload_default_fixtures();
 
-        let explain =
-            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2");
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
 
         assert!(
             explain.contains("cov_read_route=Text(\"covering_read\")")
@@ -588,8 +589,9 @@ mod tests {
      {
         reload_default_fixtures();
 
-        let explain =
-            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2");
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
 
         assert!(
             explain.contains("cov_read_route=Text(\"covering_read\")")
@@ -820,11 +822,12 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_customer_secondary_non_covering_explain_stays_off_removed_authority_labels()
-    {
+     {
         reload_default_fixtures();
 
-        let explain =
-            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT age FROM Customer ORDER BY name ASC LIMIT 2");
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT age FROM Customer ORDER BY name ASC LIMIT 2",
+        );
 
         assert!(
             explain.contains("cov_read_route=Text(\"materialized\")"),
@@ -837,8 +840,7 @@ mod tests {
             "non-covering Customer explain should stay off the removed authority-label surface: {explain}",
         );
         assert!(
-            !explain.contains("planner_proven")
-                && !explain.contains("storage_existence_witness"),
+            !explain.contains("planner_proven") && !explain.contains("storage_existence_witness"),
             "non-covering Customer explain must not surface legacy authority labels: {explain}",
         );
     }
@@ -876,7 +878,7 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_customer_secondary_covering_equality_desc_explain_matches_typed_surface()
-    {
+     {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary equality desc covering EXPLAIN parity",
@@ -907,7 +909,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_matches_typed_surface()
+     {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary covering range EXPLAIN parity",
@@ -1002,7 +1005,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering projection parity",
@@ -1010,7 +1014,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_explain_matches_typed_surface()
+    {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering EXPLAIN parity",
@@ -1034,7 +1039,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering projection parity",
@@ -1042,7 +1048,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_explain_matches_typed_surface()
+    {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
@@ -1066,7 +1073,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_desc_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering projection parity",
@@ -1074,7 +1082,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_desc_explain_matches_typed_surface()
+    {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering EXPLAIN parity",
@@ -1082,7 +1091,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_equivalent_strict_prefix_forms_match_projection_rows() {
+    fn generated_sql_dispatch_customer_order_equivalent_strict_prefix_forms_match_projection_rows()
+    {
         reload_default_fixtures();
 
         let like = dispatch_result_for_sql(
@@ -1107,7 +1117,7 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_customer_order_equivalent_desc_strict_prefix_forms_match_projection_rows()
-    {
+     {
         reload_default_fixtures();
 
         let like = dispatch_result_for_sql(
@@ -1131,7 +1141,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_order_only_composite_projection_matches_typed_surface()
+    {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder order-only composite covering projection parity",
@@ -1176,7 +1187,7 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_customer_order_order_only_composite_desc_projection_matches_typed_surface()
-    {
+     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering projection parity",
@@ -1184,7 +1195,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering EXPLAIN parity",
@@ -1236,7 +1248,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_explain_reports_planner_proven_route() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_explain_reports_planner_proven_route()
+    {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -1257,7 +1270,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality projection parity on uint-backed fields",
@@ -1375,7 +1389,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered order-only covering projection parity",
@@ -1400,7 +1415,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_explain_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered order-only covering EXPLAIN parity",
@@ -2642,7 +2658,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_expected_rows() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_expected_rows()
+     {
         reload_default_fixtures();
 
         let payload = dispatch_result_for_sql(
@@ -2689,35 +2706,29 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_global_aggregate_execution_stays_fail_closed() {
+    fn generated_sql_dispatch_global_aggregate_execution_matches_typed_surface() {
+        reload_default_fixtures();
+
         let sql = "SELECT COUNT(*) FROM Customer";
-        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
-            .expect_err("sql_dispatch should reject global aggregate execution");
-        let typed_err = typed_result_for_sql_unchecked(sql)
-            .expect_err("typed execute_sql_dispatch should reject global aggregate execution");
+        let dispatch = dispatch_result_for_sql(sql);
+        let typed = typed_result_for_sql(sql);
 
         assert_eq!(
-            dispatch_err.kind(),
-            typed_err.kind(),
-            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error kind parity",
+            dispatch, typed,
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate projection parity",
         );
-        assert_eq!(
-            dispatch_err.origin(),
-            typed_err.origin(),
-            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error origin parity",
-        );
-        assert!(
-            dispatch_err.to_string().contains("global aggregate SELECT")
-                && dispatch_err
-                    .to_string()
-                    .contains("execute_sql_aggregate(...)"),
-            "sql_dispatch should preserve explicit aggregate-lane guidance",
-        );
-        assert!(
-            typed_err.to_string().contains("global aggregate SELECT")
-                && typed_err.to_string().contains("execute_sql_aggregate(...)"),
-            "typed execute_sql_dispatch should preserve explicit aggregate-lane guidance",
-        );
+
+        match dispatch {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "Customer");
+                assert_eq!(rows.columns, vec!["COUNT(*)".to_string()]);
+                assert_eq!(rows.rows, vec![vec!["3".to_string()]]);
+                assert_eq!(rows.row_count, 1);
+            }
+            other => {
+                panic!("global aggregate dispatch should return a projection payload: {other:?}")
+            }
+        }
     }
 
     #[test]
@@ -2752,8 +2763,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -2767,13 +2777,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -2805,7 +2813,10 @@ mod tests {
         );
         assert_eq!(
             avg_age,
-            Value::Decimal(Decimal::from_i128_with_scale(32_666_666_666_666_666_667, 18)),
+            Value::Decimal(Decimal::from_i128_with_scale(
+                32_666_666_666_666_666_667,
+                18
+            )),
             "typed execute_sql_aggregate AVG(age) should preserve the decimal average across the default Customer fixture set",
         );
     }
@@ -2831,8 +2842,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -2846,13 +2856,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -2897,8 +2905,7 @@ mod tests {
                 "{label} perf sample should succeed: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "explain",
+                sample.outcome.result_kind, "explain",
                 "{label} perf sample should classify the public explain surface as an explain outcome",
             );
             assert_eq!(
@@ -2911,13 +2918,11 @@ mod tests {
                 "{label} perf sample should expose a positive explain line count",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "{label} perf sample should stay scalar and not expose row counts",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "{label} perf sample should not expose cursor state",
             );
         }
@@ -2931,10 +2936,14 @@ mod tests {
             typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer WHERE age >= 30");
         let count_age =
             typed_aggregate_value_for_sql("SELECT COUNT(age) FROM Customer WHERE age >= 30");
-        let min_age = typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer WHERE age >= 30");
-        let max_age = typed_aggregate_value_for_sql("SELECT MAX(age) FROM Customer WHERE age >= 30");
-        let sum_age = typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer WHERE age >= 30");
-        let avg_age = typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer WHERE age >= 30");
+        let min_age =
+            typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer WHERE age >= 30");
+        let max_age =
+            typed_aggregate_value_for_sql("SELECT MAX(age) FROM Customer WHERE age >= 30");
+        let sum_age =
+            typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer WHERE age >= 30");
+        let avg_age =
+            typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer WHERE age >= 30");
 
         assert_eq!(
             count_rows,
@@ -2991,8 +3000,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -3006,13 +3014,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected filtered scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -3022,7 +3028,8 @@ mod tests {
     fn typed_execute_sql_aggregate_customer_empty_window_queries_return_expected_values() {
         reload_default_fixtures();
 
-        let count_rows = typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer WHERE age < 0");
+        let count_rows =
+            typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer WHERE age < 0");
         let sum_age = typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer WHERE age < 0");
         let avg_age = typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer WHERE age < 0");
         let min_age = typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer WHERE age < 0");
@@ -3071,8 +3078,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -3086,13 +3092,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected empty-window scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -3152,8 +3156,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -3167,13 +3170,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected windowed scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -3227,8 +3228,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_aggregate_customer_offset_beyond_window_perf_surface_reports_expected_values(
-    ) {
+    fn typed_execute_sql_aggregate_customer_offset_beyond_window_perf_surface_reports_expected_values()
+     {
         for (sql, expected_rendered_value) in [
             (
                 "SELECT COUNT(*) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
@@ -3258,8 +3259,7 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
             );
             assert_eq!(
-                sample.outcome.result_kind,
-                "aggregate_value",
+                sample.outcome.result_kind, "aggregate_value",
                 "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
             );
             assert_eq!(
@@ -3273,13 +3273,11 @@ mod tests {
                 "typed execute_sql_aggregate perf sample should render the expected offset-beyond-window scalar value for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.row_count,
-                None,
+                sample.outcome.row_count, None,
                 "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
             );
             assert_eq!(
-                sample.outcome.has_cursor,
-                None,
+                sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
             );
         }
@@ -3347,8 +3345,7 @@ mod tests {
             "typed execute_sql_aggregate perf sample should fail for non-aggregate SELECT: {sample:?}",
         );
         assert_eq!(
-            sample.outcome.result_kind,
-            "error",
+            sample.outcome.result_kind, "error",
             "typed execute_sql_aggregate perf sample should classify non-aggregate SELECT as an error",
         );
         assert_eq!(
@@ -3366,7 +3363,9 @@ mod tests {
                 .outcome
                 .error_message
                 .as_deref()
-                .is_some_and(|message| message.contains("execute_sql_aggregate requires constrained global aggregate SELECT")),
+                .is_some_and(|message| message.contains(
+                    "execute_sql_aggregate requires constrained global aggregate SELECT"
+                )),
             "typed execute_sql_aggregate perf sample should preserve constrained aggregate-surface guidance for non-aggregate SELECT",
         );
     }
@@ -3383,8 +3382,7 @@ mod tests {
             "typed execute_sql_aggregate perf sample should fail for grouped SELECT: {sample:?}",
         );
         assert_eq!(
-            sample.outcome.result_kind,
-            "error",
+            sample.outcome.result_kind, "error",
             "typed execute_sql_aggregate perf sample should classify grouped SELECT as an error",
         );
         assert_eq!(
@@ -3398,48 +3396,18 @@ mod tests {
             "typed execute_sql_aggregate perf sample should preserve Query origin for grouped SELECT",
         );
         assert!(
-            sample
-                .outcome
-                .error_message
-                .as_deref()
-                .is_some_and(|message| message.contains("execute_sql_aggregate rejects grouped SELECT")),
+            sample.outcome.error_message.as_deref().is_some_and(
+                |message| message.contains("execute_sql_aggregate rejects grouped SELECT")
+            ),
             "typed execute_sql_aggregate perf sample should preserve grouped-entrypoint guidance for grouped SELECT",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_grouped_execution_stays_fail_closed() {
-        let sql = "SELECT age, COUNT(*) FROM Customer GROUP BY age";
-        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
-            .expect_err("sql_dispatch should reject grouped SQL execution");
-        let typed_err = typed_result_for_sql_unchecked(sql)
-            .expect_err("typed execute_sql_dispatch should reject grouped SQL execution");
-
-        assert_eq!(
-            dispatch_err.kind(),
-            typed_err.kind(),
-            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error kind parity",
-        );
-        assert_eq!(
-            dispatch_err.origin(),
-            typed_err.origin(),
-            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error origin parity",
-        );
-        assert!(
-            dispatch_err
-                .to_string()
-                .contains("generated SQL query surface rejects grouped SELECT execution")
-                && dispatch_err
-                    .to_string()
-                    .contains("execute_sql_grouped(...)"),
-            "sql_dispatch should preserve explicit grouped-entrypoint guidance",
-        );
-        assert!(
-            typed_err
-                .to_string()
-                .contains("execute_sql_dispatch rejects grouped SELECT execution")
-                && typed_err.to_string().contains("execute_sql_grouped(...)"),
-            "typed execute_sql_dispatch should preserve explicit grouped-entrypoint guidance",
+    fn generated_sql_dispatch_grouped_execution_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10",
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL execution parity",
         );
     }
 
@@ -3472,7 +3440,8 @@ mod tests {
             "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3498,7 +3467,8 @@ mod tests {
             "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3524,7 +3494,8 @@ mod tests {
             "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3550,7 +3521,8 @@ mod tests {
             "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3576,14 +3548,15 @@ mod tests {
             "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_matches_typed_surface()
+    {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped COUNT(field) EXPLAIN parity",
@@ -3591,8 +3564,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_projects_ordered_group()
+    {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3604,7 +3577,8 @@ mod tests {
             "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3618,8 +3592,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_projects_ordered_group()
-    {
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_projects_ordered_group() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3631,7 +3604,8 @@ mod tests {
             "filtered Customer grouped SUM(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3645,8 +3619,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_projects_ordered_group()
-    {
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_projects_ordered_group() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3658,7 +3631,8 @@ mod tests {
             "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
         );
         assert!(
-            explain.contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
+            explain
+                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
             "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
         );
     }
@@ -3742,8 +3716,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped EXPLAIN EXECUTION parity",
@@ -3751,8 +3724,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_explain_execution_projects_ordered_group() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3769,8 +3741,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_matches_typed_surface()
+    {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped COUNT(field) EXPLAIN EXECUTION parity",
@@ -3778,8 +3750,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_grouped_count_field_explain_execution_projects_ordered_group()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3797,8 +3769,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_matches_typed_surface()
-    {
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped SUM(field) EXPLAIN EXECUTION parity",
@@ -3806,8 +3777,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_grouped_sum_field_explain_execution_projects_ordered_group()
+    {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3825,8 +3796,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_matches_typed_surface()
-    {
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer grouped AVG(field) EXPLAIN EXECUTION parity",
@@ -3834,8 +3804,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_grouped_avg_field_explain_execution_projects_ordered_group()
+    {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3853,8 +3823,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped COUNT(field) EXPLAIN EXECUTION parity",
@@ -3862,8 +3832,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_count_field_explain_execution_projects_ordered_group()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3880,8 +3850,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped SUM(field) EXPLAIN EXECUTION parity",
@@ -3889,8 +3859,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_sum_field_explain_execution_projects_ordered_group()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3907,8 +3877,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<Customer>(
             "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
             "typed execute_sql_dispatch and sql_dispatch should keep filtered Customer grouped AVG(field) EXPLAIN EXECUTION parity",
@@ -3916,8 +3886,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_projects_ordered_group(
-    ) {
+    fn generated_sql_dispatch_customer_filtered_grouped_avg_field_explain_execution_projects_ordered_group()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -3953,8 +3923,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_filtered_count_by_name_preserves_ordered_group_rows(
-    ) {
+    fn typed_execute_sql_grouped_customer_filtered_count_by_name_preserves_ordered_group_rows() {
         reload_default_fixtures();
 
         let rows = typed_grouped_rows_for_sql_as::<Customer>(
@@ -4044,8 +4013,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_filtered_count_age_by_name_preserves_ordered_group_rows(
-    ) {
+    fn typed_execute_sql_grouped_customer_filtered_count_age_by_name_preserves_ordered_group_rows()
+    {
         reload_default_fixtures();
 
         let rows = typed_grouped_rows_for_sql_as::<Customer>(
@@ -4060,8 +4029,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_filtered_sum_age_by_name_preserves_ordered_group_rows()
-    {
+    fn typed_execute_sql_grouped_customer_filtered_sum_age_by_name_preserves_ordered_group_rows() {
         reload_default_fixtures();
 
         let rows = typed_grouped_rows_for_sql_as::<Customer>(
@@ -4079,8 +4047,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_filtered_avg_age_by_name_preserves_ordered_group_rows()
-    {
+    fn typed_execute_sql_grouped_customer_filtered_avg_age_by_name_preserves_ordered_group_rows() {
         reload_default_fixtures();
 
         let rows = typed_grouped_rows_for_sql_as::<Customer>(
@@ -4098,8 +4065,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_sum_age_by_name_limit_window_emits_cursor_and_resumes_next_page(
-    ) {
+    fn typed_execute_sql_grouped_customer_sum_age_by_name_limit_window_emits_cursor_and_resumes_next_page()
+     {
         reload_default_fixtures();
 
         let sql = "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2";
@@ -4124,7 +4091,8 @@ mod tests {
             "typed execute_sql_grouped should preserve ordered grouped SUM(field) rows on the first page",
         );
 
-        let second_page = typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
+        let second_page =
+            typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
         assert!(
             second_page.next_cursor().is_none(),
             "last grouped SUM(field) page should not emit continuation cursor",
@@ -4140,8 +4108,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_execute_sql_grouped_customer_avg_age_by_name_limit_window_emits_cursor_and_resumes_next_page(
-    ) {
+    fn typed_execute_sql_grouped_customer_avg_age_by_name_limit_window_emits_cursor_and_resumes_next_page()
+     {
         reload_default_fixtures();
 
         let sql = "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2";
@@ -4166,7 +4134,8 @@ mod tests {
             "typed execute_sql_grouped should preserve ordered grouped AVG(field) rows on the first page",
         );
 
-        let second_page = typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
+        let second_page =
+            typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
         assert!(
             second_page.next_cursor().is_none(),
             "last grouped AVG(field) page should not emit continuation cursor",
@@ -4183,7 +4152,7 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_filtered_global_aggregate_explain_execution_respects_customer_index_visibility()
-    {
+     {
         let sql = "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer WHERE name = 'alice'";
 
         reload_default_fixtures();
@@ -4227,14 +4196,14 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_global_aggregate_explain_execution_stays_off_secondary_authority_surface()
-    {
-        let explain = match dispatch_result_for_sql("EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer")
-        {
-            SqlQueryResult::Explain { explain, .. } => explain,
-            other => panic!(
-                "global aggregate EXPLAIN EXECUTION should return an explain payload: {other:?}"
-            ),
-        };
+     {
+        let explain =
+            match dispatch_result_for_sql("EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer") {
+                SqlQueryResult::Explain { explain, .. } => explain,
+                other => panic!(
+                    "global aggregate EXPLAIN EXECUTION should return an explain payload: {other:?}"
+                ),
+            };
 
         assert!(
             !explain.contains("authority_decision")
@@ -4441,8 +4410,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_range_desc_explain_json_prefers_order_compatible_index(
-    ) {
+    fn generated_sql_dispatch_planner_choice_range_desc_explain_json_prefers_order_compatible_index()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4462,8 +4431,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<PlannerChoice>(
             "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice equality-prefix suffix-order deterministic EXPLAIN JSON parity",
@@ -4471,8 +4440,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_prefers_order_compatible_index(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_prefers_order_compatible_index()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4492,8 +4461,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<PlannerChoice>(
             "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerChoice equality-prefix suffix-order deterministic EXPLAIN JSON parity",
@@ -4501,8 +4470,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_prefers_order_compatible_index(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_prefers_order_compatible_index()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4522,8 +4491,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4545,8 +4514,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_execution_reports_materialized_order_fallback(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_execution_reports_materialized_order_fallback()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4576,8 +4545,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_projection_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<PlannerChoice>(
             "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
             "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice equality-prefix suffix-order offset projection parity",
@@ -4589,8 +4558,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4617,8 +4586,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_offset_explain_execution_reports_materialized_order_fallback(
-    ) {
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_offset_explain_execution_reports_materialized_order_fallback()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4661,8 +4630,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_unique_prefix_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_unique_prefix_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4684,8 +4653,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_unique_prefix_offset_desc_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_unique_prefix_offset_desc_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4708,8 +4677,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_range_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_range_explain_execution_reports_bounded_ordered_route()
+    {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4731,8 +4700,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_range_desc_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_range_desc_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4767,8 +4736,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_range_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_range_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4791,8 +4760,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_range_desc_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_range_desc_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4857,8 +4826,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_order_only_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_order_only_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4882,8 +4851,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_choice_order_only_desc_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_choice_order_only_desc_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4908,8 +4877,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(
             "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep PlannerPrefixChoice composite order-only deterministic EXPLAIN JSON parity",
@@ -4917,8 +4886,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_prefers_order_compatible_index(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_prefers_order_compatible_index()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4938,8 +4907,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_matches_typed_surface()
+     {
         assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(
             "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerPrefixChoice composite order-only deterministic EXPLAIN JSON parity",
@@ -4947,8 +4916,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_prefers_order_compatible_index(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_prefers_order_compatible_index()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4968,8 +4937,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -4988,8 +4957,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -5009,8 +4978,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_projection_matches_typed_surface(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_projection_matches_typed_surface()
+     {
         assert_dispatch_result_matches_typed_as::<PlannerPrefixChoice>(
             "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
             "typed execute_sql_dispatch and sql_dispatch should keep PlannerPrefixChoice composite order-only ascending offset projection parity",
@@ -5022,8 +4991,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -5047,8 +5016,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_offset_explain_execution_reports_bounded_ordered_route(
-    ) {
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_offset_explain_execution_reports_bounded_ordered_route()
+     {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -5475,9 +5444,7 @@ mod tests {
             .map(|row| row.handle.clone())
             .collect();
 
-        assert!(
-            gold_handles == BTreeSet::from(["bravo".to_string(), "bristle".to_string()])
-        );
+        assert!(gold_handles == BTreeSet::from(["bravo".to_string(), "bristle".to_string()]));
     }
 
     #[test]
@@ -5515,43 +5482,35 @@ mod tests {
             .expect("typed Customer name-order perf sample should attach row_check metrics");
 
         assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            0,
+            generated_metrics.row_check_covering_candidates_seen, 0,
             "generated Customer name-order perf sample should not enter the row_check covering candidate lane on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
+            generated_metrics.row_presence_probe_count, 0,
             "generated Customer name-order perf sample should not execute row-presence probes on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
+            generated_metrics.row_presence_probe_hits, 0,
             "generated Customer name-order perf sample should not execute row-presence probes on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
+            generated_metrics.row_presence_probe_misses, 0,
             "generated Customer name-order perf sample should not hit row-presence misses on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
             "generated Customer name-order perf sample should not route through the borrowed data-store row-check helper on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
+            generated_metrics.row_presence_probe_store_handle_count, 0,
             "generated Customer name-order perf sample should not bounce through the store-handle row-presence helper on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
             "generated Customer name-order perf sample should not encode row-check primary keys on the planner-proven default fixture set",
         );
         assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            0,
+            generated_metrics.row_check_rows_emitted, 0,
             "generated Customer name-order perf sample should not report row_check-emitted rows on the planner-proven default fixture set",
         );
         assert_eq!(
@@ -5559,5 +5518,4 @@ mod tests {
             "generated and typed Customer name-order perf samples should keep row_check metrics in parity",
         );
     }
-
 }

@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    QueryError,
+    GroupedRow, QueryError,
     sql::lowering::{
         LoweredSqlCommand, LoweredSqlLaneKind, PreparedSqlStatement as CorePreparedSqlStatement,
         lower_sql_command_from_prepared_statement, lowered_sql_command_lane, prepare_sql_statement,
@@ -38,6 +38,12 @@ pub enum SqlDispatchResult {
         columns: Vec<String>,
         rows: Vec<Vec<String>>,
         row_count: u32,
+    },
+    Grouped {
+        columns: Vec<String>,
+        rows: Vec<GroupedRow>,
+        row_count: u32,
+        next_cursor: Option<String>,
     },
     Explain(String),
     Describe(crate::db::EntitySchemaDescription),

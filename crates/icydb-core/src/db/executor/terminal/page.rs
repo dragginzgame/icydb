@@ -15,9 +15,7 @@ use crate::{
             order::cursor_boundary_from_orderable_row,
             pipeline::contracts::{CursorEmissionMode, PageCursor, StructuralCursorPage},
             pipeline::operators::PreparedSqlExecutionProjection,
-            projection::{
-                PreparedSlotProjectionValidation, validate_prepared_projection_over_slot_rows,
-            },
+            projection::{PreparedSlotProjectionValidation, validate_prepared_projection_row},
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
@@ -76,12 +74,6 @@ impl RetainedSlotRow {
     #[must_use]
     pub(in crate::db::executor) fn slot_ref(&self, slot: usize) -> Option<&Value> {
         self.slots.get(slot).and_then(Option::as_ref)
-    }
-
-    /// Clone one retained slot value for generic projection readers.
-    #[must_use]
-    pub(in crate::db::executor) fn slot(&self, slot: usize) -> Option<Value> {
-        self.slot_ref(slot).cloned()
     }
 
     /// Remove one retained slot value by slot index while consuming the row in
@@ -459,11 +451,13 @@ fn validate_prepared_projection_rows(
             "projection validation requires prepared slot-row projection state",
         )
     })?;
-    validate_prepared_projection_over_slot_rows(
-        prepared_projection_validation,
-        rows.len(),
-        &mut |row_index, slot| rows[row_index].slot(slot),
-    )
+    for row in rows {
+        validate_prepared_projection_row(prepared_projection_validation, &mut |slot| {
+            row.slot_ref(slot)
+        })?;
+    }
+
+    Ok(())
 }
 
 // Resolve the last structural cursor row before typed response decode.

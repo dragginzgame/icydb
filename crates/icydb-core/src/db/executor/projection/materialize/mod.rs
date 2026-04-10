@@ -26,10 +26,12 @@ use std::borrow::Cow;
 
 #[cfg(all(feature = "sql", test))]
 use crate::db::executor::projection::compile_scalar_projection_expr;
+#[cfg(test)]
+use crate::db::executor::projection::eval::eval_scalar_projection_expr_with_value_reader;
 use crate::db::executor::projection::eval::{
     ProjectionEvalError, ScalarProjectionExpr,
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-    eval_scalar_projection_expr_with_value_reader,
+    eval_scalar_projection_expr_with_value_ref_reader,
 };
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
 pub(in crate::db::executor) use structural::record_sql_projection_full_row_decode_materialization;
@@ -71,8 +73,6 @@ pub(in crate::db::executor) struct PreparedProjectionShape {
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
     #[cfg(feature = "sql")]
-    direct_projection_slots: Option<Vec<usize>>,
-    #[cfg(feature = "sql")]
     direct_projection_field_slots: Option<Vec<(String, usize)>>,
     #[cfg(feature = "sql")]
     projected_slot_mask: Vec<bool>,
@@ -92,12 +92,6 @@ impl PreparedProjectionShape {
     #[must_use]
     pub(in crate::db::executor) const fn projection_is_model_identity(&self) -> bool {
         self.projection_is_model_identity
-    }
-
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db::executor) fn direct_projection_slots(&self) -> Option<&[usize]> {
-        self.direct_projection_slots.as_deref()
     }
 
     #[cfg(feature = "sql")]
@@ -140,11 +134,9 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
             .to_vec(),
     );
     #[cfg(feature = "sql")]
-    let direct_projection_slots = plan.frozen_direct_projection_slots().map(<[usize]>::to_vec);
-    #[cfg(feature = "sql")]
     let direct_projection_field_slots = direct_projection_field_slots_from_projection(
         &projection,
-        direct_projection_slots.as_deref(),
+        plan.frozen_direct_projection_slots(),
     );
     #[cfg(feature = "sql")]
     let projected_slot_mask =
@@ -155,35 +147,26 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
         prepared,
         projection_is_model_identity: plan.projection_is_model_identity(),
         #[cfg(feature = "sql")]
-        direct_projection_slots,
-        #[cfg(feature = "sql")]
         direct_projection_field_slots,
         #[cfg(feature = "sql")]
         projected_slot_mask,
     }
 }
 
-/// Validate projection expressions over one row-domain that can expose values
-/// by `(row_index, field_slot)` using one prepared validation bundle.
-pub(in crate::db::executor) fn validate_prepared_projection_over_slot_rows(
+/// Validate projection expressions against one row-domain that can expose
+/// borrowed slot values by field slot.
+pub(in crate::db::executor) fn validate_prepared_projection_row<'a>(
     prepared_validation: &PreparedSlotProjectionValidation,
-    row_count: usize,
-    read_slot_for_row: &mut dyn FnMut(usize, usize) -> Option<Value>,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<(), InternalError> {
     if prepared_validation.projection_is_model_identity() {
         return Ok(());
     }
 
-    // Phase 1: evaluate every projection expression against each row.
-    for row_index in 0..row_count {
-        let mut read_slot = |slot| read_slot_for_row(row_index, slot);
-        visit_prepared_projection_values_with_value_reader(
-            prepared_validation.prepared(),
-            prepared_validation.projection(),
-            &mut read_slot,
-            &mut |_| {},
-        )
-        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+    let PreparedProjectionPlan::Scalar(compiled_fields) = prepared_validation.prepared();
+    for compiled in compiled_fields {
+        let _ = eval_scalar_projection_expr_with_value_ref_reader(compiled, read_slot)
+            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
     }
 
     Ok(())
@@ -257,6 +240,7 @@ where
     Ok(projected_rows)
 }
 
+#[cfg(test)]
 pub(super) fn visit_prepared_projection_values_with_value_reader(
     prepared: &PreparedProjectionPlan,
     projection: &ProjectionSpec,
