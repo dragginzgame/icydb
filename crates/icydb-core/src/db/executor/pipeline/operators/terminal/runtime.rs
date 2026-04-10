@@ -28,6 +28,8 @@ type CoveringProjectedRowPairs = Vec<(DataKey, Vec<Value>)>;
 type CoveringProjectedTextRowPairs = Vec<(DataKey, Vec<String>)>;
 #[cfg(feature = "sql")]
 type DirectProjectionSlots = Vec<usize>;
+#[cfg(feature = "sql")]
+type SqlDirectProjectedSourceLayout = (Vec<SqlDirectProjectedFieldSource>, Vec<Value>);
 
 #[cfg(feature = "sql")]
 const SQL_COVERING_BOOL_PAYLOAD_LEN: usize = 1;
@@ -228,7 +230,7 @@ impl ExecutionKernel {
             );
         }
 
-        #[allow(unreachable_code)]
+        #[expect(unreachable_code)]
         {
             let _ = (request, model, store, covering_component_scan);
 
@@ -1669,7 +1671,7 @@ fn sql_route_direct_projected_field_sources(
     covering: &CoveringReadExecutionPlan,
     projection_field_slots: &[usize],
     component_slots: &[CoveringComponentSlotGroup],
-) -> Result<Option<(Vec<SqlDirectProjectedFieldSource>, Vec<Value>)>, InternalError> {
+) -> Result<Option<SqlDirectProjectedSourceLayout>, InternalError> {
     let mut projected_field_sources = Vec::with_capacity(projection_field_slots.len());
     let mut constant_values = Vec::new();
 

@@ -94,9 +94,9 @@ impl SaveRule {
 
 #[derive(Clone, Copy)]
 pub enum MutationMode {
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     Insert,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     Replace,
     Update,
 }
@@ -140,7 +140,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ///
     /// This entrypoint is intentionally staged ahead of the higher-level API
     /// layer so the executor boundary can lock its invariants first.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn insert_structural(
         &self,
         key: E::Key,
@@ -153,7 +153,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ///
     /// Replace semantics deliberately rebuild the after-image from an empty row
     /// layout so absent fields do not inherit old-row values implicitly.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn replace_structural(
         &self,
         key: E::Key,
@@ -166,7 +166,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ///
     /// This entrypoint is intentionally staged ahead of the higher-level API
     /// layer so the executor boundary can lock its invariants first.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn update_structural(
         &self,
         key: E::Key,
@@ -588,7 +588,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     // Run one structural key + patch mutation under one explicit save-mode contract.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn apply_structural_mutation(
         &self,
         mode: MutationMode,
@@ -600,7 +600,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_structural_mutation(mode, mutation)
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn save_structural_mutation(
         &self,
         mode: MutationMode,
@@ -650,7 +650,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Validate one structurally patched after-image by decoding it against the
     // target key and reusing the existing typed save preflight rules.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn validate_structural_after_image(
         &self,
         data_key: &DataKey,

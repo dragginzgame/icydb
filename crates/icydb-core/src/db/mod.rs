@@ -61,7 +61,7 @@ pub use data::{
 #[doc(hidden)]
 pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
-#[allow(unused_imports)]
+#[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
@@ -78,7 +78,7 @@ pub use executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 #[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
-#[allow(unused_imports)]
+#[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]

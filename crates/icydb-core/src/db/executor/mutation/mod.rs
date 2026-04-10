@@ -78,7 +78,7 @@ impl MutationInput {
     ///
     /// This seam lands before the session/API layer adopts structural mutation
     /// entrypoints, so the library target does not call it yet.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db::executor) fn from_update_patch<E>(
         key: E::Key,
         patch: &UpdatePatch,

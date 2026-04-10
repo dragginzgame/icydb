@@ -91,7 +91,7 @@ impl SchemaInfo {
     ///
     /// Tests still use this compatibility shim when they want one owned schema
     /// value without going through the global cache.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
         Ok(Self::from_trusted_entity_model(model))
     }

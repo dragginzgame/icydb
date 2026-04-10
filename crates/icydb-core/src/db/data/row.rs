@@ -158,7 +158,7 @@ impl RawRow {
     }
 
     /// Apply one ordered structural patch through the persisted-row boundary.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn apply_update_patch(
         &self,
         model: &'static EntityModel,
@@ -168,7 +168,7 @@ impl RawRow {
     }
 
     /// Apply one pre-serialized structural patch through the persisted-row boundary.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn apply_serialized_update_patch(
         &self,
         model: &'static EntityModel,

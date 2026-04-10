@@ -69,7 +69,7 @@ impl IndexStore {
     }
 
     /// Snapshot all index entry pairs (diagnostics only).
-    #[allow(clippy::redundant_closure_for_method_calls)]
+    #[expect(clippy::redundant_closure_for_method_calls)]
     pub(crate) fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
         self.map.iter().map(|entry| entry.into_pair()).collect()
     }

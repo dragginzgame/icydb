@@ -38,14 +38,14 @@ use std::borrow::Cow;
 
 #[derive(Debug)]
 #[cfg(test)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db::executor) enum ScalarProjectionEvalError {
     Eval(ProjectionEvalError),
     Internal(InternalError),
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl ScalarProjectionEvalError {
     /// Map one scalar projection evaluation failure into the executor
     /// invalid-logical-plan or internal boundary owned by this taxonomy.

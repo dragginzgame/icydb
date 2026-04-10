@@ -105,7 +105,7 @@ impl QueryError {
     #[cfg(feature = "sql")]
     pub(in crate::db) fn from_sql_lowering_error(err: SqlLoweringError) -> Self {
         match err {
-            SqlLoweringError::Query(err) => err,
+            SqlLoweringError::Query(err) => *err,
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature { feature }) => {
                 Self::unsupported_sql_feature(feature)
             }

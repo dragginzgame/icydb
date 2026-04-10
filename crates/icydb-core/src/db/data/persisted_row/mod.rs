@@ -55,13 +55,13 @@ pub use self::codec::{
 /// mutation stays structural instead of reintroducing typed entity helpers.
 ///
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct FieldSlot {
     index: usize,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl FieldSlot {
     /// Resolve one stable field slot by runtime field name.
     #[must_use]
@@ -97,14 +97,14 @@ impl FieldSlot {
 /// same slot.
 ///
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct FieldUpdate {
     slot: FieldSlot,
     value: Value,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl FieldUpdate {
     /// Build one field-level structural update.
     #[must_use]
@@ -199,14 +199,14 @@ impl UpdatePatch {
 /// artifact instead of rebuilding per-field encode dispatch.
 ///
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SerializedFieldUpdate {
     slot: FieldSlot,
     payload: Vec<u8>,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl SerializedFieldUpdate {
     /// Build one serialized structural field update.
     #[must_use]
@@ -238,13 +238,13 @@ impl SerializedFieldUpdate {
 /// replay without re-entering field-contract encode logic.
 ///
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct SerializedUpdatePatch {
     entries: Vec<SerializedFieldUpdate>,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl SerializedUpdatePatch {
     /// Build one serialized patch from already encoded slot payloads.
     #[must_use]
@@ -495,7 +495,7 @@ fn decode_slot_value_for_field(
 /// Composite `ByKind` field encoding remains a follow-up slice so the runtime
 /// can add one structural encoder owner instead of quietly rebuilding typed
 /// per-field branches.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db) fn encode_slot_value_from_value(
     model: &'static EntityModel,
     slot: usize,
@@ -731,7 +731,7 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
 
 /// Apply one ordered structural patch to one raw row using the current
 /// persisted-row field codec authority.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db) fn apply_update_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,
@@ -747,7 +747,7 @@ pub(in crate::db) fn apply_update_patch_to_raw_row(
 /// This is the phase-1 partial-serialization seam for `0.64`: later mutation
 /// stages can stage or replay one field patch without rebuilding the runtime
 /// value-to-bytes contract per consumer.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db) fn serialize_update_patch_fields(
     model: &'static EntityModel,
     patch: &UpdatePatch,
@@ -774,7 +774,7 @@ pub(in crate::db) fn serialize_update_patch_fields(
 ///
 /// This keeps typed save/update APIs on the existing surface while moving the
 /// actual after-image staging onto the structural slot-patch boundary.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db) fn serialize_entity_slots_as_update_patch<E>(
     entity: &E,
 ) -> Result<SerializedUpdatePatch, InternalError>
@@ -796,7 +796,7 @@ where
 ///
 /// This mechanical replay step no longer owns any `Value -> bytes` dispatch.
 /// It only replays already encoded slot payloads over the current row layout.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,
@@ -882,7 +882,7 @@ fn is_canonical_nullable_cbor_null_payload(raw_value: &[u8]) -> bool {
 
 // Validate one runtime value against the persisted field contract before field-
 // level structural encoding writes bytes into a row slot.
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn ensure_slot_value_matches_field_contract(
     field: &FieldModel,
     value: &Value,
@@ -982,7 +982,7 @@ fn storage_value_matches_field_kind(kind: FieldKind, value: &Value) -> bool {
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
 // field-level patch value is persisted.
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn ensure_decimal_scale_matches(
     field_name: &str,
     kind: FieldKind,
@@ -1036,7 +1036,7 @@ fn ensure_decimal_scale_matches(
 
 // Enforce the canonical persisted ordering rules for set/map shapes before one
 // field-level patch value becomes row bytes.
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn ensure_value_is_deterministic_for_storage(
     field_name: &str,
     kind: FieldKind,

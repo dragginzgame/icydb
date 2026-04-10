@@ -393,7 +393,7 @@ impl InternalError {
     ///
     /// This constructor lands ahead of the public structural mutation surface,
     /// so the library target may not route through it until that caller exists.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn mutation_structural_after_image_invalid(
         entity_path: &str,
         data_key: impl fmt::Display,

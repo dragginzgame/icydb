@@ -112,7 +112,7 @@ pub(in crate::db) struct CoveringReadPlan {
 /// exists in row storage before it can emit output.
 ///
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringExistingRowMode {
     ProvenByPlanner,

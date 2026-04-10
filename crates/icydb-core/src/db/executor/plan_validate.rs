@@ -25,7 +25,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 ) -> Result<(), InternalError> {
     let schema = executor_plan_schema(authority);
 
-    validate_access_structure_model(&schema, authority.model(), &plan.access)
+    validate_access_structure_model(schema, authority.model(), &plan.access)
         .map_err(AccessPlanError::into_internal_error)?;
 
     Ok(())

@@ -375,7 +375,7 @@ impl<C: CanisterKind> DbSession<C> {
                         ),
                     Some(LoweredSqlQuery::Delete(delete)) => {
                         let typed_query = bind_lowered_sql_query::<E>(
-                            LoweredSqlQuery::Delete(delete.clone()),
+                            LoweredSqlQuery::Delete(delete),
                             MissingRowPolicy::Ignore,
                         )
                         .map_err(QueryError::from_sql_lowering_error)?;

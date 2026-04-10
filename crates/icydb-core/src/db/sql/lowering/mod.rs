@@ -641,7 +641,7 @@ pub(crate) enum SqlLoweringError {
     Parse(#[from] crate::db::sql::parser::SqlParseError),
 
     #[error("{0}")]
-    Query(#[from] QueryError),
+    Query(Box<QueryError>),
 
     #[error("SQL entity '{sql_entity}' does not match requested entity type '{expected_entity}'")]
     EntityMismatch {
@@ -691,6 +691,12 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
+    }
+}
+
+impl From<QueryError> for SqlLoweringError {
+    fn from(value: QueryError) -> Self {
+        Self::Query(Box::new(value))
     }
 }
 

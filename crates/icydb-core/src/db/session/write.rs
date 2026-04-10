@@ -77,7 +77,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Replace semantics rebuild the after-image from an empty row layout, so
     /// omitted fields do not inherit old-row values implicitly.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn replace_structural<E>(
         &self,
         key: E::Key,
@@ -129,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Insert semantics require the patch to describe the full row payload
     /// because no old-row baseline exists to fill missing fields.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn insert_structural<E>(
         &self,
         key: E::Key,
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// This session-owned boundary keeps structural mutation out of the raw
     /// executor surface while still routing through the same typed save
     /// preflight before commit staging.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db) fn update_structural<E>(
         &self,
         key: E::Key,
