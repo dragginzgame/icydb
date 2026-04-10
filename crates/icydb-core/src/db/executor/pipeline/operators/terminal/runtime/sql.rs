@@ -1037,15 +1037,11 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
             ),
             _ => None,
         };
-    let route_covering_slot_layout = if route_constant_projected_source_layout.is_some() {
-        None
-    } else {
-        match load_terminal_fast_path {
-            Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
-                sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
-            }
-            None => None,
+    let route_covering_slot_layout = match load_terminal_fast_path {
+        Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
+            sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
         }
+        None => None,
     };
     let route_direct_projected_source_layout = match (
         load_terminal_fast_path,
@@ -1970,11 +1966,11 @@ fn sql_route_covering_slot_layout(
             }
             CoveringReadFieldSource::IndexComponent { component_index } => {
                 let decoded_component_index = if let Some((decoded_component_index, (_, slots))) =
-                    component_slots
-                        .iter_mut()
-                        .enumerate()
-                        .find(|(group_index, _)| group_index == component_index)
-                {
+                    component_slots.iter_mut().enumerate().find(
+                        |(_, (group_component_index, _))| {
+                            *group_component_index == *component_index
+                        },
+                    ) {
                     slots.push(field.field_slot.index);
                     decoded_component_index
                 } else {
@@ -2120,10 +2116,13 @@ fn sql_route_single_component_projected_field_sources(
                 }
             }
             SqlRouteCoveringSlotSource::DecodedComponent(decoded_component_index) => {
+                let (component_index, _) = route_covering_slot_layout
+                    .component_slots
+                    .get(*decoded_component_index)?;
                 match shared_component_index {
-                    Some(existing) if existing != *decoded_component_index => return None,
+                    Some(existing) if existing != *component_index => return None,
                     Some(_) => {}
-                    None => shared_component_index = Some(*decoded_component_index),
+                    None => shared_component_index = Some(*component_index),
                 }
 
                 SqlDirectProjectedFieldSource::IndexComponent {
@@ -2172,7 +2171,6 @@ fn sql_route_constant_projected_field_sources(
 
         projected_field_sources.push(projected_source);
     }
-
     let _ = covering;
 
     Some((projected_field_sources, constant_values))
