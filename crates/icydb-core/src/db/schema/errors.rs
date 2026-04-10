@@ -24,7 +24,7 @@ pub enum ValidateError {
 
     #[error("invalid index name for '{index}': {source}")]
     InvalidIndexName {
-        index: IndexModel,
+        index: Box<IndexModel>,
         #[source]
         source: IndexNameError,
     },
@@ -48,18 +48,30 @@ pub enum ValidateError {
     InvalidPrimaryKeyType { field: String },
 
     #[error("index '{index}' references unknown field '{field}'")]
-    IndexFieldUnknown { index: IndexModel, field: String },
+    IndexFieldUnknown {
+        index: Box<IndexModel>,
+        field: String,
+    },
 
     #[error("index '{index}' references non-queryable field '{field}'")]
-    IndexFieldNotQueryable { index: IndexModel, field: String },
+    IndexFieldNotQueryable {
+        index: Box<IndexModel>,
+        field: String,
+    },
 
     #[error(
         "index '{index}' references map field '{field}'; map fields are not queryable in icydb 0.7"
     )]
-    IndexFieldMapNotQueryable { index: IndexModel, field: String },
+    IndexFieldMapNotQueryable {
+        index: Box<IndexModel>,
+        field: String,
+    },
 
     #[error("index '{index}' repeats field '{field}'")]
-    IndexFieldDuplicate { index: IndexModel, field: String },
+    IndexFieldDuplicate {
+        index: Box<IndexModel>,
+        field: String,
+    },
 
     #[error("index '{index}' expression key item '{expression}' requires {expected}")]
     IndexExpressionFieldTypeInvalid {
@@ -73,13 +85,13 @@ pub enum ValidateError {
 
     #[error("index '{index}' predicate '{predicate}' has invalid SQL syntax")]
     InvalidIndexPredicateSyntax {
-        index: IndexModel,
+        index: Box<IndexModel>,
         predicate: &'static str,
     },
 
     #[error("index '{index}' predicate '{predicate}' is invalid for schema")]
     InvalidIndexPredicateSchema {
-        index: IndexModel,
+        index: Box<IndexModel>,
         predicate: &'static str,
     },
 

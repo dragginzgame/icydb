@@ -84,8 +84,6 @@ impl SaveRule {
 //
 // MutationMode
 //
-// MutationMode
-//
 // MutationMode makes the structural patch path spell out the same
 // row-existence contract the typed save surface already owns.
 // This keeps future structural callers from smuggling write-mode meaning
@@ -94,9 +92,7 @@ impl SaveRule {
 
 #[derive(Clone, Copy)]
 pub enum MutationMode {
-    #[expect(dead_code)]
     Insert,
-    #[expect(dead_code)]
     Replace,
     Update,
 }
@@ -588,7 +584,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     // Run one structural key + patch mutation under one explicit save-mode contract.
-    #[expect(dead_code)]
     pub(in crate::db) fn apply_structural_mutation(
         &self,
         mode: MutationMode,
@@ -600,7 +595,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_structural_mutation(mode, mutation)
     }
 
-    #[expect(dead_code)]
     fn save_structural_mutation(
         &self,
         mode: MutationMode,
@@ -650,7 +644,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Validate one structurally patched after-image by decoding it against the
     // target key and reusing the existing typed save preflight rules.
-    #[expect(dead_code)]
     fn validate_structural_after_image(
         &self,
         data_key: &DataKey,

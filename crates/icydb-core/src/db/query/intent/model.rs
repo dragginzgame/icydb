@@ -84,7 +84,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Apply a dynamic filter expression using the model schema.
     pub(crate) fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
         let schema = SchemaInfo::cached_for_entity_model(self.model);
-        let predicate = expr.lower_with(&schema).map_err(QueryError::validate)?;
+        let predicate = expr.lower_with(schema).map_err(QueryError::validate)?;
 
         Ok(self.filter(predicate))
     }
@@ -92,7 +92,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Apply a dynamic sort expression using the model schema.
     pub(crate) fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
         let schema = SchemaInfo::cached_for_entity_model(self.model);
-        let order = expr.lower_with(&schema).map_err(QueryError::from)?;
+        let order = expr.lower_with(schema).map_err(QueryError::from)?;
 
         validate_order_shape(Some(&order))
             .map_err(IntentError::from)
@@ -291,7 +291,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // before access planning.
         let access_inputs = self.intent.planning_access_inputs();
         let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
-            &schema_info,
+            schema_info,
             access_inputs.predicate(),
         )?);
         let plan_mode = self.intent.mode();
@@ -303,7 +303,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             plan_query_access(
                 self.model,
                 visible_indexes.as_slice(),
-                &schema_info,
+                schema_info,
                 normalized_predicate.as_ref(),
                 access_inputs.order(),
                 access_inputs.into_key_access_override(),
@@ -338,9 +338,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // Phase 5: validate the assembled plan against schema, access-shape,
         // and planner-policy contracts before projecting explain metadata.
         if plan.grouped_plan().is_some() {
-            validate_group_query_semantics(&schema_info, self.model, &plan)?;
+            validate_group_query_semantics(schema_info, self.model, &plan)?;
         } else {
-            validate_query_semantics(&schema_info, self.model, &plan)?;
+            validate_query_semantics(schema_info, self.model, &plan)?;
         }
 
         // Phase 6: freeze the access-choice explain snapshot after validation

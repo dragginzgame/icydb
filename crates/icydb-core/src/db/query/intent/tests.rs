@@ -3519,10 +3519,14 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
         .expect_err("strict enum with wrong path should fail");
     assert!(matches!(
         err,
-        QueryError::Validate(crate::db::schema::ValidateError::InvalidLiteral {
+        QueryError::Validate(err)
+            if matches!(
+                err.as_ref(),
+                crate::db::schema::ValidateError::InvalidLiteral {
             field,
             ..
-        }) if field == "stage"
+                } if field == "stage"
+            )
     ));
 }
 

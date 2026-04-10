@@ -4,7 +4,7 @@
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
 use crate::{
-    db::schema::{FieldType, ValidateError, field_type_from_model_kind},
+    db::schema::{FieldType, field_type_from_model_kind},
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
@@ -92,8 +92,8 @@ impl SchemaInfo {
     /// Tests still use this compatibility shim when they want one owned schema
     /// value without going through the global cache.
     #[expect(dead_code)]
-    pub(crate) fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
-        Ok(Self::from_trusted_entity_model(model))
+    pub(crate) fn from_entity_model(model: &EntityModel) -> Self {
+        Self::from_trusted_entity_model(model)
     }
 
     /// Build one owned schema view from trusted generated field metadata.
@@ -123,11 +123,18 @@ impl SchemaInfo {
             .iter()
             .find(|(entity_path, _)| *entity_path == model.path())
         {
-            return *cached;
+            return cached;
         }
 
         guard.push((model.path(), schema));
         schema
+    }
+
+    /// Preserve legacy test call sites that still read like schema validation.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn expect(self, _message: &str) -> Self {
+        self
     }
 }
 

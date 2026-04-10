@@ -209,7 +209,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     let schema = boundary_schema(model);
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let field_type = boundary_order_field_type(&schema, field)?;
+        let field_type = boundary_order_field_type(schema, field)?;
 
         match slot {
             CursorBoundarySlot::Missing => {
@@ -267,7 +267,7 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
     let schema = boundary_schema(model);
-    let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
+    let expected = boundary_order_field_type(schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
@@ -297,7 +297,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
     let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
     let schema = boundary_schema(model);
-    let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
+    let expected = boundary_order_field_type(schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {

@@ -37,7 +37,7 @@ use thiserror::Error as ThisError;
 #[derive(Debug, ThisError)]
 pub enum QueryError {
     #[error("{0}")]
-    Validate(#[from] ValidateError),
+    Validate(Box<ValidateError>),
 
     #[error("{0}")]
     Plan(Box<PlanError>),
@@ -54,8 +54,8 @@ pub enum QueryError {
 
 impl QueryError {
     /// Construct one validation-domain query error.
-    pub(crate) const fn validate(err: ValidateError) -> Self {
-        Self::Validate(err)
+    pub(crate) fn validate(err: ValidateError) -> Self {
+        Self::Validate(Box::new(err))
     }
 
     /// Construct an execution-domain query error from one classified runtime error.
@@ -145,6 +145,12 @@ impl QueryError {
     }
 }
 
+impl From<ValidateError> for QueryError {
+    fn from(err: ValidateError) -> Self {
+        Self::validate(err)
+    }
+}
+
 ///
 /// QueryExecutionError
 ///
@@ -221,7 +227,7 @@ impl From<PlanError> for QueryError {
 impl From<SortLowerError> for QueryError {
     fn from(err: SortLowerError) -> Self {
         match err {
-            SortLowerError::Validate(err) => Self::validate(err),
+            SortLowerError::Validate(err) => Self::validate(*err),
             SortLowerError::Plan(err) => Self::from(*err),
         }
     }

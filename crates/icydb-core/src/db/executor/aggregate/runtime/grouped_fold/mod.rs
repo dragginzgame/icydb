@@ -63,7 +63,6 @@ use crate::{
 /// behavior.
 ///
 
-#[expect(unreachable_pub)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GroupedCountFoldMetrics {
     pub fold_stage_runs: u64,

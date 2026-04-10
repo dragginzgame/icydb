@@ -360,7 +360,7 @@ fn generated_field_models_for_predicate(
         let Some(field) = entity
             .fields
             .iter()
-            .find(|candidate| candidate.ident.to_string() == field_name)
+            .find(|candidate| candidate.ident == field_name)
         else {
             continue;
         };

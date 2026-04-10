@@ -65,7 +65,7 @@ impl CoercionSpec {
 
     /// Borrow any attached coercion parameters.
     #[must_use]
-    pub fn params(&self) -> &[(String, String)] {
+    pub const fn params(&self) -> &[(String, String)] {
         self.params.as_slice()
     }
 }

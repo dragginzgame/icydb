@@ -66,7 +66,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
         .copied()
         .find(|index| index.name() == chosen_index_name)
         .and_then(|index| {
-            match evaluate_index_candidate(family, index, model, &schema_info, predicate, order) {
+            match evaluate_index_candidate(family, index, model, schema_info, predicate, order) {
                 self::model::CandidateEvaluation::Eligible(score) => Some(score),
                 self::model::CandidateEvaluation::Rejected(_) => None,
             }
@@ -81,7 +81,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     // already been frozen from planner evaluation.
     for index in sorted_indexes(visible_indexes) {
         let index_name = index.name();
-        match evaluate_index_candidate(family, index, model, &schema_info, predicate, order) {
+        match evaluate_index_candidate(family, index, model, schema_info, predicate, order) {
             self::model::CandidateEvaluation::Eligible(_score)
                 if index_name == chosen_index_name => {}
             self::model::CandidateEvaluation::Eligible(score) => {

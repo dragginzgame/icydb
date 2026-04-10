@@ -420,7 +420,7 @@ const fn is_identifier_continue(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn keyword_from_ident(value: &str) -> Option<Keyword> {
+const fn keyword_from_ident(value: &str) -> Option<Keyword> {
     match value.len() {
         2 if value.eq_ignore_ascii_case("AS") => Some(Keyword::As),
         2 if value.eq_ignore_ascii_case("BY") => Some(Keyword::By),
@@ -674,7 +674,7 @@ impl SqlTokenCursor {
         }
     }
 
-    pub(in crate::db) fn advance(&mut self) -> bool {
+    pub(in crate::db) const fn advance(&mut self) -> bool {
         if self.is_eof() {
             return false;
         }

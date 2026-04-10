@@ -79,7 +79,7 @@ impl SortExpr {
 #[derive(Debug, ThisError)]
 pub(crate) enum SortLowerError {
     #[error("{0}")]
-    Validate(#[from] ValidateError),
+    Validate(Box<ValidateError>),
 
     #[error("{0}")]
     Plan(Box<PlanError>),
@@ -88,5 +88,11 @@ pub(crate) enum SortLowerError {
 impl From<PlanError> for SortLowerError {
     fn from(err: PlanError) -> Self {
         Self::Plan(Box::new(err))
+    }
+}
+
+impl From<ValidateError> for SortLowerError {
+    fn from(err: ValidateError) -> Self {
+        Self::Validate(Box::new(err))
     }
 }

@@ -313,12 +313,12 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     _entity_path: &'static str,
     model: &'static EntityModel,
     index: &IndexModel,
-) -> Result<Option<PredicateProgram>, InternalError> {
+) -> Option<PredicateProgram> {
     let Some(predicate) = canonical_index_predicate(index) else {
-        return Ok(None);
+        return None;
     };
 
-    Ok(Some(PredicateProgram::compile_with_model(model, predicate)))
+    Some(PredicateProgram::compile_with_model(model, predicate))
 }
 
 /// Build one index key from one slot reader using structural entity authority only.
@@ -469,7 +469,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         let store = store_for_index(index)?;
         let index_fields = index_fields_csv(index);
         let membership_program =
-            compile_index_membership_predicate_structural(entity_path, model, index)?;
+            compile_index_membership_predicate_structural(entity_path, model, index);
 
         let old_key = match old_slots.as_deref_mut() {
             Some(slots) => load_structural_index_key(

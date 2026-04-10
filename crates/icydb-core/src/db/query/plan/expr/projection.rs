@@ -119,10 +119,7 @@ pub(crate) fn collect_unique_direct_projection_slots<'a>(
 
     for field_name in field_names {
         let slot = resolve_field_slot(model, field_name)?;
-        if field_slots
-            .iter()
-            .any(|existing_slot| *existing_slot == slot)
-        {
+        if field_slots.contains(&slot) {
             return None;
         }
 
