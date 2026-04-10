@@ -775,9 +775,9 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
     .expect("build raw row");
 
     let direct_slots =
-        StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL).expect("decode row");
+        StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL).expect("decode row");
     let mut cached_slots =
-        StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL).expect("decode row");
+        StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL).expect("decode row");
 
     let direct_name = decode_slot_value_by_contract(&direct_slots, 0).expect("decode name");
     let direct_payload = decode_slot_value_by_contract(&direct_slots, 1).expect("decode payload");
@@ -805,7 +805,7 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
     )
     .expect("build raw row");
 
-    let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+    let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
         .expect("row-open structural envelope decode should succeed");
 
     match &reader.cached_values[0] {
@@ -888,7 +888,7 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
     .expect("build raw row");
 
     let (_scalar_read, metrics) = with_structural_read_metrics(|| {
-        let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        let reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
             .expect("row-open structural envelope decode should succeed");
 
         matches!(
@@ -927,7 +927,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
     .expect("build raw row");
 
     let (_value, metrics) = with_structural_read_metrics(|| {
-        let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
             .expect("row-open structural envelope decode should succeed");
 
         reader
@@ -960,7 +960,7 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
     )
     .expect("build raw row");
 
-    let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+    let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
         .expect("row-open structural envelope decode should succeed");
     let err = reader
         .get_value(1)

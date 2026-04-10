@@ -47,6 +47,19 @@ impl<'a> StructuralSlotReader<'a> {
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
+        let reader = Self::from_raw_row_with_model(raw_row, model)?;
+        reader.validate_all_declared_slots()?;
+
+        Ok(reader)
+    }
+
+    /// Build one slot reader over one persisted row while preserving lazy
+    /// slot validation for caller-owned selective-read experiments and tests.
+    #[cfg(test)]
+    pub(in crate::db) fn from_raw_row_lazy(
+        raw_row: &'a RawRow,
+        model: &'static EntityModel,
+    ) -> Result<Self, InternalError> {
         Self::from_raw_row_with_model(raw_row, model)
     }
 
@@ -376,6 +389,33 @@ impl<'a> StructuralSlotReader<'a> {
         self.field_bytes
             .field(slot)
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+    }
+
+    // Validate every declared slot once at the model-backed structural row
+    // boundary so fail-closed callers reject malformed unused fields before
+    // projection, relation, or commit logic runs.
+    fn validate_all_declared_slots(&self) -> Result<(), InternalError> {
+        for (slot, field) in self.contract.fields().iter().enumerate() {
+            let raw_value = self.required_field_bytes(slot, field.name())?;
+
+            match field.leaf_codec() {
+                LeafCodec::Scalar(codec) => {
+                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    self.metrics.record_validated_slot();
+                    decode_scalar_slot_value(raw_value, codec, field.name())?;
+                }
+                LeafCodec::CborFallback => {
+                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    {
+                        self.metrics.record_validated_slot();
+                        self.metrics.record_validated_non_scalar();
+                    }
+                    validate_non_scalar_slot_value(raw_value, field)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
