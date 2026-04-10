@@ -91,6 +91,7 @@ impl SchemaInfo {
     ///
     /// Tests still use this compatibility shim when they want one owned schema
     /// value without going through the global cache.
+    #[cfg(test)]
     pub(crate) fn from_entity_model(model: &EntityModel) -> Self {
         Self::from_trusted_entity_model(model)
     }
