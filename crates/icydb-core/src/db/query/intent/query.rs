@@ -221,14 +221,28 @@ impl StructuralQuery {
     }
 
     pub(in crate::db) fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model()
+        let mut plan = self.intent.build_plan_model()?;
+
+        // Freeze planner-owned execution metadata at the public query boundary
+        // so explain/planned/compiled callers all observe the same static shape.
+        plan.finalize_static_planning_shape_for_model(self.intent.model())
+            .map_err(QueryError::execute)?;
+
+        Ok(plan)
     }
 
     pub(in crate::db) fn build_plan_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model_with_indexes(visible_indexes)
+        let mut plan = self.intent.build_plan_model_with_indexes(visible_indexes)?;
+
+        // Visible-index planning still needs the same frozen static execution
+        // shape before downstream explain or compiled-query consumers inspect it.
+        plan.finalize_static_planning_shape_for_model(self.intent.model())
+            .map_err(QueryError::execute)?;
+
+        Ok(plan)
     }
 
     #[cfg(feature = "sql")]

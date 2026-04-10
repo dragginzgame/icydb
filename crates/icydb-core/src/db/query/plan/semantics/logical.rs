@@ -18,9 +18,11 @@ use crate::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
                 compile_scalar_projection_plan,
             },
-            grouped_aggregate_execution_specs_with_model, grouped_cursor_policy_violation,
-            grouped_executor_handoff, lower_direct_projection_slots, lower_projection_identity,
-            lower_projection_intent, residual_query_predicate_after_access_path_bounds,
+            grouped_aggregate_execution_specs_with_model,
+            grouped_aggregate_projection_specs_from_projection_spec,
+            grouped_cursor_policy_violation, lower_direct_projection_slots,
+            lower_projection_identity, lower_projection_intent,
+            residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access,
             resolved_grouped_distinct_execution_strategy_for_model,
         },
@@ -414,10 +416,16 @@ fn project_static_planning_shape_for_model(
         } else {
             None
         };
-    let grouped_aggregate_execution_specs = if plan.grouped_plan().is_some() {
+    let grouped_aggregate_execution_specs = if let Some(grouped) = plan.grouped_plan() {
+        let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
+            &projection_spec,
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+        )?;
+
         Some(grouped_aggregate_execution_specs_with_model(
             model,
-            grouped_executor_handoff(plan)?.aggregate_projection_specs(),
+            aggregate_projection_specs.as_slice(),
         )?)
     } else {
         None

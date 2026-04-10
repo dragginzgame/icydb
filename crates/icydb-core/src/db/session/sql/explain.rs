@@ -87,7 +87,8 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        authority.finalize_static_planning_shape(&mut plan);
         let explain = plan.explain_with_model(authority.model());
         let rendered = match mode {
             SqlExplainMode::Plan => explain.render_text_canonical(),
@@ -121,7 +122,8 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        authority.finalize_static_planning_shape(&mut plan);
         let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
             authority.fields(),
             authority.primary_key_name(),
@@ -152,13 +154,18 @@ impl<C: CanisterKind> DbSession<C> {
         match mode {
             SqlExplainMode::Plan => Ok(command
                 .query()
-                .build_plan_with_visible_indexes(&visible_indexes)?
+                .build_plan_with_visible_indexes(&visible_indexes)
+                .map(|mut plan| {
+                    authority.finalize_static_planning_shape(&mut plan);
+                    plan
+                })?
                 .explain_with_model(model)
                 .render_text_canonical()),
             SqlExplainMode::Execution => {
-                let plan = command
+                let mut plan = command
                     .query()
                     .build_plan_with_visible_indexes(&visible_indexes)?;
+                authority.finalize_static_planning_shape(&mut plan);
                 let query_explain = plan.explain_with_model(model);
                 let execution = assemble_prepared_sql_scalar_aggregate_execution_descriptor(
                     &plan,
@@ -180,7 +187,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlExplainMode::Json => Ok(command
                 .query()
-                .build_plan_with_visible_indexes(&visible_indexes)?
+                .build_plan_with_visible_indexes(&visible_indexes)
+                .map(|mut plan| {
+                    authority.finalize_static_planning_shape(&mut plan);
+                    plan
+                })?
                 .explain_with_model(model)
                 .render_json_canonical()),
         }

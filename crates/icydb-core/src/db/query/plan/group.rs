@@ -306,6 +306,7 @@ impl GroupedFoldPath {
 pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
+    #[cfg(test)]
     aggregate_projection_specs: Vec<GroupedAggregateProjectionSpec>,
     grouped_aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection_layout: PlannedProjectionLayout,
@@ -331,6 +332,7 @@ impl<'a> GroupedExecutorHandoff<'a> {
     }
 
     /// Borrow grouped aggregate projection specs derived from planner projection semantics.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn aggregate_projection_specs(
         &self,
@@ -453,6 +455,7 @@ pub(in crate::db) fn grouped_executor_handoff(
     Ok(GroupedExecutorHandoff {
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
+        #[cfg(test)]
         aggregate_projection_specs,
         grouped_aggregate_execution_specs,
         projection_layout,
@@ -480,6 +483,23 @@ pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
             )
         })
         .collect()
+}
+
+/// Lower grouped aggregate projection specs directly from canonical grouped
+/// projection semantics without requiring a frozen grouped executor handoff.
+pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
+    projection_spec: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> Result<Vec<GroupedAggregateProjectionSpec>, InternalError> {
+    let (_, aggregate_projection_specs, _) =
+        planned_projection_layout_and_aggregate_projection_specs_from_spec(
+            projection_spec,
+            group_fields,
+            aggregates,
+        )?;
+
+    Ok(aggregate_projection_specs)
 }
 
 ///

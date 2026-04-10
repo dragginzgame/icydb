@@ -60,7 +60,8 @@ pub(in crate::db) use group::GroupedExecutorHandoff;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
     PlannedProjectionLayout, grouped_aggregate_execution_specs_with_model,
-    grouped_executor_handoff, resolved_grouped_distinct_execution_strategy_for_model,
+    grouped_aggregate_projection_specs_from_projection_spec, grouped_executor_handoff,
+    resolved_grouped_distinct_execution_strategy_for_model,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;
