@@ -22,7 +22,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_from_decoded_slot,
-                extract_numeric_field_decimal_with_slot_reader,
+                extract_numeric_field_decimal_with_slot_ref_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
@@ -299,10 +299,10 @@ where
                 LoopAction::Emit => {}
                 LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
             }
-            let value = extract_numeric_field_decimal_with_slot_reader(
+            let value = extract_numeric_field_decimal_with_slot_ref_reader(
                 target_field,
                 field_slot,
-                &mut |index| row.slot(index),
+                &mut |index| row.slot_ref(index),
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);

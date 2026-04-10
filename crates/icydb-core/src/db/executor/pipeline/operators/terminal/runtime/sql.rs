@@ -99,6 +99,14 @@ enum SqlConstantProjectedFieldSource {
     Constant { constant_index: usize },
 }
 
+#[cfg(feature = "sql")]
+// Compact runtime op table for projected SQL row materialization.
+enum PreparedSqlProjectedValueOp {
+    PrimaryKey,
+    Constant(usize),
+    Decoded(usize),
+}
+
 ///
 /// SqlRouteCoveringSlotLayout
 ///
@@ -160,14 +168,14 @@ struct SqlConstantCoveringSlotTemplate {
 
 #[cfg(feature = "sql")]
 struct PreparedSqlDirectProjectedSourceLayout {
-    projected_field_sources: Vec<SqlDirectProjectedFieldSource>,
+    projected_field_ops: Vec<PreparedSqlProjectedValueOp>,
     constant_values: Vec<Value>,
 }
 
 impl PreparedSqlDirectProjectedSourceLayout {
     #[must_use]
-    fn projected_field_sources(&self) -> &[SqlDirectProjectedFieldSource] {
-        &self.projected_field_sources
+    fn projected_field_ops(&self) -> &[PreparedSqlProjectedValueOp] {
+        &self.projected_field_ops
     }
 
     #[must_use]
@@ -189,7 +197,7 @@ impl PreparedSqlDirectProjectedSourceLayout {
 #[cfg(feature = "sql")]
 struct PreparedSqlSingleComponentProjectedSourceLayout {
     component_index: usize,
-    projected_field_sources: Vec<SqlDirectProjectedFieldSource>,
+    projected_field_ops: Vec<PreparedSqlProjectedValueOp>,
     constant_values: Vec<Value>,
 }
 
@@ -200,8 +208,8 @@ impl PreparedSqlSingleComponentProjectedSourceLayout {
     }
 
     #[must_use]
-    fn projected_field_sources(&self) -> &[SqlDirectProjectedFieldSource] {
-        &self.projected_field_sources
+    fn projected_field_ops(&self) -> &[PreparedSqlProjectedValueOp] {
+        &self.projected_field_ops
     }
 
     #[must_use]
@@ -221,19 +229,73 @@ impl PreparedSqlSingleComponentProjectedSourceLayout {
 
 #[cfg(feature = "sql")]
 struct PreparedSqlConstantProjectedSourceLayout {
-    projected_field_sources: Vec<SqlConstantProjectedFieldSource>,
+    projected_field_ops: Vec<PreparedSqlProjectedValueOp>,
     constant_values: Vec<Value>,
 }
 
 impl PreparedSqlConstantProjectedSourceLayout {
     #[must_use]
-    fn projected_field_sources(&self) -> &[SqlConstantProjectedFieldSource] {
-        &self.projected_field_sources
+    fn projected_field_ops(&self) -> &[PreparedSqlProjectedValueOp] {
+        &self.projected_field_ops
     }
 
     #[must_use]
     fn constant_values(&self) -> &[Value] {
         &self.constant_values
+    }
+}
+
+#[cfg(feature = "sql")]
+///
+/// PreparedSqlProjectedSourceLayout
+///
+/// PreparedSqlProjectedSourceLayout freezes exactly one SQL projected-row
+/// source family for one execution attempt.
+/// SQL execution only ever consumes one projected-row family, so this tagged
+/// shape avoids carrying mutually exclusive direct, single-component, and
+/// constant layouts side by side.
+///
+enum PreparedSqlProjectedSourceLayout {
+    Direct(PreparedSqlDirectProjectedSourceLayout),
+    SingleComponent(PreparedSqlSingleComponentProjectedSourceLayout),
+    Constant(PreparedSqlConstantProjectedSourceLayout),
+}
+
+impl PreparedSqlProjectedSourceLayout {
+    #[must_use]
+    const fn as_direct(&self) -> Option<&PreparedSqlDirectProjectedSourceLayout> {
+        match self {
+            Self::Direct(layout) => Some(layout),
+            Self::SingleComponent(_) | Self::Constant(_) => None,
+        }
+    }
+
+    #[must_use]
+    const fn as_single_component(
+        &self,
+    ) -> Option<&PreparedSqlSingleComponentProjectedSourceLayout> {
+        match self {
+            Self::SingleComponent(layout) => Some(layout),
+            Self::Direct(_) | Self::Constant(_) => None,
+        }
+    }
+
+    #[must_use]
+    const fn as_constant(&self) -> Option<&PreparedSqlConstantProjectedSourceLayout> {
+        match self {
+            Self::Constant(layout) => Some(layout),
+            Self::Direct(_) | Self::SingleComponent(_) => None,
+        }
+    }
+
+    #[must_use]
+    const fn is_constant(&self) -> bool {
+        matches!(self, Self::Constant(_))
+    }
+
+    #[must_use]
+    const fn is_single_component(&self) -> bool {
+        matches!(self, Self::SingleComponent(_))
     }
 }
 
@@ -251,10 +313,7 @@ impl PreparedSqlConstantProjectedSourceLayout {
 pub(in crate::db::executor) struct PreparedSqlExecutionProjection {
     direct_projection_slots: Option<DirectProjectionSlots>,
     route_covering_slot_layout: Option<SqlRouteCoveringSlotLayout>,
-    route_direct_projected_source_layout: Option<PreparedSqlDirectProjectedSourceLayout>,
-    route_single_component_projected_source_layout:
-        Option<PreparedSqlSingleComponentProjectedSourceLayout>,
-    route_constant_projected_source_layout: Option<PreparedSqlConstantProjectedSourceLayout>,
+    route_projected_source_layout: Option<PreparedSqlProjectedSourceLayout>,
     constant_covering_slot_template: Option<SqlConstantCoveringSlotTemplate>,
 }
 
@@ -270,24 +329,30 @@ impl PreparedSqlExecutionProjection {
     }
 
     #[must_use]
-    const fn route_direct_projected_source_layout(
+    fn route_direct_projected_source_layout(
         &self,
     ) -> Option<&PreparedSqlDirectProjectedSourceLayout> {
-        self.route_direct_projected_source_layout.as_ref()
+        self.route_projected_source_layout
+            .as_ref()
+            .and_then(PreparedSqlProjectedSourceLayout::as_direct)
     }
 
     #[must_use]
-    const fn route_single_component_projected_source_layout(
+    fn route_single_component_projected_source_layout(
         &self,
     ) -> Option<&PreparedSqlSingleComponentProjectedSourceLayout> {
-        self.route_single_component_projected_source_layout.as_ref()
+        self.route_projected_source_layout
+            .as_ref()
+            .and_then(PreparedSqlProjectedSourceLayout::as_single_component)
     }
 
     #[must_use]
-    const fn route_constant_projected_source_layout(
+    fn route_constant_projected_source_layout(
         &self,
     ) -> Option<&PreparedSqlConstantProjectedSourceLayout> {
-        self.route_constant_projected_source_layout.as_ref()
+        self.route_projected_source_layout
+            .as_ref()
+            .and_then(PreparedSqlProjectedSourceLayout::as_constant)
     }
 
     #[must_use]
@@ -296,13 +361,18 @@ impl PreparedSqlExecutionProjection {
     }
 
     #[must_use]
-    const fn uses_constant_projected_only_path(&self) -> bool {
-        self.route_constant_projected_source_layout.is_some()
+    fn uses_constant_projected_only_path(&self) -> bool {
+        self.route_projected_source_layout
+            .as_ref()
+            .is_some_and(PreparedSqlProjectedSourceLayout::is_constant)
             && self.route_covering_slot_layout.is_none()
-            && self.route_direct_projected_source_layout.is_none()
-            && self
-                .route_single_component_projected_source_layout
-                .is_none()
+    }
+
+    #[must_use]
+    fn uses_single_component_projected_route_path(&self) -> bool {
+        self.route_projected_source_layout
+            .as_ref()
+            .is_some_and(PreparedSqlProjectedSourceLayout::is_single_component)
     }
 }
 
@@ -677,6 +747,10 @@ fn try_materialize_cursorless_sql_covering_scan_without_key_stream(
 // Attempt one cursorless SQL covering-scan short path that consumes only the
 // route-owned covering component scan contract and does not need a generic
 // ordered key stream.
+#[expect(
+    clippy::too_many_lines,
+    reason = "shared cursorless SQL short-path dispatch still keeps projected and slot-row families aligned under one boundary"
+)]
 fn try_materialize_cursorless_sql_covering_scan_short_path(
     context: &SqlCoveringMaterializationContext<'_>,
     validate_projection: bool,
@@ -691,11 +765,39 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
     let direct_projection_slots = context
         .prepared_sql_projection
         .and_then(PreparedSqlExecutionProjection::direct_projection_slots);
+    let prepared_sql_projection = context.prepared_sql_projection;
 
     if context.prefer_rendered_projection_rows
         && let Some(projection_field_slots) = direct_projection_slots
-        && let Some((mut projected_rows, keys_scanned)) =
+        && let Some((mut projected_rows, keys_scanned)) = if prepared_sql_projection
+            .is_some_and(PreparedSqlExecutionProjection::uses_constant_projected_only_path)
+        {
+            let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+                context.load_terminal_fast_path
+            else {
+                return Ok(None);
+            };
+            try_materialize_sql_route_constant_covering_projected_text_rows(
+                context,
+                covering,
+                projection_field_slots,
+            )?
+        } else if prepared_sql_projection
+            .is_some_and(PreparedSqlExecutionProjection::uses_single_component_projected_route_path)
+        {
+            let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+                context.load_terminal_fast_path
+            else {
+                return Ok(None);
+            };
+            try_materialize_sql_route_single_component_projected_text_rows(
+                context,
+                covering,
+                projection_field_slots,
+            )?
+        } else {
             try_materialize_sql_route_covering_projected_text_rows(context, projection_field_slots)?
+        }
     {
         if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
             apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
@@ -714,9 +816,35 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
         return Ok(None);
     };
 
-    if let Some((mut projected_rows, keys_scanned)) =
-        try_materialize_sql_route_covering_projected_rows(context, projection_field_slots)?
+    if let Some((mut projected_rows, keys_scanned)) = if prepared_sql_projection
+        .is_some_and(PreparedSqlExecutionProjection::uses_constant_projected_only_path)
     {
+        let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+            context.load_terminal_fast_path
+        else {
+            return Ok(None);
+        };
+        try_materialize_sql_route_constant_covering_projected_rows(
+            context,
+            covering,
+            projection_field_slots,
+        )?
+    } else if prepared_sql_projection
+        .is_some_and(PreparedSqlExecutionProjection::uses_single_component_projected_route_path)
+    {
+        let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+            context.load_terminal_fast_path
+        else {
+            return Ok(None);
+        };
+        try_materialize_sql_route_single_component_projected_rows(
+            context,
+            covering,
+            projection_field_slots,
+        )?
+    } else {
+        try_materialize_sql_route_covering_projected_rows(context, projection_field_slots)?
+    } {
         if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
             apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
         }
@@ -1022,85 +1150,110 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
     }
 
     let direct_projection_slots = plan.frozen_direct_projection_slots().map(<[usize]>::to_vec);
-    let route_constant_projected_source_layout =
-        match (load_terminal_fast_path, direct_projection_slots.as_deref()) {
+    let projection_field_slots = direct_projection_slots.as_deref();
+
+    // Phase 1: choose the one projected-row source family execution can
+    // actually consume, and skip decoded covering layout prep entirely for
+    // constant-only, non-residual SQL projections.
+    let route_projected_source_layout = if plan.has_residual_predicate() {
+        None
+    } else {
+        match (load_terminal_fast_path, projection_field_slots) {
             (
                 Some(LoadTerminalFastPathContract::CoveringRead(covering)),
                 Some(projection_field_slots),
-            ) => sql_route_constant_projected_field_sources(covering, projection_field_slots).map(
-                |(projected_field_sources, constant_values)| {
-                    PreparedSqlConstantProjectedSourceLayout {
-                        projected_field_sources,
-                        constant_values,
-                    }
-                },
-            ),
-            _ => None,
-        };
-    let route_covering_slot_layout = match load_terminal_fast_path {
-        Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
-            sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
-        }
-        None => None,
-    };
-    let route_direct_projected_source_layout = match (
-        load_terminal_fast_path,
-        direct_projection_slots.as_deref(),
-        route_covering_slot_layout.as_ref(),
-    ) {
-        (
-            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
-            Some(projection_field_slots),
-            Some(route_covering_slot_layout),
-        ) => sql_route_direct_projected_field_sources(
-            covering,
-            projection_field_slots,
-            route_covering_slot_layout,
-        )?
-        .map(|(projected_field_sources, constant_values)| {
-            PreparedSqlDirectProjectedSourceLayout {
-                projected_field_sources,
-                constant_values,
-            }
-        }),
-        _ => None,
-    };
-    let route_single_component_projected_source_layout = match (
-        load_terminal_fast_path,
-        direct_projection_slots.as_deref(),
-        route_covering_slot_layout.as_ref(),
-    ) {
-        (
-            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
-            Some(projection_field_slots),
-            Some(route_covering_slot_layout),
-        ) => sql_route_single_component_projected_field_sources(
-            covering,
-            projection_field_slots,
-            route_covering_slot_layout,
-        )
-        .map(
-            |(component_index, projected_field_sources, constant_values)| {
-                PreparedSqlSingleComponentProjectedSourceLayout {
-                    component_index,
-                    projected_field_sources,
-                    constant_values,
+            ) => {
+                if let Some((projected_field_sources, constant_values)) =
+                    sql_route_constant_projected_field_sources(covering, projection_field_slots)
+                {
+                    Some(PreparedSqlProjectedSourceLayout::Constant(
+                        PreparedSqlConstantProjectedSourceLayout {
+                            projected_field_ops: sql_constant_projected_field_ops(
+                                projected_field_sources.as_slice(),
+                            ),
+                            constant_values,
+                        },
+                    ))
+                } else {
+                    None
                 }
-            },
-        ),
+            }
+            _ => None,
+        }
+    };
+    let route_covering_slot_layout = if route_projected_source_layout
+        .as_ref()
+        .is_some_and(PreparedSqlProjectedSourceLayout::is_constant)
+    {
+        None
+    } else {
+        match load_terminal_fast_path {
+            Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
+                sql_route_covering_slot_layout(row_layout, covering, compiled_predicate)?
+            }
+            None => None,
+        }
+    };
+    let route_projected_source_layout = match (
+        route_projected_source_layout,
+        load_terminal_fast_path,
+        projection_field_slots,
+        route_covering_slot_layout.as_ref(),
+    ) {
+        (Some(layout), _, _, _) => Some(layout),
+        (
+            None,
+            Some(LoadTerminalFastPathContract::CoveringRead(covering)),
+            Some(projection_field_slots),
+            Some(route_covering_slot_layout),
+        ) => {
+            if let Some((component_index, projected_field_sources, constant_values)) =
+                sql_route_single_component_projected_field_sources(
+                    covering,
+                    projection_field_slots,
+                    route_covering_slot_layout,
+                )
+            {
+                Some(PreparedSqlProjectedSourceLayout::SingleComponent(
+                    PreparedSqlSingleComponentProjectedSourceLayout {
+                        component_index,
+                        projected_field_ops: sql_direct_projected_field_ops(
+                            projected_field_sources.as_slice(),
+                        ),
+                        constant_values,
+                    },
+                ))
+            } else {
+                sql_route_direct_projected_field_sources(
+                    covering,
+                    projection_field_slots,
+                    route_covering_slot_layout,
+                )?
+                .map(|(projected_field_sources, constant_values)| {
+                    PreparedSqlProjectedSourceLayout::Direct(
+                        PreparedSqlDirectProjectedSourceLayout {
+                            projected_field_ops: sql_direct_projected_field_ops(
+                                projected_field_sources.as_slice(),
+                            ),
+                            constant_values,
+                        },
+                    )
+                })
+            }
+        }
         _ => None,
     };
     debug_assert!(
-        sql_validate_prepared_projected_source_layouts(
-            route_direct_projected_source_layout.as_ref(),
-            route_single_component_projected_source_layout.as_ref(),
-            route_constant_projected_source_layout.as_ref(),
-        )
-        .is_ok(),
-        "prepared SQL projected-source layouts must remain internally consistent"
+        sql_validate_prepared_projected_source_layout(route_projected_source_layout.as_ref())
+            .is_ok(),
+        "prepared SQL projected-source layout must remain internally consistent"
     );
 
-    let constant_covering_slot_template = if route_constant_projected_source_layout.is_some()
+    // Phase 2: prepare the slot-row fallback only when the projected-row
+    // family does not already prove a constant-only, predicate-free path.
+    let constant_covering_slot_template = if route_projected_source_layout
+        .as_ref()
+        .is_some_and(PreparedSqlProjectedSourceLayout::is_constant)
         && !plan.has_residual_predicate()
     {
         None
@@ -1116,38 +1269,36 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
     Ok(Some(PreparedSqlExecutionProjection {
         direct_projection_slots,
         route_covering_slot_layout,
-        route_direct_projected_source_layout,
-        route_single_component_projected_source_layout,
-        route_constant_projected_source_layout,
+        route_projected_source_layout,
         constant_covering_slot_template,
     }))
 }
 
 #[cfg(feature = "sql")]
-fn sql_validate_prepared_projected_source_layouts(
-    route_direct_projected_source_layout: Option<&PreparedSqlDirectProjectedSourceLayout>,
-    route_single_component_projected_source_layout: Option<
-        &PreparedSqlSingleComponentProjectedSourceLayout,
-    >,
-    route_constant_projected_source_layout: Option<&PreparedSqlConstantProjectedSourceLayout>,
+fn sql_validate_prepared_projected_source_layout(
+    route_projected_source_layout: Option<&PreparedSqlProjectedSourceLayout>,
 ) -> Result<(), InternalError> {
-    if let Some(layout) = route_direct_projected_source_layout {
-        sql_validate_direct_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
-    }
-    if let Some(layout) = route_single_component_projected_source_layout {
-        sql_validate_direct_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
-    }
-    if let Some(layout) = route_constant_projected_source_layout {
-        sql_validate_constant_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
+    if let Some(layout) = route_projected_source_layout {
+        match layout {
+            PreparedSqlProjectedSourceLayout::Direct(layout) => {
+                sql_validate_direct_projected_field_ops(
+                    layout.projected_field_ops(),
+                    layout.constant_values(),
+                )?;
+            }
+            PreparedSqlProjectedSourceLayout::SingleComponent(layout) => {
+                sql_validate_direct_projected_field_ops(
+                    layout.projected_field_ops(),
+                    layout.constant_values(),
+                )?;
+            }
+            PreparedSqlProjectedSourceLayout::Constant(layout) => {
+                sql_validate_constant_projected_field_ops(
+                    layout.projected_field_ops(),
+                    layout.constant_values(),
+                )?;
+            }
+        }
     }
 
     Ok(())
@@ -1291,7 +1442,7 @@ fn try_materialize_sql_route_covering_projected_text_rows(
     // Phase 1: materialize already-rendered SQL rows directly from the
     // planner-owned covering contract instead of staging `Value` rows.
     let mut rows = sql_route_covering_projected_text_rows_from_rendered(
-        projected_source_layout.projected_field_sources(),
+        projected_source_layout.projected_field_ops(),
         projected_source_layout.constant_values(),
         rendered_rows,
     )?;
@@ -1461,7 +1612,7 @@ fn try_materialize_sql_route_covering_projected_rows(
     // Phase 1: materialize already-projected SQL rows directly from the
     // planner-owned covering contract instead of staging full slot rows.
     let mut rows = sql_route_covering_projected_rows_from_decoded(
-        projected_source_layout.projected_field_sources(),
+        projected_source_layout.projected_field_ops(),
         projected_source_layout.constant_values(),
         decoded_rows,
     )?;
@@ -1490,7 +1641,7 @@ fn try_materialize_sql_route_constant_covering_projected_output<Row, ProjectRowF
 ) -> Result<Option<(CoveringProjectedPairs<Row>, usize)>, InternalError>
 where
     ProjectRowFn:
-        Fn(&[SqlConstantProjectedFieldSource], &[Value], &StorageKey) -> Result<Row, InternalError>,
+        Fn(&[PreparedSqlProjectedValueOp], &[Value], &StorageKey) -> Result<Row, InternalError>,
 {
     let Some(prepared_sql_projection) = context.prepared_sql_projection else {
         return Ok(None);
@@ -1526,7 +1677,7 @@ where
         covering.existing_row_mode,
         |data_key| {
             project_row(
-                projected_source_layout.projected_field_sources(),
+                projected_source_layout.projected_field_ops(),
                 projected_source_layout.constant_values(),
                 &data_key.storage_key(),
             )
@@ -1578,9 +1729,9 @@ fn try_materialize_sql_route_constant_covering_projected_rows(
         context,
         covering,
         projection_field_slots,
-        |projected_field_sources, constant_values, storage_key| {
+        |projected_field_ops, constant_values, storage_key| {
             Ok(sql_project_row_from_constant_covering_sources(
-                projected_field_sources,
+                projected_field_ops,
                 constant_values,
                 storage_key,
             ))
@@ -1620,7 +1771,7 @@ fn try_materialize_sql_route_constant_projected_text_rows(
     else {
         return Ok(None);
     };
-    let projected_field_sources = projected_source_layout.projected_field_sources();
+    let projected_field_ops = projected_source_layout.projected_field_ops();
     let constant_values = projected_source_layout.constant_values();
 
     let consistency = row_read_consistency_for_plan(context.plan);
@@ -1643,7 +1794,7 @@ fn try_materialize_sql_route_constant_projected_text_rows(
             }
 
             rows.push(sql_project_text_row_from_constant_covering_sources(
-                projected_field_sources,
+                projected_field_ops,
                 constant_values,
                 &key.storage_key(),
             )?);
@@ -1658,7 +1809,7 @@ fn try_materialize_sql_route_constant_projected_text_rows(
             }
 
             rows.push(sql_project_text_row_from_constant_covering_sources(
-                projected_field_sources,
+                projected_field_ops,
                 constant_values,
                 &key.storage_key(),
             )?);
@@ -1692,7 +1843,7 @@ fn try_materialize_sql_route_constant_projected_rows(
     else {
         return Ok(None);
     };
-    let projected_field_sources = projected_source_layout.projected_field_sources();
+    let projected_field_ops = projected_source_layout.projected_field_ops();
     let constant_values = projected_source_layout.constant_values();
 
     let consistency = row_read_consistency_for_plan(context.plan);
@@ -1715,7 +1866,7 @@ fn try_materialize_sql_route_constant_projected_rows(
             }
 
             rows.push(sql_project_row_from_constant_covering_sources(
-                projected_field_sources,
+                projected_field_ops,
                 constant_values,
                 &key.storage_key(),
             ));
@@ -1730,7 +1881,7 @@ fn try_materialize_sql_route_constant_projected_rows(
             }
 
             rows.push(sql_project_row_from_constant_covering_sources(
-                projected_field_sources,
+                projected_field_ops,
                 constant_values,
                 &key.storage_key(),
             ));
@@ -1783,7 +1934,7 @@ fn try_materialize_sql_route_single_component_projected_text_rows(
             };
 
             Ok(Some(sql_project_text_row_from_single_covering_component(
-                projected_source_layout.projected_field_sources(),
+                projected_source_layout.projected_field_ops(),
                 projected_source_layout.constant_values(),
                 storage_key,
                 rendered_component.as_str(),
@@ -1837,7 +1988,7 @@ fn try_materialize_sql_route_single_component_projected_rows(
         },
         |storage_key, decoded_component| {
             sql_project_row_from_single_covering_component(
-                projected_source_layout.projected_field_sources(),
+                projected_source_layout.projected_field_ops(),
                 projected_source_layout.constant_values(),
                 storage_key,
                 decoded_component,
@@ -2058,16 +2209,32 @@ fn sql_route_direct_projected_field_sources(
 }
 
 #[cfg(feature = "sql")]
-// Validate that one direct projected-row source layout only references
-// constants that are present in the companion constant table.
-fn sql_validate_direct_projected_field_sources(
+fn sql_direct_projected_field_ops(
     projected_field_sources: &[SqlDirectProjectedFieldSource],
+) -> Vec<PreparedSqlProjectedValueOp> {
+    projected_field_sources
+        .iter()
+        .map(|projected_source| match projected_source {
+            SqlDirectProjectedFieldSource::PrimaryKey => PreparedSqlProjectedValueOp::PrimaryKey,
+            SqlDirectProjectedFieldSource::Constant { constant_index } => {
+                PreparedSqlProjectedValueOp::Constant(*constant_index)
+            }
+            SqlDirectProjectedFieldSource::IndexComponent {
+                decoded_component_index,
+            } => PreparedSqlProjectedValueOp::Decoded(*decoded_component_index),
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn sql_validate_direct_projected_field_ops(
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
 ) -> Result<(), InternalError> {
-    if projected_field_sources.iter().any(|projected_source| {
+    if projected_field_ops.iter().any(|projected_op| {
         matches!(
-            projected_source,
-            SqlDirectProjectedFieldSource::Constant { constant_index }
+            projected_op,
+            PreparedSqlProjectedValueOp::Constant(constant_index)
                 if *constant_index >= constant_values.len()
         )
     }) {
@@ -2177,16 +2344,29 @@ fn sql_route_constant_projected_field_sources(
 }
 
 #[cfg(feature = "sql")]
-// Validate that one constant-only projected-row source layout only references
-// constants that are present in the companion constant table.
-fn sql_validate_constant_projected_field_sources(
+fn sql_constant_projected_field_ops(
     projected_field_sources: &[SqlConstantProjectedFieldSource],
+) -> Vec<PreparedSqlProjectedValueOp> {
+    projected_field_sources
+        .iter()
+        .map(|projected_source| match projected_source {
+            SqlConstantProjectedFieldSource::PrimaryKey => PreparedSqlProjectedValueOp::PrimaryKey,
+            SqlConstantProjectedFieldSource::Constant { constant_index } => {
+                PreparedSqlProjectedValueOp::Constant(*constant_index)
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn sql_validate_constant_projected_field_ops(
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
 ) -> Result<(), InternalError> {
-    if projected_field_sources.iter().any(|projected_source| {
+    if projected_field_ops.iter().any(|projected_op| {
         matches!(
-            projected_source,
-            SqlConstantProjectedFieldSource::Constant { constant_index }
+            projected_op,
+            PreparedSqlProjectedValueOp::Constant(constant_index)
                 if *constant_index >= constant_values.len()
         )
     }) {
@@ -2353,26 +2533,24 @@ fn sql_route_covering_slot_rows_from_decoded(
 // Materialize final projected SQL rows from one decoded covering component
 // stream when the SQL projection is already a direct unique field list.
 fn sql_route_covering_projected_rows_from_decoded(
-    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     decoded_rows: DecodedCoveringComponentRows,
 ) -> Result<CoveringProjectedRowPairs, InternalError> {
     let mut rows = Vec::with_capacity(decoded_rows.len());
 
     for (data_key, component_values) in decoded_rows {
-        let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+        let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-        for projected_source in projected_field_sources {
-            let value = match projected_source {
-                SqlDirectProjectedFieldSource::PrimaryKey => {
+        for projected_op in projected_field_ops {
+            let value = match projected_op {
+                PreparedSqlProjectedValueOp::PrimaryKey => {
                     data_key.storage_key().as_primary_key_value()
                 }
-                SqlDirectProjectedFieldSource::Constant { constant_index } => {
+                PreparedSqlProjectedValueOp::Constant(constant_index) => {
                     constant_values[*constant_index].clone()
                 }
-                SqlDirectProjectedFieldSource::IndexComponent {
-                    decoded_component_index,
-                } => component_values
+                PreparedSqlProjectedValueOp::Decoded(decoded_component_index) => component_values
                     .get(*decoded_component_index)
                     .cloned()
                     .ok_or_else(|| {
@@ -2395,27 +2573,25 @@ fn sql_route_covering_projected_rows_from_decoded(
 // component stream when the SQL projection is already a direct unique field
 // list.
 fn sql_route_covering_projected_text_rows_from_rendered(
-    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     rendered_rows: RenderedCoveringComponentRows,
 ) -> Result<CoveringProjectedTextRowPairs, InternalError> {
     let mut rows = Vec::with_capacity(rendered_rows.len());
 
     for (data_key, component_values) in rendered_rows {
-        let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+        let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-        for projected_source in projected_field_sources {
-            let value = match projected_source {
-                SqlDirectProjectedFieldSource::PrimaryKey => {
+        for projected_op in projected_field_ops {
+            let value = match projected_op {
+                PreparedSqlProjectedValueOp::PrimaryKey => {
                     render_sql_primary_key_text(&data_key.storage_key())
                 }
-                SqlDirectProjectedFieldSource::Constant { constant_index } => {
+                PreparedSqlProjectedValueOp::Constant(constant_index) => {
                     let value = &constant_values[*constant_index];
                     render_sql_direct_constant_text(value)?
                 }
-                SqlDirectProjectedFieldSource::IndexComponent {
-                    decoded_component_index,
-                } => component_values
+                PreparedSqlProjectedValueOp::Decoded(decoded_component_index) => component_values
                     .get(*decoded_component_index)
                     .cloned()
                     .ok_or_else(|| {
@@ -2437,18 +2613,21 @@ fn sql_route_covering_projected_text_rows_from_rendered(
 // Project one SQL row directly from the authoritative primary key plus any
 // bound covering constants.
 fn sql_project_row_from_constant_covering_sources(
-    projected_field_sources: &[SqlConstantProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     storage_key: &StorageKey,
 ) -> Vec<Value> {
-    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+    let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-    for projected_source in projected_field_sources {
-        let value = match projected_source {
-            SqlConstantProjectedFieldSource::PrimaryKey => storage_key.as_primary_key_value(),
-            SqlConstantProjectedFieldSource::Constant { constant_index } => {
+    for projected_op in projected_field_ops {
+        let value = match projected_op {
+            PreparedSqlProjectedValueOp::PrimaryKey => storage_key.as_primary_key_value(),
+            PreparedSqlProjectedValueOp::Constant(constant_index) => {
                 constant_values[*constant_index].clone()
             }
+            PreparedSqlProjectedValueOp::Decoded(_) => unreachable!(
+                "constant covering projected-row path must not reference decoded components"
+            ),
         };
         projected_row.push(value);
     }
@@ -2459,19 +2638,22 @@ fn sql_project_row_from_constant_covering_sources(
 // Project one SQL row directly into rendered text from the authoritative
 // primary key plus any bound covering constants.
 fn sql_project_text_row_from_constant_covering_sources(
-    projected_field_sources: &[SqlConstantProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     storage_key: &StorageKey,
 ) -> Result<Vec<String>, InternalError> {
-    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+    let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-    for projected_source in projected_field_sources {
-        let value = match projected_source {
-            SqlConstantProjectedFieldSource::PrimaryKey => render_sql_primary_key_text(storage_key),
-            SqlConstantProjectedFieldSource::Constant { constant_index } => {
+    for projected_op in projected_field_ops {
+        let value = match projected_op {
+            PreparedSqlProjectedValueOp::PrimaryKey => render_sql_primary_key_text(storage_key),
+            PreparedSqlProjectedValueOp::Constant(constant_index) => {
                 let value = &constant_values[*constant_index];
                 render_sql_direct_constant_text(value)?
             }
+            PreparedSqlProjectedValueOp::Decoded(_) => unreachable!(
+                "constant covering projected-row text path must not reference decoded components"
+            ),
         };
         projected_row.push(value);
     }
@@ -2482,22 +2664,20 @@ fn sql_project_text_row_from_constant_covering_sources(
 // Project one SQL row directly from a single decoded covering component plus
 // the authoritative primary key.
 fn sql_project_row_from_single_covering_component(
-    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     storage_key: StorageKey,
     decoded_component: &Value,
 ) -> Result<Vec<Value>, InternalError> {
-    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+    let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-    for projected_source in projected_field_sources {
-        let value = match projected_source {
-            SqlDirectProjectedFieldSource::PrimaryKey => storage_key.as_primary_key_value(),
-            SqlDirectProjectedFieldSource::Constant { constant_index } => {
+    for projected_op in projected_field_ops {
+        let value = match projected_op {
+            PreparedSqlProjectedValueOp::PrimaryKey => storage_key.as_primary_key_value(),
+            PreparedSqlProjectedValueOp::Constant(constant_index) => {
                 constant_values[*constant_index].clone()
             }
-            SqlDirectProjectedFieldSource::IndexComponent {
-                decoded_component_index,
-            } => {
+            PreparedSqlProjectedValueOp::Decoded(decoded_component_index) => {
                 if *decoded_component_index != 0 {
                     return Err(InternalError::query_executor_invariant(
                         "single-component projected-row path must only reference decoded component zero",
@@ -2517,23 +2697,21 @@ fn sql_project_row_from_single_covering_component(
 // Project one SQL row directly into rendered text from a single covering
 // component plus the authoritative primary key.
 fn sql_project_text_row_from_single_covering_component(
-    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    projected_field_ops: &[PreparedSqlProjectedValueOp],
     constant_values: &[Value],
     storage_key: StorageKey,
     rendered_component: &str,
 ) -> Result<Vec<String>, InternalError> {
-    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+    let mut projected_row = Vec::with_capacity(projected_field_ops.len());
 
-    for projected_source in projected_field_sources {
-        let value = match projected_source {
-            SqlDirectProjectedFieldSource::PrimaryKey => render_sql_primary_key_text(&storage_key),
-            SqlDirectProjectedFieldSource::Constant { constant_index } => {
+    for projected_op in projected_field_ops {
+        let value = match projected_op {
+            PreparedSqlProjectedValueOp::PrimaryKey => render_sql_primary_key_text(&storage_key),
+            PreparedSqlProjectedValueOp::Constant(constant_index) => {
                 let value = &constant_values[*constant_index];
                 render_sql_direct_constant_text(value)?
             }
-            SqlDirectProjectedFieldSource::IndexComponent {
-                decoded_component_index,
-            } => {
+            PreparedSqlProjectedValueOp::Decoded(decoded_component_index) => {
                 if *decoded_component_index != 0 {
                     return Err(InternalError::query_executor_invariant(
                         "single-component projected-row text path must only reference decoded component zero",

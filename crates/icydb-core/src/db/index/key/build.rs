@@ -43,6 +43,7 @@ fn value_for_expression(
     })
 }
 
+#[cfg(test)]
 fn index_component_value_from_slot_reader(
     entity_model: &EntityModel,
     index: &IndexModel,
@@ -68,6 +69,34 @@ fn index_component_value_from_slot_reader(
     }
 }
 
+fn index_component_bytes_from_slot_ref_reader<'a>(
+    entity_model: &EntityModel,
+    index: &IndexModel,
+    key_item: IndexKeyItem,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let field = key_item.field();
+    let Some(field_index) = resolve_field_slot(entity_model, field) else {
+        return Err(InternalError::index_key_item_field_missing_on_entity_model(
+            field,
+        ));
+    };
+
+    let Some(source) = read_slot(field_index) else {
+        return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+            field,
+        ));
+    };
+
+    match key_item {
+        IndexKeyItem::Field(_) => encode_value_index_component_ref(source),
+        IndexKeyItem::Expression(expression) => {
+            value_for_expression(index, expression, source.clone())?
+                .map_or(Ok(None), encode_value_index_component)
+        }
+    }
+}
+
 impl IndexKey {
     /// Build an index key from one structural slot reader plus runtime identity.
     /// Plain field key items read scalar slot values directly when available.
@@ -85,6 +114,7 @@ impl IndexKey {
 
     /// Build an index key from one structural row slot reader plus runtime identity.
     /// Returns `Ok(None)` when indexed values are non-indexable.
+    #[cfg(test)]
     pub(crate) fn new_from_slot_reader(
         entity_tag: EntityTag,
         storage_key: StorageKey,
@@ -100,6 +130,22 @@ impl IndexKey {
             };
 
             encode_value_index_component(value)
+        };
+
+        build_index_key(entity_tag, storage_key, index, &mut component_bytes)
+    }
+
+    /// Build an index key from one structural row slot ref reader plus runtime identity.
+    /// Returns `Ok(None)` when indexed values are non-indexable.
+    pub(crate) fn new_from_slot_ref_reader<'a>(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        entity_model: &EntityModel,
+        index: &IndexModel,
+        read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+    ) -> Result<Option<Self>, InternalError> {
+        let mut component_bytes = |key_item| {
+            index_component_bytes_from_slot_ref_reader(entity_model, index, key_item, read_slot)
         };
 
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)

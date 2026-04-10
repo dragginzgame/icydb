@@ -320,6 +320,29 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
     Ok(value)
 }
 
+/// Extract one borrowed field value from a slot reader and enforce the
+/// declared runtime field kind without cloning the underlying slot payload.
+pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reader<'a>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<&'a Value, AggregateFieldValueError> {
+    let Some(value) = read_slot(field_slot.index) else {
+        return Err(AggregateFieldValueError::MissingFieldValue {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_matches_value(&field_slot.kind, value) {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: field_slot.kind,
+            value: Box::new(value.clone()),
+        });
+    }
+
+    Ok(value)
+}
+
 // Extract one field value from one already-decoded retained slot and enforce
 // the declared runtime field kind without rebuilding a slot-reader closure at
 // each retained-slot callsite.
@@ -336,6 +359,7 @@ pub(in crate::db::executor) fn extract_orderable_field_value_from_decoded_slot(
 }
 
 /// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
+#[cfg(test)]
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
     target_field: &str,
     field_slot: FieldSlot,
@@ -348,6 +372,26 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
             field: target_field.to_string(),
             kind: field_slot.kind,
             value: Box::new(value),
+        });
+    };
+
+    Ok(decimal)
+}
+
+/// Extract one numeric field value as `Decimal` from a borrowed slot reader
+/// so aggregate streaming paths avoid cloning validated slot payloads.
+pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_ref_reader<'a>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Decimal, AggregateFieldValueError> {
+    let value =
+        extract_orderable_field_value_with_slot_ref_reader(target_field, field_slot, read_slot)?;
+    let Some(decimal) = coerce_numeric_decimal(value) else {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: field_slot.kind,
+            value: Box::new(value.clone()),
         });
     };
 

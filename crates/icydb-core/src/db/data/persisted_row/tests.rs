@@ -806,32 +806,55 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
     .expect("build raw row");
 
     let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
-        .expect("row-open validation should succeed");
+        .expect("row-open structural envelope decode should succeed");
 
     match &reader.cached_values[0] {
-        CachedSlotValue::Scalar(value) => {
-            assert_eq!(
-                value,
-                &Value::Text("Ada".to_string()),
-                "scalar slot should stay on the validated scalar fast path",
+        CachedSlotValue::Scalar { materialized, .. } => {
+            assert!(
+                materialized.get().is_none(),
+                "scalar slot should stay untouched until first semantic access",
             );
         }
-        other => panic!("expected validated scalar cache for slot 0, found {other:?}"),
+        other @ CachedSlotValue::Deferred { .. } => {
+            panic!("expected scalar cache for slot 0, found {other:?}")
+        }
     }
     match &reader.cached_values[1] {
         CachedSlotValue::Deferred { materialized } => {
             assert!(
                 materialized.get().is_none(),
-                "non-scalar slot should validate at row-open without eagerly materializing a runtime Value",
+                "non-scalar slot should stay untouched until first semantic access",
             );
         }
-        other => panic!("expected deferred cache for slot 1, found {other:?}"),
+        other @ CachedSlotValue::Scalar { .. } => {
+            panic!("expected deferred cache for slot 1, found {other:?}")
+        }
     }
 
     assert_eq!(
         reader.get_value(1).expect("decode deferred slot"),
         Some(Value::Text("payload".to_string()))
     );
+
+    assert_eq!(
+        reader
+            .get_value(0)
+            .expect("materialize deferred scalar slot"),
+        Some(Value::Text("Ada".to_string()))
+    );
+
+    match &reader.cached_values[0] {
+        CachedSlotValue::Scalar { materialized, .. } => {
+            assert_eq!(
+                materialized.get(),
+                Some(&Value::Text("Ada".to_string())),
+                "scalar slot should materialize on first semantic access",
+            );
+        }
+        other @ CachedSlotValue::Deferred { .. } => {
+            panic!("expected scalar cache for slot 0, found {other:?}")
+        }
+    }
 
     match &reader.cached_values[1] {
         CachedSlotValue::Deferred { materialized } => {
@@ -841,7 +864,9 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
                 "non-scalar slot should materialize on first semantic access",
             );
         }
-        other => panic!("expected deferred cache for slot 1, found {other:?}"),
+        other @ CachedSlotValue::Scalar { .. } => {
+            panic!("expected deferred cache for slot 1, found {other:?}")
+        }
     }
 }
 
@@ -864,7 +889,7 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
 
     let (_scalar_read, metrics) = with_structural_read_metrics(|| {
         let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
-            .expect("row-open validation should succeed");
+            .expect("row-open structural envelope decode should succeed");
 
         matches!(
             reader
@@ -875,8 +900,8 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
     });
 
     assert_eq!(metrics.rows_opened, 1);
-    assert_eq!(metrics.declared_slots_validated, 2);
-    assert_eq!(metrics.validated_non_scalar_slots, 1);
+    assert_eq!(metrics.declared_slots_validated, 1);
+    assert_eq!(metrics.validated_non_scalar_slots, 0);
     assert_eq!(
         metrics.materialized_non_scalar_slots, 0,
         "scalar-only access should not materialize the unused value-storage slot",
@@ -903,7 +928,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
 
     let (_value, metrics) = with_structural_read_metrics(|| {
         let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
-            .expect("row-open validation should succeed");
+            .expect("row-open structural envelope decode should succeed");
 
         reader
             .get_value(1)
@@ -911,7 +936,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
     });
 
     assert_eq!(metrics.rows_opened, 1);
-    assert_eq!(metrics.declared_slots_validated, 2);
+    assert_eq!(metrics.declared_slots_validated, 1);
     assert_eq!(metrics.validated_non_scalar_slots, 1);
     assert_eq!(
         metrics.materialized_non_scalar_slots, 1,
@@ -921,7 +946,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
 }
 
 #[test]
-fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_at_row_open() {
+fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_access() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
@@ -935,9 +960,11 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_at_row_ope
     )
     .expect("build raw row");
 
-    let err = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
-        .err()
-        .expect("malformed unused value-storage slot must still fail at row-open");
+    let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        .expect("row-open structural envelope decode should succeed");
+    let err = reader
+        .get_value(1)
+        .expect_err("malformed unused value-storage slot must fail on first semantic access");
 
     assert!(
         err.message.contains("field 'payload'"),

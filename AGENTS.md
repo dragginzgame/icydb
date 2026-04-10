@@ -434,6 +434,8 @@ Code is considered non-trivial if it:
 * Leave exactly one blank line before and one blank line after that banner block.
 * Run all tests with `make test`.
 * If `make test` fails during a Codex run, do not run `make test` a second time in that same run unless the user explicitly asks; treat the failure as likely blocked by a build lock or environment contention and report it.
+* PocketIC-backed tests and perf probes must be run outside the sandbox by default. In this repo, sandboxed runs can hang inside `try_pic()` before PocketIC reports ready because the local sandbox network namespace interferes with PocketIC startup.
+* If a PocketIC run appears stuck before the test body or before fixture loading, treat that as an environment execution problem first, not a query-engine performance problem. Prefer rerunning the same command outside the sandbox rather than retrying multiple sandboxed runs.
 * In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `testing/macro-tests`.
 * If test execution fails due to environment-specific build or linker issues, notify the user and stop retrying; those tests must be run manually by the user in a working environment.
 

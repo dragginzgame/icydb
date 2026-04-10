@@ -172,13 +172,20 @@ impl EntityAuthority {
         model_has_strong_relation_targets(self.model)
     }
 
-    /// Build one structural index key from already-materialized row slots.
-    pub(in crate::db::executor) fn index_key_from_slot_reader(
+    /// Build one structural index key from already-materialized row slots
+    /// without cloning field values back out of the row cache first.
+    pub(in crate::db::executor) fn index_key_from_slot_ref_reader<'a>(
         self,
         storage_key: StorageKey,
         index: &IndexModel,
-        read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+        read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
-        IndexKey::new_from_slot_reader(self.entity_tag, storage_key, self.model, index, read_slot)
+        IndexKey::new_from_slot_ref_reader(
+            self.entity_tag,
+            storage_key,
+            self.model,
+            index,
+            read_slot,
+        )
     }
 }

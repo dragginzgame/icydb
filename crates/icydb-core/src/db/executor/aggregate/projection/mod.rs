@@ -26,7 +26,7 @@ use crate::{
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_from_decoded_slot,
-                    extract_orderable_field_value_with_slot_reader,
+                    extract_orderable_field_value_with_slot_ref_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot,
                     resolve_orderable_aggregate_target_slot_from_planner_slot,
                 },
@@ -635,10 +635,10 @@ where
                 LoopAction::Emit => {}
                 LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
             }
-            let value = extract_orderable_field_value_with_slot_reader(
+            let value = extract_orderable_field_value_with_slot_ref_reader(
                 &boundary.target_field_name,
                 boundary.field_slot,
-                &mut |index| row.slot(index),
+                &mut |index| row.slot_ref(index),
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             if !matches!(value, Value::Null) {

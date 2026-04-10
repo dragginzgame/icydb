@@ -137,6 +137,7 @@ impl KernelRow {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
         self.slot_ref(slot).cloned()
     }
@@ -487,9 +488,9 @@ fn resolve_last_cursor_row(
                 )
             })?
             .0;
-        let mut read_slot = |slot| row.slot(slot);
+        let mut read_slot = |slot| row.slot_ref(slot);
         authority
-            .index_key_from_slot_reader(data_key.storage_key(), index, &mut read_slot)?
+            .index_key_from_slot_ref_reader(data_key.storage_key(), index, &mut read_slot)?
             .map(|key| key.to_raw())
     } else {
         None

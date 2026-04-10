@@ -13,7 +13,7 @@ use crate::{
     db::{
         data::{
             CanonicalSlotReader, DataRow, RawRow, StorageKey, StructuralRowContract,
-            StructuralSlotReader,
+            StructuralSlotReader, decode_dense_raw_row_with_contract,
         },
         executor::terminal::{RetainedSlotRow, page::KernelRow},
     },
@@ -157,6 +157,14 @@ impl RowDecoder {
         row: &RawRow,
         required_slots: &[usize],
     ) -> Result<RetainedSlotRow, InternalError> {
+        // Phase 1: let dense retained-slot callers reuse the dedicated direct
+        // full-row decode path instead of constructing the sparse reader first.
+        if required_slots_match_full_layout(layout, required_slots) {
+            return Ok(RetainedSlotRow::from_dense_slots(
+                decode_dense_raw_row_with_contract(row, layout.contract, expected_key)?,
+            ));
+        }
+
         // Phase 1: reuse the canonical row-open validation boundary once.
         let reader = layout.open_raw_row(row)?;
         reader.validate_storage_key_value(expected_key)?;
@@ -187,6 +195,17 @@ fn decode_structural_slots(
     row: &RawRow,
     required_slots: Option<&[usize]>,
 ) -> Result<Vec<Option<Value>>, InternalError> {
+    // Phase 1: route dense full-slot callers straight to the dedicated dense
+    // decode path so they do not pay per-row sparse reader construction.
+    if required_slots
+        .is_none_or(|required_slots| required_slots_match_full_layout(layout, required_slots))
+    {
+        #[cfg(any(test, feature = "structural-read-metrics"))]
+        record_sql_projection_full_row_decode_materialization();
+
+        return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
+    }
+
     // Phase 1: build the canonical structural slot reader once so hot row
     // decode can reuse the existing persisted-row validation boundary instead
     // of re-encoding the decoded primary-key value back into `StorageKey`.
@@ -197,19 +216,13 @@ fn decode_structural_slots(
     // primary-key slots from cached scalar refs or raw field bytes.
     reader.validate_storage_key_value(expected_key)?;
 
-    // Phase 3: keep the existing full-image decode for generic callers, but
-    // let retained-slot SQL paths materialize only the slots their compiled
-    // plan will actually touch.
-    if let Some(required_slots) = required_slots {
-        decode_required_structural_slots(reader, layout, required_slots)
-    } else {
-        #[cfg(any(test, feature = "structural-read-metrics"))]
-        record_sql_projection_full_row_decode_materialization();
-        let slots = reader.into_decoded_values()?;
-        debug_assert_eq!(slots.len(), layout.field_count);
-
-        Ok(slots)
-    }
+    // Phase 3: sparse callers retain the lazy reader and materialize only the
+    // slots their compiled plan will actually touch.
+    decode_required_structural_slots(
+        reader,
+        layout,
+        required_slots.expect("dense full-slot callers return earlier"),
+    )
 }
 
 // Materialize only the caller-declared slot subset while preserving the
@@ -219,6 +232,10 @@ fn decode_required_structural_slots(
     layout: &RowLayout,
     required_slots: &[usize],
 ) -> Result<Vec<Option<Value>>, InternalError> {
+    if required_slots_match_full_layout(layout, required_slots) {
+        return reader.into_decoded_values();
+    }
+
     let mut slots = vec![None; layout.field_count];
 
     for &slot in required_slots {
@@ -244,6 +261,12 @@ fn decode_retained_structural_slots(
     layout: &RowLayout,
     required_slots: &[usize],
 ) -> Result<RetainedSlotRow, InternalError> {
+    if required_slots_match_full_layout(layout, required_slots) {
+        return Ok(RetainedSlotRow::from_dense_slots(
+            reader.into_decoded_values()?,
+        ));
+    }
+
     let mut slots = vec![None; layout.field_count];
 
     for &slot in required_slots {
@@ -251,6 +274,18 @@ fn decode_retained_structural_slots(
     }
 
     Ok(RetainedSlotRow::from_dense_slots(slots))
+}
+
+// Detect the dense retained-slot case up front so full-row and full-slot SQL
+// paths can stay on the straight-line dense decode instead of paying the
+// sparse per-slot access machinery.
+fn required_slots_match_full_layout(layout: &RowLayout, required_slots: &[usize]) -> bool {
+    required_slots.len() == layout.field_count
+        && required_slots
+            .iter()
+            .copied()
+            .enumerate()
+            .all(|(expected_slot, slot)| slot == expected_slot)
 }
 
 ///
@@ -383,19 +418,19 @@ mod tests {
         };
         let (_row, metrics) = decode_test_row_with_metrics(&entity);
 
-        assert_eq!(metrics.rows_opened, 1);
-        assert_eq!(metrics.declared_slots_validated, 4);
+        assert_eq!(metrics.rows_opened, 0);
+        assert_eq!(metrics.declared_slots_validated, 0);
         assert_eq!(
-            metrics.validated_non_scalar_slots, 1,
-            "full row decode should validate the list field at row-open",
+            metrics.validated_non_scalar_slots, 0,
+            "dense full-row decode now bypasses the sparse reader metrics path",
         );
         assert_eq!(
-            metrics.materialized_non_scalar_slots, 1,
-            "full row decode should materialize the list field when building the kernel row",
+            metrics.materialized_non_scalar_slots, 0,
+            "dense full-row decode now bypasses the sparse reader metrics path",
         );
         assert_eq!(
             metrics.rows_without_lazy_non_scalar_materializations, 0,
-            "full row decode should not count as a zero-materialization row",
+            "dense full-row decode no longer routes through reader-probe aggregation",
         );
     }
 
@@ -414,10 +449,10 @@ mod tests {
         assert_eq!(slots[2], None);
         assert_eq!(slots[3], None);
         assert_eq!(metrics.rows_opened, 1);
-        assert_eq!(metrics.declared_slots_validated, 4);
+        assert_eq!(metrics.declared_slots_validated, 2);
         assert_eq!(
-            metrics.validated_non_scalar_slots, 1,
-            "selective slot decode must still validate the list field at row-open",
+            metrics.validated_non_scalar_slots, 0,
+            "selective slot decode should not validate untouched non-scalar fields",
         );
         assert_eq!(
             metrics.materialized_non_scalar_slots, 0,

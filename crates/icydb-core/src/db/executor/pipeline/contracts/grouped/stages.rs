@@ -9,7 +9,8 @@ use crate::{
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
+                AggregateFieldValueError, FieldSlot,
+                extract_orderable_field_value_with_slot_ref_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
             terminal::{RowDecoder, RowLayout},
@@ -47,12 +48,6 @@ impl RowView {
         self.slots.get(index).and_then(Option::as_ref)
     }
 
-    /// Read one slot by index, cloning the value when present.
-    #[must_use]
-    pub(in crate::db::executor) fn read_slot(&self, index: usize) -> Option<Value> {
-        self.borrow_slot(index).cloned()
-    }
-
     /// Borrow one required slot and fail closed when it is missing.
     pub(in crate::db::executor) fn require_slot_ref(
         &self,
@@ -79,7 +74,7 @@ impl RowView {
         &self,
         compiled_predicate: &PredicateProgram,
     ) -> bool {
-        compiled_predicate.eval_with_slot_reader(&mut |slot| self.read_slot(slot))
+        compiled_predicate.eval_with_slot_value_ref_reader(&mut |slot| self.borrow_slot(slot))
     }
 
     /// Extract one validated aggregate field value from this structural row.
@@ -88,9 +83,10 @@ impl RowView {
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Value, AggregateFieldValueError> {
-        let mut read_slot = |index| self.read_slot(index);
+        let mut read_slot = |index| self.borrow_slot(index);
 
-        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut read_slot)
+        extract_orderable_field_value_with_slot_ref_reader(target_field, field_slot, &mut read_slot)
+            .cloned()
     }
 
     /// Collect one grouped key payload from planned group field slots.
