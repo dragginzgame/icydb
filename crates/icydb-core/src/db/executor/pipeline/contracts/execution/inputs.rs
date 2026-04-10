@@ -24,6 +24,7 @@ use crate::{
             AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
             mark_projection_referenced_slots, mark_structural_order_slots,
+            pipeline::operators::PreparedSqlExecutionProjection,
             route::access_order_satisfied_by_route_contract_for_model,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
@@ -46,6 +47,66 @@ use crate::{
 use std::marker::PhantomData;
 
 type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
+
+///
+/// PreparedExecutionProjection
+///
+/// PreparedExecutionProjection is the executor-owned fixed projection state
+/// recovered once before execution begins. It freezes retained-slot layout and
+/// SQL short-path projection metadata so the hot execution path does not
+/// rebuild projection shape from the logical plan.
+///
+
+pub(in crate::db::executor) struct PreparedExecutionProjection {
+    slot_only_required_slots: Option<Vec<usize>>,
+    #[cfg(feature = "sql")]
+    sql: Option<PreparedSqlExecutionProjection>,
+}
+
+impl PreparedExecutionProjection {
+    /// Build one executor-owned prepared projection bundle from one validated
+    /// plan, compiled predicate, and optional route-owned covering contract.
+    pub(in crate::db::executor) fn compile(
+        model: &'static EntityModel,
+        plan: &AccessPlannedQuery,
+        compiled_predicate: Option<&PredicateProgram>,
+        projection_materialization: ProjectionMaterializationMode,
+        load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    ) -> Result<Self, InternalError> {
+        let slot_only_required_slots = compile_slot_only_required_slots(
+            model,
+            plan,
+            compiled_predicate,
+            projection_materialization,
+        )?;
+
+        #[cfg(feature = "sql")]
+        let sql = crate::db::executor::pipeline::operators::prepare_sql_execution_projection(
+            model,
+            plan,
+            compiled_predicate,
+            projection_materialization,
+            load_terminal_fast_path,
+        )?;
+
+        Ok(Self {
+            slot_only_required_slots,
+            #[cfg(feature = "sql")]
+            sql,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
+        self.slot_only_required_slots.as_deref()
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::executor) const fn sql(&self) -> Option<&PreparedSqlExecutionProjection> {
+        self.sql.as_ref()
+    }
+}
 
 ///
 /// ScalarRowRuntimeState
@@ -385,6 +446,8 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
@@ -411,6 +474,8 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
 }
@@ -432,6 +497,8 @@ pub(in crate::db::executor) struct DirectCoveringScanMaterializationRequest<'a> 
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
 }
 
@@ -797,6 +864,8 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
                 slot_only_required_slots: request.slot_only_required_slots,
+                #[cfg(feature = "sql")]
+                prepared_sql_projection: request.prepared_sql_projection,
                 cursor_emission: request.cursor_emission,
                 consistency: request.consistency,
                 continuation: request.continuation,
@@ -820,26 +889,46 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
     projection_materialization: ProjectionMaterializationMode,
-    slot_only_required_slots: Option<Vec<usize>>,
+    prepared_projection: PreparedExecutionProjection,
     emit_cursor: bool,
+}
+
+///
+/// ExecutionInputPreparation
+///
+/// ExecutionInputPreparation keeps the remaining prepare-time execution
+/// invariants together so `ExecutionInputs::new(...)` does not keep widening as
+/// more fixed-cost metadata moves out of the hot path.
+/// The bundle owns only pre-execution policy inputs, not runtime row streams.
+///
+
+pub(in crate::db::executor) struct ExecutionInputPreparation<'a> {
+    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
+    pub(in crate::db::executor) emit_cursor: bool,
 }
 
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input projection payload.
     pub(in crate::db::executor) fn new(
-        model: &'static EntityModel,
         runtime: &'a dyn ExecutionRuntime,
         plan: &'a AccessPlannedQuery,
         stream_bindings: AccessStreamBindings<'a>,
         execution_preparation: &'a ExecutionPreparation,
         projection_materialization: ProjectionMaterializationMode,
-        emit_cursor: bool,
+        preparation: ExecutionInputPreparation<'a>,
     ) -> Result<Self, InternalError> {
-        let slot_only_required_slots = compile_slot_only_required_slots(
+        let ExecutionInputPreparation {
+            model,
+            load_terminal_fast_path,
+            emit_cursor,
+        } = preparation;
+        let prepared_projection = PreparedExecutionProjection::compile(
             model,
             plan,
             execution_preparation.compiled_predicate(),
             projection_materialization,
+            load_terminal_fast_path,
         )?;
 
         Ok(Self {
@@ -848,9 +937,31 @@ impl<'a> ExecutionInputs<'a> {
             stream_bindings,
             execution_preparation,
             projection_materialization,
-            slot_only_required_slots,
+            prepared_projection,
             emit_cursor,
         })
+    }
+
+    /// Construct one scalar execution-input payload from already-prepared
+    /// execution and projection state.
+    pub(in crate::db::executor) fn new_prepared(
+        runtime: &'a dyn ExecutionRuntime,
+        plan: &'a AccessPlannedQuery,
+        stream_bindings: AccessStreamBindings<'a>,
+        execution_preparation: &'a ExecutionPreparation,
+        projection_materialization: ProjectionMaterializationMode,
+        prepared_projection: PreparedExecutionProjection,
+        emit_cursor: bool,
+    ) -> Self {
+        Self {
+            runtime,
+            plan,
+            stream_bindings,
+            execution_preparation,
+            projection_materialization,
+            prepared_projection,
+            emit_cursor,
+        }
     }
 
     /// Borrow the resolved runtime adapter for this execution attempt.
@@ -895,7 +1006,17 @@ impl<'a> ExecutionInputs<'a> {
     /// materialization when this execution shape keeps slot rows.
     #[must_use]
     pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
-        self.slot_only_required_slots.as_deref()
+        self.prepared_projection.slot_only_required_slots()
+    }
+
+    /// Borrow one precomputed SQL projection bundle for cursorless SQL short
+    /// paths when this execution shape retains slot rows.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::executor) const fn prepared_sql_projection(
+        &self,
+    ) -> Option<&PreparedSqlExecutionProjection> {
+        self.prepared_projection.sql()
     }
 
     /// Return whether this execution attempt should prefer already-rendered

@@ -47,6 +47,7 @@ pub(in crate::db) use covering::{
     CoveringReadExecutionPlan, CoveringReadFieldSource,
     constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
     covering_index_projection_context, covering_read_execution_plan,
+    covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
     index_covering_existing_rows_terminal_eligible,
 };
 #[cfg(test)]

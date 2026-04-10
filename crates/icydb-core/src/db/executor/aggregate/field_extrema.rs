@@ -267,7 +267,6 @@ impl ExecutionKernel {
             prepared.authority.model(),
         );
         let execution_inputs = ExecutionInputs::new(
-            prepared.authority.model(),
             &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
@@ -277,7 +276,11 @@ impl ExecutionKernel {
             },
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
-            true,
+            crate::db::executor::pipeline::contracts::ExecutionInputPreparation {
+                model: prepared.authority.model(),
+                load_terminal_fast_path: route_plan.load_terminal_fast_path(),
+                emit_cursor: true,
+            },
         )?;
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,

@@ -13,6 +13,7 @@ mod tests;
 use crate::db::{
     access::AccessPlan,
     direction::Direction,
+    predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec,
         expr::{ProjectionSpec, projection_field_direct_field_name},
@@ -151,6 +152,46 @@ pub(in crate::db) struct CoveringReadExecutionPlan {
     pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
     pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
+}
+
+/// Return whether one plan's residual predicate stays compatible with the
+/// strict covering-read and covering-existing-rows admission rules.
+#[must_use]
+pub(in crate::db) fn covering_strict_predicate_compatible(
+    plan: &AccessPlannedQuery,
+    predicate_index_capability: Option<IndexPredicateCapability>,
+) -> bool {
+    !plan.has_residual_predicate()
+        || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable)
+}
+
+/// Return one stable explain reason code for the current scalar load
+/// covering-read admission outcome.
+#[must_use]
+pub(in crate::db) fn covering_read_reason_code_for_load_plan(
+    plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
+    covering_read_selected: bool,
+) -> &'static str {
+    if covering_read_selected {
+        return "cover_read_route";
+    }
+    if plan.scalar_plan().order.is_some() {
+        return "order_mat";
+    }
+    let index_shape_supported =
+        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    if !index_shape_supported {
+        return "access_not_cov";
+    }
+    if plan.has_residual_predicate() && !strict_predicate_compatible {
+        return "pred_not_strict";
+    }
+    if plan.scalar_plan().distinct {
+        return "distinct_mat";
+    }
+
+    "proj_not_cov"
 }
 
 /// Return whether one scalar aggregate terminal can remain index-only using

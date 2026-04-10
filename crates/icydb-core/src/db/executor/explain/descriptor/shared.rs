@@ -827,9 +827,10 @@ pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projectio
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
 ) -> bool {
-    let strict_predicate_compatible =
-        execution_preparation_predicate_index_capability(execution_preparation)
-            == Some(IndexPredicateCapability::FullyIndexable);
+    let strict_predicate_compatible = crate::db::query::plan::covering_strict_predicate_compatible(
+        plan,
+        execution_preparation_predicate_index_capability(execution_preparation),
+    );
 
     if aggregation.supports_covering_existing_rows_terminal() {
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)

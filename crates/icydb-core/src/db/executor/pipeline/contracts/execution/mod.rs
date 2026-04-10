@@ -11,8 +11,9 @@ mod stream;
 pub(in crate::db::executor::pipeline::contracts::execution) use erased::ErasedRuntimeBindings;
 pub(in crate::db::executor) use inputs::{
     CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter, ProjectionMaterializationMode,
-    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest, StructuralCursorPage,
+    ExecutionInputPreparation, ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter,
+    PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
+    RuntimePageMaterializationRequest, StructuralCursorPage,
 };
 pub(in crate::db::executor) use outcomes::{ExecutionOutcomeMetrics, MaterializedExecutionAttempt};
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

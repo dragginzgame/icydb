@@ -42,7 +42,7 @@ crate::test_entity! {
 
 fn schema() -> SchemaInfo {
     let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
-    SchemaInfo::from_entity_model(model).expect("schema should validate")
+    SchemaInfo::from_entity_model(model)
 }
 
 fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {

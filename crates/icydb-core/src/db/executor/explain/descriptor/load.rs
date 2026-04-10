@@ -14,7 +14,6 @@ use crate::{
                 build_initial_execution_route_plan_for_load_with_model,
             },
         },
-        predicate::IndexPredicateCapability,
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
@@ -23,7 +22,8 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource, grouped_executor_handoff,
+                CoveringReadFieldSource, covering_read_reason_code_for_load_plan,
+                covering_strict_predicate_compatible, grouped_executor_handoff,
             },
         },
     },
@@ -79,9 +79,8 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
-    let has_residual_predicate = plan.has_residual_predicate();
-    let strict_predicate_compatible = !has_residual_predicate
-        || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
+    let strict_predicate_compatible =
+        covering_strict_predicate_compatible(plan, predicate_index_capability);
     let execution_mode = explain_execution_mode(route_shape);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
 
@@ -100,10 +99,10 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
         "cov_scan_reason",
-        Value::from(load_covering_scan_reason_for_model(
+        Value::from(covering_read_reason_code_for_load_plan(
             plan,
             strict_predicate_compatible,
-            load_terminal_fast_path,
+            load_terminal_fast_path.is_some(),
         )),
     );
     annotate_grouped_route_node_properties(&mut root, route_plan);
@@ -235,10 +234,10 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
-    let has_residual_predicate = plan.has_residual_predicate();
-    let strict_predicate_compatible = !has_residual_predicate
-        || execution_preparation_predicate_index_capability(&execution_preparation)
-            == Some(IndexPredicateCapability::FullyIndexable);
+    let strict_predicate_compatible = covering_strict_predicate_compatible(
+        plan,
+        execution_preparation_predicate_index_capability(&execution_preparation),
+    );
     let projected_fields = plan
         .projection_spec(model)
         .fields()
@@ -303,10 +302,10 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.covering_read",
-        load_covering_scan_reason_for_model(
+        covering_read_reason_code_for_load_plan(
             plan,
             strict_predicate_compatible,
-            load_terminal_fast_path,
+            load_terminal_fast_path.is_some(),
         ),
     ));
     lines.push(descriptor_route_property_line(
@@ -399,34 +398,6 @@ fn build_execution_route_plan_for_explain_with_model(
     }
 
     build_initial_execution_route_plan_for_load_with_model(model, plan, None)
-}
-
-// Keep scalar covering-read explain labels local to the load descriptor so the
-// route-owned contract and explain payload stay in lockstep.
-fn load_covering_scan_reason_for_model(
-    plan: &AccessPlannedQuery,
-    strict_predicate_compatible: bool,
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
-) -> &'static str {
-    if load_terminal_fast_path.is_some() {
-        return "cover_read_route";
-    }
-    if plan.scalar_plan().order.is_some() {
-        return "order_mat";
-    }
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
-        return "access_not_cov";
-    }
-    if plan.has_residual_predicate() && !strict_predicate_compatible {
-        return "pred_not_strict";
-    }
-    if plan.scalar_plan().distinct {
-        return "distinct_mat";
-    }
-
-    "proj_not_cov"
 }
 
 // Annotate the access root with one stable scalar covering-read route label.

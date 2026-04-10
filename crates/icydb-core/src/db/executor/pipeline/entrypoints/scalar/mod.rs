@@ -22,7 +22,7 @@ use crate::{
             pipeline::contracts::{
                 CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
                 ExecutionRuntime, ExecutionRuntimeAdapter, LoadExecutor,
-                ProjectionMaterializationMode, StructuralCursorPage,
+                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -57,7 +57,8 @@ struct ScalarExecutionStage<'a> {
     model: &'static EntityModel,
     runtime: &'a dyn ExecutionRuntime,
     plan: &'a AccessPlannedQuery,
-    execution_preparation: ExecutionPreparation,
+    execution_preparation: &'a ExecutionPreparation,
+    prepared_projection: PreparedExecutionProjection,
     route_plan: ExecutionPlan,
     index_prefix_specs: &'a [crate::db::executor::LoweredIndexPrefixSpec],
     index_range_specs: &'a [crate::db::executor::LoweredIndexRangeSpec],
@@ -98,6 +99,8 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
     route_plan: ExecutionPlan,
+    execution_preparation: ExecutionPreparation,
+    prepared_projection: PreparedExecutionProjection,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
     resolved_continuation: ResolvedScalarContinuationContext,
@@ -187,10 +190,11 @@ fn execute_scalar_execution_stage(
     stage: ScalarExecutionStage<'_>,
 ) -> Result<ScalarPathExecution, InternalError> {
     let ScalarExecutionStage {
-        model,
+        model: _model,
         runtime,
         plan,
         execution_preparation,
+        prepared_projection,
         mut route_plan,
         index_prefix_specs,
         index_range_specs,
@@ -225,8 +229,7 @@ fn execute_scalar_execution_stage(
 
     // Phase 3: build canonical execution inputs and materialize the scalar route.
     let continuation_bindings = resolved_continuation.bindings(direction);
-    let execution_inputs = ExecutionInputs::new(
-        model,
+    let execution_inputs = ExecutionInputs::new_prepared(
         runtime,
         plan,
         AccessStreamBindings {
@@ -234,10 +237,11 @@ fn execute_scalar_execution_stage(
             index_range_specs,
             continuation: resolved_continuation.access_scan_input(direction),
         },
-        &execution_preparation,
+        execution_preparation,
         projection_runtime_mode,
+        prepared_projection,
         projection_runtime_mode.emit_cursor(),
-    )?;
+    );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
         &execution_inputs,
@@ -266,6 +270,8 @@ fn execute_prepared_scalar_path_execution(
         authority,
         plan,
         route_plan,
+        execution_preparation,
+        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
@@ -273,9 +279,6 @@ fn execute_prepared_scalar_path_execution(
         projection_runtime_mode,
         debug,
     } = prepared;
-    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
         &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
@@ -292,7 +295,8 @@ fn execute_prepared_scalar_path_execution(
         model: authority.model(),
         runtime: &runtime,
         plan: &plan,
-        execution_preparation,
+        execution_preparation: &execution_preparation,
+        prepared_projection,
         route_plan,
         index_prefix_specs: index_prefix_specs.as_slice(),
         index_range_specs: index_range_specs.as_slice(),
@@ -353,6 +357,16 @@ where
         resolved_continuation.route_context(),
         None,
     )?;
+    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority.model(),
+        &logical_plan,
+        execution_preparation.compiled_predicate(),
+        ScalarProjectionRuntimeMode::SharedValidation,
+        route_plan.load_terminal_fast_path(),
+    )?;
 
     // Phase 2: hand off the generic-free runtime bundle to scalar kernel
     // dispatch.
@@ -361,6 +375,8 @@ where
         authority,
         plan: logical_plan,
         route_plan,
+        execution_preparation,
+        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
@@ -396,6 +412,16 @@ where
             &logical_plan,
             None,
         )?;
+    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority.model(),
+        &logical_plan,
+        execution_preparation.compiled_predicate(),
+        ScalarProjectionRuntimeMode::SharedValidation,
+        route_plan.load_terminal_fast_path(),
+    )?;
 
     // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
     Ok(PreparedScalarRouteRuntime {
@@ -403,6 +429,8 @@ where
         authority,
         plan: logical_plan,
         route_plan,
+        execution_preparation,
+        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation: ResolvedScalarContinuationContext::new(
@@ -473,6 +501,16 @@ where
             &plan,
             None,
         )?;
+    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority.model(),
+        &plan,
+        execution_preparation.compiled_predicate(),
+        ScalarProjectionRuntimeMode::SqlImmediateMaterialization,
+        route_plan.load_terminal_fast_path(),
+    )?;
 
     // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
     let prepared = PreparedScalarRouteRuntime {
@@ -480,6 +518,8 @@ where
         authority,
         plan,
         route_plan,
+        execution_preparation,
+        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation: ResolvedScalarContinuationContext::new(
@@ -535,6 +575,16 @@ where
             &plan,
             None,
         )?;
+    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority.model(),
+        &plan,
+        execution_preparation.compiled_predicate(),
+        ScalarProjectionRuntimeMode::SqlImmediateRenderedDispatch,
+        route_plan.load_terminal_fast_path(),
+    )?;
 
     // Phase 2: execute the shared scalar runtime on the fixed initial
     // continuation contract while allowing terminal-owned rendered SQL rows.
@@ -543,6 +593,8 @@ where
         authority,
         plan,
         route_plan,
+        execution_preparation,
+        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation: ResolvedScalarContinuationContext::new(
@@ -605,6 +657,13 @@ where
     // executor-local materialized shortcuts.
     route_plan.scan_hints.physical_fetch_hint = None;
     route_plan.scan_hints.load_scan_budget_hint = None;
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority.model(),
+        &logical_plan,
+        execution_preparation.compiled_predicate(),
+        ScalarProjectionRuntimeMode::SharedValidation,
+        route_plan.load_terminal_fast_path(),
+    )?;
 
     let ScalarPathExecution {
         page,
@@ -615,7 +674,8 @@ where
         model: authority.model(),
         runtime: &runtime,
         plan: &logical_plan,
-        execution_preparation,
+        execution_preparation: &execution_preparation,
+        prepared_projection,
         route_plan,
         index_prefix_specs: index_prefix_specs.as_slice(),
         index_range_specs: index_range_specs.as_slice(),

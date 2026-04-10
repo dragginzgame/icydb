@@ -4,3 +4,8 @@
 //! Boundary: owns cursorless load row-collector short-path execution mechanics.
 
 mod runtime;
+
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use runtime::{
+    PreparedSqlExecutionProjection, prepare_sql_execution_projection,
+};

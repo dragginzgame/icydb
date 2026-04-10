@@ -107,9 +107,8 @@ impl SchemaInfo {
         static CACHE: OnceLock<Mutex<CachedSchemaEntries>> = OnceLock::new();
 
         let cache = CACHE.get_or_init(|| Mutex::new(CachedSchemaEntries::new()));
-        if let Some(cached) = cache
-            .lock()
-            .expect("schema info cache mutex poisoned")
+        let mut guard = cache.lock().expect("schema info cache mutex poisoned");
+        if let Some(cached) = guard
             .iter()
             .find(|(entity_path, _)| *entity_path == model.path())
             .map(|(_, schema)| *schema)
@@ -118,23 +117,8 @@ impl SchemaInfo {
         }
 
         let schema = Box::leak(Box::new(Self::from_trusted_entity_model(model)));
-        let mut guard = cache.lock().expect("schema info cache mutex poisoned");
-        if let Some((_, cached)) = guard
-            .iter()
-            .find(|(entity_path, _)| *entity_path == model.path())
-        {
-            return cached;
-        }
-
         guard.push((model.path(), schema));
         schema
-    }
-
-    /// Preserve legacy test call sites that still read like schema validation.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) const fn expect(self, _message: &str) -> Self {
-        self
     }
 }
 

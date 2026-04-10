@@ -13,6 +13,7 @@ use crate::{
             compare_orderable_row_with_boundary, compute_page_keep_count,
             key_stream_budget_is_redundant,
             pipeline::contracts::{CursorEmissionMode, PageCursor, StructuralCursorPage},
+            pipeline::operators::PreparedSqlExecutionProjection,
             projection::validate_projection_over_slot_rows,
             resolve_structural_order,
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract_for_model},
@@ -318,6 +319,8 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    #[cfg(feature = "sql")]
+    pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
@@ -338,6 +341,8 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         validate_projection,
         retain_slot_rows,
         slot_only_required_slots,
+        #[cfg(feature = "sql")]
+            prepared_sql_projection: _prepared_sql_projection,
         cursor_emission,
         consistency,
         continuation,

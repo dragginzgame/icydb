@@ -11,3 +11,7 @@ mod terminal;
 pub(in crate::db::executor) use distinct::{
     decorate_key_stream_for_plan, decorate_resolved_execution_key_stream,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use terminal::{
+    PreparedSqlExecutionProjection, prepare_sql_execution_projection,
+};

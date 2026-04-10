@@ -5,8 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
+## [0.74.x] 🧹 - 2026-04-10 - Redundancy and Ownership Audit
 
+- `0.74.11` finishes the tiny-query fixed-cost cleanup by moving SQL projection/source preparation out of execute and into prepared runtime state, so direct covering `SELECT id ... ORDER BY id LIMIT 1` reads do less repeated setup work and now land about `10%` below the original `0.74` audit baseline.
+- `0.74.10` hard-cuts generated schema trust and the remaining runtime validation residue for entity/index/field metadata, moves filtered-index predicate parsing to build time, and trims more parser plus executor fixed cost, so the same tiny direct SQL projection query is already materially cheaper before the final prepared-state refactor.
 - `0.74.9` finishes the grouped executor cleanup by collapsing grouped finalize onto one shared group table, fusing grouped paging into that path, and switching bounded grouped pages from full-result sorting to bounded selection, so grouped queries do less duplicate work before projection and cursor paging.
 - `0.74.8` cuts several hot query-path costs in grouped execution, sorting, ranking, and SQL row materialization, so grouped lookups and grouped `COUNT(*)` spend less time building temporary keys, ordered reads do less repeated slot work, bounded queries avoid more wasted rescans and full-result sorting, and ranking terminals stop cloning whole rows just to compare one field.
 - `0.74.7` expands the SQL perf-audit fixture cohort and removes a perf-harness wrapper tax that was making non-grouped queries pay grouped-metrics shaping cost even when no grouped execution happened, so the broader PocketIC benchmark surface is more representative and its non-grouped samples no longer carry that fake fixed overhead.

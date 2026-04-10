@@ -98,12 +98,10 @@ static ACCESS_CHOICE_RANGE_MODEL: EntityModel = entity_model_from_static(
 
 fn schema() -> SchemaInfo {
     SchemaInfo::from_entity_model(&ACCESS_CHOICE_MODEL)
-        .expect("access_choice test model should produce schema info")
 }
 
 fn range_schema() -> SchemaInfo {
     SchemaInfo::from_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
-        .expect("access_choice range test model should produce schema info")
 }
 
 #[test]

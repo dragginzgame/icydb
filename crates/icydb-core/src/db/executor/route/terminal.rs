@@ -8,10 +8,9 @@ use crate::{
         access::single_path_capabilities,
         direction::Direction,
         executor::{ExecutionPreparation, preparation::slot_map_for_model_plan},
-        predicate::IndexPredicateCapability,
         query::plan::{
             AccessPlannedQuery, CoveringReadExecutionPlan, covering_read_execution_plan,
-            index_covering_existing_rows_terminal_eligible,
+            covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
         },
     },
     model::entity::EntityModel,
@@ -167,10 +166,12 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_model
 
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let strict_predicate_compatible = !plan.has_residual_predicate()
-        || execution_preparation
+    let strict_predicate_compatible = covering_strict_predicate_compatible(
+        plan,
+        execution_preparation
             .predicate_capability_profile()
-            .is_some_and(|profile| profile.index() == IndexPredicateCapability::FullyIndexable);
+            .map(crate::db::predicate::PredicateCapabilityProfile::index),
+    );
 
     derive_load_terminal_fast_path_contract_for_model(model, plan, strict_predicate_compatible)
 }

@@ -408,7 +408,6 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
     let execution_preparation =
         ExecutionPreparation::from_runtime_plan(entity_model, route.plan(), slot_map);
     let execution_inputs = ExecutionInputs::new(
-        entity_model,
         runtime,
         route.plan(),
         AccessStreamBindings {
@@ -418,7 +417,11 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
         },
         &execution_preparation,
         ProjectionMaterializationMode::SharedValidation,
-        true,
+        crate::db::executor::pipeline::contracts::ExecutionInputPreparation {
+            model: entity_model,
+            load_terminal_fast_path: None,
+            emit_cursor: true,
+        },
     )?;
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(

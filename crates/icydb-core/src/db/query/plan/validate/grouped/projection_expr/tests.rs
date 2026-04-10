@@ -44,12 +44,14 @@ fn model() -> &'static EntityModel {
 }
 
 fn schema() -> SchemaInfo {
-    SchemaInfo::from_entity_model(model()).expect("schema should validate")
+    SchemaInfo::from_entity_model(model())
 }
 
 fn grouped_spec() -> GroupSpec {
     GroupSpec {
-        group_fields: vec![FieldSlot::resolve(model(), "team").expect("field slot should resolve")],
+        group_fields: vec![
+            FieldSlot::resolve(model(), "team").expect("group field slot should resolve"),
+        ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,

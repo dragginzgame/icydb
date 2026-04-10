@@ -189,6 +189,8 @@ impl ExecutionKernel {
                     predicate_slots: inputs.execution_preparation().compiled_predicate(),
                     validate_projection: inputs.validate_projection(),
                     retain_slot_rows: inputs.retain_slot_rows(),
+                    #[cfg(feature = "sql")]
+                    prepared_sql_projection: inputs.prepared_sql_projection(),
                     prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
                 },
             )?
@@ -279,6 +281,8 @@ impl ExecutionKernel {
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
                 slot_only_required_slots: inputs.slot_only_required_slots(),
+                #[cfg(feature = "sql")]
+                prepared_sql_projection: inputs.prepared_sql_projection(),
                 prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
                 key_stream: resolved.key_stream_mut(),
             })?
@@ -297,6 +301,8 @@ impl ExecutionKernel {
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
                 slot_only_required_slots: inputs.slot_only_required_slots(),
+                #[cfg(feature = "sql")]
+                prepared_sql_projection: inputs.prepared_sql_projection(),
                 cursor_emission: if inputs.emit_cursor() {
                     crate::db::executor::pipeline::contracts::CursorEmissionMode::Emit
                 } else {
