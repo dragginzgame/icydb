@@ -185,6 +185,7 @@ impl ExecutionKernel {
     // Materialize one direct covering-scan short path before generic
     // key-stream resolution when the same cursorless SQL covering contract can
     // already produce the final structural page directly.
+    #[cfg(feature = "sql")]
     pub(in crate::db::executor) fn try_materialize_load_via_direct_covering_scan(
         request: DirectCoveringScanMaterializationRequest<'_>,
         model: &'static EntityModel,
@@ -198,44 +199,55 @@ impl ExecutionKernel {
         )>,
         InternalError,
     > {
-        #[cfg(feature = "sql")]
-        {
-            let DirectCoveringScanMaterializationRequest {
-                plan,
-                scan_budget_hint,
-                cursor_boundary,
-                load_terminal_fast_path,
-                predicate_slots,
-                validate_projection,
-                retain_slot_rows,
-                prefer_rendered_projection_rows,
-            } = request;
+        let DirectCoveringScanMaterializationRequest {
+            plan,
+            scan_budget_hint,
+            cursor_boundary,
+            load_terminal_fast_path,
+            predicate_slots,
+            validate_projection,
+            retain_slot_rows,
+            prefer_rendered_projection_rows,
+        } = request;
 
-            let sql_covering_context = SqlCoveringMaterializationContext {
-                plan,
-                model,
-                store,
-                covering_component_scan,
-                load_terminal_fast_path,
-                scan_budget_hint,
-                predicate_slots,
-                prefer_rendered_projection_rows,
-            };
+        let sql_covering_context = SqlCoveringMaterializationContext {
+            plan,
+            model,
+            store,
+            covering_component_scan,
+            load_terminal_fast_path,
+            scan_budget_hint,
+            predicate_slots,
+            prefer_rendered_projection_rows,
+        };
 
-            return try_materialize_cursorless_sql_covering_scan_without_key_stream(
-                sql_covering_context,
-                cursor_boundary,
-                retain_slot_rows,
-                validate_projection,
-            );
-        }
+        try_materialize_cursorless_sql_covering_scan_without_key_stream(
+            sql_covering_context,
+            cursor_boundary,
+            retain_slot_rows,
+            validate_projection,
+        )
+    }
 
-        #[expect(unreachable_code)]
-        {
-            let _ = (request, model, store, covering_component_scan);
+    // Materialize one direct covering-scan short path before generic
+    // key-stream resolution when SQL covering materialization is compiled out.
+    #[cfg(not(feature = "sql"))]
+    pub(in crate::db::executor) fn try_materialize_load_via_direct_covering_scan(
+        request: DirectCoveringScanMaterializationRequest<'_>,
+        model: &'static EntityModel,
+        store: StoreHandle,
+        covering_component_scan: Option<CoveringComponentScanState<'_>>,
+    ) -> Result<
+        Option<(
+            crate::db::executor::pipeline::contracts::StructuralCursorPage,
+            usize,
+            usize,
+        )>,
+        InternalError,
+    > {
+        let _ = (request, model, store, covering_component_scan);
 
-            Ok(None)
-        }
+        Ok(None)
     }
 
     // Return whether load execution can safely use the row-collector short path
