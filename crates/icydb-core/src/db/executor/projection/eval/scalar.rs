@@ -38,7 +38,6 @@ use std::borrow::Cow;
 
 #[derive(Debug)]
 #[cfg(test)]
-#[expect(dead_code)]
 pub(in crate::db::executor) enum ScalarProjectionEvalError {
     Eval(ProjectionEvalError),
     Internal(InternalError),

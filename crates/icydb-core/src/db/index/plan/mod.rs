@@ -314,9 +314,7 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     model: &'static EntityModel,
     index: &IndexModel,
 ) -> Option<PredicateProgram> {
-    let Some(predicate) = canonical_index_predicate(index) else {
-        return None;
-    };
+    let predicate = canonical_index_predicate(index)?;
 
     Some(PredicateProgram::compile_with_model(model, predicate))
 }
