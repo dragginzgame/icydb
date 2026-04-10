@@ -142,21 +142,14 @@ impl HasSchemaPart for Item {
         let indirect = self.indirect;
 
         quote! {
-            {
-                const __VALIDATORS: &'static [::icydb::schema::node::TypeValidator] =
-                    #validators;
-                const __SANITIZERS: &'static [::icydb::schema::node::TypeSanitizer] =
-                    #sanitizers;
-
-                ::icydb::schema::node::Item::new(
-                    #target,
-                    #relation,
-                    #scale,
-                    __VALIDATORS,
-                    __SANITIZERS,
-                    #indirect,
-                )
-            }
+            ::icydb::schema::node::Item::new(
+                #target,
+                #relation,
+                #scale,
+                #validators,
+                #sanitizers,
+                #indirect,
+            )
         }
     }
 }

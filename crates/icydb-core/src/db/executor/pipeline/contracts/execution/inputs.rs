@@ -25,6 +25,9 @@ use crate::{
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
             mark_projection_referenced_slots, mark_structural_order_slots,
             pipeline::operators::PreparedSqlExecutionProjection,
+            projection::{
+                PreparedProjectionShape, PreparedSlotProjectionValidation, prepare_projection_shape,
+            },
             route::access_order_satisfied_by_route_contract_for_model,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
@@ -59,6 +62,8 @@ type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
     slot_only_required_slots: Option<Vec<usize>>,
+    prepared_shape: Option<PreparedProjectionShape>,
+    projection_validation_enabled: bool,
     #[cfg(feature = "sql")]
     sql: Option<PreparedSqlExecutionProjection>,
 }
@@ -79,6 +84,10 @@ impl PreparedExecutionProjection {
             compiled_predicate,
             projection_materialization,
         )?;
+        let projection_validation_enabled = projection_materialization.validate_projection();
+        let prepared_shape = (projection_validation_enabled
+            || projection_materialization.retain_slot_rows())
+        .then(|| prepare_projection_shape(model, plan.projection_spec(model)));
 
         #[cfg(feature = "sql")]
         let sql = crate::db::executor::pipeline::operators::prepare_sql_execution_projection(
@@ -87,10 +96,13 @@ impl PreparedExecutionProjection {
             compiled_predicate,
             projection_materialization,
             load_terminal_fast_path,
+            prepared_shape.as_ref(),
         )?;
 
         Ok(Self {
             slot_only_required_slots,
+            prepared_shape,
+            projection_validation_enabled,
             #[cfg(feature = "sql")]
             sql,
         })
@@ -99,6 +111,15 @@ impl PreparedExecutionProjection {
     #[must_use]
     pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
         self.slot_only_required_slots.as_deref()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn projection_validation(
+        &self,
+    ) -> Option<&PreparedSlotProjectionValidation> {
+        self.projection_validation_enabled
+            .then_some(())
+            .and(self.prepared_shape.as_ref())
     }
 
     #[cfg(feature = "sql")]
@@ -446,6 +467,8 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    pub(in crate::db::executor) prepared_projection_validation:
+        Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
@@ -474,6 +497,8 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    pub(in crate::db::executor) prepared_projection_validation:
+        Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
@@ -497,6 +522,8 @@ pub(in crate::db::executor) struct DirectCoveringScanMaterializationRequest<'a> 
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) prepared_projection_validation:
+        Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
@@ -864,6 +891,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
                 slot_only_required_slots: request.slot_only_required_slots,
+                prepared_projection_validation: request.prepared_projection_validation,
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: request.prepared_sql_projection,
                 cursor_emission: request.cursor_emission,
@@ -1007,6 +1035,15 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
         self.prepared_projection.slot_only_required_slots()
+    }
+
+    /// Borrow one prepared slot-row projection validation bundle when this
+    /// execution attempt still requires shared projection validation.
+    #[must_use]
+    pub(in crate::db::executor) fn prepared_projection_validation(
+        &self,
+    ) -> Option<&PreparedSlotProjectionValidation> {
+        self.prepared_projection.projection_validation()
     }
 
     /// Borrow one precomputed SQL projection bundle for cursorless SQL short

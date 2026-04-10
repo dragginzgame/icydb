@@ -189,6 +189,7 @@ impl ExecutionKernel {
                     predicate_slots: inputs.execution_preparation().compiled_predicate(),
                     validate_projection: inputs.validate_projection(),
                     retain_slot_rows: inputs.retain_slot_rows(),
+                    prepared_projection_validation: inputs.prepared_projection_validation(),
                     #[cfg(feature = "sql")]
                     prepared_sql_projection: inputs.prepared_sql_projection(),
                     prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
@@ -281,6 +282,7 @@ impl ExecutionKernel {
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
                 slot_only_required_slots: inputs.slot_only_required_slots(),
+                prepared_projection_validation: inputs.prepared_projection_validation(),
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: inputs.prepared_sql_projection(),
                 prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
@@ -301,6 +303,7 @@ impl ExecutionKernel {
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
                 slot_only_required_slots: inputs.slot_only_required_slots(),
+                prepared_projection_validation: inputs.prepared_projection_validation(),
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: inputs.prepared_sql_projection(),
                 cursor_emission: if inputs.emit_cursor() {

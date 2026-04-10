@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-10 - Redundancy and Ownership Audit
 
+- `0.74.12` finishes the remaining generic projection/materialization cleanup by consolidating shared prepared projection state, deleting duplicated structural SQL fallback orchestration, and keeping the tiny direct SQL projection benchmark about `7.9%` below the original `0.74` audit baseline without adding any new route-specific shortcuts.
 - `0.74.11` finishes the tiny-query fixed-cost cleanup by moving SQL projection/source preparation out of execute and into prepared runtime state, so direct covering `SELECT id ... ORDER BY id LIMIT 1` reads do less repeated setup work and now land about `10%` below the original `0.74` audit baseline.
 - `0.74.10` hard-cuts generated schema trust and the remaining runtime validation residue for entity/index/field metadata, moves filtered-index predicate parsing to build time, and trims more parser plus executor fixed cost, so the same tiny direct SQL projection query is already materially cheaper before the final prepared-state refactor.
 - `0.74.9` finishes the grouped executor cleanup by collapsing grouped finalize onto one shared group table, fusing grouped paging into that path, and switching bounded grouped pages from full-result sorting to bounded selection, so grouped queries do less duplicate work before projection and cursor paging.

@@ -63,6 +63,8 @@ struct SqlCoveringMaterializationContext<'a> {
     store: StoreHandle,
     covering_component_scan: Option<CoveringComponentScanState<'a>>,
     load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
+    prepared_projection_validation:
+        Option<&'a crate::db::executor::projection::PreparedSlotProjectionValidation>,
     prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
     scan_budget_hint: Option<usize>,
     predicate_slots: Option<&'a PredicateProgram>,
@@ -357,6 +359,7 @@ impl ExecutionKernel {
             predicate_slots,
             validate_projection,
             retain_slot_rows,
+            prepared_projection_validation,
             prepared_sql_projection,
             prefer_rendered_projection_rows,
         } = request;
@@ -367,6 +370,7 @@ impl ExecutionKernel {
             store,
             covering_component_scan,
             load_terminal_fast_path,
+            prepared_projection_validation,
             prepared_sql_projection,
             scan_budget_hint,
             predicate_slots,
@@ -535,6 +539,7 @@ impl ExecutionKernel {
             validate_projection,
             retain_slot_rows,
             slot_only_required_slots,
+            prepared_projection_validation,
             prepared_sql_projection,
             prefer_rendered_projection_rows,
             key_stream,
@@ -558,6 +563,7 @@ impl ExecutionKernel {
             store,
             covering_component_scan,
             load_terminal_fast_path,
+            prepared_projection_validation,
             prepared_sql_projection,
             scan_budget_hint,
             predicate_slots,
@@ -598,9 +604,10 @@ impl ExecutionKernel {
             apply_cursorless_sql_page_window(plan, &mut rows);
         }
         if validate_projection {
-            crate::db::executor::projection::validate_projection_over_slot_rows(
-                model,
-                &plan.projection_spec(model),
+            let prepared_projection_validation =
+                required_prepared_projection_validation(prepared_projection_validation)?;
+            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
+                prepared_projection_validation,
                 rows.len(),
                 &mut |row_index, slot| rows[row_index].slot(slot),
             )?;
@@ -731,9 +738,10 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
             apply_cursorless_sql_page_window(context.plan, &mut slot_rows);
         }
         if validate_projection {
-            crate::db::executor::projection::validate_projection_over_slot_rows(
-                context.model,
-                &context.plan.projection_spec(context.model),
+            let prepared_projection_validation =
+                required_prepared_projection_validation(context.prepared_projection_validation)?;
+            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
+                prepared_projection_validation,
                 slot_rows.len(),
                 &mut |row_index, slot| slot_rows[row_index].slot(slot),
             )?;
@@ -812,9 +820,10 @@ fn try_materialize_cursorless_sql_key_stream_short_path(
             apply_cursorless_sql_page_window(context.plan, &mut slot_rows);
         }
         if validate_projection {
-            crate::db::executor::projection::validate_projection_over_slot_rows(
-                context.model,
-                &context.plan.projection_spec(context.model),
+            let prepared_projection_validation =
+                required_prepared_projection_validation(context.prepared_projection_validation)?;
+            crate::db::executor::projection::validate_prepared_projection_over_slot_rows(
+                prepared_projection_validation,
                 slot_rows.len(),
                 &mut |row_index, slot| slot_rows[row_index].slot(slot),
             )?;
@@ -944,6 +953,21 @@ fn apply_cursorless_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec
 }
 
 #[cfg(feature = "sql")]
+// Require the prepared projection-validation bundle whenever one cursorless
+// slot-row path still asks the shared executor validator to run.
+fn required_prepared_projection_validation(
+    prepared_projection_validation: Option<
+        &crate::db::executor::projection::PreparedSlotProjectionValidation,
+    >,
+) -> Result<&crate::db::executor::projection::PreparedSlotProjectionValidation, InternalError> {
+    prepared_projection_validation.ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "slot-row projection validation requires prepared projection state",
+        )
+    })
+}
+
+#[cfg(feature = "sql")]
 // Return whether one covering-projection pair stream must be reordered to
 // restore the planner-owned logical output order.
 const fn sql_covering_projection_pairs_require_reorder(
@@ -986,12 +1010,16 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    prepared_projection_shape: Option<&crate::db::executor::projection::PreparedProjectionShape>,
 ) -> Result<Option<PreparedSqlExecutionProjection>, InternalError> {
     if !projection_materialization.retain_slot_rows() {
         return Ok(None);
     }
 
-    let direct_projection_slots = plan.direct_projection_slots(model);
+    let direct_projection_slots = prepared_projection_shape
+        .and_then(crate::db::executor::projection::PreparedProjectionShape::direct_projection_slots)
+        .map(<[usize]>::to_vec)
+        .or_else(|| plan.direct_projection_slots(model));
     let route_covering_slot_layout = match load_terminal_fast_path {
         Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
             sql_route_covering_slot_layout(model, covering, compiled_predicate)?
@@ -1054,25 +1082,11 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
             ),
             _ => None,
         };
-
-    if let Some(layout) = route_direct_projected_source_layout.as_ref() {
-        sql_validate_direct_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
-    }
-    if let Some(layout) = route_single_component_projected_source_layout.as_ref() {
-        sql_validate_direct_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
-    }
-    if let Some(layout) = route_constant_projected_source_layout.as_ref() {
-        sql_validate_constant_projected_field_sources(
-            layout.projected_field_sources(),
-            layout.constant_values(),
-        )?;
-    }
+    sql_validate_prepared_projected_source_layouts(
+        route_direct_projected_source_layout.as_ref(),
+        route_single_component_projected_source_layout.as_ref(),
+        route_constant_projected_source_layout.as_ref(),
+    )?;
 
     let constant_covering_slot_template =
         sql_constant_covering_slot_row_template_from_route_contract(
@@ -1090,6 +1104,36 @@ pub(in crate::db::executor) fn prepare_sql_execution_projection(
         route_constant_projected_source_layout,
         constant_covering_slot_template,
     }))
+}
+
+#[cfg(feature = "sql")]
+fn sql_validate_prepared_projected_source_layouts(
+    route_direct_projected_source_layout: Option<&PreparedSqlDirectProjectedSourceLayout>,
+    route_single_component_projected_source_layout: Option<
+        &PreparedSqlSingleComponentProjectedSourceLayout,
+    >,
+    route_constant_projected_source_layout: Option<&PreparedSqlConstantProjectedSourceLayout>,
+) -> Result<(), InternalError> {
+    if let Some(layout) = route_direct_projected_source_layout {
+        sql_validate_direct_projected_field_sources(
+            layout.projected_field_sources(),
+            layout.constant_values(),
+        )?;
+    }
+    if let Some(layout) = route_single_component_projected_source_layout {
+        sql_validate_direct_projected_field_sources(
+            layout.projected_field_sources(),
+            layout.constant_values(),
+        )?;
+    }
+    if let Some(layout) = route_constant_projected_source_layout {
+        sql_validate_constant_projected_field_sources(
+            layout.projected_field_sources(),
+            layout.constant_values(),
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(feature = "sql")]

@@ -55,26 +55,128 @@ pub(super) enum PreparedProjectionPlan {
     Scalar(Vec<ScalarProjectionExpr>),
 }
 
-/// Validate projection expressions over one row-domain that can expose values
-/// by `(row_index, field_slot)` without forcing typed projection materialization.
-pub(in crate::db::executor) fn validate_projection_over_slot_rows(
+///
+/// PreparedProjectionShape
+///
+/// PreparedProjectionShape is the executor-owned prepared projection contract
+/// shared by slot-row validation, SQL short-path projection setup, and
+/// structural SQL fallback materialization.
+/// It freezes the canonical projection semantic spec plus the derived direct
+/// slot layouts needed by generic non-path-specific projection flow.
+///
+
+pub(in crate::db::executor) struct PreparedProjectionShape {
     model: &'static EntityModel,
-    projection: &ProjectionSpec,
+    projection: ProjectionSpec,
+    prepared: PreparedProjectionPlan,
+    projection_is_model_identity: bool,
+    #[cfg(feature = "sql")]
+    direct_projection_slots: Option<Vec<usize>>,
+    #[cfg(feature = "sql")]
+    direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    #[cfg(feature = "sql")]
+    projected_slot_mask: Vec<bool>,
+}
+
+impl PreparedProjectionShape {
+    #[must_use]
+    pub(in crate::db::executor) const fn model(&self) -> &'static EntityModel {
+        self.model
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn projection(&self) -> &ProjectionSpec {
+        &self.projection
+    }
+
+    #[must_use]
+    pub(super) const fn prepared(&self) -> &PreparedProjectionPlan {
+        &self.prepared
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn projection_is_model_identity(&self) -> bool {
+        self.projection_is_model_identity
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::executor) fn direct_projection_slots(&self) -> Option<&[usize]> {
+        self.direct_projection_slots.as_deref()
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) fn direct_projection_field_slots(&self) -> Option<&[(String, usize)]> {
+        self.direct_projection_field_slots.as_deref()
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
+        self.projected_slot_mask.as_slice()
+    }
+}
+
+///
+/// PreparedSlotProjectionValidation
+///
+/// PreparedSlotProjectionValidation is the executor-owned slot-row projection
+/// validation bundle reused by page kernels and SQL slot-row short paths.
+/// It freezes the canonical projection semantic spec plus the compiled
+/// validation/evaluation shape so execute no longer recomputes that plan at
+/// each slot-row validation boundary.
+///
+
+pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProjectionShape;
+
+/// Build one executor-owned prepared projection shape.
+#[must_use]
+pub(in crate::db::executor) fn prepare_projection_shape(
+    model: &'static EntityModel,
+    projection: ProjectionSpec,
+) -> PreparedProjectionShape {
+    let projection_is_model_identity = projection_is_model_identity_for_model(model, &projection);
+    let prepared = prepare_projection_plan(model, &projection);
+    #[cfg(feature = "sql")]
+    let direct_projection_slots = direct_projection_slots(model, &projection);
+    #[cfg(feature = "sql")]
+    let direct_projection_field_slots = direct_projection_field_slots(model, &projection);
+    #[cfg(feature = "sql")]
+    let projected_slot_mask = direct_projection_slot_mask(model, &projection);
+
+    PreparedProjectionShape {
+        model,
+        projection,
+        prepared,
+        projection_is_model_identity,
+        #[cfg(feature = "sql")]
+        direct_projection_slots,
+        #[cfg(feature = "sql")]
+        direct_projection_field_slots,
+        #[cfg(feature = "sql")]
+        projected_slot_mask,
+    }
+}
+
+/// Validate projection expressions over one row-domain that can expose values
+/// by `(row_index, field_slot)` using one prepared validation bundle.
+pub(in crate::db::executor) fn validate_prepared_projection_over_slot_rows(
+    prepared_validation: &PreparedSlotProjectionValidation,
     row_count: usize,
     read_slot_for_row: &mut dyn FnMut(usize, usize) -> Option<Value>,
 ) -> Result<(), InternalError> {
-    if projection_is_model_identity_for_model(model, projection) {
+    if prepared_validation.projection_is_model_identity() {
         return Ok(());
     }
-    let prepared = prepare_projection_plan(model, projection);
 
     // Phase 1: evaluate every projection expression against each row.
     for row_index in 0..row_count {
         let mut read_slot = |slot| read_slot_for_row(row_index, slot);
         visit_prepared_projection_values_with_value_reader(
-            &prepared,
-            projection,
-            model,
+            prepared_validation.prepared(),
+            prepared_validation.projection(),
+            prepared_validation.model(),
             &mut read_slot,
             &mut |_| {},
         )
@@ -124,6 +226,26 @@ pub(in crate::db::executor) fn direct_projection_field_slots(
     }
 
     Some(field_slots)
+}
+
+#[cfg(feature = "sql")]
+fn direct_projection_slot_mask(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> Vec<bool> {
+    let mut projected_slots = vec![false; model.fields().len()];
+
+    for field in projection.fields() {
+        let Some(field_name) = projection_field_direct_field_name(field) else {
+            continue;
+        };
+        let Some(slot) = resolve_field_slot(model, field_name) else {
+            continue;
+        };
+        projected_slots[slot] = true;
+    }
+
+    projected_slots
 }
 
 /// Mark every structural field slot referenced by one projection spec.
