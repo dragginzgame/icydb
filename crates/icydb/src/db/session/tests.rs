@@ -101,13 +101,16 @@ fn dispatch_explain_sql<E>(
 where
     E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
 {
+    println!("HELPER before parse");
     let parsed = session.parse_sql_statement(sql)?;
+    println!("HELPER after parse route={:?}", parsed.route());
     if !parsed.route().is_explain() {
         return Err(unsupported_sql_runtime_error(
             "EXPLAIN dispatch requires an EXPLAIN statement",
         ));
     }
 
+    println!("HELPER before execute");
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
         SqlQueryResult::Explain { explain, .. } => Ok(explain),
         SqlQueryResult::Projection(_)
@@ -912,6 +915,7 @@ fn facade_explain_sql_execution_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN EXECUTION case and assert stable tokens.
     for (sql, tokens) in cases {
+        println!("CASE: {sql}");
         let explain = dispatch_explain_sql::<FacadeSqlEntity>(&session, sql)
             .expect("facade EXPLAIN EXECUTION matrix case should succeed");
         assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
