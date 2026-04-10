@@ -356,8 +356,8 @@ fn compile_runtime_predicate_for_test(
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
-    let plan = plan_access_for_test(model, &schema, None).expect("plan should build");
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan = plan_access_for_test(model, schema, None).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -365,12 +365,12 @@ fn plan_access_full_scan_without_predicate() {
 #[test]
 fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "id".to_string(),
     };
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -382,12 +382,12 @@ fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
 #[test]
 fn plan_access_secondary_is_null_retains_full_scan_fallback() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "tag".to_string(),
     };
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -399,13 +399,13 @@ fn plan_access_secondary_is_null_retains_full_scan_fallback() {
 #[test]
 fn plan_access_secondary_is_null_can_compile_scalar_while_still_full_scanning() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "tag".to_string(),
     };
 
     let runtime = compile_runtime_predicate_for_test(model, &predicate);
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert!(
         runtime.uses_scalar_program(),
@@ -421,7 +421,7 @@ fn plan_access_secondary_is_null_can_compile_scalar_while_still_full_scanning() 
 #[test]
 fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         Predicate::IsNull {
             field: "id".to_string(),
@@ -429,7 +429,7 @@ fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -444,7 +444,7 @@ fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch
 #[test]
 fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         Predicate::IsNull {
             field: "id".to_string(),
@@ -454,7 +454,7 @@ fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
         },
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -466,7 +466,7 @@ fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
 #[test]
 fn plan_access_uses_primary_key_lookup() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let key = Ulid::generate();
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "id",
@@ -475,7 +475,7 @@ fn plan_access_uses_primary_key_lookup() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::path(AccessPath::ByKey(Value::Ulid(key))));
 }
@@ -483,7 +483,7 @@ fn plan_access_uses_primary_key_lookup() {
 #[test]
 fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let lower = Ulid::from_u128(9_811);
     let upper = Ulid::from_u128(9_813);
     let predicate = Predicate::And(vec![
@@ -501,7 +501,7 @@ fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
         )),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -516,7 +516,7 @@ fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
 #[test]
 fn plan_access_uses_index_prefix_for_exact_match() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -524,7 +524,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -538,12 +538,12 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 #[test]
 fn plan_access_filtered_index_requires_query_implication_for_predicate() {
     let model = model_with_filtered_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
 
     let missing_implication =
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
-    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
-        .expect("plan should build");
+    let missing_plan =
+        plan_access_for_test(model, schema, Some(&missing_implication)).expect("plan should build");
     assert_eq!(
         missing_plan,
         AccessPlan::full_scan(),
@@ -555,7 +555,7 @@ fn plan_access_filtered_index_requires_query_implication_for_predicate() {
         compare_strict("active", CompareOp::Eq, Value::Bool(true)),
     ]);
     let implied_plan =
-        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&implied_predicate)).expect("plan should build");
     assert_eq!(
         implied_plan,
         AccessPlan::path(AccessPath::IndexPrefix {
@@ -569,11 +569,11 @@ fn plan_access_filtered_index_requires_query_implication_for_predicate() {
 #[test]
 fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
     let model = model_with_filtered_numeric_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
 
     let weaker = compare_strict("score", CompareOp::Gte, Value::Uint(5));
     let weaker_plan =
-        plan_access_for_test(model, &schema, Some(&weaker)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&weaker)).expect("plan should build");
     assert_eq!(
         weaker_plan,
         AccessPlan::full_scan(),
@@ -582,7 +582,7 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
 
     let stronger = compare_strict("score", CompareOp::Gte, Value::Uint(20));
     let stronger_plan =
-        plan_access_for_test(model, &schema, Some(&stronger)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&stronger)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&stronger_plan).expect("stronger lower bound should use index range");
     assert_eq!(index.name(), FILTERED_NUMERIC_INDEX_MODEL.name());
@@ -597,15 +597,15 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
 #[test]
 fn plan_access_filtered_expression_index_requires_predicate_implication() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
 
     let missing_implication = compare_text_casefold(
         "email",
         CompareOp::Eq,
         Value::Text("Alice@Example.Com".to_string()),
     );
-    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
-        .expect("plan should build");
+    let missing_plan =
+        plan_access_for_test(model, schema, Some(&missing_implication)).expect("plan should build");
     assert_eq!(
         missing_plan,
         AccessPlan::full_scan(),
@@ -621,7 +621,7 @@ fn plan_access_filtered_expression_index_requires_predicate_implication() {
         compare_strict("active", CompareOp::Eq, Value::Bool(true)),
     ]);
     let implied_plan =
-        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&implied_predicate)).expect("plan should build");
     assert_eq!(
         implied_plan,
         AccessPlan::path(AccessPath::IndexPrefix {
@@ -635,15 +635,15 @@ fn plan_access_filtered_expression_index_requires_predicate_implication() {
 #[test]
 fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
 
     let missing_implication = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
         Value::Text("Alice".to_string()),
     );
-    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
-        .expect("plan should build");
+    let missing_plan =
+        plan_access_for_test(model, schema, Some(&missing_implication)).expect("plan should build");
     assert_eq!(
         missing_plan,
         AccessPlan::full_scan(),
@@ -659,7 +659,7 @@ fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
         compare_strict("active", CompareOp::Eq, Value::Bool(true)),
     ]);
     let implied_plan =
-        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&implied_predicate)).expect("plan should build");
     assert_eq!(
         implied_plan,
         AccessPlan::path(AccessPath::IndexRange {
@@ -678,7 +678,7 @@ fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
 #[test]
 fn plan_access_uses_index_multi_lookup_for_secondary_in() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict(
         "tag",
         CompareOp::In,
@@ -688,7 +688,7 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
         ]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -705,14 +705,14 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
 #[test]
 fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
         Value::Text("Alice@Example.Com".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -727,14 +727,14 @@ fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
 #[test]
 fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
     let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
         Value::Text("Alice@Example.Com".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -749,14 +749,14 @@ fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
 #[test]
 fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
         Value::Text("Alice@Example.Com".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -768,7 +768,7 @@ fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
 #[test]
 fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
     let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -778,7 +778,7 @@ fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
         ]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -796,7 +796,7 @@ fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
 #[test]
 fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -806,7 +806,7 @@ fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
         ]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -818,7 +818,7 @@ fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
 #[test]
 fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -829,7 +829,7 @@ fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
         ]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -847,10 +847,10 @@ fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
 #[test]
 fn plan_access_gt_rejects_expression_index() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("email", CompareOp::Gt, Value::Text("a@x.io".to_string()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -862,14 +862,14 @@ fn plan_access_gt_rejects_expression_index() {
 #[test]
 fn plan_access_text_casefold_starts_with_uses_expression_index_range() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
         Value::Text("ALICE".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("text-casefold starts-with should plan index range");
 
@@ -885,11 +885,11 @@ fn plan_access_text_casefold_starts_with_uses_expression_index_range() {
 #[test]
 fn plan_access_text_casefold_starts_with_single_char_prefix_uses_expression_index_range() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate =
         compare_text_casefold("email", CompareOp::StartsWith, Value::Text("A".to_string()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("text-casefold starts-with should plan index range");
 
@@ -905,14 +905,14 @@ fn plan_access_text_casefold_starts_with_single_char_prefix_uses_expression_inde
 #[test]
 fn plan_access_text_casefold_starts_with_uses_upper_expression_index_range() {
     let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
         Value::Text("ALICE".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("text-casefold starts-with should plan index range");
 
@@ -928,14 +928,14 @@ fn plan_access_text_casefold_starts_with_uses_upper_expression_index_range() {
 #[test]
 fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
         Value::Text("ALICE".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -947,11 +947,11 @@ fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_k
 #[test]
 fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate =
         compare_text_casefold("email", CompareOp::StartsWith, Value::Text(String::new()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -963,14 +963,14 @@ fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() 
 #[test]
 fn plan_access_text_contains_can_compile_scalar_while_still_full_scanning() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::TextContains {
         field: "tag".to_string(),
         value: Value::Text("alp".to_string()),
     };
 
     let runtime = compile_runtime_predicate_for_test(model, &predicate);
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert!(
         runtime.uses_scalar_program(),
@@ -986,7 +986,7 @@ fn plan_access_text_contains_can_compile_scalar_while_still_full_scanning() {
 #[test]
 fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_plan() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let upper = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
@@ -998,8 +998,8 @@ fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_pl
         Value::Text("alice".to_string()),
     );
 
-    let upper_plan = plan_access_for_test(model, &schema, Some(&upper)).expect("plan should build");
-    let lower_plan = plan_access_for_test(model, &schema, Some(&lower)).expect("plan should build");
+    let upper_plan = plan_access_for_test(model, schema, Some(&upper)).expect("plan should build");
+    let lower_plan = plan_access_for_test(model, schema, Some(&lower)).expect("plan should build");
 
     assert_eq!(
         upper_plan, lower_plan,
@@ -1010,14 +1010,14 @@ fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_pl
 #[test]
 fn plan_access_starts_with_rejects_expression_index() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict(
         "email",
         CompareOp::StartsWith,
         Value::Text("alice".to_string()),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1029,7 +1029,7 @@ fn plan_access_starts_with_rejects_expression_index() {
 #[test]
 fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate_a = compare_strict(
         "tag",
         CompareOp::In,
@@ -1049,9 +1049,9 @@ fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical()
     );
 
     let plan_a =
-        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_a)).expect("plan should build");
     let plan_b =
-        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -1073,7 +1073,7 @@ fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical()
 #[test]
 fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate_a = compare_strict(
         "id",
         CompareOp::In,
@@ -1093,9 +1093,9 @@ fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical
     );
 
     let plan_a =
-        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_a)).expect("plan should build");
     let plan_b =
-        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -1114,14 +1114,14 @@ fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical
 #[test]
 fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict(
         "tag",
         CompareOp::In,
         Value::List(vec![Value::Text("alpha".to_string())]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1135,14 +1135,14 @@ fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
 #[test]
 fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
         compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1160,7 +1160,7 @@ fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
 #[test]
 fn plan_access_text_casefold_or_eq_lowers_to_expression_index_multi_lookup() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         compare_text_casefold(
             "email",
@@ -1179,7 +1179,7 @@ fn plan_access_text_casefold_or_eq_lowers_to_expression_index_multi_lookup() {
         ),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1197,14 +1197,14 @@ fn plan_access_text_casefold_or_eq_lowers_to_expression_index_multi_lookup() {
 #[test]
 fn plan_access_stability_primary_key_or_eq_lowers_to_by_keys() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
         compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(1))),
         compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1219,7 +1219,7 @@ fn plan_access_stability_primary_key_or_eq_lowers_to_by_keys() {
 #[test]
 fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Or(vec![
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -1230,7 +1230,7 @@ fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
         )),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1242,10 +1242,10 @@ fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
 #[test]
 fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1257,13 +1257,13 @@ fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
 #[test]
 fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_folding() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let secondary_in_empty = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
 
     let plan_from_empty_in =
-        plan_access_for_test(model, &schema, Some(&secondary_in_empty)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&secondary_in_empty)).expect("plan should build");
     let plan_from_false =
-        plan_access_for_test(model, &schema, Some(&Predicate::False)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&Predicate::False)).expect("plan should build");
 
     assert_eq!(
         plan_from_empty_in,
@@ -1284,13 +1284,13 @@ fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_fo
 #[test]
 fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("tag", CompareOp::In, Value::List(Vec::new())),
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1302,14 +1302,14 @@ fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
 #[test]
 fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict(
         "tag",
         CompareOp::In,
         Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
     );
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -1321,13 +1321,13 @@ fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
 #[test]
 fn plan_access_text_between_equivalent_bounds_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
         compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string())),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Included(Value::Text("alpha".to_string())),
@@ -1338,17 +1338,16 @@ fn plan_access_text_between_equivalent_bounds_lowers_to_index_range() {
 #[test]
 fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let between_equal_bounds = Predicate::And(vec![
         compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
         compare_strict("tag", CompareOp::Lte, Value::Text("alpha".to_string())),
     ]);
     let strict_eq = compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
 
-    let between_plan = plan_access_for_test(model, &schema, Some(&between_equal_bounds))
+    let between_plan = plan_access_for_test(model, schema, Some(&between_equal_bounds))
         .expect("plan should build");
-    let eq_plan =
-        plan_access_for_test(model, &schema, Some(&strict_eq)).expect("plan should build");
+    let eq_plan = plan_access_for_test(model, schema, Some(&strict_eq)).expect("plan should build");
 
     assert_eq!(
         between_plan, eq_plan,
@@ -1359,10 +1358,10 @@ fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
 #[test]
 fn plan_access_text_starts_with_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Included(Value::Text("foo".to_string())),
@@ -1373,11 +1372,11 @@ fn plan_access_text_starts_with_lowers_to_index_range() {
 #[test]
 fn plan_access_text_starts_with_compiles_scalar_and_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
 
     let runtime = compile_runtime_predicate_for_test(model, &predicate);
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert!(
         runtime.uses_scalar_program(),
@@ -1393,10 +1392,10 @@ fn plan_access_text_starts_with_compiles_scalar_and_lowers_to_index_range() {
 #[test]
 fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(String::new()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -1404,11 +1403,11 @@ fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
 #[test]
 fn plan_access_starts_with_high_unicode_prefix_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Included(Value::Text(format!(
@@ -1425,11 +1424,11 @@ fn plan_access_starts_with_high_unicode_prefix_lowers_to_index_range() {
 #[test]
 fn plan_access_starts_with_max_unicode_prefix_lowers_to_lower_bound_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Included(Value::Text(
@@ -1442,16 +1441,16 @@ fn plan_access_starts_with_max_unicode_prefix_lowers_to_lower_bound_range() {
 #[test]
 fn plan_access_stability_starts_with_and_equivalent_range_share_identical_access_plan() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
     let equivalent_range = Predicate::And(vec![
         compare_strict("tag", CompareOp::Gte, Value::Text("foo".to_string())),
         compare_strict("tag", CompareOp::Lt, Value::Text("fop".to_string())),
     ]);
 
-    let starts_with_plan = plan_access_for_test(model, &schema, Some(&starts_with))
+    let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
         .expect("starts_with plan should build");
-    let equivalent_range_plan = plan_access_for_test(model, &schema, Some(&equivalent_range))
+    let equivalent_range_plan = plan_access_for_test(model, schema, Some(&equivalent_range))
         .expect("equivalent range plan should build");
 
     assert_eq!(
@@ -1463,14 +1462,14 @@ fn plan_access_stability_starts_with_and_equivalent_range_share_identical_access
 #[test]
 fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_share_plan() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
     let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
     let equivalent_lower_bound = compare_strict("tag", CompareOp::Gte, Value::Text(prefix));
 
-    let starts_with_plan = plan_access_for_test(model, &schema, Some(&starts_with))
+    let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
         .expect("starts_with plan should build");
-    let lower_bound_plan = plan_access_for_test(model, &schema, Some(&equivalent_lower_bound))
+    let lower_bound_plan = plan_access_for_test(model, schema, Some(&equivalent_lower_bound))
         .expect("lower-bound plan should build");
 
     assert_eq!(
@@ -1482,10 +1481,10 @@ fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_shar
 #[test]
 fn plan_access_text_gt_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::Gt, Value::Text("alpha".to_string()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Excluded(Value::Text("alpha".to_string())),
@@ -1496,10 +1495,10 @@ fn plan_access_text_gt_lowers_to_index_range() {
 #[test]
 fn plan_access_text_lte_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string()));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert_single_field_text_index_range(
         &plan,
         Bound::Unbounded,
@@ -1510,7 +1509,7 @@ fn plan_access_text_lte_lowers_to_index_range() {
 #[test]
 fn plan_access_ignores_non_strict_predicates() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -1518,7 +1517,7 @@ fn plan_access_ignores_non_strict_predicates() {
         CoercionId::TextCasefold,
     ));
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -1526,14 +1525,14 @@ fn plan_access_ignores_non_strict_predicates() {
 #[test]
 fn plan_access_emits_index_range_for_prefix_plus_range() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(100)),
         compare_strict("b", CompareOp::Lt, Value::Uint(200)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -1546,13 +1545,13 @@ fn plan_access_emits_index_range_for_prefix_plus_range() {
 #[test]
 fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(1)),
         compare_strict("b", CompareOp::Gt, Value::Uint(5)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let AccessPlan::Path(path) = &plan else {
         panic!("composite eq+range predicate should emit a single access path");
     };
@@ -1602,14 +1601,14 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
 #[test]
 fn plan_access_emits_index_range_for_between_equivalent_bounds() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(100)),
         compare_strict("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -1622,14 +1621,14 @@ fn plan_access_emits_index_range_for_between_equivalent_bounds() {
 #[test]
 fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(0)),
         compare_strict("b", CompareOp::Lt, Value::Uint(u64::from(u32::MAX))),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -1642,14 +1641,14 @@ fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
 #[test]
 fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(0)),
         compare_strict("b", CompareOp::Lte, Value::Uint(u64::from(u32::MAX))),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -1662,14 +1661,14 @@ fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
 #[test]
 fn plan_access_rejects_trailing_equality_after_range() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(100)),
         compare_strict("c", CompareOp::Eq, Value::Uint(3)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when equality appears after range field"
@@ -1679,13 +1678,13 @@ fn plan_access_rejects_trailing_equality_after_range() {
 #[test]
 fn plan_access_rejects_range_with_missing_prefix_component() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("c", CompareOp::Gte, Value::Uint(100)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when first non-equality component is skipped"
@@ -1695,13 +1694,13 @@ fn plan_access_rejects_range_with_missing_prefix_component() {
 #[test]
 fn plan_access_rejects_range_before_prefix_equality() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Gte, Value::Uint(7)),
         compare_strict("b", CompareOp::Eq, Value::Uint(3)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when equality appears after a leading range field"
@@ -1711,7 +1710,7 @@ fn plan_access_rejects_range_before_prefix_equality() {
 #[test]
 fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(50)),
@@ -1719,7 +1718,7 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
         compare_strict("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
     assert_eq!(lower, &Bound::Excluded(Value::Uint(80)));
     assert_eq!(upper, &Bound::Included(Value::Uint(200)));
@@ -1728,7 +1727,7 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
 #[test]
 fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate_a = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(100)),
@@ -1740,9 +1739,9 @@ fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
     ]);
 
     let plan_a =
-        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_a)).expect("plan should build");
     let plan_b =
-        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -1753,7 +1752,7 @@ fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
 #[test]
 fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shape() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let contradictory = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gt, Value::Uint(100)),
@@ -1761,9 +1760,9 @@ fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shap
     ]);
 
     let plan_from_contradiction =
-        plan_access_for_test(model, &schema, Some(&contradictory)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&contradictory)).expect("plan should build");
     let plan_from_false =
-        plan_access_for_test(model, &schema, Some(&Predicate::False)).expect("plan should build");
+        plan_access_for_test(model, schema, Some(&Predicate::False)).expect("plan should build");
 
     assert_eq!(
         plan_from_contradiction, plan_from_false,
@@ -1774,14 +1773,14 @@ fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shap
 #[test]
 fn plan_access_rejects_empty_exclusive_interval() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gt, Value::Uint(100)),
         compare_strict("b", CompareOp::Lt, Value::Uint(100)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "exclusive equal bounds should be rejected as empty interval"
@@ -1791,14 +1790,14 @@ fn plan_access_rejects_empty_exclusive_interval() {
 #[test]
 fn plan_access_rejects_non_strict_numeric_widen_for_range_bounds() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_numeric_widen("b", CompareOp::Gte, Value::Int(100)),
         compare_numeric_widen("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "non-strict numeric widen predicates must not compile into index range access paths"

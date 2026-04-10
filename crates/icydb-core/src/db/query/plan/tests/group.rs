@@ -190,7 +190,7 @@ fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) ->
 #[test]
 fn grouped_plan_rejects_empty_group_fields() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -201,7 +201,7 @@ fn grouped_plan_rejects_empty_group_fields() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("empty group-fields spec must fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -212,7 +212,7 @@ fn grouped_plan_rejects_empty_group_fields() {
 #[test]
 fn grouped_plan_accepts_global_distinct_count_field_without_group_keys() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -223,14 +223,14 @@ fn grouped_plan_accepts_global_distinct_count_field_without_group_keys() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("global grouped count(distinct field) should be accepted");
 }
 
 #[test]
 fn grouped_plan_accepts_global_distinct_sum_field_without_group_keys() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -241,14 +241,14 @@ fn grouped_plan_accepts_global_distinct_sum_field_without_group_keys() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("global grouped sum(distinct field) should be accepted");
 }
 
 #[test]
 fn grouped_plan_accepts_global_distinct_avg_field_without_group_keys() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -259,7 +259,7 @@ fn grouped_plan_accepts_global_distinct_avg_field_without_group_keys() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("global grouped avg(distinct field) should be accepted");
 }
 
@@ -391,7 +391,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
 #[test]
 fn grouped_plan_rejects_global_distinct_sum_non_numeric_target() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -402,7 +402,7 @@ fn grouped_plan_rejects_global_distinct_sum_non_numeric_target() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("global grouped sum(distinct non-numeric) should fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -414,7 +414,7 @@ fn grouped_plan_rejects_global_distinct_sum_non_numeric_target() {
 #[test]
 fn grouped_plan_rejects_global_distinct_unsupported_kind() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -425,7 +425,7 @@ fn grouped_plan_rejects_global_distinct_unsupported_kind() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("global grouped distinct should reject unsupported aggregate kinds");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -437,7 +437,7 @@ fn grouped_plan_rejects_global_distinct_unsupported_kind() {
 #[test]
 fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -455,7 +455,7 @@ fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
         ],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("global grouped distinct shape should reject mixed aggregate list");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -466,7 +466,7 @@ fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
 #[test]
 fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan_with_having(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         Vec::new(),
@@ -484,7 +484,7 @@ fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
         }),
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("global DISTINCT grouped aggregate shape must reject HAVING");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -495,7 +495,7 @@ fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
 #[test]
 fn grouped_plan_rejects_unknown_group_field() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["missing_group_field"],
@@ -506,7 +506,7 @@ fn grouped_plan_rejects_unknown_group_field() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("unknown group field must fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -517,7 +517,7 @@ fn grouped_plan_rejects_unknown_group_field() {
 #[test]
 fn grouped_plan_rejects_duplicate_group_field() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank", "rank"],
@@ -528,7 +528,7 @@ fn grouped_plan_rejects_duplicate_group_field() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("duplicate group field must fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -539,7 +539,7 @@ fn grouped_plan_rejects_duplicate_group_field() {
 #[test]
 fn grouped_plan_rejects_distinct_without_adjacency_proof() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
         vec!["rank"],
@@ -550,7 +550,7 @@ fn grouped_plan_rejects_distinct_without_adjacency_proof() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped distinct should fail without ordered-group adjacency eligibility");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -561,7 +561,7 @@ fn grouped_plan_rejects_distinct_without_adjacency_proof() {
 #[test]
 fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan_with_order_distinct_and_limit(
             AccessPlan::path(AccessPath::FullScan),
@@ -582,7 +582,7 @@ fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped order should fail when grouped-key prefix is missing");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -593,7 +593,7 @@ fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
 #[test]
 fn grouped_plan_rejects_order_without_limit() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan_with_order_and_distinct(
             AccessPlan::path(AccessPath::FullScan),
@@ -613,7 +613,7 @@ fn grouped_plan_rejects_order_without_limit() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped order should fail when LIMIT is omitted");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -624,7 +624,7 @@ fn grouped_plan_rejects_order_without_limit() {
 #[test]
 fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan_with_order_distinct_and_limit(
             AccessPlan::path(AccessPath::FullScan),
@@ -645,7 +645,7 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped).expect(
+    validate_group_query_semantics(schema, model, &grouped).expect(
         "grouped order should be accepted when grouped keys lead ORDER BY and LIMIT is explicit",
     );
 }
@@ -653,7 +653,7 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
 #[test]
 fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
 
     let build = |order: Option<OrderSpec>, limit: Option<u32>| {
         grouped_plan_with_having(
@@ -689,7 +689,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
         }),
         Some(1),
     );
-    validate_group_query_semantics(&schema, model, &accepted).expect(
+    validate_group_query_semantics(schema, model, &accepted).expect(
         "grouped HAVING + ORDER should be accepted when ORDER prefix is aligned and LIMIT is explicit",
     );
 
@@ -703,7 +703,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
         }),
         None,
     );
-    let err = validate_group_query_semantics(&schema, model, &missing_limit)
+    let err = validate_group_query_semantics(schema, model, &missing_limit)
         .expect_err("grouped HAVING + ORDER without LIMIT should fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -720,7 +720,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
         }),
         Some(1),
     );
-    let err = validate_group_query_semantics(&schema, model, &prefix_mismatch)
+    let err = validate_group_query_semantics(schema, model, &prefix_mismatch)
         .expect_err("grouped HAVING + misaligned ORDER should fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -731,14 +731,14 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
 #[test]
 fn grouped_plan_rejects_empty_aggregate_spec_list() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
         Vec::new(),
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("empty grouped aggregate list must fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -749,7 +749,7 @@ fn grouped_plan_rejects_empty_aggregate_spec_list() {
 #[test]
 fn grouped_plan_rejects_unknown_aggregate_target_field() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -760,7 +760,7 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("unknown grouped aggregate target field must fail");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -772,7 +772,7 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
 #[test]
 fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -783,7 +783,7 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("field-target grouped terminal must fail while grouped v1 lacks support");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -795,7 +795,7 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
 #[test]
 fn grouped_plan_accepts_count_field_aggregate_terminal_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -806,14 +806,14 @@ fn grouped_plan_accepts_count_field_aggregate_terminal_in_grouped_v1() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("grouped COUNT(field) should be accepted in grouped v1");
 }
 
 #[test]
 fn grouped_plan_accepts_sum_field_aggregate_terminal_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -824,14 +824,14 @@ fn grouped_plan_accepts_sum_field_aggregate_terminal_in_grouped_v1() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("grouped SUM(field) should be accepted in grouped v1");
 }
 
 #[test]
 fn grouped_plan_accepts_avg_field_aggregate_terminal_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -842,14 +842,14 @@ fn grouped_plan_accepts_avg_field_aggregate_terminal_in_grouped_v1() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("grouped AVG(field) should be accepted in grouped v1");
 }
 
 #[test]
 fn grouped_plan_accepts_distinct_count_aggregate_terminal() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -860,14 +860,14 @@ fn grouped_plan_accepts_distinct_count_aggregate_terminal() {
         }],
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("grouped distinct count should be accepted in grouped v1");
 }
 
 #[test]
 fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -878,7 +878,7 @@ fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("distinct exists should be rejected until grouped distinct support expands");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -890,7 +890,7 @@ fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
 #[test]
 fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -901,7 +901,7 @@ fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("distinct field-target grouped terminals should remain rejected in grouped v1");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -913,7 +913,7 @@ fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
 #[test]
 fn grouped_plan_rejects_having_with_distinct() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan_with_having(
         load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
         vec!["rank"],
@@ -931,7 +931,7 @@ fn grouped_plan_rejects_having_with_distinct() {
         }),
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped having with distinct should be rejected");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -986,7 +986,7 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
 #[test]
 fn grouped_plan_rejects_having_group_field_outside_group_keys() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan_with_having(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -1007,7 +1007,7 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
         }),
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("having should reject group-field symbols not declared in group keys");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -1018,7 +1018,7 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
 #[test]
 fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan_with_having(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -1036,7 +1036,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
         }),
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("having should reject aggregate indexes beyond declared aggregate count");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -1048,7 +1048,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
 #[test]
 fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan_with_having(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
@@ -1076,7 +1076,7 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
         }),
     );
 
-    validate_group_query_semantics(&schema, model, &grouped)
+    validate_group_query_semantics(schema, model, &grouped)
         .expect("having over grouped keys and grouped aggregate symbols should be accepted");
 }
 
@@ -1460,7 +1460,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
 #[test]
 fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let base = load_plan(AccessPlan::path(AccessPath::FullScan));
     let grouped = grouped_plan(
         base.clone(),
@@ -1472,9 +1472,9 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
         }],
     );
 
-    validate_query_semantics(&schema, model, &base)
+    validate_query_semantics(schema, model, &base)
         .expect("scalar plan validation must not require grouped spec");
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped validation must enforce grouped spec");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
@@ -1485,7 +1485,7 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
 #[test]
 fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -1501,13 +1501,13 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
         }],
     );
 
-    let scalar_err = validate_query_semantics(&schema, model, &base)
+    let scalar_err = validate_query_semantics(schema, model, &base)
         .expect_err("invalid scalar base plan must fail scalar policy validation");
     assert!(is_policy_plan_error(&scalar_err, |inner| matches!(
         inner,
         PolicyPlanError::LoadPlanWithDeleteLimit
     )));
-    let grouped_err = validate_group_query_semantics(&schema, model, &grouped)
+    let grouped_err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("grouped validation must preserve scalar base-plan policy failures");
     assert!(is_policy_plan_error(&grouped_err, |inner| matches!(
         inner,
@@ -1518,7 +1518,7 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
 #[test]
 fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::cached_for_entity_model(model);
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
     base.scalar_plan_mut().order = Some(OrderSpec {
@@ -1534,7 +1534,7 @@ fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
         }],
     );
 
-    let err = validate_group_query_semantics(&schema, model, &grouped)
+    let err = validate_group_query_semantics(schema, model, &grouped)
         .expect_err("delete grouped shape must fail planner policy validation");
     assert!(is_policy_plan_error(&err, |inner| matches!(
         inner,

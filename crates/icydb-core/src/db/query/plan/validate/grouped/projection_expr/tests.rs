@@ -43,8 +43,8 @@ fn model() -> &'static EntityModel {
     <GroupProjectionValidateEntity as EntitySchema>::MODEL
 }
 
-fn schema() -> SchemaInfo {
-    SchemaInfo::from_entity_model(model())
+fn schema() -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(model())
 }
 
 fn grouped_spec() -> GroupSpec {
@@ -112,7 +112,7 @@ fn projection_expr_type_validation_rejects_unknown_fields() {
         alias: None,
     }]);
 
-    let err = validate_projection_expr_types(&schema(), &projection)
+    let err = validate_projection_expr_types(schema(), &projection)
         .expect_err("expression typing must fail for unknown schema fields");
 
     assert!(matches!(

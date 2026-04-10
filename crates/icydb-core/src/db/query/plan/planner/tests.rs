@@ -404,9 +404,9 @@ fn planner_and_intent_access_canonicalization_match_for_single_key_set() {
         Value::List(vec![Value::Ulid(key)]),
         CoercionId::Strict,
     ));
-    let schema = SchemaInfo::from_entity_model(&PLANNER_CANONICAL_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_CANONICAL_MODEL);
 
-    let planner_shape = plan_access_for_test(&PLANNER_CANONICAL_MODEL, &schema, Some(&predicate))
+    let planner_shape = plan_access_for_test(&PLANNER_CANONICAL_MODEL, schema, Some(&predicate))
         .expect("planner access shape should build for strict single-key IN predicate");
     let intent_shape = build_access_plan_from_keys(&KeyAccess::Many(vec![key]));
 
@@ -429,9 +429,9 @@ fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
         Value::List(Vec::new()),
         CoercionId::Strict,
     ));
-    let schema = SchemaInfo::from_entity_model(&PLANNER_IN_EMPTY_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_IN_EMPTY_MODEL);
 
-    let planner_shape = plan_access_for_test(&PLANNER_IN_EMPTY_MODEL, &schema, Some(&predicate))
+    let planner_shape = plan_access_for_test(&PLANNER_IN_EMPTY_MODEL, schema, Some(&predicate))
         .expect("planner access shape should build for strict IN-empty predicate");
 
     assert_eq!(
@@ -443,11 +443,11 @@ fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
 
 #[test]
 fn planner_order_only_single_field_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
     let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, schema, None, Some(order))
             .expect("order-only access planning should succeed");
 
     assert_eq!(
@@ -465,11 +465,11 @@ fn planner_order_only_single_field_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_single_field_desc_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
     let order = canonical_order(&[("name", OrderDirection::Desc), ("id", OrderDirection::Desc)]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, schema, None, Some(order))
             .expect("descending order-only access planning should succeed");
 
     assert_eq!(
@@ -487,7 +487,7 @@ fn planner_order_only_single_field_desc_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_composite_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
     let order = canonical_order(&[
         ("code", OrderDirection::Asc),
         ("serial", OrderDirection::Asc),
@@ -495,7 +495,7 @@ fn planner_order_only_composite_index_falls_back_to_index_range() {
     ]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, schema, None, Some(order))
             .expect("composite order-only access planning should succeed");
 
     assert_eq!(
@@ -513,7 +513,7 @@ fn planner_order_only_composite_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_composite_desc_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
     let order = canonical_order(&[
         ("code", OrderDirection::Desc),
         ("serial", OrderDirection::Desc),
@@ -521,7 +521,7 @@ fn planner_order_only_composite_desc_index_falls_back_to_index_range() {
     ]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, schema, None, Some(order))
             .expect("descending composite order-only access planning should succeed");
 
     assert_eq!(
@@ -539,11 +539,11 @@ fn planner_order_only_composite_desc_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
     let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_FILTERED_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_ORDER_FILTERED_MODEL, schema, None, Some(order))
             .expect("filtered order-only access planning should succeed");
 
     assert_eq!(
@@ -555,7 +555,7 @@ fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
 
 #[test]
 fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "active",
         CompareOp::Eq,
@@ -566,7 +566,7 @@ fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard()
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -587,7 +587,7 @@ fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard()
 
 #[test]
 fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tier",
         CompareOp::Eq,
@@ -598,7 +598,7 @@ fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie()
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_RANKING_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -625,7 +625,7 @@ fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie()
 
 #[test]
 fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -648,7 +648,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_RANGE_RANKING_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -677,7 +677,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
 
 #[test]
 fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -700,7 +700,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_RANGE_RANKING_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -729,7 +729,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
 
 #[test]
 fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -748,7 +748,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_RANGE_RANKING_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -775,7 +775,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
 
 #[test]
 fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -797,7 +797,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_RANGE_RANKING_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -828,12 +828,12 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
 
 #[test]
 fn planner_order_only_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_ONLY_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_ONLY_RANKING_MODEL);
     let order = canonical_order(&[("alpha", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_ONLY_RANKING_MODEL,
-        &schema,
+        schema,
         None,
         Some(order),
     )
@@ -858,7 +858,7 @@ fn planner_order_only_selection_prefers_order_compatible_index_over_name_order_t
 
 #[test]
 fn planner_composite_order_only_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
     let order = canonical_order(&[
         ("tier", OrderDirection::Asc),
         ("handle", OrderDirection::Asc),
@@ -866,7 +866,7 @@ fn planner_composite_order_only_selection_prefers_order_compatible_index_over_na
     ]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, schema, None, Some(order))
             .expect("composite order-only ranking access planning should succeed");
 
     let AccessPlan::Path(path) = planner_shape else {
@@ -889,7 +889,7 @@ fn planner_composite_order_only_selection_prefers_order_compatible_index_over_na
 #[test]
 fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_over_name_order_tie()
 {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
     let order = canonical_order(&[
         ("tier", OrderDirection::Desc),
         ("handle", OrderDirection::Desc),
@@ -897,7 +897,7 @@ fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_ov
     ]);
 
     let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, &schema, None, Some(order))
+        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, schema, None, Some(order))
             .expect("descending composite order-only ranking access planning should succeed");
 
     let AccessPlan::Path(path) = planner_shape else {
@@ -919,7 +919,7 @@ fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_ov
 
 #[test]
 fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",
@@ -938,7 +938,7 @@ fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() 
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -965,7 +965,7 @@ fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() 
 
 #[test]
 fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_prefix() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",
@@ -990,7 +990,7 @@ fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_pr
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_COMPOSITE_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -1021,7 +1021,7 @@ fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_pr
 
 #[test]
 fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "name",
         CompareOp::StartsWith,
@@ -1032,7 +1032,7 @@ fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -1059,19 +1059,15 @@ fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
 
 #[test]
 fn planner_order_only_expression_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
     let order = canonical_order(&[
         ("LOWER(name)", OrderDirection::Asc),
         ("id", OrderDirection::Asc),
     ]);
 
-    let planner_shape = plan_access_for_test_with_order(
-        &PLANNER_ORDER_EXPRESSION_MODEL,
-        &schema,
-        None,
-        Some(order),
-    )
-    .expect("expression order-only access planning should succeed");
+    let planner_shape =
+        plan_access_for_test_with_order(&PLANNER_ORDER_EXPRESSION_MODEL, schema, None, Some(order))
+            .expect("expression order-only access planning should succeed");
 
     assert_eq!(
         planner_shape,
@@ -1088,19 +1084,15 @@ fn planner_order_only_expression_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_expression_desc_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
     let order = canonical_order(&[
         ("LOWER(name)", OrderDirection::Desc),
         ("id", OrderDirection::Desc),
     ]);
 
-    let planner_shape = plan_access_for_test_with_order(
-        &PLANNER_ORDER_EXPRESSION_MODEL,
-        &schema,
-        None,
-        Some(order),
-    )
-    .expect("descending expression order-only access planning should succeed");
+    let planner_shape =
+        plan_access_for_test_with_order(&PLANNER_ORDER_EXPRESSION_MODEL, schema, None, Some(order))
+            .expect("descending expression order-only access planning should succeed");
 
     assert_eq!(
         planner_shape,
@@ -1117,16 +1109,12 @@ fn planner_order_only_expression_desc_index_falls_back_to_index_range() {
 
 #[test]
 fn planner_order_only_expression_index_fails_closed_for_raw_field_order() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
     let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
-    let planner_shape = plan_access_for_test_with_order(
-        &PLANNER_ORDER_EXPRESSION_MODEL,
-        &schema,
-        None,
-        Some(order),
-    )
-    .expect("expression order-only access planning should succeed");
+    let planner_shape =
+        plan_access_for_test_with_order(&PLANNER_ORDER_EXPRESSION_MODEL, schema, None, Some(order))
+            .expect("expression order-only access planning should succeed");
 
     assert_eq!(
         planner_shape,
@@ -1137,7 +1125,7 @@ fn planner_order_only_expression_index_fails_closed_for_raw_field_order() {
 
 #[test]
 fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predicate() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
     let order = canonical_order(&[
         ("LOWER(name)", OrderDirection::Asc),
         ("id", OrderDirection::Asc),
@@ -1145,7 +1133,7 @@ fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predi
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
-        &schema,
+        schema,
         None,
         Some(order),
     )
@@ -1160,7 +1148,7 @@ fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predi
 
 #[test]
 fn planner_order_only_filtered_expression_index_uses_index_range_when_query_implies_guard() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "active",
         CompareOp::Eq,
@@ -1174,7 +1162,7 @@ fn planner_order_only_filtered_expression_index_uses_index_range_when_query_impl
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -1195,7 +1183,7 @@ fn planner_order_only_filtered_expression_index_uses_index_range_when_query_impl
 
 #[test]
 fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query_implies_guard() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "active",
         CompareOp::Eq,
@@ -1209,7 +1197,7 @@ fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )
@@ -1230,7 +1218,7 @@ fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query
 
 #[test]
 fn planner_expression_text_range_uses_expression_index_range() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "name",
         CompareOp::Gte,
@@ -1239,7 +1227,7 @@ fn planner_expression_text_range_uses_expression_index_range() {
     ));
 
     let planner_shape =
-        plan_access_for_test(&PLANNER_ORDER_EXPRESSION_MODEL, &schema, Some(&predicate))
+        plan_access_for_test(&PLANNER_ORDER_EXPRESSION_MODEL, schema, Some(&predicate))
             .expect("expression text range access planning should succeed");
 
     assert_eq!(
@@ -1257,7 +1245,8 @@ fn planner_expression_text_range_uses_expression_index_range() {
 
 #[test]
 fn planner_filtered_composite_expression_text_range_uses_index_range_when_query_implies_guard() {
-    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL);
+    let schema =
+        SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",
@@ -1291,7 +1280,7 @@ fn planner_filtered_composite_expression_text_range_uses_index_range_when_query_
 
     let planner_shape = plan_access_for_test_with_order(
         &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL,
-        &schema,
+        schema,
         Some(&predicate),
         Some(order),
     )

@@ -4,7 +4,7 @@ use crate::{
     },
     error::InternalError,
     model::{
-        entity::{EntityModel, resolve_primary_key_slot},
+        entity::EntityModel,
         field::{FieldModel, LeafCodec},
     },
     value::{StorageKey, Value},
@@ -127,11 +127,13 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         expected_key: StorageKey,
     ) -> Result<(), InternalError> {
-        let primary_key_slot = self.contract.primary_key_slot();
         let Some(model) = self.model else {
-            return self.validate_storage_key_value_with_contract(expected_key, primary_key_slot);
+            return self.validate_storage_key_value_with_contract(
+                expected_key,
+                self.contract.primary_key_slot(),
+            );
         };
-        let primary_key_slot = resolve_primary_key_slot(model);
+        let primary_key_slot = model.primary_key_slot();
         let field = self.field_model(primary_key_slot)?;
         let decoded_key = match self.get_scalar(primary_key_slot)? {
             Some(ScalarSlotValueRef::Null) => None,

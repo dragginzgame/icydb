@@ -10,7 +10,7 @@ use crate::{
         session::sql::{
             SqlDispatchResult,
             projection::{
-                SqlProjectionPayload, projection_labels_from_entity_model,
+                SqlProjectionPayload, projection_labels_from_fields,
                 sql_projection_rows_from_kernel_rows,
             },
             surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
@@ -107,7 +107,7 @@ impl<C: CanisterKind> DbSession<C> {
         let rows = sql_projection_rows_from_kernel_rows(rows);
 
         Ok(SqlProjectionPayload::new(
-            projection_labels_from_entity_model(authority.model()),
+            projection_labels_from_fields(authority.fields()),
             rows,
             row_count,
         )

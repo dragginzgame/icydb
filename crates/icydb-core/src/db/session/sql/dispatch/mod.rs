@@ -23,7 +23,7 @@ use crate::{
             },
             computed_projection,
             projection::{
-                SqlProjectionPayload, projection_labels_from_entity_model,
+                SqlProjectionPayload, projection_labels_from_fields,
                 projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
             },
         },
@@ -244,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
         let rows = sql_projection_rows_from_kernel_rows(rows);
 
         Ok(SqlProjectionPayload::new(
-            projection_labels_from_entity_model(E::MODEL),
+            projection_labels_from_fields(E::MODEL.fields()),
             rows,
             row_count,
         )

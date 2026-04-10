@@ -220,13 +220,6 @@ impl ExecutionOrderContract {
         self.direction
     }
 
-    /// Return canonical secondary-index scan direction for this contract.
-    #[must_use]
-    #[expect(dead_code)]
-    pub(in crate::db) fn secondary_scan_direction(&self) -> Direction {
-        secondary_scan_direction(self.order_spec())
-    }
-
     #[must_use]
     pub(in crate::db) const fn supports_cursor(&self) -> bool {
         self.supports_cursor
@@ -252,20 +245,6 @@ fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
         return Direction::Asc;
     };
     let Some((_, direction)) = order.fields.first() else {
-        return Direction::Asc;
-    };
-
-    match direction {
-        OrderDirection::Asc => Direction::Asc,
-        OrderDirection::Desc => Direction::Desc,
-    }
-}
-
-fn secondary_scan_direction(order: Option<&OrderSpec>) -> Direction {
-    let Some(order) = order else {
-        return Direction::Asc;
-    };
-    let Some((_, direction)) = order.fields.last() else {
         return Direction::Asc;
     };
 

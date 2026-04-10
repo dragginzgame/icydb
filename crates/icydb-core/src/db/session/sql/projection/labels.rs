@@ -11,7 +11,7 @@ use crate::{
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
-    model::EntityModel,
+    model::field::FieldModel,
     value::Value,
 };
 
@@ -66,13 +66,12 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
 }
 
 // Derive canonical full-entity projection labels in declared model order.
-pub(in crate::db::session::sql) fn projection_labels_from_entity_model(
-    model: &'static EntityModel,
+pub(in crate::db::session::sql) fn projection_labels_from_fields(
+    fields: &'static [FieldModel],
 ) -> Vec<String> {
-    model
-        .fields
+    fields
         .iter()
-        .map(|field| field.name.to_string())
+        .map(|field| field.name().to_string())
         .collect()
 }
 

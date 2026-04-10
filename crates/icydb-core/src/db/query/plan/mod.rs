@@ -116,10 +116,9 @@ pub(crate) use validate::{
     CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
     IntentKeyAccessPolicyViolation, PolicyPlanError, has_explicit_order,
     resolve_aggregate_target_field_slot, resolve_group_field_slot,
-    validate_cursor_order_plan_shape, validate_cursor_paging_requirements,
-    validate_fluent_non_paged_mode, validate_fluent_paged_mode, validate_group_query_semantics,
-    validate_intent_key_access_policy, validate_intent_plan_shape, validate_order_shape,
-    validate_query_semantics,
+    validate_cursor_order_plan_shape, validate_fluent_non_paged_mode, validate_fluent_paged_mode,
+    validate_group_query_semantics, validate_intent_key_access_policy, validate_intent_plan_shape,
+    validate_order_shape, validate_query_semantics,
 };
 #[cfg(test)]
 pub(crate) use validate::{PlanPolicyError, PlanUserError};

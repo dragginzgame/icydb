@@ -470,7 +470,7 @@ impl RawIndexEntry {
         Ok(count)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0

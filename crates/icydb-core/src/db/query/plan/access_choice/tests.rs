@@ -98,12 +98,12 @@ static ACCESS_CHOICE_RANGE_MODEL: EntityModel = entity_model_from_static(
     &ACCESS_CHOICE_RANGE_INDEX_REFS,
 );
 
-fn schema() -> SchemaInfo {
-    SchemaInfo::from_entity_model(&ACCESS_CHOICE_MODEL)
+fn schema() -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(&ACCESS_CHOICE_MODEL)
 }
 
-fn range_schema() -> SchemaInfo {
-    SchemaInfo::from_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
+fn range_schema() -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_expression_index() {
     );
 
     let evaluation =
-        evaluate_prefix_compare_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &cmp);
+        evaluate_prefix_compare_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &cmp);
 
     assert_eq!(
         evaluation,
@@ -139,7 +139,7 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_upper_expression_inde
 
     let evaluation = evaluate_prefix_compare_candidate(
         &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &cmp,
     );
 
@@ -163,7 +163,7 @@ fn evaluate_prefix_compare_candidate_rejects_text_casefold_on_raw_field_index() 
     );
 
     let evaluation =
-        evaluate_prefix_compare_candidate(&ACCESS_CHOICE_RAW_INDEXES[0], &schema(), &cmp);
+        evaluate_prefix_compare_candidate(&ACCESS_CHOICE_RAW_INDEXES[0], schema(), &cmp);
 
     assert_eq!(
         evaluation,
@@ -182,7 +182,7 @@ fn evaluate_prefix_compare_candidate_rejects_text_casefold_for_unsupported_expre
 
     let evaluation = evaluate_prefix_compare_candidate(
         &ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &cmp,
     );
 
@@ -206,11 +206,8 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_expression_index() {
         ),
     );
 
-    let evaluation = evaluate_multi_lookup_candidate(
-        &ACCESS_CHOICE_EXPRESSION_INDEXES[0],
-        &schema(),
-        &predicate,
-    );
+    let evaluation =
+        evaluate_multi_lookup_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -238,7 +235,7 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_upper_expression_index(
 
     let evaluation = evaluate_multi_lookup_candidate(
         &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &predicate,
     );
 
@@ -266,11 +263,8 @@ fn evaluate_multi_lookup_candidate_rejects_mixed_literal_set_for_expression_inde
         ),
     );
 
-    let evaluation = evaluate_multi_lookup_candidate(
-        &ACCESS_CHOICE_EXPRESSION_INDEXES[0],
-        &schema(),
-        &predicate,
-    );
+    let evaluation =
+        evaluate_multi_lookup_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -294,7 +288,7 @@ fn evaluate_multi_lookup_candidate_rejects_text_casefold_for_unsupported_express
 
     let evaluation = evaluate_multi_lookup_candidate(
         &ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &predicate,
     );
 
@@ -316,7 +310,7 @@ fn evaluate_range_candidate_rejects_strict_gt_for_expression_index() {
     );
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -336,7 +330,7 @@ fn evaluate_range_candidate_accepts_text_casefold_gt_for_expression_index() {
     );
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -361,7 +355,7 @@ fn evaluate_range_candidate_accepts_text_casefold_lt_for_upper_expression_index(
 
     let evaluation = evaluate_range_candidate(
         &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &predicate,
     );
 
@@ -387,7 +381,7 @@ fn evaluate_range_candidate_rejects_starts_with_for_expression_index() {
     );
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -407,7 +401,7 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_expression_ind
     );
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -432,7 +426,7 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_upper_expressi
 
     let evaluation = evaluate_range_candidate(
         &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &predicate,
     );
 
@@ -459,7 +453,7 @@ fn evaluate_range_candidate_rejects_text_casefold_starts_with_for_unsupported_ex
 
     let evaluation = evaluate_range_candidate(
         &ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES[0],
-        &schema(),
+        schema(),
         &predicate,
     );
 
@@ -481,7 +475,7 @@ fn evaluate_range_candidate_rejects_empty_text_casefold_starts_with_prefix() {
     );
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -511,7 +505,7 @@ fn evaluate_range_candidate_accepts_contiguous_eq_prefix_then_range_field() {
     ]);
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], &range_schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], range_schema(), &predicate);
 
     assert_eq!(
         evaluation,
@@ -553,7 +547,7 @@ fn evaluate_range_candidate_rejects_eq_range_conflict_on_same_field() {
     ]);
 
     let evaluation =
-        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], &range_schema(), &predicate);
+        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], range_schema(), &predicate);
 
     assert_eq!(
         evaluation,

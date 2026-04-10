@@ -87,15 +87,6 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
     }
 
-    /// Build one owned schema view from one trusted entity model.
-    ///
-    /// Tests use this helper when they want an owned schema value without
-    /// going through the shared cache.
-    #[cfg(test)]
-    pub(crate) fn from_entity_model(model: &EntityModel) -> Self {
-        Self::from_trusted_entity_model(model)
-    }
-
     /// Build one owned schema view from trusted generated field metadata.
     #[must_use]
     pub(crate) fn from_field_models(fields: &[FieldModel]) -> Self {

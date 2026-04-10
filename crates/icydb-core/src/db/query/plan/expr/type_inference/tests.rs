@@ -40,9 +40,9 @@ crate::test_entity! {
     indexes = [&EMPTY_INDEX],
 }
 
-fn schema() -> SchemaInfo {
+fn schema() -> &'static SchemaInfo {
     let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
-    SchemaInfo::from_entity_model(model)
+    SchemaInfo::cached_for_entity_model(model)
 }
 
 fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
@@ -61,7 +61,7 @@ fn infer_field_type_uses_schema_field_kind() {
     let schema = schema();
     let expr = Expr::Field(FieldId::new("rank"));
 
-    let inferred = infer_expr_type(&expr, &schema).expect("field should infer");
+    let inferred = infer_expr_type(&expr, schema).expect("field should infer");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
 }
@@ -72,9 +72,9 @@ fn infer_literal_type_is_deterministic() {
     let expr = Expr::Literal(Value::Bool(true));
     let duration_expr = Expr::Literal(Value::Duration(crate::types::Duration::from_millis(5)));
 
-    let inferred = infer_expr_type(&expr, &schema).expect("literal should infer");
+    let inferred = infer_expr_type(&expr, schema).expect("literal should infer");
     let duration_inferred =
-        infer_expr_type(&duration_expr, &schema).expect("duration literal should infer");
+        infer_expr_type(&duration_expr, schema).expect("duration literal should infer");
 
     assert_eq!(inferred, ExprType::Bool);
     assert_eq!(
@@ -92,7 +92,7 @@ fn infer_binary_numeric_expr_requires_numeric_operands() {
         right: Box::new(Expr::Literal(Value::Uint(7))),
     };
 
-    let inferred = infer_expr_type(&expr, &schema).expect("numeric addition should infer");
+    let inferred = infer_expr_type(&expr, schema).expect("numeric addition should infer");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
 }
@@ -106,7 +106,7 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_schema_operand() {
         right: Box::new(Expr::Field(FieldId::new("label"))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("numeric operators must reject schema-known non-numeric fields");
     assert!(is_expr_plan_error(
         &err,
@@ -123,7 +123,7 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_bool_field_operand() 
         right: Box::new(Expr::Field(FieldId::new("flag"))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("numeric operators must reject schema-known bool fields");
     assert!(is_expr_plan_error(
         &err,
@@ -140,7 +140,7 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_date_field_operand() 
         right: Box::new(Expr::Field(FieldId::new("created_on"))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("numeric operators must reject schema-known date fields");
     assert!(is_expr_plan_error(
         &err,
@@ -157,7 +157,7 @@ fn infer_binary_numeric_expr_rejects_decidable_non_numeric_literal_operand() {
         right: Box::new(Expr::Literal(Value::Int(5))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("numeric operators must reject non-numeric literal operands");
     assert!(is_expr_plan_error(
         &err,
@@ -177,7 +177,7 @@ fn infer_binary_numeric_expr_keeps_numeric_with_unknown_subtype_for_mixed_operan
     };
 
     let inferred =
-        infer_expr_type(&expr, &schema).expect("mixed numeric addition should stay numeric");
+        infer_expr_type(&expr, schema).expect("mixed numeric addition should stay numeric");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Unknown));
 }
@@ -191,7 +191,7 @@ fn infer_binary_numeric_expr_rejects_unknown_non_eligible_operands() {
         right: Box::new(Expr::Literal(Value::Int(1))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("unknown type does not imply numeric eligibility");
     assert!(is_expr_plan_error(
         &err,
@@ -204,7 +204,7 @@ fn infer_sum_aggregate_rejects_decidable_non_numeric_bool_target() {
     let schema = schema();
     let expr = Expr::Aggregate(sum("flag"));
 
-    let err = infer_expr_type(&expr, &schema).expect_err("sum over bool should fail");
+    let err = infer_expr_type(&expr, schema).expect_err("sum over bool should fail");
     assert!(is_expr_plan_error(
         &err,
         |inner| matches!(inner, ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "flag")
@@ -216,7 +216,7 @@ fn infer_min_by_aggregate_keeps_existing_non_numeric_semantics() {
     let schema = schema();
     let expr = Expr::Aggregate(min_by("label"));
 
-    let inferred = infer_expr_type(&expr, &schema).expect("min_by(text) should remain valid");
+    let inferred = infer_expr_type(&expr, schema).expect("min_by(text) should remain valid");
 
     assert_eq!(inferred, ExprType::Text);
 }
@@ -226,7 +226,7 @@ fn infer_sum_aggregate_requires_numeric_target() {
     let schema = schema();
     let expr = Expr::Aggregate(sum("label"));
 
-    let err = infer_expr_type(&expr, &schema).expect_err("sum over text should fail");
+    let err = infer_expr_type(&expr, schema).expect_err("sum over text should fail");
     assert!(is_expr_plan_error(
         &err,
         |inner| matches!(inner, ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "label")
@@ -242,7 +242,7 @@ fn infer_sum_aggregate_without_target_rejects_missing_target() {
         false,
     ));
 
-    let err = infer_expr_type(&expr, &schema).expect_err("sum without target should fail");
+    let err = infer_expr_type(&expr, schema).expect_err("sum without target should fail");
     assert!(is_expr_plan_error(
         &err,
         |inner| matches!(inner, ExprPlanError::AggregateTargetRequired { kind } if kind == "sum")
@@ -257,7 +257,7 @@ fn infer_unary_bool_not_rejects_non_bool_operands() {
         expr: Box::new(Expr::Field(FieldId::new("rank"))),
     };
 
-    let err = infer_expr_type(&expr, &schema).expect_err("not over numeric field should fail");
+    let err = infer_expr_type(&expr, schema).expect_err("not over numeric field should fail");
     assert!(is_expr_plan_error(
         &err,
         |inner| matches!(inner, ExprPlanError::InvalidUnaryOperand { op, .. } if op == "not")
@@ -273,7 +273,7 @@ fn infer_binary_compare_rejects_incompatible_operand_types() {
         right: Box::new(Expr::Field(FieldId::new("label"))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("numeric/text comparison should fail deterministic type inference");
     assert!(is_expr_plan_error(
         &err,
@@ -298,7 +298,7 @@ fn infer_binary_compare_rejects_unknown_operands_fail_closed() {
         ))),
     };
 
-    let err = infer_expr_type(&expr, &schema)
+    let err = infer_expr_type(&expr, schema)
         .expect_err("unknown aggregate operand comparison should fail closed");
     assert!(is_expr_plan_error(
         &err,

@@ -47,8 +47,8 @@ fn model() -> &'static EntityModel {
     <GroupStructureValidateEntity as EntitySchema>::MODEL
 }
 
-fn schema() -> SchemaInfo {
-    SchemaInfo::from_entity_model(model())
+fn schema() -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(model())
 }
 
 fn grouped_spec() -> GroupSpec {
@@ -73,7 +73,7 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
         alias: None,
     }]);
 
-    let err = validate_group_structure(&schema(), model(), &group, &projection, None)
+    let err = validate_group_structure(schema(), model(), &group, &projection, None)
         .expect_err("projection references outside GROUP BY keys must fail in planner");
 
     assert!(matches!(
@@ -104,7 +104,7 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
         }],
     };
 
-    let err = validate_group_structure(&schema(), model(), &group, &projection, Some(&having))
+    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
         .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(matches!(
@@ -133,7 +133,7 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
         }],
     };
 
-    let err = validate_group_structure(&schema(), model(), &group, &projection, Some(&having))
+    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
         .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
 
     assert!(matches!(

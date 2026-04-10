@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.75.x] 🧭 - 2026-04-10 - Crosscutting Audit Refresh
 
-- `0.75.0` starts the next crosscutting cleanup line by rerunning the complexity audit and then splitting several of the largest internal DB hotspot modules into smaller owner-local pieces, making the query, planning, and row-runtime code easier to follow without changing SQL behavior.
+- `0.75.0` starts the next crosscutting cleanup line by rerunning the complexity audit, splitting several of the largest internal DB hotspot modules into smaller owner-local pieces, and finishing the static `EntityModel` pass so executor runtime now relies more on planner-frozen query metadata and authority-owned row layout contracts instead of re-deriving schema facts during execution.
 
 See detailed breakdown:
 [docs/changelog/0.75.md](docs/changelog/0.75.md)

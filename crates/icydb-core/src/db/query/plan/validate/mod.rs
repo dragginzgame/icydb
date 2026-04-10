@@ -23,9 +23,9 @@ mod plan_shape;
 mod symbols;
 
 pub(crate) use core::{validate_group_query_semantics, validate_query_semantics};
-pub(crate) use cursor_policy::{
-    validate_cursor_order_plan_shape, validate_cursor_paging_requirements,
-};
+pub(crate) use cursor_policy::validate_cursor_order_plan_shape;
+#[cfg(test)]
+pub(crate) use cursor_policy::validate_cursor_paging_requirements;
 pub use errors::PlanError;
 pub(crate) use errors::{
     CursorOrderPlanShapeError, FluentLoadPolicyViolation, IntentKeyAccessKind,

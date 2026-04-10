@@ -530,9 +530,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
             );
         }
 
+        let authority = EntityAuthority::for_type::<E>();
+
         assemble_load_execution_node_descriptor(
-            E::MODEL.fields(),
-            E::MODEL.primary_key().name(),
+            authority.fields(),
+            authority.primary_key_name(),
             self.core.plan(),
         )
     }
