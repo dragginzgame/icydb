@@ -132,45 +132,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_entity(SaveMode::Update, entity)
     }
 
-    /// Apply one structural field patch to an existing entity row.
-    ///
-    /// This entrypoint is intentionally staged ahead of the higher-level API
-    /// layer so the executor boundary can lock its invariants first.
-    #[expect(dead_code)]
-    pub(in crate::db) fn insert_structural(
-        &self,
-        key: E::Key,
-        patch: UpdatePatch,
-    ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(MutationMode::Insert, key, patch)
-    }
-
-    /// Apply one structural full-row replacement, inserting if missing.
-    ///
-    /// Replace semantics deliberately rebuild the after-image from an empty row
-    /// layout so absent fields do not inherit old-row values implicitly.
-    #[expect(dead_code)]
-    pub(in crate::db) fn replace_structural(
-        &self,
-        key: E::Key,
-        patch: UpdatePatch,
-    ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(MutationMode::Replace, key, patch)
-    }
-
-    /// Apply one structural field patch to an existing entity row.
-    ///
-    /// This entrypoint is intentionally staged ahead of the higher-level API
-    /// layer so the executor boundary can lock its invariants first.
-    #[expect(dead_code)]
-    pub(in crate::db) fn update_structural(
-        &self,
-        key: E::Key,
-        patch: UpdatePatch,
-    ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(MutationMode::Update, key, patch)
-    }
-
     /// Replace an entity, inserting if missing.
     pub(crate) fn replace(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Replace, entity)

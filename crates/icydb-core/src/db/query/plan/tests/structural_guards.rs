@@ -295,6 +295,10 @@ fn projection_shape_construction_remains_planner_owned() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "structural ownership guard intentionally checks one full canonicalization boundary in one assertion flow"
+)]
 fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let planner_root = crate_root.join("src/db/query/plan/planner");
@@ -357,8 +361,9 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
         "predicate canonicalization owner surface should expose normalize(...)",
     );
 
-    let sql_lowering_source = fs::read_to_string(crate_root.join("src/db/sql/lowering/mod.rs"))
-        .expect("sql lowering source should be readable");
+    let sql_lowering_source =
+        fs::read_to_string(crate_root.join("src/db/sql/lowering/normalize.rs"))
+            .expect("sql lowering normalize source should be readable");
     let sql_lowering_runtime_source = strip_cfg_test_items(sql_lowering_source.as_str());
     assert!(
         sql_lowering_runtime_source.contains("rewrite_field_identifiers("),

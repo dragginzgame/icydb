@@ -20,12 +20,14 @@ pub(in crate::db::data::persisted_row) use contract::encode_slot_payload_from_pa
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use contract::encode_slot_value_from_value;
 #[cfg(test)]
+pub(in crate::db) use patch::apply_update_patch_to_raw_row;
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) use patch::canonical_row_from_raw_row;
 pub(in crate::db) use patch::{
-    apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-    canonical_row_from_entity, canonical_row_from_serialized_update_patch,
-    canonical_row_from_stored_raw_row, canonical_row_from_structural_slot_reader,
-    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+    apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
+    canonical_row_from_serialized_update_patch, canonical_row_from_stored_raw_row,
+    canonical_row_from_structural_slot_reader, serialize_entity_slots_as_update_patch,
+    serialize_update_patch_fields,
 };
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use reader::CachedSlotValue;

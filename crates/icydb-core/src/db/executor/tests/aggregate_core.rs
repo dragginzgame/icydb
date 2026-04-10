@@ -2040,8 +2040,7 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
 #[test]
 fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() {
     seed_pushdown_entities(&[(8_1221, 7, 10), (8_1222, 7, 20), (8_1223, 7, 30)]);
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
+    let mut grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(crate::db::query::plan::GroupSpec {
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
@@ -2051,28 +2050,23 @@ fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() 
             }],
             execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
         });
-    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
-
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.execute_grouped_paged_with_cursor_traced(
-            plan,
-            crate::db::cursor::GroupedPlannedCursor::none(),
+        grouped.finalize_static_planning_shape_for_model(
+            <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
         )
     });
-    let err = result.expect_err(
-        "bypassed global DISTINCT grouped shape with unsupported aggregate kind should fail with executor invariant",
-    );
+    let err = result.expect_err("unsupported global DISTINCT grouped aggregate kind should fail during static planning freeze");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
     assert_eq!(
         scanned, 0,
-        "bypassed global DISTINCT unsupported aggregate kind should fail before scan-budget consumption",
+        "unsupported global DISTINCT grouped aggregate kind should fail before scan-budget consumption",
     );
     assert!(
         err.message
             .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"),
-        "bypassed global DISTINCT unsupported aggregate kind should fail with planner-policy invariant text: {err:?}",
+        "unsupported global DISTINCT grouped aggregate kind should fail with planner-policy invariant text: {err:?}",
     );
 }
 

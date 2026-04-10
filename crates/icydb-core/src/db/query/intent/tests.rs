@@ -3326,6 +3326,9 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         model_access,
     );
     model_as_typed.finalize_planner_route_profile_for_model(PlanEntity::MODEL);
+    model_as_typed
+        .finalize_static_planning_shape_for_model(PlanEntity::MODEL)
+        .expect("model-backed parity plan should freeze static planning shape");
 
     let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)

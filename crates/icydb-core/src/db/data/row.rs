@@ -7,9 +7,9 @@ use crate::{
     db::{
         codec::MAX_ROW_BYTES,
         data::{
-            DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader, UpdatePatch,
-            apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-            canonical_row_from_entity, persisted_row::canonical_row_from_serialized_update_patch,
+            DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader,
+            apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
+            persisted_row::canonical_row_from_serialized_update_patch,
         },
     },
     error::InternalError,
@@ -155,16 +155,6 @@ impl RawRow {
         patch: &SerializedUpdatePatch,
     ) -> Result<CanonicalRow, InternalError> {
         CanonicalRow::from_serialized_update_patch(model, patch)
-    }
-
-    /// Apply one ordered structural patch through the persisted-row boundary.
-    #[expect(dead_code)]
-    pub(in crate::db) fn apply_update_patch(
-        &self,
-        model: &'static EntityModel,
-        patch: &UpdatePatch,
-    ) -> Result<CanonicalRow, InternalError> {
-        apply_update_patch_to_raw_row(model, self, patch)
     }
 
     /// Apply one pre-serialized structural patch through the persisted-row boundary.

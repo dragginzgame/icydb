@@ -115,6 +115,7 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
 
 /// Apply one ordered structural patch to one raw row using the current
 /// persisted-row field codec authority.
+#[cfg(test)]
 pub(in crate::db) fn apply_update_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,

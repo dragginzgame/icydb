@@ -87,10 +87,10 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
     }
 
-    /// Build runtime predicate schema information from one trusted entity model.
+    /// Build one owned schema view from one trusted entity model.
     ///
-    /// Tests still use this compatibility shim when they want one owned schema
-    /// value without going through the global cache.
+    /// Tests use this helper when they want an owned schema value without
+    /// going through the shared cache.
     #[cfg(test)]
     pub(crate) fn from_entity_model(model: &EntityModel) -> Self {
         Self::from_trusted_entity_model(model)
