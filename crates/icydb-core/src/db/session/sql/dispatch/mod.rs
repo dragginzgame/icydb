@@ -388,32 +388,26 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
             SqlStatementRoute::Explain { .. } => {
-                println!("DEBUG explain branch start");
                 if let Some((mode, plan)) =
                     computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
                 {
-                    println!("DEBUG explain computed projection");
                     return self
                         .explain_computed_sql_projection_dispatch::<E>(mode, plan)
                         .map(SqlDispatchResult::Explain);
                 }
 
-                println!("DEBUG explain before prepare");
                 let lowered = lower_sql_command_from_prepared_statement(
                     parsed.prepare(E::MODEL.name())?,
                     E::MODEL.primary_key.name,
                 )
                 .map_err(QueryError::from_sql_lowering_error)?;
-                println!("DEBUG explain after lower");
                 if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
                     &lowered,
                     EntityAuthority::for_type::<E>(),
                 )? {
-                    println!("DEBUG explain execution path");
                     return Ok(SqlDispatchResult::Explain(explain));
                 }
 
-                println!("DEBUG explain fallback path");
                 self.explain_lowered_sql_for_authority(&lowered, EntityAuthority::for_type::<E>())
                     .map(SqlDispatchResult::Explain)
             }

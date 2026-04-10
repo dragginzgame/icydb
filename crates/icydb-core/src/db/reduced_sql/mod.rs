@@ -463,7 +463,7 @@ const fn keyword_from_ident(value: &str) -> Option<Keyword> {
         8 if value.eq_ignore_ascii_case("DESCRIBE") => Some(Keyword::Describe),
         8 if value.eq_ignore_ascii_case("DISTINCT") => Some(Keyword::Distinct),
         8 if value.eq_ignore_ascii_case("ENTITIES") => Some(Keyword::Entities),
-        8 if value.eq_ignore_ascii_case("EXECUTION") => Some(Keyword::Execution),
+        9 if value.eq_ignore_ascii_case("EXECUTION") => Some(Keyword::Execution),
         9 if value.eq_ignore_ascii_case("INTERSECT") => Some(Keyword::Intersect),
         _ => None,
     }

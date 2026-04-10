@@ -238,9 +238,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        println!("FACADE before inner execute_sql_dispatch_parsed");
         let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
-        println!("FACADE after inner execute_sql_dispatch_parsed");
 
         Ok(Self::map_sql_dispatch_result(
             result,
