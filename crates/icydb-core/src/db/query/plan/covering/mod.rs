@@ -254,7 +254,7 @@ pub(in crate::db) fn covering_read_plan_from_fields(
     let projection = plan.frozen_projection_spec();
     let fields = covering_read_fields_from_projection(
         fields,
-        &projection,
+        projection,
         metadata.coverable_component_fields.as_slice(),
         primary_key_name,
         &plan.access,

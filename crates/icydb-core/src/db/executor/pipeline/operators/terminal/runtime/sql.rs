@@ -1890,6 +1890,10 @@ fn try_materialize_sql_route_covering_slot_rows(
 // Derive one route-owned slot layout plus component-slot grouping for the
 // SQL covering-read fast path and reject any residual predicate that reaches
 // beyond the fail-closed covered slot set.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "shared SQL runtime setup keeps one fallible boundary even when this helper currently returns only success or None"
+)]
 fn sql_route_covering_slot_layout(
     row_layout: RowLayout,
     covering: &CoveringReadExecutionPlan,
@@ -2582,20 +2586,22 @@ fn sql_constant_covering_slot_row_template(
     covered_slots[primary_key_slot] = true;
 
     // Phase 1: recover every equality-bound index-prefix component once.
-    for slot in 0..row_layout.field_count() {
+    for (slot, covered) in covered_slots
+        .iter_mut()
+        .enumerate()
+        .take(row_layout.field_count())
+    {
         if slot == primary_key_slot {
             continue;
         }
 
-        let Some(field_name) = row_layout.field_name(slot) else {
-            return None;
-        };
+        let field_name = row_layout.field_name(slot)?;
 
         if let Some(value) =
             constant_covering_projection_value_from_access(&plan.access, field_name)
         {
             constant_slots.push((slot, value));
-            covered_slots[slot] = true;
+            *covered = true;
         }
     }
 

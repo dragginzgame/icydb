@@ -51,6 +51,10 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_load(
 }
 
 /// Build canonical execution routing for one initial load execution.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keeps initial and resumed load-route call sites on the same fallible boundary"
+)]
 pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
@@ -64,17 +68,13 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load(
     ))
 }
 
-/// Build canonical execution routing for one initial load execution.
+/// Build canonical execution routing for one initial load execution from a
+/// pre-derived terminal fast-path contract.
 ///
 /// This narrower entrypoint exists for surfaces that never carry an inbound
 /// cursor boundary. Keeping the initial-continuation path separate lets those
-/// callers avoid retaining PK cursor-boundary validation in their route setup.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "keeps initial and resumed load-route call sites on the same fallible boundary"
-)]
-/// Build canonical execution routing for one initial load execution from a
-/// pre-derived terminal fast-path contract.
+/// callers avoid retaining PK cursor-boundary validation in their route setup
+/// while preserving the shared fallible route-entry boundary.
 #[expect(
     clippy::unnecessary_wraps,
     reason = "keeps explain and runtime route entrypoints on the same fallible boundary"

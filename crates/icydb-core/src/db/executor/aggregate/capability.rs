@@ -339,7 +339,7 @@ fn field_extrema_target_has_matching_index(
 
 /// Return whether one aggregate field target is the entity primary key.
 #[must_use]
-pub(in crate::db::executor) fn field_target_is_primary_key(
+pub(in crate::db::executor) const fn field_target_is_primary_key(
     aggregate: AggregateRouteShape<'_>,
 ) -> bool {
     aggregate.target_field_is_primary_key()

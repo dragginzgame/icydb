@@ -127,6 +127,6 @@ pub(crate) fn resolve_field_slot(model: &EntityModel, field_name: &str) -> Optio
 
 /// Resolve the primary-key field into its stable slot index.
 #[must_use]
-pub(crate) fn resolve_primary_key_slot(model: &EntityModel) -> Option<usize> {
-    Some(model.primary_key_slot())
+pub(crate) const fn resolve_primary_key_slot(model: &EntityModel) -> usize {
+    model.primary_key_slot()
 }

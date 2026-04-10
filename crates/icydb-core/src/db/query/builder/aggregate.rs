@@ -84,20 +84,6 @@ impl AggregateExpr {
             ),
         }
     }
-
-    /// Build one field-target extrema aggregate expression from one kind.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn field_target_extrema_for_kind(
-        kind: AggregateKind,
-        field: impl AsRef<str>,
-    ) -> Self {
-        match kind {
-            AggregateKind::Min => min_by(field),
-            AggregateKind::Max => max_by(field),
-            _ => unreachable!("AggregateExpr::field_target_extrema_for_kind requires MIN/MAX kind"),
-        }
-    }
 }
 
 ///

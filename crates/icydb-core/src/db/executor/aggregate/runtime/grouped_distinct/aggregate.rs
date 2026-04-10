@@ -293,7 +293,6 @@ impl GlobalDistinctFieldAccumulator {
 
 // Execute one global DISTINCT grouped field aggregate over one structural key
 // stream and emit the singleton grouped row expected by grouped DISTINCT routing.
-#[expect(clippy::too_many_arguments)]
 pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     consistency: MissingRowPolicy,
     row_runtime: &dyn GroupedRowRuntime,

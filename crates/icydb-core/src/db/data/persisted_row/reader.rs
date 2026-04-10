@@ -131,11 +131,7 @@ impl<'a> StructuralSlotReader<'a> {
         let Some(model) = self.model else {
             return self.validate_storage_key_value_with_contract(expected_key, primary_key_slot);
         };
-        let Some(primary_key_slot) = resolve_primary_key_slot(model) else {
-            return Err(InternalError::persisted_row_primary_key_field_missing(
-                self.contract.entity_path(),
-            ));
-        };
+        let primary_key_slot = resolve_primary_key_slot(model);
         let field = self.field_model(primary_key_slot)?;
         let decoded_key = match self.get_scalar(primary_key_slot)? {
             Some(ScalarSlotValueRef::Null) => None,

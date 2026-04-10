@@ -171,7 +171,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-compiled execution-preparation predicate program.
     #[must_use]
-    pub(in crate::db) fn execution_preparation_compiled_predicate(
+    pub(in crate::db) const fn execution_preparation_compiled_predicate(
         &self,
     ) -> Option<&PredicateProgram> {
         self.static_planning_shape()
@@ -181,7 +181,9 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-compiled effective runtime predicate program.
     #[must_use]
-    pub(in crate::db) fn effective_runtime_compiled_predicate(&self) -> Option<&PredicateProgram> {
+    pub(in crate::db) const fn effective_runtime_compiled_predicate(
+        &self,
+    ) -> Option<&PredicateProgram> {
         self.static_planning_shape()
             .effective_runtime_compiled_predicate
             .as_ref()
@@ -309,7 +311,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-resolved grouped DISTINCT execution strategy when present.
     #[must_use]
-    pub(in crate::db) fn grouped_distinct_execution_strategy(
+    pub(in crate::db) const fn grouped_distinct_execution_strategy(
         &self,
     ) -> Option<&GroupedDistinctExecutionStrategy> {
         self.static_planning_shape()

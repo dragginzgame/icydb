@@ -80,6 +80,10 @@ pub(in crate::db::executor) struct PreparedAggregateTargetField {
 
 impl PreparedAggregateTargetField {
     /// Construct one field-target aggregate descriptor from prepared metadata.
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "constructs one owned String-backed descriptor for runtime handoff"
+    )]
     #[must_use]
     pub(in crate::db::executor) fn new(
         target_field_name: String,
@@ -98,6 +102,10 @@ impl PreparedAggregateTargetField {
     }
 
     /// Borrow the prepared target-field label.
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "String::as_str is kept on the ordinary method boundary for readability"
+    )]
     #[must_use]
     pub(in crate::db::executor) fn target_field_name(&self) -> &str {
         self.target_field_name.as_str()

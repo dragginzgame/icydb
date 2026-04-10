@@ -1120,13 +1120,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical persisted-row primary-key-slot-missing invariant.
-    pub(crate) fn persisted_row_primary_key_field_missing(model_path: &str) -> Self {
-        Self::index_invariant(format!(
-            "entity primary key field missing during structural row validation: {model_path}",
-        ))
-    }
-
     /// Construct the canonical persisted-row primary-key decode corruption error.
     pub(crate) fn persisted_row_primary_key_not_storage_encodable(
         data_key: impl fmt::Display,

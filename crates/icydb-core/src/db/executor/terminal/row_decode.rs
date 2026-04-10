@@ -70,10 +70,10 @@ impl RowLayout {
     }
 
     /// Open one raw row through the authority-owned structural decode contract.
-    pub(in crate::db::executor) fn open_raw_row<'a>(
+    pub(in crate::db::executor) fn open_raw_row(
         self,
-        row: &'a RawRow,
-    ) -> Result<StructuralSlotReader<'a>, InternalError> {
+        row: &RawRow,
+    ) -> Result<StructuralSlotReader<'_>, InternalError> {
         StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
     }
 }

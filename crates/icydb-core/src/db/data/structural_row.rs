@@ -271,10 +271,10 @@ fn decode_structural_row_payload_bytes(
 }
 
 // Decode the canonical slot-container header into slot-aligned payload spans.
-fn decode_row_field_spans<'a>(
-    payload: Cow<'a, [u8]>,
+fn decode_row_field_spans(
+    payload: Cow<'_, [u8]>,
     contract: StructuralRowContract,
-) -> Result<RowFieldSpans<'a>, StructuralRowDecodeError> {
+) -> Result<RowFieldSpans<'_>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
         .get(..2)
