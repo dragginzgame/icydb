@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
+- `0.75.4` finishes the current cleanup slice by removing dead non-test projection-expression scaffolding, tightening several remaining SQL/delete/session wrappers onto shared paths, and leaving `icydb-core` clean under strict all-target clippy before the next `0.76` feature work.
 - `0.75.3` keeps the audit line structural by collapsing duplicated SQL projection and covering-read flows onto one shared executor path, deleting obsolete single-component scan wrappers, and moving deep perf attribution behind an opt-in feature so the default runtime is simpler before the next optimization pass.
 - `0.75.2` fixes the new sparse-versus-dense row reader split so full-row queries no longer pay the lazy slot-reader setup cost, while commit and projection boundaries go back to rejecting malformed unused fields immediately instead of deferring those corruption errors until first access.
 - `0.75.1` reclaims the generic SQL execute-preparation regression that had crept back into tiny projected reads, so direct `SELECT id ... ORDER BY id LIMIT 1` queries return to the projected-row fast path and run materially cheaper again without adding new route-specific shortcuts.
