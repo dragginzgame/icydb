@@ -214,16 +214,15 @@ fn explain_access_order_satisfied(
         return true;
     };
 
-    if let Some((index, prefix_len)) = access_class.single_path_index_prefix_details() {
-        if !index.is_unique()
-            && prefix_len > 0
-            && matches!(
-                order_contract.direction(),
-                crate::db::query::plan::OrderDirection::Desc
-            )
-        {
-            return false;
-        }
+    if let Some((index, prefix_len)) = access_class.single_path_index_prefix_details()
+        && !index.is_unique()
+        && prefix_len > 0
+        && matches!(
+            order_contract.direction(),
+            crate::db::query::plan::OrderDirection::Desc
+        )
+    {
+        return false;
     }
 
     if load_terminal_fast_path.is_some() {
