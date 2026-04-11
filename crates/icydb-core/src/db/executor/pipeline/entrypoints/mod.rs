@@ -33,7 +33,7 @@ pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use scalar::execute_initial_scalar_sql_projection_page_for_canister;
 pub(in crate::db::executor) use scalar::{
     PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,

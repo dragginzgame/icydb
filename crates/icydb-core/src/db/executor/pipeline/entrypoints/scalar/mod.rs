@@ -476,7 +476,7 @@ where
 ///
 /// This SQL-only helper avoids rebuilding the broader prepared-load wrapper
 /// when the canister query surface already has a fixed initial continuation.
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
     db: &Db<C>,
     debug: bool,
