@@ -499,21 +499,35 @@ fn grouped_aggregate_builder_rejects_distinct_for_unsupported_kind() {
 }
 
 #[test]
-fn grouped_aggregate_builder_rejects_field_target_terminal_in_grouped_v1() {
-    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+fn grouped_aggregate_builder_max_field_terminal_is_allowed() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(max_by("name"))
         .plan()
-        .expect_err("grouped max(field) should remain unsupported in grouped v1");
+        .expect("grouped max(field) should now plan");
 
-    assert!(query_error_is_group_plan_error(&err, |inner| {
-        matches!(
-            inner,
-            crate::db::query::plan::validate::GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
-                if *index == 0 && kind == "Max" && field == "name"
-        )
-    }));
+    let projection = plan.projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+    assert_eq!(
+        fields.len(),
+        2,
+        "grouped max(field) projection should include key + aggregate"
+    );
+
+    match fields[1] {
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            alias: None,
+        } => {
+            assert_eq!(aggregate.kind(), AggregateKind::Max);
+            assert_eq!(aggregate.target_field(), Some("name"));
+            assert!(!aggregate.is_distinct());
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("grouped max(field) projection should lower to aggregate expr: {other:?}")
+        }
+    }
 }
 
 #[test]

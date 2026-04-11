@@ -754,24 +754,19 @@ fn explain_sql_json_delete_returns_logical_delete_mode() {
 }
 
 #[test]
-fn explain_sql_rejects_distinct_without_pk_projection_in_current_slice() {
+fn explain_sql_supports_distinct_without_pk_projection() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity",
     )
-    .expect_err("EXPLAIN SELECT DISTINCT without PK projection should remain fail-closed");
+    .expect("EXPLAIN SELECT DISTINCT without PK projection should succeed");
 
     assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "unsupported DISTINCT explain shape should map to unsupported execution error boundary",
+        explain.contains("distinct=true"),
+        "EXPLAIN SELECT DISTINCT without PK projection should preserve scalar distinct intent",
     );
 }
 
