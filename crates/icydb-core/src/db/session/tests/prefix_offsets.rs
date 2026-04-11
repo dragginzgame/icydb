@@ -1,73 +1,169 @@
 use super::*;
 
+// Expected EXPLAIN route properties for one prefix-ordered window shape.
+struct PrefixRouteExpectations<'a> {
+    access_name: &'a str,
+    expect_desc_scan: bool,
+    expect_top_n_seek: bool,
+    expect_access_satisfied: bool,
+    expect_materialized_sort: bool,
+    forbid_index_range_limit_pushdown: bool,
+}
+
+// Build the shared equality-prefix suffix-order filter once so the descriptor
+// cases differ only on direction and pagination.
+fn equality_prefix_suffix_order_predicate() -> Predicate {
+    Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Eq,
+            Value::Uint(20),
+            CoercionId::Strict,
+        )),
+    ])
+}
+
+// Build one equality-prefix suffix-order execution descriptor for the requested
+// direction and optional offset window.
+fn equality_prefix_suffix_order_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    descending: bool,
+    offset: Option<u32>,
+) -> ExplainExecutionNodeDescriptor {
+    let mut load = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(equality_prefix_suffix_order_predicate());
+    load = if descending {
+        load.order_by_desc("label").order_by_desc("id")
+    } else {
+        load.order_by("label").order_by("id")
+    };
+    if let Some(offset) = offset {
+        load = load.offset(offset);
+    }
+
+    load.limit(2)
+        .explain_execution()
+        .expect("session equality-prefix suffix-order explain_execution should build")
+}
+
+// Build one unique-prefix offset execution descriptor for the requested
+// direction so the tests only state the expected route properties.
+fn unique_prefix_offset_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    descending: bool,
+) -> ExplainExecutionNodeDescriptor {
+    let mut load = session
+        .load::<SessionUniquePrefixOffsetEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )));
+    load = if descending {
+        load.order_by_desc("handle").order_by_desc("id")
+    } else {
+        load.order_by("handle").order_by("id")
+    };
+
+    load.limit(2)
+        .offset(1)
+        .explain_execution()
+        .expect("session unique-prefix offset explain_execution should build")
+}
+
+// Assert the shared EXPLAIN contract for index-prefix ordered windows while
+// letting each test override only the route properties that actually differ.
+fn assert_prefix_route_descriptor(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    expectations: PrefixRouteExpectations<'_>,
+    context: &str,
+) {
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "{context} should stay on the chosen index-prefix route",
+    );
+    assert!(
+        descriptor.access_strategy().is_some_and(
+            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == expectations.access_name)
+        ),
+        "{context} should expose the chosen order-compatible composite index",
+    );
+    if expectations.expect_desc_scan {
+        assert_eq!(
+            descriptor.node_properties().get("scan_dir"),
+            Some(&Value::Text("desc".to_string())),
+            "{context} should expose the descending scan direction",
+        );
+    }
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "{context} should expose secondary order pushdown",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek).is_some(),
+        expectations.expect_top_n_seek,
+        "{context} should keep the expected Top-N seek behavior",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        expectations.expect_access_satisfied,
+        "{context} should keep the expected access-satisfied ordering behavior",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_some(),
+        expectations.expect_materialized_sort,
+        "{context} should keep the expected materialized-sort behavior",
+    );
+    if expectations.forbid_index_range_limit_pushdown {
+        assert!(
+            explain_execution_find_first_node(
+                descriptor,
+                ExplainExecutionNodeType::IndexRangeLimitPushdown
+            )
+            .is_none(),
+            "{context} must not pretend to be an index-range limit-pushdown shape",
+        );
+    }
+}
+
 #[test]
 fn session_explain_execution_equality_prefix_suffix_order_uses_top_n_seek_on_chosen_prefix_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = equality_prefix_suffix_order_descriptor(&session, false, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("label")
-        .order_by("id")
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session deterministic equality-prefix suffix-order explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "equality-prefix suffix-order roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "equality-prefix suffix-order roots should expose the chosen order-compatible composite index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "equality-prefix suffix-order roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "equality-prefix suffix-order roots should derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_none(),
-        "equality-prefix suffix-order prefix routes must not pretend to be index-range limit-pushdown shapes",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "equality-prefix suffix-order roots should keep access-satisfied ordering",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            expect_desc_scan: false,
+            expect_top_n_seek: true,
+            expect_access_satisfied: true,
+            expect_materialized_sort: false,
+            forbid_index_range_limit_pushdown: true,
+        },
+        "equality-prefix suffix-order roots",
     );
 }
 
@@ -76,83 +172,19 @@ fn session_explain_execution_equality_prefix_suffix_order_desc_materializes_orde
  {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = equality_prefix_suffix_order_descriptor(&session, true, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session descending deterministic equality-prefix suffix-order explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "descending equality-prefix suffix-order roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "descending equality-prefix suffix-order roots should expose the chosen order-compatible composite index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending equality-prefix suffix-order roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending equality-prefix suffix-order roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_some(),
-        "descending equality-prefix suffix-order roots should fail closed to a materialized order stage on the chosen prefix route",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_none(),
-        "descending equality-prefix suffix-order prefix routes must not pretend to be index-range limit-pushdown shapes",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "descending equality-prefix suffix-order roots should stay off the ascending prefix Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_none(),
-        "descending equality-prefix suffix-order roots should not claim access-satisfied ordering once they materialize sort order",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            expect_desc_scan: true,
+            expect_top_n_seek: false,
+            expect_access_satisfied: false,
+            expect_materialized_sort: true,
+            forbid_index_range_limit_pushdown: true,
+        },
+        "descending equality-prefix suffix-order roots",
     );
 }
 
@@ -255,69 +287,19 @@ fn session_explain_execution_equality_prefix_suffix_order_offset_uses_top_n_seek
  {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = equality_prefix_suffix_order_descriptor(&session, false, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("label")
-        .order_by("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("session equality-prefix suffix-order offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "equality-prefix suffix-order offset roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "equality-prefix suffix-order offset roots should expose the chosen order-compatible composite index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "equality-prefix suffix-order offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "equality-prefix suffix-order offset roots should derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "equality-prefix suffix-order offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "equality-prefix suffix-order offset roots should stay off the materialized order fallback lane",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            expect_desc_scan: false,
+            expect_top_n_seek: true,
+            expect_access_satisfied: true,
+            expect_materialized_sort: false,
+            forbid_index_range_limit_pushdown: false,
+        },
+        "equality-prefix suffix-order offset roots",
     );
 }
 
@@ -326,76 +308,19 @@ fn session_explain_execution_equality_prefix_suffix_order_desc_offset_materializ
  {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = equality_prefix_suffix_order_descriptor(&session, true, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session descending equality-prefix suffix-order offset explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "descending equality-prefix suffix-order offset roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "descending equality-prefix suffix-order offset roots should expose the chosen order-compatible composite index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending equality-prefix suffix-order offset roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending equality-prefix suffix-order offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_some(),
-        "descending equality-prefix suffix-order offset roots should fail closed to a materialized order stage on the chosen prefix route",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "descending equality-prefix suffix-order offset roots should stay off the ascending prefix Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_none(),
-        "descending equality-prefix suffix-order offset roots should not claim access-satisfied ordering once they materialize sort order",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            expect_desc_scan: true,
+            expect_top_n_seek: false,
+            expect_access_satisfied: false,
+            expect_materialized_sort: true,
+            forbid_index_range_limit_pushdown: false,
+        },
+        "descending equality-prefix suffix-order offset roots",
     );
 }
 
@@ -468,61 +393,19 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 fn session_explain_execution_unique_prefix_offset_uses_top_n_seek() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = unique_prefix_offset_descriptor(&session, false);
 
-    let descriptor = session
-        .load::<SessionUniquePrefixOffsetEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )))
-        .order_by("handle")
-        .order_by("id")
-        .limit(2)
-        .offset(1)
-        .explain_execution()
-        .expect("session unique-prefix offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "unique-prefix offset roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "tier_handle_unique")
-        ),
-        "unique-prefix offset roots should expose the chosen unique composite index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "unique-prefix offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "unique-prefix offset roots should derive one offset-aware Top-N seek window",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "unique-prefix offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "unique-prefix offset roots should stay off the materialized order fallback lane",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "tier_handle_unique",
+            expect_desc_scan: false,
+            expect_top_n_seek: true,
+            expect_access_satisfied: true,
+            expect_materialized_sort: false,
+            forbid_index_range_limit_pushdown: false,
+        },
+        "unique-prefix offset roots",
     );
 }
 
@@ -530,65 +413,18 @@ fn session_explain_execution_unique_prefix_offset_uses_top_n_seek() {
 fn session_explain_execution_unique_prefix_offset_desc_uses_top_n_seek() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = unique_prefix_offset_descriptor(&session, true);
 
-    let descriptor = session
-        .load::<SessionUniquePrefixOffsetEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )))
-        .order_by_desc("handle")
-        .order_by_desc("id")
-        .limit(2)
-        .offset(1)
-        .explain_execution()
-        .expect("session descending unique-prefix offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "descending unique-prefix offset roots should stay on the chosen index-prefix route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "tier_handle_unique")
-        ),
-        "descending unique-prefix offset roots should expose the chosen unique composite index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending unique-prefix offset roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending unique-prefix offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "descending unique-prefix offset roots should derive one offset-aware Top-N seek window",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending unique-prefix offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "descending unique-prefix offset roots should stay off the materialized order fallback lane",
+    assert_prefix_route_descriptor(
+        &descriptor,
+        PrefixRouteExpectations {
+            access_name: "tier_handle_unique",
+            expect_desc_scan: true,
+            expect_top_n_seek: true,
+            expect_access_satisfied: true,
+            expect_materialized_sort: false,
+            forbid_index_range_limit_pushdown: false,
+        },
+        "descending unique-prefix offset roots",
     );
 }
