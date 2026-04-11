@@ -2,7 +2,7 @@ error[E0432]: unresolved import `icydb_core::db::executor::route::GroupedRouteOb
  --> tests/ui/db/executor/grouped_route_observability_module_private.rs:1:5
   |
 1 | use icydb_core::db::executor::route::GroupedRouteObservability;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `GroupedRouteObservability` in `db::executor::route`
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `GroupedRouteObservability` in `db::executor::planning::route`
 
 error[E0603]: module `executor` is private
  --> tests/ui/db/executor/grouped_route_observability_module_private.rs:1:21
