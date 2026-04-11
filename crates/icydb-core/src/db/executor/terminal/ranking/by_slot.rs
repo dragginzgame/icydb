@@ -7,8 +7,9 @@ use crate::{
     db::{
         PersistedRow,
         executor::{
-            ExecutablePlan, pipeline::contracts::LoadExecutor,
-            terminal::ranking::RankingTerminalBoundaryRequest,
+            ExecutablePlan,
+            pipeline::contracts::LoadExecutor,
+            terminal::ranking::{RankedFieldBoundaryDirection, RankedFieldBoundaryProjection},
         },
         query::plan::FieldSlot as PlannedFieldSlot,
         response::EntityResponse,
@@ -31,12 +32,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::TopKRows {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Top,
+            RankedFieldBoundaryProjection::Rows,
         )?
         .into_rows()
     }
@@ -49,12 +50,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::BottomKRows {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Bottom,
+            RankedFieldBoundaryProjection::Rows,
         )?
         .into_rows()
     }
@@ -67,12 +68,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::TopKValues {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Top,
+            RankedFieldBoundaryProjection::Values,
         )?
         .into_values()
     }
@@ -85,12 +86,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::BottomKValues {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Bottom,
+            RankedFieldBoundaryProjection::Values,
         )?
         .into_values()
     }
@@ -103,12 +104,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::TopKValuesWithIds {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Top,
+            RankedFieldBoundaryProjection::ValuesWithIds,
         )?
         .into_values_with_ids()
     }
@@ -121,12 +122,12 @@ where
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        self.execute_ranking_terminal_boundary(
+        self.execute_ranked_field_terminal_boundary(
             plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::BottomKValuesWithIds {
-                target_field,
-                take_count,
-            },
+            target_field,
+            take_count,
+            RankedFieldBoundaryDirection::Bottom,
+            RankedFieldBoundaryProjection::ValuesWithIds,
         )?
         .into_values_with_ids()
     }

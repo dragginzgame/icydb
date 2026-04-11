@@ -159,7 +159,6 @@ pub(super) fn finalize_grouped_page(
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError> {
     let grouped_having = route.grouped_having();
-    let continuation_capabilities = route.grouped_continuation_capabilities();
     let group_fields = route.group_fields();
     let compiled_projection = if route.projection_is_identity() {
         None
@@ -182,14 +181,8 @@ pub(super) fn finalize_grouped_page(
                 group_fields: route.group_fields(),
                 aggregate_execution_specs: route.grouped_aggregate_execution_specs(),
             });
-    let selection_bound = continuation_capabilities
-        .selection_bound_applied()
-        .then(|| pagination_window.selection_bound())
-        .flatten();
-    let resume_boundary = continuation_capabilities
-        .resume_boundary_applied()
-        .then(|| pagination_window.resume_boundary())
-        .flatten();
+    let selection_bound = route.grouped_selection_bound();
+    let resume_boundary = route.grouped_resume_boundary();
     let (page_rows, next_cursor_boundary) = if let Some(selection_bound) = selection_bound {
         finalize_bounded_grouped_page_rows(
             grouped_having,

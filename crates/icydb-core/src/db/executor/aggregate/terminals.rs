@@ -154,16 +154,6 @@ impl ScalarTerminalBoundaryOutput {
     }
 }
 
-// Return the canonical aggregate zero-output for one provably empty window.
-fn aggregate_zero_output_if_window_empty_logical(
-    prepared: &PreparedAggregateStreamingInputs<'_>,
-    kind: AggregateKind,
-) -> Option<ScalarAggregateOutput> {
-    prepared
-        .window_is_provably_empty()
-        .then(|| kind.zero_output())
-}
-
 // Execute one prepared scalar terminal boundary through one shared
 // zero-window, fast-path, and kernel dispatch boundary.
 fn run_prepared_scalar_terminal_boundary<E>(
@@ -175,8 +165,8 @@ where
     E: EntityKind + EntityValue,
 {
     let kind = boundary.op.aggregate_kind();
-    if let Some(aggregate_output) = aggregate_zero_output_if_window_empty_logical(&prepared, kind) {
-        return Ok(aggregate_output);
+    if prepared.window_is_provably_empty() {
+        return Ok(kind.zero_output());
     }
 
     match boundary.strategy {
@@ -494,11 +484,37 @@ where
         let boundary = match request {
             ScalarTerminalBoundaryRequest::Count => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::Count,
-                strategy: Self::prepare_scalar_count_terminal_strategy(&prepared),
+                strategy: derive_count_terminal_fast_path_contract_for_model(
+                    &prepared.logical_plan,
+                    prepared.execution_preparation.strict_mode().is_some(),
+                )
+                .map_or(
+                    PreparedScalarTerminalStrategy::KernelAggregate,
+                    |contract| match contract {
+                        CountTerminalFastPathContract::PrimaryKeyCardinality => {
+                            PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
+                        }
+                        CountTerminalFastPathContract::PrimaryKeyExistingRows(direction)
+                        | CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                            PreparedScalarTerminalStrategy::ExistingRows { direction }
+                        }
+                    },
+                ),
             },
             ScalarTerminalBoundaryRequest::Exists => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::Exists,
-                strategy: Self::prepare_scalar_exists_terminal_strategy(&prepared),
+                strategy: derive_exists_terminal_fast_path_contract_for_model(
+                    &prepared.logical_plan,
+                    prepared.execution_preparation.strict_mode().is_some(),
+                )
+                .map_or(
+                    PreparedScalarTerminalStrategy::KernelAggregate,
+                    |contract| match contract {
+                        ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                            PreparedScalarTerminalStrategy::ExistingRows { direction }
+                        }
+                    },
+                ),
             },
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::IdTerminal { kind },
@@ -616,51 +632,6 @@ where
                 .into_optional_id_terminal(kind, "aggregate id-terminal result kind mismatch")
                 .map(ScalarTerminalBoundaryOutput::Id),
         }
-    }
-
-    // Resolve one prepared COUNT strategy from the already-prepared aggregate
-    // payload. This keeps strategy selection on the same logical/runtime
-    // snapshot that execution will consume, rather than rebuilding execution
-    // preparation through the pre-prepared plan shell.
-    fn prepare_scalar_count_terminal_strategy(
-        prepared: &PreparedAggregateStreamingInputs<'_>,
-    ) -> PreparedScalarTerminalStrategy {
-        derive_count_terminal_fast_path_contract_for_model(
-            &prepared.logical_plan,
-            prepared.execution_preparation.strict_mode().is_some(),
-        )
-        .map_or(
-            PreparedScalarTerminalStrategy::KernelAggregate,
-            |contract| match contract {
-                CountTerminalFastPathContract::PrimaryKeyCardinality => {
-                    PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
-                }
-                CountTerminalFastPathContract::PrimaryKeyExistingRows(direction)
-                | CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                    PreparedScalarTerminalStrategy::ExistingRows { direction }
-                }
-            },
-        )
-    }
-
-    // Resolve one prepared EXISTS strategy from the already-prepared aggregate
-    // payload for the same reason as COUNT: strategy selection should consume
-    // the canonical prepared boundary state, not rebuild execution metadata.
-    fn prepare_scalar_exists_terminal_strategy(
-        prepared: &PreparedAggregateStreamingInputs<'_>,
-    ) -> PreparedScalarTerminalStrategy {
-        derive_exists_terminal_fast_path_contract_for_model(
-            &prepared.logical_plan,
-            prepared.execution_preparation.strict_mode().is_some(),
-        )
-        .map_or(
-            PreparedScalarTerminalStrategy::KernelAggregate,
-            |contract| match contract {
-                ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                    PreparedScalarTerminalStrategy::ExistingRows { direction }
-                }
-            },
-        )
     }
 }
 

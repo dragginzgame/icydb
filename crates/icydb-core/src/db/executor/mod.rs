@@ -73,10 +73,9 @@ pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use planning::continuation::{
-    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationCapabilities,
-    GroupedContinuationContext, GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver,
-    PreparedLoadCursor, ResolvedScalarContinuationContext, RouteContinuationPlan,
-    ScalarContinuationBindings,
+    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationContext,
+    GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver, PreparedLoadCursor,
+    RouteContinuationPlan, ScalarContinuationContext,
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub use planning::route::RouteExecutionMode;

@@ -182,7 +182,7 @@ where
     fn streaming_numeric_field_aggregate_eligible(
         prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> bool {
-        if !Self::aggregate_predicate_safe(prepared) {
+        if prepared.has_predicate() || prepared.logical_plan.scalar_plan().distinct {
             return false;
         }
 
@@ -191,23 +191,11 @@ where
             return false;
         };
         let path_kind = path.capabilities().kind();
-        if !Self::aggregate_access_path_safe(path_kind) {
+        if !path_kind.supports_streaming_numeric_fold() {
             return false;
         }
 
         Self::aggregate_page_window_safe(prepared, path_kind)
-    }
-
-    // Return whether predicate and distinct planner flags preserve one
-    // canonical direct stream-fold contract.
-    const fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_>) -> bool {
-        prepared.has_no_predicate_or_distinct()
-    }
-
-    // Return whether the resolved access path kind can support one direct
-    // numeric stream fold without fan-out duplication risks.
-    const fn aggregate_access_path_safe(path_kind: AccessPathKind) -> bool {
-        path_kind.supports_streaming_numeric_fold()
     }
 
     // Return whether one paged ORDER BY window preserves one direct numeric
@@ -224,7 +212,10 @@ where
             return false;
         };
         if prepared
-            .explicit_primary_key_order_direction(prepared.authority.primary_key_name())
+            .order_spec()
+            .and_then(|order| {
+                order.primary_key_only_direction(prepared.authority.primary_key_name())
+            })
             .is_none()
         {
             return false;
@@ -262,7 +253,8 @@ where
     fn aggregate_numeric_stream_direction(
         prepared: &PreparedAggregateStreamingInputsCore,
     ) -> Direction {
-        ExecutionOrderContract::from_plan(false, prepared.order_spec()).primary_scan_direction()
+        ExecutionOrderContract::from_plan(false, prepared.logical_plan.scalar_plan().order.as_ref())
+            .primary_scan_direction()
     }
 
     // Resolve the plan-free numeric boundary once from the typed request and

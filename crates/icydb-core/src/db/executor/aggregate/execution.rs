@@ -20,8 +20,8 @@ use crate::{
         index::IndexPredicateProgram,
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract, OrderDirection,
-            OrderSpec, PageSpec,
+            AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract, OrderSpec,
+            PageSpec,
         },
         registry::StoreHandle,
     },
@@ -290,34 +290,6 @@ impl PreparedAggregateStreamingInputs<'_> {
 
     /// Return whether prepared aggregate execution still has scalar DISTINCT enabled.
     #[must_use]
-    pub(in crate::db::executor) const fn is_distinct(&self) -> bool {
-        self.logical_plan.scalar_plan().distinct
-    }
-
-    /// Return whether the prepared aggregate shape clears predicate and DISTINCT gates.
-    #[must_use]
-    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
-        !self.has_predicate() && !self.is_distinct()
-    }
-
-    /// Return primary-key order direction when prepared execution uses only PK ordering.
-    #[must_use]
-    pub(in crate::db::executor) fn explicit_primary_key_order_direction(
-        &self,
-        primary_key_name: &'static str,
-    ) -> Option<Direction> {
-        let order = self.order_spec()?;
-
-        order
-            .primary_key_only_direction(primary_key_name)
-            .map(|direction| match direction {
-                OrderDirection::Asc => Direction::Asc,
-                OrderDirection::Desc => Direction::Desc,
-            })
-    }
-
-    /// Return row-read missing-row policy for prepared aggregate streaming.
-    #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(&self.logical_plan)
     }
@@ -336,19 +308,7 @@ impl PreparedAggregateStreamingInputs<'_> {
     }
 }
 
-impl PreparedAggregateStreamingInputsCore {
-    /// Borrow scalar ORDER BY semantics for prepared aggregate execution.
-    #[must_use]
-    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
-        self.logical_plan.scalar_plan().order.as_ref()
-    }
-
-    /// Return row-read missing-row policy for prepared aggregate streaming.
-    #[must_use]
-    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.logical_plan)
-    }
-}
+impl PreparedAggregateStreamingInputsCore {}
 
 ///
 /// PreparedScalarNumericOp
@@ -649,7 +609,7 @@ impl PreparedAggregateStreamingInputs<'_> {
     /// existing-row fold without materializing the full response page.
     #[must_use]
     pub(in crate::db::executor) fn supports_streaming_existing_row_field_fold(&self) -> bool {
-        if !self.has_no_predicate_or_distinct() {
+        if self.has_predicate() || self.logical_plan.scalar_plan().distinct {
             return false;
         }
 
@@ -690,7 +650,8 @@ impl PreparedAggregateStreamingInputs<'_> {
             return false;
         };
         if self
-            .explicit_primary_key_order_direction(self.authority.primary_key_name())
+            .order_spec()
+            .and_then(|order| order.primary_key_only_direction(self.authority.primary_key_name()))
             .is_none()
         {
             return false;

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionOptimization, ExecutionPlan, ScalarContinuationBindings,
+            ExecutionOptimization, ExecutionPlan, ScalarContinuationContext,
             pipeline::contracts::{
                 DirectCoveringScanMaterializationRequest, ExecutionInputs,
                 MaterializedExecutionAttempt, MaterializedExecutionPayload,
@@ -54,7 +54,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
-        continuation: ScalarContinuationBindings<'_>,
+        continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         // Phase 1: materialize one probe attempt for the planned route.
@@ -137,7 +137,7 @@ impl ExecutionKernel {
     fn materialize_route_attempt(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
-        continuation: ScalarContinuationBindings<'_>,
+        continuation: &ScalarContinuationContext,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         // Phase 0: let the cursorless SQL covering-scan short path win before
@@ -177,7 +177,7 @@ impl ExecutionKernel {
     fn try_materialize_direct_covering_route_attempt(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
-        continuation: ScalarContinuationBindings<'_>,
+        continuation: &ScalarContinuationContext,
     ) -> Result<Option<MaterializedExecutionAttempt>, InternalError> {
         let Some((payload, keys_scanned, post_access_rows)) = inputs
             .runtime()
@@ -269,7 +269,7 @@ impl ExecutionKernel {
     fn materialize_resolved_execution_stream(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
-        continuation: ScalarContinuationBindings<'_>,
+        continuation: &ScalarContinuationContext,
         resolved: &mut ResolvedExecutionKeyStream,
     ) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
         if let Some((payload, keys_scanned, post_access_rows)) = inputs
@@ -321,6 +321,7 @@ impl ExecutionKernel {
                 },
                 consistency: inputs.consistency(),
                 continuation,
+                direction: route_plan.direction(),
             })?;
 
         Ok((payload, keys_scanned, post_access_rows))
@@ -330,7 +331,7 @@ impl ExecutionKernel {
     // or fall back to an unbounded retry.
     fn index_range_limited_residual_retry_decision(
         plan: &AccessPlannedQuery,
-        continuation: ScalarContinuationBindings<'_>,
+        continuation: &ScalarContinuationContext,
         route_plan: &ExecutionPlan,
         rows_scanned: usize,
         post_access_rows: usize,

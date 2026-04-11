@@ -29,8 +29,8 @@ use crate::{
             terminal::{RowDecoder, RowLayout},
         },
         query::plan::{
-            FieldSlot as PlannedFieldSlot, constant_covering_projection_value_from_access,
-            covering_index_projection_context,
+            FieldSlot as PlannedFieldSlot, OrderDirection,
+            constant_covering_projection_value_from_access, covering_index_projection_context,
         },
     },
     error::InternalError,
@@ -40,12 +40,6 @@ use crate::{
 use crate::db::executor::terminal::{
     bytes_page_window_state, saturating_add_payload_len, serialized_value_len,
 };
-
-// Typed boundary request for one scalar bytes terminal family call.
-enum BytesTerminalBoundaryRequest {
-    Total,
-    BySlot { target_field: PlannedFieldSlot },
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -72,9 +66,20 @@ where
     fn derive_bytes_terminal_fast_path_contract_from_prepared(
         prepared: &PreparedScalarMaterializedBoundary<'_>,
     ) -> Option<BytesTerminalFastPathContract> {
-        prepared.has_no_predicate_or_distinct().then_some(())?;
+        if prepared.has_predicate() || prepared.logical_plan.scalar_plan().distinct {
+            return None;
+        }
 
-        let direction = prepared.unordered_or_primary_key_order_direction()?;
+        let direction = match prepared.order_spec() {
+            None => Direction::Asc,
+            Some(order) => {
+                match order.primary_key_only_direction(prepared.authority.primary_key_name()) {
+                    Some(OrderDirection::Asc) => Direction::Asc,
+                    Some(OrderDirection::Desc) => Direction::Desc,
+                    None => return None,
+                }
+            }
+        };
         let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let capabilities = access_strategy
             .as_path()
@@ -92,104 +97,114 @@ where
             })
     }
 
-    // Execute one scalar bytes terminal family request from the typed API
-    // boundary and immediately hand off to shared bytes execution logic.
-    fn execute_bytes_terminal_boundary(
+    // Execute one scalar `bytes()` terminal from the typed API boundary and
+    // immediately hand off to shared bytes execution logic.
+    fn execute_total_bytes_terminal_boundary(
         &self,
         plan: PreparedLoadPlan,
-        request: BytesTerminalBoundaryRequest,
     ) -> Result<u64, InternalError> {
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
 
-        self.execute_prepared_bytes_terminal_boundary(prepared, request)
+        self.execute_prepared_total_bytes_terminal_boundary(prepared)
     }
 
-    // Execute one scalar bytes terminal family request from the neutral
-    // non-aggregate prepared boundary payload.
-    fn execute_prepared_bytes_terminal_boundary(
+    // Execute one scalar `bytes(field)` terminal from the typed API boundary
+    // and immediately hand off to shared bytes execution logic.
+    fn execute_bytes_by_slot_terminal_boundary(
+        &self,
+        plan: PreparedLoadPlan,
+        target_field: PlannedFieldSlot,
+    ) -> Result<u64, InternalError> {
+        let prepared = self.prepare_scalar_materialized_boundary(plan)?;
+
+        self.execute_prepared_bytes_by_slot_terminal_boundary(prepared, target_field)
+    }
+
+    // Execute one scalar `bytes()` terminal from the neutral non-aggregate
+    // prepared boundary payload.
+    fn execute_prepared_total_bytes_terminal_boundary(
         &self,
         prepared: PreparedScalarMaterializedBoundary<'_>,
-        request: BytesTerminalBoundaryRequest,
     ) -> Result<u64, InternalError> {
-        match request {
-            BytesTerminalBoundaryRequest::Total => {
-                if let Some(contract) =
-                    Self::derive_bytes_terminal_fast_path_contract_from_prepared(&prepared)
-                {
-                    return match contract {
-                        BytesTerminalFastPathContract::PrimaryKeyWindow(direction) => {
-                            Self::bytes_from_pk_store_window(&prepared, direction)
-                        }
-                        BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction) => {
-                            Self::bytes_from_ordered_key_stream_window(&prepared, direction)
-                        }
-                    };
+        if let Some(contract) =
+            Self::derive_bytes_terminal_fast_path_contract_from_prepared(&prepared)
+        {
+            return match contract {
+                BytesTerminalFastPathContract::PrimaryKeyWindow(direction) => {
+                    Self::bytes_from_pk_store_window(&prepared, direction)
                 }
+                BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction) => {
+                    Self::bytes_from_ordered_key_stream_window(&prepared, direction)
+                }
+            };
+        }
 
+        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+
+        Ok(page.data_rows().iter().fold(0u64, |total, (_, row)| {
+            saturating_add_payload_len(total, row.len())
+        }))
+    }
+
+    // Execute one scalar `bytes(field)` terminal from the neutral
+    // non-aggregate prepared boundary payload.
+    fn execute_prepared_bytes_by_slot_terminal_boundary(
+        &self,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
+        target_field: PlannedFieldSlot,
+    ) -> Result<u64, InternalError> {
+        let projection_mode =
+            Self::bytes_by_projection_mode_from_prepared(&prepared, target_field.field());
+        match projection_mode {
+            BytesByProjectionMode::CoveringConstant => {
+                let constant_value = constant_covering_projection_value_from_access(
+                    &prepared.logical_plan.access,
+                    target_field.field(),
+                )
+                .ok_or_else(|| {
+                    InternalError::query_executor_invariant(
+                        "bytes_by covering-constant mode selected without constant value",
+                    )
+                })?;
+                let value_len = serialized_value_len(&constant_value)?;
                 let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+                let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
 
-                Ok(page.data_rows().iter().fold(0u64, |total, (_, row)| {
-                    saturating_add_payload_len(total, row.len())
-                }))
+                Ok(crate::db::executor::saturating_row_len(value_len).saturating_mul(row_count))
             }
-            BytesTerminalBoundaryRequest::BySlot { target_field } => {
-                let projection_mode =
-                    Self::bytes_by_projection_mode_from_prepared(&prepared, target_field.field());
-                match projection_mode {
-                    BytesByProjectionMode::CoveringConstant => {
-                        let constant_value = constant_covering_projection_value_from_access(
-                            &prepared.logical_plan.access,
-                            target_field.field(),
-                        )
-                        .ok_or_else(|| {
-                            InternalError::query_executor_invariant(
-                                "bytes_by covering-constant mode selected without constant value",
-                            )
-                        })?;
-                        let value_len = serialized_value_len(&constant_value)?;
-                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-                        let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
-
-                        Ok(crate::db::executor::saturating_row_len(value_len)
-                            .saturating_mul(row_count))
-                    }
-                    BytesByProjectionMode::CoveringIndex => {
-                        if let Some(total) =
-                            Self::bytes_by_covering_index_if_eligible(&prepared, &target_field)?
-                        {
-                            return Ok(total);
-                        }
-
-                        let row_layout = prepared.authority.row_layout();
-                        let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
-                                .map_err(AggregateFieldValueError::into_internal_error)?;
-                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-
-                        Self::bytes_by_materialized_rows(
-                            page.data_rows(),
-                            &row_layout,
-                            target_field.field(),
-                            field_slot,
-                        )
-                    }
-                    BytesByProjectionMode::Materialized => {
-                        let row_layout = prepared.authority.row_layout();
-                        let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
-                                .map_err(AggregateFieldValueError::into_internal_error)?;
-                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-
-                        Self::bytes_by_materialized_rows(
-                            page.data_rows(),
-                            &row_layout,
-                            target_field.field(),
-                            field_slot,
-                        )
-                    }
+            BytesByProjectionMode::CoveringIndex => {
+                if let Some(total) =
+                    Self::bytes_by_covering_index_if_eligible(&prepared, &target_field)?
+                {
+                    return Ok(total);
                 }
+
+                self.bytes_by_materialized_boundary(prepared, target_field)
+            }
+            BytesByProjectionMode::Materialized => {
+                self.bytes_by_materialized_boundary(prepared, target_field)
             }
         }
+    }
+
+    // Resolve one `bytes(field)` total from the shared materialized scalar
+    // page boundary when no covering shortcut remains available.
+    fn bytes_by_materialized_boundary(
+        &self,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
+        target_field: PlannedFieldSlot,
+    ) -> Result<u64, InternalError> {
+        let row_layout = prepared.authority.row_layout();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+
+        Self::bytes_by_materialized_rows(
+            page.data_rows(),
+            &row_layout,
+            target_field.field(),
+            field_slot,
+        )
     }
 
     // Fold `bytes(field)` over one already materialized structural row window.
@@ -298,10 +313,7 @@ where
 
     /// Execute one `bytes()` terminal over the canonical load response.
     pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
-        self.execute_bytes_terminal_boundary(
-            plan.into_prepared_load_plan(),
-            BytesTerminalBoundaryRequest::Total,
-        )
+        self.execute_total_bytes_terminal_boundary(plan.into_prepared_load_plan())
     }
 
     /// Execute one `bytes(field)` terminal over the canonical load response
@@ -311,10 +323,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<u64, InternalError> {
-        self.execute_bytes_terminal_boundary(
-            plan.into_prepared_load_plan(),
-            BytesTerminalBoundaryRequest::BySlot { target_field },
-        )
+        self.execute_bytes_by_slot_terminal_boundary(plan.into_prepared_load_plan(), target_field)
     }
 
     // Fold `bytes()` directly from persisted primary rows over the canonical

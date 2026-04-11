@@ -9,15 +9,13 @@ mod post_access;
 
 use crate::{
     db::{
-        Db, GroupedRow, PersistedRow,
+        Db, GroupedRow,
         cursor::{ContinuationToken, GroupedContinuationToken},
-        data::DataRow,
         direction::Direction,
         executor::{ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox},
         response::EntityResponse,
     },
-    error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
 };
 
 #[cfg(any(test, feature = "perf-attribution"))]
@@ -99,45 +97,6 @@ impl From<GroupedContinuationToken> for PageCursor {
 pub(in crate::db) struct CursorPage<E: EntityKind> {
     pub(in crate::db) items: EntityResponse<E>,
     pub(in crate::db) next_cursor: Option<PageCursor>,
-}
-
-impl<E> CursorPage<E>
-where
-    E: PersistedRow + EntityValue,
-{
-    /// Build one typed cursor page from structural rows plus cursor state.
-    pub(in crate::db::executor) fn from_data_rows(
-        data_rows: Vec<DataRow>,
-        next_cursor: Option<PageCursor>,
-    ) -> Result<Self, InternalError> {
-        let items = EntityResponse::from_data_rows(data_rows)?;
-
-        Ok(Self { items, next_cursor })
-    }
-}
-
-impl StructuralCursorPage {
-    /// Decode one structural scalar page into one typed entity response.
-    pub(in crate::db::executor) fn into_entity_response<E>(
-        self,
-    ) -> Result<EntityResponse<E>, InternalError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        let (data_rows, _) = self.into_parts();
-
-        EntityResponse::from_data_rows(data_rows)
-    }
-
-    /// Decode one structural scalar page into one typed cursor page.
-    pub(in crate::db::executor) fn into_cursor_page<E>(self) -> Result<CursorPage<E>, InternalError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        let (data_rows, next_cursor) = self.into_parts();
-
-        CursorPage::from_data_rows(data_rows, next_cursor)
-    }
 }
 
 ///

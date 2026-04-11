@@ -7,9 +7,10 @@ use crate::{
     db::{
         cursor::{CursorBoundary, MaterializedCursorRow, next_cursor_for_materialized_rows},
         data::{DataKey, DataRow, RawRow},
+        direction::Direction,
         executor::{
             BudgetedOrderedKeyStream, EntityAuthority, ExecutionKernel, ExecutorError,
-            OrderReadableRow, OrderedKeyStream, ScalarContinuationBindings,
+            OrderReadableRow, OrderedKeyStream, ScalarContinuationContext,
             apply_structural_order_window, compare_orderable_row_with_boundary,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
             order::cursor_boundary_from_orderable_row,
@@ -733,7 +734,8 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) fuse_immediate_sql_terminal: bool,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
-    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+    pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
+    pub(in crate::db::executor) direction: Direction,
 }
 
 /// Materialize one ordered key stream into one execution payload.
@@ -760,6 +762,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         cursor_emission,
         consistency,
         continuation,
+        direction,
     } = request;
     let payload_mode =
         select_kernel_row_payload_mode(retain_slot_rows, cursor_emission, retained_slot_layout);
@@ -803,6 +806,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         post_access_rows,
         rows_after_cursor,
         continuation,
+        direction,
     )?;
 
     // Phase 4: select the final payload shape once, then build it in one
@@ -844,7 +848,8 @@ fn build_scalar_page_cursor(
     cursor_emission: CursorEmissionMode,
     post_access_rows: usize,
     rows_after_cursor: usize,
-    continuation: ScalarContinuationBindings<'_>,
+    continuation: &ScalarContinuationContext,
+    direction: Direction,
 ) -> Result<Option<PageCursor>, InternalError> {
     if !cursor_emission.enabled() {
         return Ok(None);
@@ -861,7 +866,7 @@ fn build_scalar_page_cursor(
         rows_after_cursor,
         continuation.post_access_cursor_boundary(),
         continuation.previous_index_range_anchor(),
-        continuation.direction(),
+        direction,
         continuation.continuation_signature(),
     )?
     .map(PageCursor::Scalar))
@@ -1165,7 +1170,7 @@ struct ScalarPageKernelRequest<'a, 'r> {
     predicate_slots: Option<&'a PredicateProgram>,
     predicate_preapplied: bool,
     retained_slot_layout: Option<&'a RetainedSlotLayout>,
-    continuation: ScalarContinuationBindings<'a>,
+    continuation: &'a ScalarContinuationContext,
     row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 

@@ -22,9 +22,12 @@ use crate::{
     db::{
         PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
+        data::decode_data_rows_into_entity_response,
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
-            pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
+            pipeline::contracts::{
+                CursorPage, GroupedCursorPage, LoadExecutor, StructuralCursorPage,
+            },
         },
         response::EntityResponse,
     },
@@ -53,6 +56,22 @@ pub(in crate::db) use scalar::{
     execute_initial_scalar_sql_projection_rows_for_canister,
     execute_initial_scalar_sql_projection_text_rows_for_canister,
 };
+
+// Decode one structural scalar page into the final typed cursor page at the
+// executor entrypoint boundary instead of on the structural page payload type.
+pub(in crate::db::executor) fn decode_structural_page_into_cursor_page<E>(
+    page: StructuralCursorPage,
+) -> Result<CursorPage<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let (data_rows, next_cursor) = page.into_parts();
+
+    Ok(CursorPage {
+        items: decode_data_rows_into_entity_response::<E>(data_rows)?,
+        next_cursor,
+    })
+}
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
@@ -88,8 +107,9 @@ where
             self.debug,
             plan.into_prepared_load_plan(),
         )?;
+        let (data_rows, _) = page.into_parts();
 
-        page.into_entity_response::<E>()
+        decode_data_rows_into_entity_response::<E>(data_rows)
     }
 
     // Execute one scalar load plan and optionally emit execution trace output.

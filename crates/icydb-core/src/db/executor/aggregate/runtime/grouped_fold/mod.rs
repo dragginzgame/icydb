@@ -769,16 +769,8 @@ fn finalize_grouped_count_page(
     let grouped_pagination_window = route.grouped_pagination_window();
     let limit = grouped_pagination_window.limit();
     let initial_offset_for_page = grouped_pagination_window.initial_offset_for_page();
-    let selection_bound = route
-        .grouped_continuation_capabilities()
-        .selection_bound_applied()
-        .then(|| grouped_pagination_window.selection_bound())
-        .flatten();
-    let resume_boundary = route
-        .grouped_continuation_capabilities()
-        .resume_boundary_applied()
-        .then(|| grouped_pagination_window.resume_boundary())
-        .flatten();
+    let selection_bound = route.grouped_selection_bound();
+    let resume_boundary = route.grouped_resume_boundary();
     let mut page_rows = Vec::<crate::db::GroupedRow>::new();
     let mut groups_skipped_for_offset = 0usize;
     let mut has_more = false;

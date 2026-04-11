@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, DataRow},
+        data::{DataKey, DataRow, decode_data_rows_into_entity_response},
         executor::{
             aggregate::field::FieldSlot, pipeline::contracts::LoadExecutor, terminal::RowLayout,
         },
@@ -42,7 +42,7 @@ where
             output_rows.push(rows[row_index].clone());
         }
 
-        EntityResponse::from_data_rows(output_rows)
+        decode_data_rows_into_entity_response::<E>(output_rows)
     }
 
     // Reduce one materialized response into top-k projected field values under
@@ -111,7 +111,7 @@ where
             output_rows.push(rows[row_index].clone());
         }
 
-        EntityResponse::from_data_rows(output_rows)
+        decode_data_rows_into_entity_response::<E>(output_rows)
     }
 
     // Reduce one materialized response into bottom-k projected field values

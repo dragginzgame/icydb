@@ -11,8 +11,7 @@ use crate::{
         executor::pipeline::contracts::{FastPathKeyResult, MaterializedExecutionPayload},
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutableAccess, ExecutionKernel,
-            ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox,
-            ScalarContinuationBindings,
+            ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::operators::PreparedSqlExecutionProjection,
             projection::{
                 PreparedProjectionShape, PreparedSlotProjectionValidation,
@@ -346,7 +345,8 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) fuse_immediate_sql_terminal: bool,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
-    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+    pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
+    pub(in crate::db::executor) direction: Direction,
 }
 
 ///
@@ -363,7 +363,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
-    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+    pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
@@ -423,22 +423,6 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'a> {
 }
 
 impl<'a> ExecutionRuntimeAdapter<'a> {
-    /// Build one structural runtime adapter from structural runtime authority plus access plan.
-    pub(in crate::db::executor) const fn from_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-        runtime: TraversalRuntime,
-        store: StoreHandle,
-        authority: EntityAuthority,
-    ) -> Self {
-        Self {
-            runtime,
-            access,
-            authority: Some(authority),
-            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
-            covering_component_scan: None,
-        }
-    }
-
     /// Build one structural runtime adapter for scalar execution paths that
     /// may consume route-owned covering-read component scans.
     pub(in crate::db::executor) const fn from_scalar_runtime_parts(
@@ -645,6 +629,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
                 cursor_emission: request.cursor_emission,
                 consistency: request.consistency,
                 continuation: request.continuation,
+                direction: request.direction,
             },
             &mut row_runtime,
         )

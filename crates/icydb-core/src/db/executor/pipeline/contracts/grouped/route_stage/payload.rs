@@ -5,7 +5,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    executor::{ExecutionPlan, pipeline::grouped_runtime::GroupedExecutionContext},
+    direction::Direction,
+    executor::{
+        ExecutionPlan, ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode,
+    },
     query::plan::{
         AccessPlannedQuery, GroupHavingSpec, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedFoldPath,
@@ -71,5 +74,8 @@ pub(in crate::db::executor) struct GroupedRouteStage {
     pub(in crate::db::executor) planner_payload: GroupedPlannerPayload,
     pub(in crate::db::executor) route_payload: GroupedRoutePayload,
     pub(in crate::db::executor) index_specs: IndexSpecBundle,
-    pub(in crate::db::executor) execution_context: GroupedExecutionContext,
+    pub(in crate::db::executor) continuation: GroupedContinuationContext,
+    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) grouped_execution_mode: GroupedExecutionMode,
+    pub(in crate::db::executor) execution_trace: Option<ExecutionTrace>,
 }

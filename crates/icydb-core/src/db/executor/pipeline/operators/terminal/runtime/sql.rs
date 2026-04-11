@@ -260,7 +260,7 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             BudgetedOrderedKeyStream, CoveringProjectionComponentRows, ExecutionKernel,
-            OrderedKeyStream, ScalarContinuationBindings, covering_projection_scan_direction,
+            OrderedKeyStream, ScalarContinuationContext, covering_projection_scan_direction,
             decode_covering_projection_pairs, exact_output_key_count_hint,
             key_stream_budget_is_redundant,
             pipeline::contracts::{
@@ -658,7 +658,7 @@ pub(in crate::db::executor::pipeline::operators::terminal) struct RowCollectorSt
     plan: &'a AccessPlannedQuery,
     scan_budget_hint: Option<usize>,
     load_order_route_contract: LoadOrderRouteContract,
-    continuation: ScalarContinuationBindings<'a>,
+    continuation: &'a ScalarContinuationContext,
     row_keep_cap: Option<usize>,
     payload_mode: KernelRowPayloadMode,
     key_stream: &'a mut dyn OrderedKeyStream,

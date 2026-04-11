@@ -11,10 +11,6 @@ mod scalar;
 
 pub(in crate::db::executor) use capabilities::ContinuationCapabilities;
 pub(in crate::db::executor) use engine::{LoadCursorInput, LoadCursorResolver, PreparedLoadCursor};
-pub(in crate::db::executor) use grouped::{
-    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
-};
+pub(in crate::db::executor) use grouped::{GroupedContinuationContext, GroupedPaginationWindow};
 pub(in crate::db::executor) use route::{AccessWindow, ContinuationMode, RouteContinuationPlan};
-pub(in crate::db::executor) use scalar::{
-    ResolvedScalarContinuationContext, ScalarContinuationBindings, ScalarContinuationContext,
-};
+pub(in crate::db::executor) use scalar::ScalarContinuationContext;

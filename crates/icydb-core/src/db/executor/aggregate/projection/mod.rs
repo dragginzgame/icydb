@@ -233,13 +233,8 @@ where
                 )
             }
             PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
-                let row_layout = prepared.authority.row_layout();
-
                 Self::execute_streaming_count_non_null_scalar_projection_boundary(
-                    boundary,
-                    prepared,
-                    &row_layout,
-                    direction,
+                    boundary, prepared, direction,
                 )
             }
             PreparedScalarProjectionStrategy::CoveringIndex {
@@ -450,7 +445,14 @@ where
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
-                let row_count = self.aggregate_count_from_prepared(prepared)?;
+                let row_count = ExecutionKernel::execute_prepared_aggregate_state(
+                    self,
+                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                        prepared,
+                        PreparedAggregateSpec::terminal(AggregateKind::Count),
+                    ),
+                )?
+                .into_count("projection COUNT helper result kind mismatch")?;
                 let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
 
                 Ok(ScalarProjectionBoundaryOutput::Values(vec![
@@ -459,7 +461,14 @@ where
                 ]))
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
+                    self,
+                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                        prepared,
+                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
+                    ),
+                )?
+                .into_exists("projection EXISTS helper result kind mismatch")?;
                 Ok(ScalarProjectionBoundaryOutput::Values(if has_rows {
                     vec![value]
                 } else {
@@ -470,15 +479,36 @@ where
                 if matches!(value, Value::Null) {
                     0
                 } else {
-                    self.aggregate_count_from_prepared(prepared)?
+                    ExecutionKernel::execute_prepared_aggregate_state(
+                        self,
+                        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                            prepared,
+                            PreparedAggregateSpec::terminal(AggregateKind::Count),
+                        ),
+                    )?
+                    .into_count("projection COUNT helper result kind mismatch")?
                 },
             )),
             PreparedScalarProjectionOp::CountDistinct => {
-                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
+                    self,
+                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                        prepared,
+                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
+                    ),
+                )?
+                .into_exists("projection EXISTS helper result kind mismatch")?;
                 Ok(ScalarProjectionBoundaryOutput::Count(u32::from(has_rows)))
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
-                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
+                    self,
+                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                        prepared,
+                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
+                    ),
+                )?
+                .into_exists("projection EXISTS helper result kind mismatch")?;
                 Ok(ScalarProjectionBoundaryOutput::TerminalValue(
                     has_rows.then_some(value),
                 ))
@@ -520,7 +550,10 @@ where
                 )?;
 
                 Ok(ScalarProjectionBoundaryOutput::Values(
-                    Self::field_values_from_projection(projected_values),
+                    projected_values
+                        .into_iter()
+                        .map(|(_, value)| value)
+                        .collect(),
                 ))
             }
             PreparedScalarProjectionOp::DistinctValues => {
@@ -530,7 +563,7 @@ where
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
-                .and_then(Self::project_distinct_field_values_from_materialized)
+                .and_then(project_distinct_field_values_from_structural_projection)
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountNonNull => {
@@ -549,7 +582,7 @@ where
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
-                .and_then(Self::project_distinct_field_values_from_materialized)
+                .and_then(project_distinct_field_values_from_structural_projection)
                 .map(|values| {
                     ScalarProjectionBoundaryOutput::Count(
                         u32::try_from(values.len()).unwrap_or(u32::MAX),
@@ -576,7 +609,6 @@ where
     fn execute_streaming_count_non_null_scalar_projection_boundary(
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
         prepared: PreparedAggregateStreamingInputs<'_>,
-        _row_layout: &RowLayout,
         direction: Direction,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         let prepared = prepared.into_core();
@@ -651,24 +683,6 @@ where
         };
 
         Ok(Some(value))
-    }
-
-    // Project one materialized `(id, value)` vector into one field value vector while
-    // preserving the effective response row order.
-    fn field_values_from_projection(projected_values: ValueProjection) -> Vec<Value> {
-        projected_values
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect()
-    }
-
-    // Project one materialized `(id, value)` vector into distinct field values while
-    // preserving first-observed order within the effective response window.
-    // This is value DISTINCT semantics via canonical `GroupKey` equality.
-    fn project_distinct_field_values_from_materialized(
-        projected_values: ValueProjection,
-    ) -> Result<Vec<Value>, InternalError> {
-        project_distinct_field_values_from_structural_projection(projected_values)
     }
 
     // Count non-null field values directly from materialized rows without
@@ -824,34 +838,6 @@ where
             &[component_index],
             |index| prepared.store_resolver.try_get_store(index.store()),
         )
-    }
-
-    // Execute COUNT from one prepared aggregate stage so constant projection
-    // fast paths do not re-enter the plan-owned terminal wrapper surface.
-    fn aggregate_count_from_prepared(
-        &self,
-        prepared: PreparedAggregateStreamingInputs<'_>,
-    ) -> Result<u32, InternalError> {
-        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-            prepared,
-            PreparedAggregateSpec::terminal(AggregateKind::Count),
-        );
-        ExecutionKernel::execute_prepared_aggregate_state(self, state)?
-            .into_count("projection COUNT helper result kind mismatch")
-    }
-
-    // Execute EXISTS from one prepared aggregate stage so constant projection
-    // fast paths do not re-enter the plan-owned terminal wrapper surface.
-    fn aggregate_exists_from_prepared(
-        &self,
-        prepared: PreparedAggregateStreamingInputs<'_>,
-    ) -> Result<bool, InternalError> {
-        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-            prepared,
-            PreparedAggregateSpec::terminal(AggregateKind::Exists),
-        );
-        ExecutionKernel::execute_prepared_aggregate_state(self, state)?
-            .into_exists("projection EXISTS helper result kind mismatch")
     }
 }
 

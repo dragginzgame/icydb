@@ -8,7 +8,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            ExecutionTrace, GroupedContinuationCapabilities, GroupedPaginationWindow,
+            ExecutionTrace, GroupedPaginationWindow,
             pipeline::contracts::{PageCursor, grouped::GroupedRouteStage},
             traversal::row_read_consistency_for_plan,
         },
@@ -120,23 +120,21 @@ impl GroupedRouteStage {
 
     /// Return routed grouped stream direction.
     pub(in crate::db::executor) const fn direction(&self) -> Direction {
-        self.execution_context.direction()
+        self.direction
     }
 
     /// Return grouped execution mode for grouped stream observability.
     pub(in crate::db::executor) const fn grouped_execution_mode(
         &self,
     ) -> crate::db::executor::route::GroupedExecutionMode {
-        self.execution_context.grouped_execution_mode()
+        self.grouped_execution_mode
     }
 
     /// Borrow grouped runtime pagination projection.
     pub(in crate::db::executor) const fn grouped_pagination_window(
         &self,
     ) -> &GroupedPaginationWindow {
-        self.execution_context
-            .continuation()
-            .grouped_pagination_window()
+        self.continuation.grouped_pagination_window()
     }
 
     /// Return grouped row-read missing-row policy.
@@ -144,11 +142,24 @@ impl GroupedRouteStage {
         row_read_consistency_for_plan(&self.planner_payload.plan)
     }
 
-    /// Return grouped continuation capabilities for this execution window.
-    pub(in crate::db::executor) const fn grouped_continuation_capabilities(
-        &self,
-    ) -> GroupedContinuationCapabilities {
-        self.execution_context.continuation().capabilities()
+    /// Return the active grouped resume boundary when continuation filtering
+    /// is enabled for this execution window.
+    pub(in crate::db::executor) const fn grouped_resume_boundary(&self) -> Option<&Value> {
+        if self.continuation.resume_boundary_applied() {
+            self.grouped_pagination_window().resume_boundary()
+        } else {
+            None
+        }
+    }
+
+    /// Return the active grouped candidate selection bound when this execution
+    /// window still needs bounded candidate retention.
+    pub(in crate::db::executor) const fn grouped_selection_bound(&self) -> Option<usize> {
+        if self.continuation.selection_bound_applied() {
+            self.grouped_pagination_window().selection_bound()
+        } else {
+            None
+        }
     }
 
     /// Build grouped next cursor after grouped boundary validation.
@@ -156,20 +167,18 @@ impl GroupedRouteStage {
         &self,
         last_group_key: Vec<Value>,
     ) -> Result<PageCursor, InternalError> {
-        self.execution_context
-            .continuation()
-            .grouped_next_cursor(last_group_key)
+        self.continuation.grouped_next_cursor(last_group_key)
     }
 
     /// Borrow optional grouped execution trace for observability mutation.
     pub(in crate::db::executor) const fn execution_trace_mut(
         &mut self,
     ) -> &mut Option<ExecutionTrace> {
-        self.execution_context.execution_trace_mut()
+        &mut self.execution_trace
     }
 
     /// Consume stage and return final grouped execution trace payload.
     pub(in crate::db::executor) fn into_execution_trace(self) -> Option<ExecutionTrace> {
-        self.execution_context.into_execution_trace()
+        self.execution_trace
     }
 }

@@ -329,7 +329,6 @@ where
         mut on_row: impl FnMut(KernelRow) -> Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         // Phase 1: lower the prepared access/runtime inputs into one key stream.
-        let consistency = prepared.consistency();
         let PreparedAggregateStreamingInputsCore {
             authority,
             store,
@@ -338,6 +337,8 @@ where
             index_prefix_specs,
             index_range_specs,
         } = prepared;
+        let consistency =
+            crate::db::executor::traversal::row_read_consistency_for_plan(&logical_plan);
         let mut continuation = ContinuationRuntime::from_window(
             crate::db::executor::ExecutionKernel::window_cursor_contract(&logical_plan, None),
         );

@@ -9,13 +9,7 @@
 mod grouped;
 mod paged;
 
-use crate::{
-    db::data::{DataRow, PersistedRow, decode_data_rows_into_entity_response},
-    prelude::*,
-    traits::EntityValue,
-    types::Id,
-    value::Value,
-};
+use crate::{prelude::*, traits::EntityValue, types::Id, value::Value};
 use thiserror::Error as ThisError;
 
 mod private {
@@ -256,16 +250,6 @@ impl<R: ResponseRow> std::ops::Deref for Response<R> {
 }
 
 impl<E: EntityKind> Response<Row<E>> {
-    /// Decode ordered persisted data rows into one typed entity response.
-    pub(in crate::db) fn from_data_rows(
-        rows: Vec<DataRow>,
-    ) -> Result<Self, crate::error::InternalError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        decode_data_rows_into_entity_response::<E>(rows)
-    }
-
     /// Return the first row identifier, if present.
     #[must_use]
     pub fn id(&self) -> Option<Id<E>> {

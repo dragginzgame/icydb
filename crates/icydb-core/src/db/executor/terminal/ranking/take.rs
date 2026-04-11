@@ -6,10 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        executor::{
-            ExecutablePlan, pipeline::contracts::LoadExecutor,
-            terminal::ranking::RankingTerminalBoundaryRequest,
-        },
+        executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
         response::EntityResponse,
     },
     error::InternalError,
@@ -26,10 +23,6 @@ where
         plan: ExecutablePlan<E>,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_ranking_terminal_boundary(
-            plan.into_prepared_load_plan(),
-            RankingTerminalBoundaryRequest::Take { take_count },
-        )?
-        .into_rows()
+        self.execute_take_terminal_boundary(plan.into_prepared_load_plan(), take_count)
     }
 }

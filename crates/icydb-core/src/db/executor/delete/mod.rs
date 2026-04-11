@@ -11,10 +11,7 @@ use crate::{
     db::{
         Db,
         commit::{CommitRowOp, CommitSchemaFingerprint},
-        data::{
-            DataKey, DataRow, PersistedEntityRow, PersistedRow, RawDataKey, RawRow,
-            decode_raw_row_for_entity_key,
-        },
+        data::{DataKey, DataRow, PersistedRow, RawDataKey, RawRow, decode_raw_row_for_entity_key},
         executor::{
             AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionPreparation, OrderReadableRow, TraversalRuntime,
@@ -223,25 +220,6 @@ struct PreparedDeleteSqlProjection {
 type DeleteCommitApplyFn<C> =
     fn(&Db<C>, EntityAuthority, Vec<CommitRowOp>, &'static str) -> Result<(), InternalError>;
 
-/// Decode raw access rows into typed delete rows with key/entity checks.
-pub(super) fn decode_rows<E: PersistedRow + EntityValue>(
-    rows: Vec<DataRow>,
-) -> Result<Vec<DeleteRow<E>>, InternalError> {
-    rows.into_iter()
-        .map(|row| {
-            let row = PersistedEntityRow::from_data_row(row);
-            let (key, raw) = row.into_parts();
-            let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
-
-            Ok(DeleteRow {
-                key,
-                raw: Some(raw),
-                entity,
-            })
-        })
-        .collect()
-}
-
 // Prepare one generic-free delete execution state after the typed plan shell is consumed.
 fn prepare_delete_execution_state(
     authority: DeleteExecutionAuthority,
@@ -336,7 +314,19 @@ where
     E: PersistedRow + EntityValue,
 {
     // Phase 1: decode structural access rows into typed delete candidates.
-    let mut rows = decode_rows::<E>(data_rows)?;
+    let mut rows = data_rows
+        .into_iter()
+        .map(|row| {
+            let (key, raw) = row;
+            let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
+
+            Ok(DeleteRow {
+                key,
+                raw: Some(raw),
+                entity,
+            })
+        })
+        .collect::<Result<Vec<DeleteRow<E>>, InternalError>>()?;
 
     // Phase 2: apply typed delete post-access filtering and ordering once.
     apply_delete_post_access_rows(prepared, &mut rows)?;
@@ -435,7 +425,7 @@ fn package_structural_delete_rows(
 
     for row in rows {
         let (data_row, slots) = row.into_parts()?;
-        let (key, raw) = PersistedEntityRow::from_data_row(data_row).into_parts();
+        let (key, raw) = data_row;
         let rollback_key = key.to_raw()?;
 
         response_rows.push(KernelRow::new((key, raw.clone()), slots));
@@ -446,38 +436,6 @@ fn package_structural_delete_rows(
         response_rows,
         rollback_rows,
     })
-}
-
-// Decode, filter, and format typed delete rows while returning structural rollback data.
-fn prepare_typed_delete_rows<E>(
-    prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
-) -> Result<TypedDeletePreparation<E>, InternalError>
-where
-    E: PersistedRow + EntityValue,
-{
-    prepare_typed_delete_leaf(prepared, data_rows, package_typed_delete_rows::<E>)
-}
-
-// Decode, filter, and package only rollback rows when the caller needs delete
-// mutation effects without typed response-row materialization.
-fn prepare_typed_delete_count<E>(
-    prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
-) -> Result<DeleteCountPreparation, InternalError>
-where
-    E: PersistedRow + EntityValue,
-{
-    prepare_typed_delete_leaf(prepared, data_rows, package_typed_delete_count::<E>)
-}
-
-// Decode, filter, and package structural delete rows for SQL projection payloads.
-#[cfg(feature = "sql")]
-fn prepare_structural_delete_rows(
-    prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
-) -> Result<DeletePreparation, InternalError> {
-    prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)
 }
 
 // Prepare the nongeneric delete commit payload from structural rollback rows.
@@ -533,7 +491,8 @@ where
 
     // Phase 2: keep SQL delete filtering, ordering, and rollback packaging on
     // the structural kernel-row boundary.
-    let structural = prepare_structural_delete_rows(prepared, data_rows)?;
+    let structural =
+        prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)?;
     if structural.response_rows.is_empty() {
         return Ok(PreparedDeleteSqlProjection {
             projection: DeleteProjection::new(Vec::new(), 0),
@@ -747,7 +706,8 @@ where
             record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
 
             // Phase 4: run the typed delete leaf and package structural rollback rows.
-            let typed = prepare_typed_delete_rows::<E>(&prepared, data_rows)?;
+            let typed =
+                prepare_typed_delete_leaf(&prepared, data_rows, package_typed_delete_rows::<E>)?;
             if typed.response_rows.is_empty() {
                 set_rows_from_len(&mut span, 0);
                 return Ok(EntityResponse::new(Vec::new()));
@@ -860,7 +820,8 @@ where
 
             // Phase 4: keep relation validation and commit assembly while skipping
             // typed response-row materialization.
-            let counted = prepare_typed_delete_count::<E>(&prepared, data_rows)?;
+            let counted =
+                prepare_typed_delete_leaf(&prepared, data_rows, package_typed_delete_count::<E>)?;
             if counted.row_count == 0 {
                 set_rows_from_len(&mut span, 0);
                 return Ok(0);

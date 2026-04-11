@@ -7,12 +7,10 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutionTrace, GroupedContinuationCapabilities, GroupedContinuationContext,
-            PreparedLoadPlan,
+            ExecutionTrace, GroupedContinuationContext, PreparedLoadPlan,
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
             },
-            pipeline::grouped_runtime::GroupedExecutionContext,
             route::{RouteExecutionMode, build_execution_route_plan_for_grouped_plan},
             validate_executor_plan_for_authority,
         },
@@ -66,17 +64,12 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
 
     let direction = grouped_route_plan.direction();
     let grouped_pagination_window = plan.grouped_pagination_window(&cursor)?;
-    let continuation_capabilities = GroupedContinuationCapabilities::from_window(
-        !cursor.is_empty(),
-        &grouped_pagination_window,
-    );
-    let continuation_applied = continuation_capabilities.applied();
+    let continuation_applied = !cursor.is_empty();
     let execution_trace = debug
         .then(|| ExecutionTrace::new(&plan.logical_plan().access, direction, continuation_applied));
     let continuation_signature = plan.continuation_signature_for_runtime()?;
     let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
     let continuation = GroupedContinuationContext::new(
-        continuation_capabilities,
         continuation_signature,
         continuation_boundary_arity,
         grouped_pagination_window,
@@ -102,11 +95,9 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             index_prefix_specs,
             index_range_specs,
         },
-        execution_context: GroupedExecutionContext::new(
-            continuation,
-            direction,
-            grouped_execution_mode,
-            execution_trace,
-        ),
+        continuation,
+        direction,
+        grouped_execution_mode,
+        execution_trace,
     })
 }

@@ -6,9 +6,7 @@
 use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
-        executor::planning::continuation::scalar::{
-            ResolvedScalarContinuationContext, ScalarContinuationContext,
-        },
+        executor::planning::continuation::scalar::ScalarContinuationContext,
         executor::{PreparedLoadPlan, pipeline::orchestrator::LoadExecutionMode},
         query::plan::ExecutionOrdering,
     },
@@ -41,11 +39,10 @@ impl LoadCursorResolver {
             (true, LoadCursorInput::Scalar(cursor)) => {
                 let cursor = plan.revalidate_cursor(*cursor)?;
                 let continuation_signature = plan.continuation_signature_for_runtime()?;
-                let resolved = ResolvedScalarContinuationContext::new(
-                    ScalarContinuationContext::new(cursor),
+                PreparedLoadCursor::Scalar(Box::new(ScalarContinuationContext::for_runtime(
+                    cursor,
                     continuation_signature,
-                );
-                PreparedLoadCursor::Scalar(Box::new(resolved))
+                )))
             }
             (false, LoadCursorInput::Grouped(cursor)) => {
                 PreparedLoadCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
@@ -92,6 +89,6 @@ impl LoadCursorInput {
 ///
 
 pub(in crate::db::executor) enum PreparedLoadCursor {
-    Scalar(Box<ResolvedScalarContinuationContext>),
+    Scalar(Box<ScalarContinuationContext>),
     Grouped(GroupedPlannedCursor),
 }

@@ -3,7 +3,7 @@
 //! Does not own: route selection or scalar kernel execution itself.
 //! Boundary: mutates scan hints after route planning and before scalar execution.
 
-use crate::db::executor::{ExecutionPlan, ResolvedScalarContinuationContext};
+use crate::db::executor::{ExecutionPlan, ScalarContinuationContext};
 
 ///
 /// UnpagedLoadHintStrategy
@@ -20,7 +20,7 @@ enum UnpagedLoadHintStrategy {
 
 impl UnpagedLoadHintStrategy {
     const fn resolve(
-        resolved_continuation: &ResolvedScalarContinuationContext,
+        resolved_continuation: &ScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
         route_plan: &ExecutionPlan,
@@ -83,7 +83,7 @@ impl UnpagedLoadHintStrategy {
 // route-eligible top-N seek windows, constrain both access probe and load
 // scan-budget hints to the keep-count window (without continuation +1).
 pub(super) const fn apply_unpaged_top_n_seek_hints(
-    resolved_continuation: &ResolvedScalarContinuationContext,
+    resolved_continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
     top_n_seek_requires_lookahead: bool,
     route_plan: &mut ExecutionPlan,
