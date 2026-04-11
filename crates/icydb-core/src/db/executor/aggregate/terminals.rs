@@ -26,7 +26,11 @@ use crate::{
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
-            route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
+            planning::route::{
+                CountTerminalFastPathContract, ExistsTerminalFastPathContract,
+                derive_count_terminal_fast_path_contract_for_model,
+                derive_exists_terminal_fast_path_contract_for_model,
+            },
         },
         index::predicate::IndexPredicateExecution,
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
@@ -621,7 +625,7 @@ where
     fn prepare_scalar_count_terminal_strategy(
         prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> PreparedScalarTerminalStrategy {
-        crate::db::executor::route::derive_count_terminal_fast_path_contract_for_model(
+        derive_count_terminal_fast_path_contract_for_model(
             &prepared.logical_plan,
             prepared.execution_preparation.strict_mode().is_some(),
         )
@@ -645,7 +649,7 @@ where
     fn prepare_scalar_exists_terminal_strategy(
         prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> PreparedScalarTerminalStrategy {
-        crate::db::executor::route::derive_exists_terminal_fast_path_contract_for_model(
+        derive_exists_terminal_fast_path_contract_for_model(
             &prepared.logical_plan,
             prepared.execution_preparation.strict_mode().is_some(),
         )

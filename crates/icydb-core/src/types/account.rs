@@ -1,7 +1,6 @@
 //! Module: types::account
-//! Responsibility: module-local ownership and contracts for types::account.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the normalized account value used for typed APIs, persistence
+//! encoding, and ICRC account conversion.
 
 use crate::{
     traits::{

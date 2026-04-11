@@ -1,7 +1,6 @@
 //! Module: value::wire
-//! Responsibility: module-local ownership and contracts for value::wire.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines serde-only wire helpers that rebuild public runtime value wrappers
+//! from persisted payload shapes.
 
 use crate::{
     types::*,

@@ -1,7 +1,6 @@
 //! Module: db::query::plan::planner
-//! Responsibility: module-local ownership and contracts for db::query::plan::planner.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Owns semantic access planning from query predicates and ordering contracts
+//! to canonical access strategies.
 
 //! Semantic planning from predicates to access strategies; must not assert invariants.
 //!

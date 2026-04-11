@@ -1,7 +1,6 @@
 //! Module: types::principal
-//! Responsibility: module-local ownership and contracts for types::principal.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the principal runtime wrapper used by typed values, persistence
+//! encoding, and identity-bearing API surfaces.
 
 use crate::{
     traits::{

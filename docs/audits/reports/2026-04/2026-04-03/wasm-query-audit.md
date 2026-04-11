@@ -231,7 +231,6 @@ Current problem:
 - `lower_query_lane_for_entity(...)`
 - `lower_generated_query_surface_for_entity(...)`
 - `execute_lowered_sql_dispatch_query_for_authority(...)`
-- `execute_lowered_sql_projection_for_authority(...)`
 
 That is a strong smell of "same feature set, two retained structural paths."
 

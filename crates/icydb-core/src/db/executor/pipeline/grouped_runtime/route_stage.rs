@@ -11,7 +11,6 @@ use crate::{
             PreparedLoadPlan,
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
-                LoadExecutor,
             },
             pipeline::grouped_runtime::GroupedExecutionContext,
             route::{RouteExecutionMode, build_execution_route_plan_for_grouped_plan},
@@ -20,7 +19,6 @@ use crate::{
         query::plan::grouped_executor_handoff,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 // Resolve grouped handoff/route metadata into one grouped route-stage payload.
@@ -111,18 +109,4 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             execution_trace,
         ),
     })
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Resolve grouped handoff/route metadata into one grouped route-stage payload.
-    pub(in crate::db::executor) fn resolve_grouped_route(
-        plan: PreparedLoadPlan,
-        cursor: GroupedPlannedCursor,
-        debug: bool,
-    ) -> Result<GroupedRouteStage, InternalError> {
-        resolve_grouped_route_for_plan(plan, cursor, debug)
-    }
 }

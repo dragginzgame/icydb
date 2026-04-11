@@ -1,7 +1,6 @@
 //! Module: types::nat::nat128
-//! Responsibility: module-local ownership and contracts for types::nat::nat128.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the fixed-width unsigned `u128` runtime wrapper used by typed values
+//! and numeric arithmetic helpers.
 
 use crate::{
     traits::{

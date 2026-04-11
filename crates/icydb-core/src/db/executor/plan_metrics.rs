@@ -5,7 +5,7 @@
 
 use crate::{
     db::access::AccessPlan,
-    db::executor::route::GroupedExecutionMode,
+    db::executor::planning::route::GroupedExecutionMode,
     metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
 };

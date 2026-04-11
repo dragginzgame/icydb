@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::set_access
-//! Responsibility: module-local ownership and contracts for set-based executor access paths.
+//! Covers set-based executor access paths and their result invariants.
 //! Does not own: unrelated executor orchestration outside set access.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

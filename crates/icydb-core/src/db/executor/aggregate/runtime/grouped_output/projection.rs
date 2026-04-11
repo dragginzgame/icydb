@@ -1,5 +1,6 @@
 //! Module: db::executor::aggregate::runtime::grouped_output::projection
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_output::projection.
+//! Defines grouped-output projection helpers used after grouped aggregate
+//! execution.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

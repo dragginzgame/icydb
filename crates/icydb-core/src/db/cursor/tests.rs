@@ -1,7 +1,6 @@
 //! Module: db::cursor::tests
-//! Responsibility: module-local ownership and contracts for db::cursor::tests.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Covers grouped cursor token validation, revalidation, and order-contract
+//! invariants.
 
 use crate::{
     db::{

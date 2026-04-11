@@ -1,8 +1,8 @@
 //! Module: traits
 //!
-//! Responsibility: module-local ownership and contracts for traits.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: core trait surface shared across values, entities, and visitors.
+//! Does not own: executor/runtime policy or public facade DTO behavior.
+//! Boundary: reusable domain contracts consumed throughout `icydb-core`.
 
 #[macro_use]
 mod macros;

@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::projection::covering
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::projection::covering.
+//! Defines covering-index helpers used by aggregate projection execution.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

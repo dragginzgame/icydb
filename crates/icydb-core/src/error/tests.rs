@@ -1,7 +1,6 @@
 //! Module: error::tests
-//! Responsibility: module-local ownership and contracts for error::tests.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Covers the error taxonomy mapping and constructor invariants defined by the
+//! core error surface.
 
 use super::*;
 use crate::db::{

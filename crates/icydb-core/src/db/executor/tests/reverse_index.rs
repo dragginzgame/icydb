@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::reverse_index
-//! Responsibility: module-local ownership and contracts for strong-relation delete validation and reverse-index recovery.
+//! Covers strong-relation delete validation and reverse-index recovery.
 //! Does not own: unrelated executor orchestration outside reverse-index state transitions.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

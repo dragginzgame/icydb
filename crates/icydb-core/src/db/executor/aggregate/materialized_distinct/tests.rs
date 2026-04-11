@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::materialized_distinct::tests
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::materialized_distinct::tests.
+//! Covers materialized-distinct aggregate behavior and deduplication rules.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

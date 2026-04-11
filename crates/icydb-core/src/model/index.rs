@@ -1,7 +1,7 @@
 //! Module: model::index
-//! Responsibility: module-local ownership and contracts for model::index.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: runtime index metadata and expression-key contracts.
+//! Does not own: index storage persistence or route-selection policy.
+//! Boundary: authoritative index-level runtime model consumed by planner and executor code.
 
 use crate::db::Predicate;
 use std::fmt::{self, Display};

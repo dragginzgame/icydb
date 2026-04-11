@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::stale_secondary
-//! Responsibility: module-local ownership and contracts for stale secondary-index handling.
+//! Covers stale secondary-index handling and recovery behavior.
 //! Does not own: unrelated executor behavior outside missing-row reconciliation.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

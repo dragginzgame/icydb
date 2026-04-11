@@ -1,7 +1,6 @@
 //! Module: types::blob
-//! Responsibility: module-local ownership and contracts for types::blob.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the semantic binary blob wrapper used by value conversion,
+//! validation, and typed field access.
 
 use crate::{
     traits::{

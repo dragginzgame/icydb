@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::aggregate_core
-//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate_core.
+//! Covers core aggregate execution behavior across scalar and grouped routes.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

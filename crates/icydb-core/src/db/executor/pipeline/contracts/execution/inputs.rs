@@ -1,5 +1,5 @@
 //! Module: db::executor::pipeline::contracts::inputs
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::inputs.
+//! Defines prepared execution inputs shared by scalar pipeline entrypoints.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

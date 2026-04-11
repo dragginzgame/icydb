@@ -21,10 +21,7 @@ pub const MAX_INDEX_NAME_LEN: usize =
 use crate::{build::BuildError, node::NodeError};
 use thiserror::Error as ThisError;
 
-//
-// Prelude
-//
-
+/// Shared schema-building prelude used by validators, macros, and tests.
 pub mod prelude {
     pub(crate) use crate::build::schema_read;
     pub use crate::{
@@ -38,10 +35,12 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
 }
 
-//
-// Error
-//
-
+///
+/// Error
+///
+/// Top-level schema error boundary spanning build-time validation and node
+/// lookup/type errors.
+///
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error(transparent)]

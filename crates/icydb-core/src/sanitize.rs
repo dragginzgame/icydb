@@ -1,8 +1,8 @@
 //! Module: sanitize
 //!
-//! Responsibility: module-local ownership and contracts for sanitize.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: top-level sanitize entrypoint over visitable trees.
+//! Does not own: visitor diagnostics or per-type sanitize implementations.
+//! Boundary: convenient crate-level sanitize surface that delegates to visitor traversal.
 
 use crate::{
     traits::Visitable,
@@ -13,6 +13,7 @@ use crate::{
 
 ///
 /// sanitize
+///
 /// Run the sanitizer visitor over a mutable visitable tree.
 ///
 /// Sanitization is total and non-failing. Any issues discovered during

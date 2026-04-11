@@ -1,7 +1,6 @@
 //! Module: db::predicate::capability
-//! Responsibility: module-local ownership and contracts for db::predicate::capability.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the predicate capability classifiers used to choose scalar,
+//! index-backed, or full-scan evaluation paths.
 
 use crate::{
     db::{

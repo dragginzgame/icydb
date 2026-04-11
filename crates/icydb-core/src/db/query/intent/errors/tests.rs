@@ -1,5 +1,5 @@
 //! Module: db::query::intent::errors::tests
-//! Responsibility: module-local ownership and contracts for db::query::intent::errors::tests.
+//! Covers query-intent error mapping and user-facing error classification.
 //! Does not own: production error behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

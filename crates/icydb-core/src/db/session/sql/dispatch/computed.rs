@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PersistedRow, QueryError,
+        DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
         session::sql::SqlDispatchResult,
         session::sql::computed_projection,
@@ -16,30 +16,13 @@ use crate::{
         },
         sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlStatement},
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
 };
 
 impl<C: CanisterKind> DbSession<C> {
-    // Execute one supported computed SQL projection through the existing
-    // structural field-loading lane and apply the narrow transform bundle at
-    // the session boundary.
-    pub(in crate::db::session::sql::dispatch) fn execute_computed_sql_projection_dispatch<E>(
-        &self,
-        plan: computed_projection::SqlComputedProjectionPlan,
-    ) -> Result<SqlDispatchResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.execute_computed_sql_projection_dispatch_for_authority(
-            plan,
-            EntityAuthority::for_type::<E>(),
-        )
-    }
-
     // Execute one supported computed SQL projection for one already-resolved
-    // dynamic authority. The generated canister SQL surface uses this lane so
-    // it can keep authority lookup dynamic without falling behind typed
-    // dispatch on computed text projection support.
+    // dynamic authority so both typed and generated SQL dispatch stay on the
+    // same computed-projection execution path.
     pub(in crate::db::session::sql::dispatch) fn execute_computed_sql_projection_dispatch_for_authority(
         &self,
         plan: computed_projection::SqlComputedProjectionPlan,
@@ -74,26 +57,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(projected.into_dispatch_result())
     }
 
-    // Render one supported computed SQL projection through the existing shared
-    // EXPLAIN machinery by rewriting the narrowed session-owned lane back onto
-    // its base field-only SELECT authority.
-    pub(in crate::db::session::sql::dispatch) fn explain_computed_sql_projection_dispatch<E>(
-        &self,
-        mode: SqlExplainMode,
-        plan: computed_projection::SqlComputedProjectionPlan,
-    ) -> Result<String, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.explain_computed_sql_projection_dispatch_for_authority(
-            mode,
-            plan,
-            EntityAuthority::for_type::<E>(),
-        )
-    }
-
     // Render one supported computed SQL projection explain for one already-
-    // resolved dynamic authority on the generated canister SQL surface.
+    // resolved dynamic authority so both typed and generated EXPLAIN dispatch
+    // stay on the same computed-projection explain path.
     pub(in crate::db::session::sql::dispatch) fn explain_computed_sql_projection_dispatch_for_authority(
         &self,
         mode: SqlExplainMode,

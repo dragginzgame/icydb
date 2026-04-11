@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::runtime::grouped_fold::engine_init
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_fold::engine_init.
+//! Initializes grouped-fold runtime engines from grouped execution contracts.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -3,6 +3,9 @@ use crate::prelude::*;
 ///
 /// List
 ///
+/// Schema node describing a list collection with one item descriptor and one
+/// canonical runtime type.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct List {

@@ -1,7 +1,6 @@
 //! Module: types::duration
-//! Responsibility: module-local ownership and contracts for types::duration.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the millisecond-native duration type used alongside timestamps and
+//! numeric value conversion.
 
 use crate::{
     traits::{

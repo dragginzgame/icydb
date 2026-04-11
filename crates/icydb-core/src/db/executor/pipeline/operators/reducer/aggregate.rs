@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::operators::reducer::aggregate
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::operators::reducer::aggregate.
+//! Defines aggregate reducer operators used by grouped and scalar reduction
+//! paths.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

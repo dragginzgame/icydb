@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::contracts::grouped::route_stage::projection
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::grouped::route_stage::projection.
+//! Defines grouped route-stage projection contracts used before grouped output
+//! shaping.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

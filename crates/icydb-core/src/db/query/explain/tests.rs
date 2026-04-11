@@ -1,5 +1,6 @@
 //! Module: db::query::explain::tests
-//! Responsibility: module-local ownership and contracts for db::query::explain::tests.
+//! Covers EXPLAIN node ownership and descriptor-shaping invariants for the
+//! query layer.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

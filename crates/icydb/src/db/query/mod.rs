@@ -1,3 +1,8 @@
+//! Public facade query surface.
+//!
+//! Re-exports the typed query builders, semantic query types, and facade-only
+//! helper modules used by downstream canister code.
+
 pub mod expr;
 
 pub use expr::{FilterExpr, OrderDirection, SortExpr};
@@ -7,7 +12,7 @@ pub use icydb_core::db::{
     last, max, max_by, min, min_by, sum,
 };
 
-/// Field-reference helpers exposed by the facade query API.
+/// Field-reference and aggregate helpers exposed by the facade query API.
 pub mod builder {
     pub use icydb_core::db::{
         AggregateExpr, FieldRef, avg, count, count_by, exists, first, last, max, max_by, min,

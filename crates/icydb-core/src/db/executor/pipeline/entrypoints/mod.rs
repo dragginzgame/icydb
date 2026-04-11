@@ -23,14 +23,13 @@ use crate::{
         PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ExecutablePlan, ExecutionTrace, LoadCursorInput, LoadCursorResolver,
-            PreparedLoadCursor, PreparedLoadPlan,
+            ExecutablePlan, ExecutionTrace, LoadCursorInput,
             pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         },
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
@@ -73,21 +72,6 @@ where
         plan,
         projection_runtime_mode,
     )
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Keep continuation-resolution authority in the entrypoint root module.
-    // Leaf modules consume prepared cursor contracts only.
-    pub(in crate::db::executor::pipeline) fn resolve_entrypoint_cursor(
-        plan: &PreparedLoadPlan,
-        cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
-    ) -> Result<PreparedLoadCursor, InternalError> {
-        LoadCursorResolver::resolve_load_cursor_context(plan, cursor, execution_mode)
-    }
 }
 
 impl<E> LoadExecutor<E>

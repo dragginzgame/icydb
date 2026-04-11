@@ -1,5 +1,6 @@
 //! Module: db::executor::scan::fast_stream_route::handlers
-//! Responsibility: module-local ownership and contracts for db::executor::scan::fast_stream_route::handlers.
+//! Defines handler helpers for fast-stream route scans over ordered access
+//! paths.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 // Invariant audit note:

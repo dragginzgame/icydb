@@ -1,7 +1,6 @@
 //! Module: types::timestamp
-//! Responsibility: module-local ownership and contracts for types::timestamp.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the millisecond-native timestamp type used by typed values,
+//! arithmetic with durations, and RFC3339 wire conversion.
 
 use crate::{
     traits::{

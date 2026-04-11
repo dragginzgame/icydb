@@ -18,7 +18,9 @@ use icydb_core as core;
 ///
 /// SessionDeleteQuery
 ///
-/// Session-bound fluent wrapper for delete queries.
+/// Session-bound fluent wrapper for typed delete queries.
+/// This facade keeps delete query shaping and execution on the public
+/// `icydb` surface while delegating planning and enforcement to `icydb-core`.
 ///
 
 pub struct SessionDeleteQuery<'a, E: PersistedRow> {

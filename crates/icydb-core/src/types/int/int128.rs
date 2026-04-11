@@ -1,7 +1,6 @@
 //! Module: types::int::int128
-//! Responsibility: module-local ownership and contracts for types::int::int128.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the fixed-width signed `i128` runtime wrapper used by typed values
+//! and numeric arithmetic helpers.
 
 use crate::{
     prelude::*,

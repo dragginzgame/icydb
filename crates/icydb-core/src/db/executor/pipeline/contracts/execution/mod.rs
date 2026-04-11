@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::contracts::execution
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::execution.
+//! Re-exports the execution contracts shared by scalar pipeline preparation
+//! and runtime.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

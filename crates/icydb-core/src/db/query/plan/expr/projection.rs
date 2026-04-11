@@ -1,7 +1,6 @@
 //! Module: db::query::plan::expr::projection
-//! Responsibility: module-local ownership and contracts for db::query::plan::expr::projection.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the planner-owned projection selection and projection field shapes
+//! that flow into structural execution.
 
 use crate::{
     db::query::plan::expr::ast::{Alias, Expr, FieldId},

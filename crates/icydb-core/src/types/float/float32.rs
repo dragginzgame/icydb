@@ -1,7 +1,6 @@
 //! Module: types::float::float32
-//! Responsibility: module-local ownership and contracts for types::float::float32.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the finite `f32` wrapper used by value conversion, comparison, and
+//! visitor-driven validation.
 
 use crate::{
     prelude::*,

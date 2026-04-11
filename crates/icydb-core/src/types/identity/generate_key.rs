@@ -1,7 +1,6 @@
 //! Module: types::identity::generate_key
-//! Responsibility: module-local ownership and contracts for types::identity::generate_key.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the marker trait for primary-key types that can be generated
+//! locally by runtime code.
 
 ///
 /// GenerateKey

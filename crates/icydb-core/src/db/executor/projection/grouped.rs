@@ -1,7 +1,6 @@
 //! Module: db::executor::projection::grouped
-//! Responsibility: module-local ownership and contracts for db::executor::projection::grouped.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines grouped-row projection evaluation over finalized group keys and
+//! aggregate outputs.
 
 #[cfg(test)]
 use crate::db::{

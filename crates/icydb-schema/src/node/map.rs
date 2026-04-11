@@ -3,6 +3,9 @@ use crate::prelude::*;
 ///
 /// Map
 ///
+/// Schema node describing a map collection with key/value descriptors and one
+/// canonical runtime type.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Map {

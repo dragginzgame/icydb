@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::post_access
-//! Responsibility: module-local ownership and contracts for post-access predicate filtering.
+//! Covers post-access predicate filtering and paging behavior.
 //! Does not own: unrelated executor orchestration outside post-access filtering.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

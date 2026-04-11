@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::ordering
-//! Responsibility: module-local ownership and contracts for executor ordering behavior.
+//! Covers executor ordering behavior across access paths and output modes.
 //! Does not own: pagination or snapshot serializer behavior outside row ordering.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

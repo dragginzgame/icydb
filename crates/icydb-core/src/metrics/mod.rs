@@ -1,13 +1,8 @@
 //! Module: metrics
 //!
-//! Responsibility: module-local ownership and contracts for metrics.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
-
-//! Observability: runtime telemetry (metrics) and sink abstractions.
-//!
-//! Storage inspection and execution diagnostics live in `db`.
-//! This module is intentionally metrics-focused.
+//! Responsibility: runtime telemetry sinks and report state.
+//! Does not own: executor diagnostics or storage inspection surfaces under `db`.
+//! Boundary: crate-level metrics reporting/reset surface.
 
 pub(crate) mod sink;
 mod state;

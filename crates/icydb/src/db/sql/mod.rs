@@ -1,8 +1,7 @@
-//! Module: db::sql
+//! Defines the public SQL text/result payload types exposed by the facade crate.
 //!
-//! Responsibility: SQL-surface text rendering helpers for canister/CLI-facing endpoints.
-//! Does not own: SQL parsing/lowering/execution semantics.
-//! Boundary: consumes executed SQL projection/explain outputs and renders stable text payloads.
+//! This module consumes already-executed SQL outputs and renders stable
+//! endpoint-friendly row payloads; parsing and execution stay in `icydb-core`.
 
 use candid::CandidType;
 use serde::Deserialize;

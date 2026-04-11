@@ -1,5 +1,6 @@
 //! Module: db::executor::terminal::tests
-//! Responsibility: module-local ownership and contracts for db::executor::terminal::tests.
+//! Covers terminal paging, shaping, and output invariants in executor
+//! materialization paths.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

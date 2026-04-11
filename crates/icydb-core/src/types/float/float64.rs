@@ -1,7 +1,6 @@
 //! Module: types::float::float64
-//! Responsibility: module-local ownership and contracts for types::float::float64.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the finite `f64` wrapper used by value conversion, comparison, and
+//! visitor-driven validation.
 
 use crate::{
     prelude::*,

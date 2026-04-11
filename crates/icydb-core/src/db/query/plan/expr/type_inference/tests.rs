@@ -1,5 +1,5 @@
 //! Module: db::query::plan::expr::type_inference::tests
-//! Responsibility: module-local ownership and contracts for db::query::plan::expr::type_inference::tests.
+//! Covers expression type inference behavior for planner-owned expressions.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

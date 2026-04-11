@@ -1,5 +1,5 @@
 //! Module: db::query::plan::tests::structural_guards
-//! Responsibility: module-local ownership and contracts for db::query::plan::tests::structural_guards.
+//! Covers structural guardrails enforced during query planning.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -4,6 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse_str;
 
+/// Render the generated store/session wiring for one canister actor.
 #[must_use]
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let mut tokens = quote!();
@@ -12,6 +13,7 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
     tokens
 }
 
+/// Emit the generated store definitions, runtime hooks, and session accessors.
 fn stores(builder: &ActorBuilder) -> TokenStream {
     let canister = &builder.canister;
     let canister_path: syn::Path = parse_str(&canister.def().path())
@@ -47,6 +49,7 @@ fn store_registry_tokens(builder: &ActorBuilder) -> (TokenStream, TokenStream, T
     (data_defs, index_defs, store_inits)
 }
 
+/// Render one store registry entry into data/index cells plus registration.
 fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
@@ -92,6 +95,7 @@ fn store_registry_entry_tokens(
     (data_def, index_def, store_init)
 }
 
+/// Assemble the outer canister store wiring around the generated registry.
 fn store_wiring_tokens(
     canister_path: &syn::Path,
     data_defs: TokenStream,
@@ -147,6 +151,7 @@ fn store_wiring_tokens(
     }
 }
 
+/// Emit the entity runtime hook table for all entities bound to this canister.
 fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
     let mut hook_inits = quote!();
     let entities = builder.get_entities();

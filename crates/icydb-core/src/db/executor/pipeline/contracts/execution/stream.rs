@@ -1,5 +1,5 @@
 //! Module: db::executor::pipeline::contracts::stream
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::stream.
+//! Defines execution-stream contracts shared by scalar pipeline traversal.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

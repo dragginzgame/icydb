@@ -4,7 +4,7 @@
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
 
 #[cfg(test)]
-use crate::db::executor::route::LoadTerminalFastPathContract;
+use crate::db::executor::planning::route::LoadTerminalFastPathContract;
 use crate::{
     db::{
         access::AccessPlan,
@@ -13,7 +13,7 @@ use crate::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::assemble_load_execution_node_descriptor, lower_index_prefix_specs,
-            lower_index_range_specs, preparation::slot_map_for_model_plan,
+            lower_index_range_specs, planning::preparation::slot_map_for_model_plan,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -670,7 +670,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             .order_contract()
             .direction();
         let load_terminal_fast_path =
-            crate::db::executor::route::derive_load_terminal_fast_path_contract_for_plan(
+            crate::db::executor::planning::route::derive_load_terminal_fast_path_contract_for_plan(
                 authority, plan,
             );
 

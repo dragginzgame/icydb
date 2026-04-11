@@ -8,10 +8,10 @@ use crate::{
     db::{
         executor::{
             ExecutionPreparation,
-            preparation::slot_map_for_model_plan,
+            planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
-                ExecutionRoutePlan, ExecutionRouteShape, LoadTerminalFastPathContract,
-                TopNSeekSpec, build_execution_route_plan_for_grouped_plan,
+                ExecutionRoutePlan, LoadTerminalFastPathContract, TopNSeekSpec,
+                build_execution_route_plan_for_grouped_plan,
                 build_initial_execution_route_plan_for_load_with_fast_path,
             },
         },
@@ -72,13 +72,12 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
-    let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible =
         covering_strict_predicate_compatible(plan, predicate_index_capability);
-    let execution_mode = explain_execution_mode(route_shape);
+    let execution_mode = explain_execution_mode(route_plan);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
 
     // Phase 2: derive one canonical access projection and reuse it across
@@ -131,7 +130,6 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
         plan,
         route_plan,
         execution_mode,
-        route_shape,
         load_terminal_fast_path,
     ));
 
@@ -142,7 +140,6 @@ fn load_modifier_execution_nodes(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
-    route_shape: ExecutionRouteShape,
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
     let mut nodes = Vec::new();
@@ -163,7 +160,7 @@ fn load_modifier_execution_nodes(
     // distinct strategy, and continuation state.
     if let Some(node) = order_by_execution_node_descriptor(
         plan.scalar_plan().order.is_some(),
-        route_shape,
+        route_plan,
         execution_mode,
     ) {
         nodes.push(node);
@@ -240,7 +237,7 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
-        route_diagnostic_line_debug("execution_mode", &route_plan.shape().execution_mode()),
+        route_diagnostic_line_debug("execution_mode", &route_plan.execution_mode()),
         route_diagnostic_line_bool(
             "continuation_applied",
             route_plan.continuation().capabilities().applied(),
@@ -491,10 +488,10 @@ fn grouped_aggregate_execution_node_descriptor(
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let grouped_observability = route_plan.grouped_observability()?;
     let node_type = match grouped_observability.grouped_execution_mode() {
-        crate::db::executor::route::GroupedExecutionMode::HashMaterialized => {
+        GroupedExecutionMode::HashMaterialized => {
             ExplainExecutionNodeType::GroupedAggregateHashMaterialized
         }
-        crate::db::executor::route::GroupedExecutionMode::OrderedMaterialized => {
+        GroupedExecutionMode::OrderedMaterialized => {
             ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
         }
     };

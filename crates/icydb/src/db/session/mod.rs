@@ -60,8 +60,6 @@ impl MutationMode {
 ///
 /// UpdatePatch
 ///
-/// UpdatePatch
-///
 /// Public structural mutation patch builder.
 /// Callers address fields by model field name and provide runtime `Value`
 /// payloads; validation remains model-owned and occurs both at patch
@@ -130,8 +128,10 @@ impl SqlParsedStatement {
 ///
 /// DbSession
 ///
-/// Public facade for session-scoped query execution and policy.
-/// Wraps the core session and converts core errors into `icydb::Error`.
+/// Public facade for session-scoped query execution, SQL dispatch, and
+/// structural mutation policy.
+/// Wraps the core session and converts core results and errors into the
+/// outward-facing `icydb` response surface.
 ///
 
 pub struct DbSession<C: CanisterKind> {

@@ -15,9 +15,9 @@ use crate::{
                 ExplainOrderBy, ExplainPagination, ExplainPlan,
             },
             fingerprint::aggregate_hash::{
-                AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
+                AggregateHashShape, hash_group_aggregate_structural_fingerprint,
             },
-            fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
+            fingerprint::projection_hash::hash_projection_structural_fingerprint,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupAggregateSpec,
                 GroupHavingSymbol, OrderDirection, OrderSpec, PageSpec, QueryMode,
@@ -81,15 +81,15 @@ const OPTIONAL_VALUE_PRESENT_TAG: u8 = 0x01;
 const ORDER_DIRECTION_ASC_TAG: u8 = 0x01;
 const ORDER_DIRECTION_DESC_TAG: u8 = 0x02;
 
-const FINGERPRINT_V1_SECTION_ACCESS_TAG: u8 = 0x01;
-const FINGERPRINT_V1_SECTION_PREDICATE_TAG: u8 = 0x02;
-const FINGERPRINT_V1_SECTION_ORDER_TAG: u8 = 0x03;
-const FINGERPRINT_V1_SECTION_DISTINCT_TAG: u8 = 0x04;
-const FINGERPRINT_V1_SECTION_PAGE_TAG: u8 = 0x05;
-const FINGERPRINT_V1_SECTION_DELETE_LIMIT_TAG: u8 = 0x06;
-const FINGERPRINT_V1_SECTION_CONSISTENCY_TAG: u8 = 0x07;
-const FINGERPRINT_V1_SECTION_MODE_TAG: u8 = 0x08;
-const FINGERPRINT_V1_SECTION_PROJECTION_SPEC_TAG: u8 = 0x09;
+const FINGERPRINT_SECTION_ACCESS_TAG: u8 = 0x01;
+const FINGERPRINT_SECTION_PREDICATE_TAG: u8 = 0x02;
+const FINGERPRINT_SECTION_ORDER_TAG: u8 = 0x03;
+const FINGERPRINT_SECTION_DISTINCT_TAG: u8 = 0x04;
+const FINGERPRINT_SECTION_PAGE_TAG: u8 = 0x05;
+const FINGERPRINT_SECTION_DELETE_LIMIT_TAG: u8 = 0x06;
+const FINGERPRINT_SECTION_CONSISTENCY_TAG: u8 = 0x07;
+const FINGERPRINT_SECTION_MODE_TAG: u8 = 0x08;
+const FINGERPRINT_SECTION_PROJECTION_SPEC_TAG: u8 = 0x09;
 
 const CONTINUATION_SECTION_ENTITY_PATH_TAG: u8 = 0x01;
 const CONTINUATION_SECTION_MODE_TAG: u8 = 0x02;
@@ -447,7 +447,7 @@ const fn order_direction_tag(direction: OrderDirection) -> u8 {
 ///
 
 pub(in crate::db::query) enum ExplainHashProfile<'a> {
-    FingerprintV1,
+    Fingerprint,
     Continuation { entity_path: &'a str },
 }
 
@@ -477,41 +477,41 @@ struct ExplainHashProfileSpec<'a> {
     steps: &'static [ExplainHashStep],
 }
 
-const FINGERPRINT_V1_STEPS: [ExplainHashStep; 9] = [
+const FINGERPRINT_STEPS: [ExplainHashStep; 9] = [
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_ACCESS_TAG,
+        section_tag: FINGERPRINT_SECTION_ACCESS_TAG,
         field: ExplainHashField::Access,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_PREDICATE_TAG,
+        section_tag: FINGERPRINT_SECTION_PREDICATE_TAG,
         field: ExplainHashField::Predicate,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_ORDER_TAG,
+        section_tag: FINGERPRINT_SECTION_ORDER_TAG,
         field: ExplainHashField::Order,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_DISTINCT_TAG,
+        section_tag: FINGERPRINT_SECTION_DISTINCT_TAG,
         field: ExplainHashField::Distinct,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_PAGE_TAG,
+        section_tag: FINGERPRINT_SECTION_PAGE_TAG,
         field: ExplainHashField::Page,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_DELETE_LIMIT_TAG,
+        section_tag: FINGERPRINT_SECTION_DELETE_LIMIT_TAG,
         field: ExplainHashField::DeleteLimit,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_CONSISTENCY_TAG,
+        section_tag: FINGERPRINT_SECTION_CONSISTENCY_TAG,
         field: ExplainHashField::Consistency,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_MODE_TAG,
+        section_tag: FINGERPRINT_SECTION_MODE_TAG,
         field: ExplainHashField::Mode,
     },
     ExplainHashStep {
-        section_tag: FINGERPRINT_V1_SECTION_PROJECTION_SPEC_TAG,
+        section_tag: FINGERPRINT_SECTION_PROJECTION_SPEC_TAG,
         field: ExplainHashField::ProjectionSpec,
     },
 ];
@@ -554,9 +554,9 @@ const CONTINUATION_STEPS: [ExplainHashStep; 8] = [
 impl<'a> ExplainHashProfile<'a> {
     const fn spec(self) -> ExplainHashProfileSpec<'a> {
         match self {
-            Self::FingerprintV1 => ExplainHashProfileSpec {
+            Self::Fingerprint => ExplainHashProfileSpec {
                 entity_path: None,
-                steps: &FINGERPRINT_V1_STEPS,
+                steps: &FINGERPRINT_STEPS,
             },
             Self::Continuation { entity_path } => ExplainHashProfileSpec {
                 entity_path: Some(entity_path),
@@ -959,7 +959,7 @@ fn hash_projection_spec_v1(
     // Explain-only hashing callsites may not have planner projection semantics.
     // In that case, preserve grouped-shape identity semantics.
     if let Some(projection) = projection {
-        hash_projection_structural_fingerprint_v1(hasher, projection);
+        hash_projection_structural_fingerprint(hasher, projection);
         return;
     }
 
@@ -973,7 +973,7 @@ fn hash_projection_spec_v1_for_plan(
     include_group_strategy: bool,
 ) {
     if let Some(projection) = projection {
-        hash_projection_structural_fingerprint_v1(hasher, projection);
+        hash_projection_structural_fingerprint(hasher, projection);
         return;
     }
 
@@ -1040,7 +1040,7 @@ where
 {
     write_u32(hasher, aggregate_count as u32);
     for aggregate in aggregates {
-        hash_group_aggregate_structural_fingerprint_v1(hasher, &aggregate);
+        hash_group_aggregate_structural_fingerprint(hasher, &aggregate);
     }
 }
 
@@ -1114,17 +1114,17 @@ fn hash_group_having_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_V1_STEPS};
+    use super::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_STEPS};
 
     #[test]
     fn fingerprint_v1_profile_excludes_grouping_shape_field() {
-        let has_grouping_shape = FINGERPRINT_V1_STEPS
+        let has_grouping_shape = FINGERPRINT_STEPS
             .iter()
             .any(|step| step.field == ExplainHashField::GroupingShape);
 
         assert!(
             !has_grouping_shape,
-            "FingerprintV1 must remain semantic and exclude grouped strategy/handoff metadata fields",
+            "Fingerprint must remain semantic and exclude grouped strategy/handoff metadata fields",
         );
     }
 
@@ -1142,14 +1142,14 @@ mod tests {
 
     #[test]
     fn fingerprint_v1_profile_projection_slot_is_stable() {
-        let projection_slots = FINGERPRINT_V1_STEPS
+        let projection_slots = FINGERPRINT_STEPS
             .iter()
             .filter(|step| step.field == ExplainHashField::ProjectionSpec)
             .count();
 
         assert_eq!(
             projection_slots, 1,
-            "FingerprintV1 must keep exactly one projection-semantic hash slot",
+            "Fingerprint must keep exactly one projection-semantic hash slot",
         );
     }
 

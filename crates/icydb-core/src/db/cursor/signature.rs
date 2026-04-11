@@ -1,7 +1,7 @@
 //! Module: db::cursor::signature
-//! Responsibility: module-local ownership and contracts for db::cursor::signature.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: deterministic continuation signature payload ownership.
+//! Does not own: cursor wire encoding or continuation validation policy.
+//! Boundary: carries the fixed-width semantic signature used by cursor checks.
 
 ///
 /// ContinuationSignature

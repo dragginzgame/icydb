@@ -6,10 +6,11 @@
 use crate::db::{
     predicate::Predicate,
     query::{
-        intent::KeyAccessState,
+        intent::{KeyAccessState, build_access_plan_from_keys},
         plan::{
-            DeleteSpec, GroupHavingSpec, GroupSpec, GroupedExecutionConfig, LoadSpec, OrderSpec,
-            QueryMode, expr::ProjectionSelection, has_explicit_order,
+            AccessPlanningInputs, DeleteSpec, GroupHavingSpec, GroupSpec, GroupedExecutionConfig,
+            LoadSpec, LogicalPlanningInputs, OrderSpec, QueryMode, expr::ProjectionSelection,
+            has_explicit_order,
         },
     },
 };
@@ -316,6 +317,41 @@ impl<K> QueryIntent<K> {
         if let Self::Delete(delete) = self {
             delete.policy.grouping_requested = true;
         }
+    }
+
+    /// Project logical-planning inputs from intent-owned query state.
+    #[must_use]
+    pub(in crate::db::query::intent) fn planning_logical_inputs(&self) -> LogicalPlanningInputs {
+        let (group, having) = match self.grouped() {
+            Some(grouped) => (Some(grouped.group.clone()), grouped.having.clone()),
+            None => (None, None),
+        };
+
+        LogicalPlanningInputs::new(
+            self.mode(),
+            self.scalar().order.clone(),
+            self.scalar().distinct,
+            group,
+            having,
+        )
+    }
+}
+
+impl<K: crate::traits::FieldValue> QueryIntent<K> {
+    /// Project access-planning inputs from intent-owned scalar state.
+    #[must_use]
+    pub(in crate::db::query::intent) fn planning_access_inputs(&self) -> AccessPlanningInputs<'_> {
+        let scalar = self.scalar();
+        let key_access_override = scalar
+            .key_access
+            .as_ref()
+            .map(|state| build_access_plan_from_keys(&state.access));
+
+        AccessPlanningInputs::new(
+            scalar.predicate.as_ref(),
+            scalar.order.as_ref(),
+            key_access_override,
+        )
     }
 }
 

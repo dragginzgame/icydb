@@ -9,7 +9,7 @@ use crate::db::query::{
 };
 use sha2::Sha256;
 
-const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
+const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
 
 const AGGREGATE_TARGET_ABSENT_TAG: u8 = 0x00;
 const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
@@ -53,19 +53,19 @@ impl<'a> AggregateHashShape<'a> {
     }
 }
 
-// Hash one grouped aggregate semantic shape using the v1 structural encoding.
-pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
+// Hash one grouped aggregate semantic shape using the current structural encoding.
+pub(super) fn hash_group_aggregate_structural_fingerprint(
     hasher: &mut Sha256,
     shape: &AggregateHashShape<'_>,
 ) {
-    // v1 grouped aggregate fingerprint includes exactly:
+    // The grouped aggregate fingerprint includes exactly:
     // - aggregate kind discriminant
     // - optional target field
     // - distinct modifier flag
     //
     // Aggregate fingerprint identity must remain purely semantic.
-    write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
-    write_tag(hasher, aggregate_kind_tag_v1(shape.kind));
+    write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_TAG);
+    write_tag(hasher, aggregate_kind_tag(shape.kind));
     match shape.target_field {
         Some(field) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
@@ -83,7 +83,7 @@ pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
     );
 }
 
-const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
+const fn aggregate_kind_tag(kind: AggregateKind) -> u8 {
     match kind {
         AggregateKind::Count => AGGREGATE_KIND_COUNT_TAG,
         AggregateKind::Sum => AGGREGATE_KIND_SUM_TAG,
@@ -105,7 +105,7 @@ mod tests {
     use crate::db::query::{
         builder::count_by,
         fingerprint::aggregate_hash::{
-            AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
+            AggregateHashShape, hash_group_aggregate_structural_fingerprint,
         },
         plan::{AggregateKind, GroupAggregateSpec},
     };
@@ -138,7 +138,7 @@ mod tests {
     fn hash_shapes(shapes: &[AggregateHashShape<'_>]) -> [u8; 32] {
         let mut hasher = crate::db::codec::new_hash_sha256();
         for shape in shapes {
-            hash_group_aggregate_structural_fingerprint_v1(&mut hasher, shape);
+            hash_group_aggregate_structural_fingerprint(&mut hasher, shape);
         }
         super::super::finalize_sha256_digest(hasher)
     }
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn aggregate_hash_encoder_signature_accepts_semantic_shape_only() {
         let hash: fn(&mut Sha256, &AggregateHashShape<'static>) =
-            hash_group_aggregate_structural_fingerprint_v1;
+            hash_group_aggregate_structural_fingerprint;
 
         let _ = hash;
     }

@@ -1,7 +1,7 @@
 //! Module: db::executor::pipeline::entrypoints::scalar::hints
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::entrypoints::scalar::hints.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: route-plan hint adjustments for unpaged scalar execution.
+//! Does not own: route selection or scalar kernel execution itself.
+//! Boundary: mutates scan hints after route planning and before scalar execution.
 
 use crate::db::executor::{ExecutionPlan, ResolvedScalarContinuationContext};
 
@@ -30,7 +30,7 @@ impl UnpagedLoadHintStrategy {
         }
 
         if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
-            if !route_plan.shape().is_streaming()
+            if !route_plan.is_streaming()
                 || !route_plan
                     .load_order_route_contract()
                     .allows_streaming_load()

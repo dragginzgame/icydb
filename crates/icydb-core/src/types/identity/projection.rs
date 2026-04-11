@@ -1,7 +1,6 @@
 //! Module: types::identity::projection
-//! Responsibility: module-local ownership and contracts for types::identity::projection.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the deterministic one-way public identity projection derived from
+//! canonical entity key bytes.
 
 //! One-way identity projection for external systems.
 //!

@@ -4,31 +4,38 @@
 //! Boundary: executes scalar planned routes through load kernels and continuation inputs.
 
 mod hints;
-mod surface;
 
 use crate::{
     db::{
-        Db,
+        Db, PersistedRow,
         access::single_path_capabilities,
         cursor::PlannedCursor,
         direction::Direction,
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
-            ExecutionPreparation, ExecutionTrace, ExecutorPlanError, PreparedLoadPlan,
-            ResolvedScalarContinuationContext, StoreResolver, TraversalRuntime,
+            ExecutionPreparation, ExecutionTrace, ExecutorPlanError, LoadCursorInput,
+            PreparedLoadPlan, ResolvedScalarContinuationContext, StoreResolver, TraversalRuntime,
             aggregate::runtime::finalize_path_outcome_for_path,
-            continuation::ScalarContinuationContext,
             pipeline::contracts::{
-                CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
+                CoveringComponentScanState, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
                 ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
                 MaterializedExecutionPayload, PreparedExecutionProjection,
                 ProjectionMaterializationMode, StructuralCursorPage,
             },
+            pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+            pipeline::orchestrator::LoadExecutionSurface,
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
-            preparation::slot_map_for_model_plan,
+            planning::{
+                continuation::ScalarContinuationContext,
+                preparation::slot_map_for_model_plan,
+                route::{
+                    build_execution_route_plan_for_load,
+                    build_initial_execution_route_plan_for_load,
+                },
+            },
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
@@ -186,6 +193,42 @@ impl PreparedScalarMaterializedBoundary<'_> {
                 OrderDirection::Asc => Direction::Asc,
                 OrderDirection::Desc => Direction::Desc,
             })
+    }
+}
+
+impl<E> LoadExecutor<E>
+where
+    E: PersistedRow + EntityValue,
+{
+    // Execute one traced paged scalar load and materialize traced page output.
+    pub(in crate::db::executor) fn execute_load_scalar_page_with_trace(
+        &self,
+        plan: PreparedLoadPlan,
+        cursor: LoadCursorInput,
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        let surface = self.execute_load_surface(
+            plan,
+            cursor,
+            LoadExecutionMode::scalar_paged(LoadTracingMode::Enabled),
+        )?;
+
+        Self::expect_scalar_traced_surface(surface)
+    }
+
+    // Project one traced paged scalar load surface and classify shape mismatches.
+    fn expect_scalar_traced_surface(
+        surface: LoadExecutionSurface,
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        match surface {
+            LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
+                Ok((page.into_cursor_page::<E>()?, trace))
+            }
+            LoadExecutionSurface::GroupedPageWithTrace(..) => {
+                Err(InternalError::query_executor_invariant(
+                    "scalar traced entrypoint must produce scalar traced page surface",
+                ))
+            }
+        }
     }
 }
 
@@ -364,7 +407,7 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan = crate::db::executor::route::build_execution_route_plan_for_load(
+    let route_plan = build_execution_route_plan_for_load(
         authority,
         &logical_plan,
         resolved_continuation.route_context(),
@@ -419,11 +462,7 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
-        authority,
-        &logical_plan,
-        None,
-    )?;
+    let route_plan = build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
     let slot_map = slot_map_for_model_plan(&logical_plan);
     let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
@@ -508,9 +547,7 @@ where
     // boundary.
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
-        authority, &plan, None,
-    )?;
+    let route_plan = build_initial_execution_route_plan_for_load(authority, &plan, None)?;
     let slot_map = slot_map_for_model_plan(&plan);
     let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
@@ -594,9 +631,7 @@ where
     // Phase 1: resolve structural store authority and execution preparation once.
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
-        authority, &plan, None,
-    )?;
+    let route_plan = build_initial_execution_route_plan_for_load(authority, &plan, None)?;
     let slot_map = slot_map_for_model_plan(&plan);
     let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
     let prepared_projection = PreparedExecutionProjection::compile(
@@ -737,11 +772,8 @@ where
         store,
         authority,
     );
-    let mut route_plan = crate::db::executor::route::build_initial_execution_route_plan_for_load(
-        authority,
-        &logical_plan,
-        None,
-    )?;
+    let mut route_plan =
+        build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
 
     // Phase 2: shared materialized scalar boundaries suppress routed scan
     // hints so route-owned ordered streaming contracts cannot leak back in as

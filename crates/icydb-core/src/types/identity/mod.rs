@@ -1,7 +1,6 @@
 //! Module: types::identity
-//! Responsibility: module-local ownership and contracts for types::identity.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Re-exports the typed identity primitives used for entity keys, runtime tags,
+//! generated keys, and public projections.
 
 mod entity_tag;
 mod generate_key;

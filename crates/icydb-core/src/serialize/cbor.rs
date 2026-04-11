@@ -1,7 +1,7 @@
 //! Module: serialize::cbor
-//! Responsibility: module-local ownership and contracts for serialize::cbor.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: CBOR-specific encode/decode and size-counting helpers.
+//! Does not own: db payload policy or error taxonomy above `SerializeError`.
+//! Boundary: private CBOR backend for the generic serialize module.
 
 use crate::serialize::SerializeError;
 use serde::{Serialize, de::DeserializeOwned};

@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::contracts::post_access
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::post_access.
+//! Defines post-access pipeline contracts shared by load, delete, and grouped
+//! execution flows.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

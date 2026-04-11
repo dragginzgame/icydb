@@ -1,7 +1,6 @@
 //! Module: types::subaccount
-//! Responsibility: module-local ownership and contracts for types::subaccount.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the fixed-width subaccount value used by account identifiers, typed
+//! values, and deterministic key generation.
 
 use crate::{
     traits::{

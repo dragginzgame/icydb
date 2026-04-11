@@ -1,7 +1,7 @@
 //! Module: db::direction
-//! Responsibility: module-local ownership and contracts for db::direction.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: canonical traversal direction shared across db subsystems.
+//! Does not own: order-by planning semantics or cursor policy.
+//! Boundary: stable ascending/descending contract for planning and execution.
 
 use serde::{Deserialize, Serialize};
 

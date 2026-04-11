@@ -1,7 +1,7 @@
 //! Module: traits::visitor
-//! Responsibility: module-local ownership and contracts for traits::visitor.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: visitable-node traits and default container traversal wiring.
+//! Does not own: concrete sanitize/validate visitor implementations.
+//! Boundary: structural traversal contract implemented by domain types.
 
 use crate::visitor::{
     PathSegment, VisitorContext, VisitorCore, VisitorMutCore, perform_visit, perform_visit_mut,

@@ -1,8 +1,8 @@
 //! Module: types
 //!
-//! Responsibility: module-local ownership and contracts for types.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: core scalar and identity type surface for the engine.
+//! Does not own: dynamic `Value` semantics or schema planning policy.
+//! Boundary: stable primitive/newtype domain layer reused across subsystems.
 
 mod account;
 mod blob;

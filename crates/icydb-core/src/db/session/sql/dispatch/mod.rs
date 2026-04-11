@@ -26,7 +26,7 @@ use crate::{
             },
         },
         sql::lowering::{
-            LoweredSqlQuery, bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
+            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlQuery, bind_lowered_sql_query,
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlProjection, SqlSelectItem, SqlStatement,
@@ -328,6 +328,112 @@ impl<C: CanisterKind> DbSession<C> {
         .into_dispatch_result())
     }
 
+    // Lower one parsed SQL query/explain route once for one resolved authority
+    // and preserve grouped-column metadata for grouped SELECT dispatch.
+    fn lowered_sql_query_dispatch_inputs_for_authority(
+        parsed: &SqlParsedStatement,
+        authority: EntityAuthority,
+        unsupported_message: &'static str,
+    ) -> Result<(LoweredSqlQuery, Option<Vec<String>>), QueryError> {
+        let lowered = parsed.lower_query_lane_for_entity(
+            authority.model().name(),
+            authority.model().primary_key.name,
+        )?;
+        let grouped_columns = lowered
+            .query()
+            .filter(|query| query.has_grouping())
+            .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
+            .transpose()?;
+        let query = lowered
+            .into_query()
+            .ok_or_else(|| QueryError::unsupported_query(unsupported_message))?;
+
+        Ok((query, grouped_columns))
+    }
+
+    // Execute one parsed SQL query route through the shared aggregate,
+    // computed-projection, and lowered query lane so typed and generated
+    // dispatch only differ at the final SELECT/DELETE packaging boundary.
+    fn dispatch_sql_query_route_for_authority(
+        &self,
+        parsed: &SqlParsedStatement,
+        authority: EntityAuthority,
+        unsupported_message: &'static str,
+        dispatch_select: impl FnOnce(
+            &Self,
+            LoweredSelectShape,
+            EntityAuthority,
+            Option<Vec<String>>,
+        ) -> Result<SqlDispatchResult, QueryError>,
+        dispatch_delete: impl FnOnce(
+            &Self,
+            LoweredBaseQueryShape,
+            EntityAuthority,
+        ) -> Result<SqlDispatchResult, QueryError>,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        // Phase 1: keep aggregate and computed projection classification on the
+        // shared parsed route so both dispatch surfaces honor the same lane split.
+        if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
+            let command =
+                Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
+
+            return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
+        }
+
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+            return self.execute_computed_sql_projection_dispatch_for_authority(plan, authority);
+        }
+
+        // Phase 2: lower the remaining query route once, then let the caller
+        // decide only the final outward result packaging.
+        let (query, grouped_columns) = Self::lowered_sql_query_dispatch_inputs_for_authority(
+            parsed,
+            authority,
+            unsupported_message,
+        )?;
+
+        match query {
+            LoweredSqlQuery::Select(select) => {
+                dispatch_select(self, select, authority, grouped_columns)
+            }
+            LoweredSqlQuery::Delete(delete) => dispatch_delete(self, delete, authority),
+        }
+    }
+
+    // Execute one parsed SQL EXPLAIN route through the shared computed-
+    // projection and lowered explain lanes so typed and generated dispatch do
+    // not duplicate the same explain classification tree.
+    fn dispatch_sql_explain_route_for_authority(
+        &self,
+        parsed: &SqlParsedStatement,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        // Phase 1: keep computed-projection explain ownership on the same
+        // parsed route boundary as the shared query lane.
+        if let Some((mode, plan)) =
+            computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
+        {
+            return self
+                .explain_computed_sql_projection_dispatch_for_authority(mode, plan, authority)
+                .map(SqlDispatchResult::Explain);
+        }
+
+        // Phase 2: lower once for execution/logical explain and preserve the
+        // shared execution-first fallback policy across both callers.
+        let lowered = parsed.lower_query_lane_for_entity(
+            authority.model().name(),
+            authority.model().primary_key.name,
+        )?;
+        if let Some(explain) =
+            self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
+        {
+            return Ok(SqlDispatchResult::Explain(explain));
+        }
+
+        self.explain_lowered_sql_for_authority(&lowered, authority)
+            .map(SqlDispatchResult::Explain)
+    }
+
     // Validate that one SQL-derived query intent matches the grouped/scalar
     // execution surface that is about to consume it.
     pub(in crate::db::session::sql) fn ensure_sql_query_grouping<E>(
@@ -364,87 +470,30 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match parsed.route() {
-            SqlStatementRoute::Query { .. } => {
-                if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
-                    let authority = EntityAuthority::for_type::<E>();
-                    let command =
-                        Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
+            SqlStatementRoute::Query { .. } => self.dispatch_sql_query_route_for_authority(
+                parsed,
+                EntityAuthority::for_type::<E>(),
+                "execute_sql_dispatch accepts SELECT or DELETE only",
+                |session, select, authority, grouped_columns| match grouped_columns {
+                    Some(columns) => session.execute_lowered_sql_grouped_dispatch_select_core(
+                        select, authority, columns,
+                    ),
+                    None => session
+                        .execute_lowered_sql_projection_core(select, authority)
+                        .map(SqlProjectionPayload::into_dispatch_result),
+                },
+                |session, delete, _authority| {
+                    let typed_query = bind_lowered_sql_query::<E>(
+                        LoweredSqlQuery::Delete(delete),
+                        MissingRowPolicy::Ignore,
+                    )
+                    .map_err(QueryError::from_sql_lowering_error)?;
 
-                    return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
-                }
-
-                if let Some(plan) =
-                    computed_projection::computed_sql_projection_plan(&parsed.statement)?
-                {
-                    return self.execute_computed_sql_projection_dispatch::<E>(plan);
-                }
-
-                // Phase 1: keep typed dispatch on the shared lowered query lane
-                // for plain `SELECT`, and only pay typed query binding on the
-                // `DELETE` branch that still owns typed commit semantics.
-                let lowered = parsed
-                    .lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key.name)?;
-                let grouped_columns = lowered
-                    .query()
-                    .filter(|query| query.has_grouping())
-                    .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
-                    .transpose()?;
-
-                // Phase 2: dispatch `SELECT` directly from the lowered shape so
-                // typed SQL projection does not rebuild and discard a typed
-                // `Query<E>` before returning to the structural executor path.
-                match lowered.into_query() {
-                    Some(LoweredSqlQuery::Select(select)) => match grouped_columns {
-                        Some(columns) => self.execute_lowered_sql_grouped_dispatch_select_core(
-                            select,
-                            EntityAuthority::for_type::<E>(),
-                            columns,
-                        ),
-                        None => self
-                            .execute_lowered_sql_projection_core(
-                                select,
-                                EntityAuthority::for_type::<E>(),
-                            )
-                            .map(SqlProjectionPayload::into_dispatch_result),
-                    },
-                    Some(LoweredSqlQuery::Delete(delete)) => {
-                        let typed_query = bind_lowered_sql_query::<E>(
-                            LoweredSqlQuery::Delete(delete),
-                            MissingRowPolicy::Ignore,
-                        )
-                        .map_err(QueryError::from_sql_lowering_error)?;
-
-                        self.execute_typed_sql_delete(&typed_query)
-                    }
-                    None => Err(QueryError::unsupported_query(
-                        "execute_sql_dispatch accepts SELECT or DELETE only",
-                    )),
-                }
-            }
-            SqlStatementRoute::Explain { .. } => {
-                if let Some((mode, plan)) =
-                    computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
-                {
-                    return self
-                        .explain_computed_sql_projection_dispatch::<E>(mode, plan)
-                        .map(SqlDispatchResult::Explain);
-                }
-
-                let lowered = lower_sql_command_from_prepared_statement(
-                    parsed.prepare(E::MODEL.name())?,
-                    E::MODEL.primary_key.name,
-                )
-                .map_err(QueryError::from_sql_lowering_error)?;
-                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
-                    &lowered,
-                    EntityAuthority::for_type::<E>(),
-                )? {
-                    return Ok(SqlDispatchResult::Explain(explain));
-                }
-
-                self.explain_lowered_sql_for_authority(&lowered, EntityAuthority::for_type::<E>())
-                    .map(SqlDispatchResult::Explain)
-            }
+                    session.execute_typed_sql_delete(&typed_query)
+                },
+            ),
+            SqlStatementRoute::Explain { .. } => self
+                .dispatch_sql_explain_route_for_authority(parsed, EntityAuthority::for_type::<E>()),
             SqlStatementRoute::Describe { .. } => {
                 Ok(SqlDispatchResult::Describe(self.describe_entity::<E>()))
             }
@@ -473,71 +522,24 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
         match parsed.route() {
-            SqlStatementRoute::Query { .. } => {
-                if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
-                    let command =
-                        Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
-
-                    return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
-                }
-
-                if let Some(plan) =
-                    computed_projection::computed_sql_projection_plan(&parsed.statement)?
-                {
-                    return self
-                        .execute_computed_sql_projection_dispatch_for_authority(plan, authority);
-                }
-
-                let lowered = parsed.lower_query_lane_for_entity(
-                    authority.model().name(),
-                    authority.model().primary_key.name,
-                )?;
-                let grouped_columns = lowered
-                    .query()
-                    .filter(|query| query.has_grouping())
-                    .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
-                    .transpose()?;
-
-                match lowered.into_query() {
-                    Some(LoweredSqlQuery::Select(select)) => match grouped_columns {
-                        Some(columns) => self.execute_lowered_sql_grouped_dispatch_select_core(
-                            select, authority, columns,
-                        ),
-                        None => {
-                            self.execute_lowered_sql_dispatch_select_text_core(select, authority)
-                        }
-                    },
-                    Some(LoweredSqlQuery::Delete(delete)) => {
-                        self.execute_lowered_sql_dispatch_delete_core(&delete, authority)
+            SqlStatementRoute::Query { .. } => self.dispatch_sql_query_route_for_authority(
+                parsed,
+                authority,
+                "generated SQL query surface requires query or EXPLAIN statement lanes",
+                |session, select, authority, grouped_columns| match grouped_columns {
+                    Some(columns) => session.execute_lowered_sql_grouped_dispatch_select_core(
+                        select, authority, columns,
+                    ),
+                    None => {
+                        session.execute_lowered_sql_dispatch_select_text_core(select, authority)
                     }
-                    None => Err(QueryError::unsupported_query(
-                        "generated SQL query surface requires query or EXPLAIN statement lanes",
-                    )),
-                }
-            }
+                },
+                |session, delete, authority| {
+                    session.execute_lowered_sql_dispatch_delete_core(&delete, authority)
+                },
+            ),
             SqlStatementRoute::Explain { .. } => {
-                if let Some((mode, plan)) =
-                    computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
-                {
-                    return self
-                        .explain_computed_sql_projection_dispatch_for_authority(
-                            mode, plan, authority,
-                        )
-                        .map(SqlDispatchResult::Explain);
-                }
-
-                let lowered = parsed.lower_query_lane_for_entity(
-                    authority.model().name(),
-                    authority.model().primary_key.name,
-                )?;
-                if let Some(explain) =
-                    self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
-                {
-                    return Ok(SqlDispatchResult::Explain(explain));
-                }
-
-                self.explain_lowered_sql_for_authority(&lowered, authority)
-                    .map(SqlDispatchResult::Explain)
+                self.dispatch_sql_explain_route_for_authority(parsed, authority)
             }
             SqlStatementRoute::Describe { .. }
             | SqlStatementRoute::ShowIndexes { .. }

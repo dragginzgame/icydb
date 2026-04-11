@@ -1,8 +1,8 @@
 //! Module: visitor
 //!
-//! Responsibility: module-local ownership and contracts for visitor.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: generic sanitize/validate visitor diagnostics and context.
+//! Does not own: schema-specific validation rules or session error mapping.
+//! Boundary: shared visitor error/context surface for derived sanitizers and validators.
 
 pub(crate) mod context;
 pub(crate) mod sanitize;

@@ -1,12 +1,13 @@
 //! Module: db::cursor::token::error
-//! Responsibility: module-local ownership and contracts for db::cursor::token::error.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: cursor token wire encode/decode error taxonomy.
+//! Does not own: higher-level cursor validation or continuation compatibility policy.
+//! Boundary: local error surface for cursor token serialization helpers.
 
 use thiserror::Error as ThisError;
 
 ///
 /// TokenWireError
+///
 /// Cursor token wire encode/decode failures.
 ///
 

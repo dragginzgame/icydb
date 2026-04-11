@@ -1,5 +1,5 @@
 use crate::{
-    base::helper::decimal_cast::try_cast_decimal,
+    base::helper::try_cast_decimal,
     design::prelude::*,
     traits::{NumericValue, Sanitizer},
 };

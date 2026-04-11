@@ -1,5 +1,5 @@
 //! Module: db::query::plan::tests::semantics
-//! Responsibility: module-local ownership and contracts for db::query::plan::tests::semantics.
+//! Covers semantic query-plan behavior and planning outcomes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

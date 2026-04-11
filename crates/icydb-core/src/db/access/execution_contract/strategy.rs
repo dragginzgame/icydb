@@ -11,7 +11,7 @@ use crate::db::access::{
     lowering::lower_executable_access_plan,
     plan::AccessPlan,
 };
-use crate::db::executor::route::LoadOrderRouteContract;
+use crate::db::executor::planning::route::LoadOrderRouteContract;
 use std::fmt;
 
 ///

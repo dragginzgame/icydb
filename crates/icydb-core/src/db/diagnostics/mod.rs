@@ -52,7 +52,6 @@ pub struct IntegrityTotals {
     pub(crate) missing_index_entries: u64,
     pub(crate) divergent_index_entries: u64,
     pub(crate) orphan_index_references: u64,
-    pub(crate) compatibility_findings: u64,
     pub(crate) misuse_findings: u64,
 }
 
@@ -85,9 +84,6 @@ impl IntegrityTotals {
         self.orphan_index_references = self
             .orphan_index_references
             .saturating_add(store.orphan_index_references);
-        self.compatibility_findings = self
-            .compatibility_findings
-            .saturating_add(store.compatibility_findings);
         self.misuse_findings = self.misuse_findings.saturating_add(store.misuse_findings);
     }
 
@@ -145,12 +141,6 @@ impl IntegrityTotals {
         self.orphan_index_references
     }
 
-    /// Return total number of compatibility findings.
-    #[must_use]
-    pub const fn compatibility_findings(&self) -> u64 {
-        self.compatibility_findings
-    }
-
     /// Return total number of misuse findings.
     #[must_use]
     pub const fn misuse_findings(&self) -> u64 {
@@ -174,7 +164,6 @@ pub struct IntegrityStoreSnapshot {
     pub(crate) missing_index_entries: u64,
     pub(crate) divergent_index_entries: u64,
     pub(crate) orphan_index_references: u64,
-    pub(crate) compatibility_findings: u64,
     pub(crate) misuse_findings: u64,
 }
 
@@ -246,12 +235,6 @@ impl IntegrityStoreSnapshot {
     #[must_use]
     pub const fn orphan_index_references(&self) -> u64 {
         self.orphan_index_references
-    }
-
-    /// Return number of compatibility findings.
-    #[must_use]
-    pub const fn compatibility_findings(&self) -> u64 {
-        self.compatibility_findings
     }
 
     /// Return number of misuse findings.
@@ -790,7 +773,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
 
 #[cfg_attr(
     doc,
-    doc = "Build one deterministic integrity scan over all registered stores.\n\nThis scan is read-only and classifies findings as:\n- corruption: malformed persisted bytes or inconsistent structural links\n- compatibility: persisted payloads outside decode compatibility windows\n- misuse: unsupported runtime wiring (for example missing entity hooks)"
+    doc = "Build one deterministic integrity scan over all registered stores.\n\nThis scan is read-only and classifies findings as:\n- corruption: malformed persisted bytes, incompatible persisted formats, or inconsistent structural links\n- misuse: unsupported runtime wiring (for example missing entity hooks)"
 )]
 pub(crate) fn integrity_report<C: CanisterKind>(
     db: &Db<C>,
@@ -896,8 +879,8 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 ),
             );
 
-            // Validate envelope compatibility before typed preparation so
-            // incompatible persisted formats remain compatibility-classified.
+            // Validate the outer row envelope before typed preparation so
+            // hard-cut persisted-format mismatches count as corruption.
             if let Err(err) = decode_structural_row_cbor(&entry.value()) {
                 classify_scan_error(err, snapshot)?;
                 continue;
@@ -979,12 +962,8 @@ fn classify_scan_error(
     snapshot: &mut IntegrityStoreSnapshot,
 ) -> Result<(), InternalError> {
     match err.class() {
-        ErrorClass::Corruption => {
+        ErrorClass::Corruption | ErrorClass::IncompatiblePersistedFormat => {
             snapshot.corrupted_data_rows = snapshot.corrupted_data_rows.saturating_add(1);
-            Ok(())
-        }
-        ErrorClass::IncompatiblePersistedFormat => {
-            snapshot.compatibility_findings = snapshot.compatibility_findings.saturating_add(1);
             Ok(())
         }
         ErrorClass::Unsupported | ErrorClass::NotFound | ErrorClass::Conflict => {

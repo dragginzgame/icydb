@@ -1,5 +1,5 @@
 //! Module: db::migration::tests
-//! Responsibility: module-local ownership and contracts for db::migration::tests.
+//! Covers migration planning and migration-state invariants.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

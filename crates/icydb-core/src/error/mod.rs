@@ -1,8 +1,9 @@
 //! Module: error
 //!
-//! Responsibility: module-local ownership and contracts for error.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the canonical runtime error taxonomy for `icydb-core`.
+//! This module owns the shared error classes, origins, details, and
+//! constructor entry points used across storage, planning, execution, and
+//! serialization boundaries.
 
 #[cfg(test)]
 mod tests;

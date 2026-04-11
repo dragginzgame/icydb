@@ -1,5 +1,5 @@
 //! Module: db::index::key::codec::tests
-//! Responsibility: module-local ownership and contracts for db::index::key::codec::tests.
+//! Covers index-key codec roundtrip and ordering invariants.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

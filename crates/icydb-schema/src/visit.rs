@@ -2,8 +2,8 @@ use crate::{node::VisitableNode, prelude::*};
 
 ///
 /// Event
-/// fine to redeclare this every time we use the visitor pattern
-/// makes no sense to rely on such a simple dependency
+///
+/// Enter/exit marker passed to schema visitors during recursive traversal.
 ///
 
 #[derive(Debug)]
@@ -15,18 +15,25 @@ pub enum Event {
 ///
 /// Visitor
 ///
+/// Minimal visitor trait over schema nodes.
+/// Implementors may track path state, collect errors, or gather derived
+/// metadata while nodes drive traversal.
+///
 
 pub trait Visitor {
-    // visit
+    // Observe one node at one traversal phase.
     fn visit<V: VisitableNode + ?Sized>(&mut self, _: &V, _: Event) {}
 
-    // key
+    // Maintain the current visitor path as traversal enters and exits nodes.
     fn push(&mut self, _: &str) {}
     fn pop(&mut self) {}
 }
 
 ///
 /// ValidateVisitor
+///
+/// Visitor that runs `ValidateNode::validate()` across the schema tree and
+/// merges errors under their computed traversal route.
 ///
 
 #[derive(Debug, Default)]
@@ -37,6 +44,7 @@ pub struct ValidateVisitor {
 }
 
 impl ValidateVisitor {
+    /// Build one empty validating visitor.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -62,6 +70,7 @@ impl ValidateVisitor {
 }
 
 impl ValidateVisitor {
+    // Build one dotted route string from the active visitor path stack.
     fn current_route(&self) -> String {
         let mut route = String::new();
 

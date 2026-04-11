@@ -20,7 +20,9 @@ type MinMaxIds<E> = Option<(Id<E>, Id<E>)>;
 ///
 /// FluentLoadQuery
 ///
-/// Session-bound fluent wrapper for load queries.
+/// Session-bound fluent wrapper for typed load queries.
+/// This facade keeps query shaping and execution on the public `icydb`
+/// surface while delegating planning and execution to `icydb-core`.
 ///
 
 pub struct FluentLoadQuery<'a, E: PersistedRow> {
@@ -682,7 +684,7 @@ impl<E: PersistedRow + SingletonEntity> FluentLoadQuery<'_, E> {
 ///
 /// PagedLoadQuery
 ///
-/// Facade wrapper for cursor-pagination mode.
+/// Facade wrapper for cursor-pagination mode over typed load queries.
 /// Returns typed entity items plus an opaque continuation cursor.
 ///
 

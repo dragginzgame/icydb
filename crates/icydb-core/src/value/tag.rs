@@ -1,7 +1,7 @@
 //! Module: value::tag
-//! Responsibility: module-local ownership and contracts for value::tag.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: canonical discriminant tags for dynamic values.
+//! Does not own: same-variant semantics or wire payload encoding.
+//! Boundary: stable tag contract used by hashing, ordering, and value metadata.
 
 use crate::value::Value;
 

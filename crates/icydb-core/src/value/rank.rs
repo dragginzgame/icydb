@@ -1,7 +1,7 @@
 //! Module: value::rank
-//! Responsibility: module-local ownership and contracts for value::rank.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: canonical cross-variant rank for dynamic values.
+//! Does not own: same-variant comparison or wire encoding.
+//! Boundary: fixed rank contract reused by ordering and normalization helpers.
 
 use crate::value::{Value, tag};
 

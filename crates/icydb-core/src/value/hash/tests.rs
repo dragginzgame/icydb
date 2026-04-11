@@ -1,7 +1,6 @@
 //! Module: value::hash::tests
-//! Responsibility: module-local ownership and contracts for value::hash::tests.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Covers the frozen seed, version, and digest vectors for canonical value
+//! hashing.
 
 use super::*;
 use crate::{

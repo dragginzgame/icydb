@@ -28,7 +28,10 @@ use crate::{
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
-            route::aggregate_materialized_fold_direction,
+            planning::route::{
+                aggregate_materialized_fold_direction,
+                build_execution_route_plan_for_aggregate_spec,
+            },
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
@@ -89,7 +92,7 @@ impl ExecutionKernel {
     ) -> PreparedAggregateExecutionState<'_> {
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
-        let route_plan = crate::db::executor::route::build_execution_route_plan_for_aggregate_spec(
+        let route_plan = build_execution_route_plan_for_aggregate_spec(
             &prepared.logical_plan,
             aggregate.route_shape(),
             &prepared.execution_preparation,
@@ -212,7 +215,7 @@ impl ExecutionKernel {
         // Phase 1: let eager reducers consume their owned descriptor directly
         // so aggregate execution does not clone descriptor state just to
         // decide whether it can skip canonical streaming fold execution.
-        if descriptor.route_plan.shape().is_materialized() {
+        if descriptor.route_plan.is_materialized() {
             return Self::execute_materialized_aggregate_spec(
                 executor,
                 prepared,

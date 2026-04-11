@@ -1,7 +1,6 @@
 //! Module: db::executor::traversal
-//! Responsibility: module-local ownership and contracts for db::executor::traversal.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Owns executor-side traversal validation for lowered index-range specs and
+//! missing-row policy handling.
 
 //! Traversal helpers shared across executor load/delete paths.
 //!

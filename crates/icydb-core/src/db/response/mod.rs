@@ -8,7 +8,6 @@
 
 mod grouped;
 mod paged;
-mod private;
 
 use crate::{
     db::data::{DataRow, PersistedRow, decode_data_rows_into_entity_response},
@@ -18,6 +17,16 @@ use crate::{
     value::Value,
 };
 use thiserror::Error as ThisError;
+
+mod private {
+    ///
+    /// Sealed
+    ///
+    /// Internal marker used to seal response row-shape marker implementations.
+    ///
+
+    pub trait Sealed {}
+}
 
 pub(in crate::db) use grouped::GroupedTextCursorPageWithTrace;
 pub use grouped::{GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace};

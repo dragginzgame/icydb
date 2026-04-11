@@ -9,7 +9,7 @@ use crate::{
             BytesByProjectionMode, ExecutablePlan,
             assemble_aggregate_terminal_execution_descriptor,
             assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics,
-            route::AggregateRouteShape,
+            planning::route::AggregateRouteShape,
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
@@ -228,6 +228,94 @@ impl StructuralQuery {
         self.intent.build_plan_model_with_indexes(visible_indexes)
     }
 
+    // Build one access plan using either schema-owned indexes or the session
+    // visibility slice already resolved at the caller boundary.
+    fn build_plan_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        match visible_indexes {
+            Some(visible_indexes) => self.build_plan_with_visible_indexes(visible_indexes),
+            None => self.build_plan(),
+        }
+    }
+
+    // Assemble one canonical execution descriptor from a previously built
+    // access plan so text/json/verbose explain surfaces do not each rebuild it.
+    fn explain_execution_descriptor_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        assemble_load_execution_node_descriptor(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            plan,
+        )
+        .map_err(QueryError::execute)
+    }
+
+    // Render one verbose execution explain payload from a single access plan.
+    fn explain_execution_verbose_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<String, QueryError> {
+        let descriptor = self.explain_execution_descriptor_from_plan(plan)?;
+        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
+            self.intent.model().fields(),
+            self.intent.model().primary_key().name(),
+            plan,
+        )
+        .map_err(QueryError::execute)?;
+        let explain = plan.explain_with_model(self.intent.model());
+
+        // Phase 1: render descriptor tree with node-local metadata.
+        let mut lines = vec![descriptor.render_text_tree_verbose()];
+        lines.extend(route_diagnostics);
+
+        // Phase 2: add descriptor-stage summaries for key execution operators.
+        lines.push(format!(
+            "diag.d.has_top_n_seek={}",
+            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
+        ));
+        lines.push(format!(
+            "diag.d.has_index_range_limit_pushdown={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexRangeLimitPushdown,
+            )
+        ));
+        lines.push(format!(
+            "diag.d.has_index_predicate_prefilter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexPredicatePrefilter,
+            )
+        ));
+        lines.push(format!(
+            "diag.d.has_residual_predicate_filter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::ResidualPredicateFilter,
+            )
+        ));
+
+        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
+        lines.push(format!("diag.p.mode={:?}", explain.mode()));
+        lines.push(format!(
+            "diag.p.order_pushdown={}",
+            plan_order_pushdown_label(explain.order_pushdown())
+        ));
+        lines.push(format!(
+            "diag.p.predicate_pushdown={}",
+            plan_predicate_pushdown_label(explain.predicate(), explain.access())
+        ));
+        lines.push(format!("diag.p.distinct={}", explain.distinct()));
+        lines.push(format!("diag.p.page={:?}", explain.page()));
+        lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
+
+        Ok(lines.join("\n"))
+    }
+
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
@@ -239,14 +327,9 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        assemble_load_execution_node_descriptor(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)
+        self.explain_execution_descriptor_from_plan(&plan)
     }
 
     // Explain one load execution shape through the structural query core.
@@ -254,14 +337,9 @@ impl StructuralQuery {
     pub(in crate::db) fn explain_execution(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.build_plan()?;
+        let plan = self.build_plan_for_visibility(None)?;
 
-        assemble_load_execution_node_descriptor(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)
+        self.explain_execution_descriptor_from_plan(&plan)
     }
 
     // Render one deterministic scalar load execution tree through the shared
@@ -298,67 +376,9 @@ impl StructuralQuery {
     // structural descriptor and route-diagnostics paths.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
-        let plan = self.build_plan()?;
-        let descriptor = assemble_load_execution_node_descriptor(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)?;
-        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)?;
-        let explain = plan.explain_with_model(self.intent.model());
+        let plan = self.build_plan_for_visibility(None)?;
 
-        // Phase 1: render descriptor tree with node-local metadata.
-        let mut lines = vec![descriptor.render_text_tree_verbose()];
-        lines.extend(route_diagnostics);
-
-        // Phase 2: add descriptor-stage summaries for key execution operators.
-        lines.push(format!(
-            "diag.d.has_top_n_seek={}",
-            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
-        ));
-        lines.push(format!(
-            "diag.d.has_index_range_limit_pushdown={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexRangeLimitPushdown,
-            )
-        ));
-        lines.push(format!(
-            "diag.d.has_index_predicate_prefilter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexPredicatePrefilter,
-            )
-        ));
-        lines.push(format!(
-            "diag.d.has_residual_predicate_filter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter,
-            )
-        ));
-
-        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diag.p.mode={:?}", explain.mode()));
-        lines.push(format!(
-            "diag.p.order_pushdown={}",
-            plan_order_pushdown_label(explain.order_pushdown())
-        ));
-        lines.push(format!(
-            "diag.p.predicate_pushdown={}",
-            plan_predicate_pushdown_label(explain.predicate(), explain.access())
-        ));
-        lines.push(format!("diag.p.distinct={}", explain.distinct()));
-        lines.push(format!("diag.p.page={:?}", explain.page()));
-        lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
-
-        Ok(lines.join("\n"))
+        self.explain_execution_verbose_from_plan(&plan)
     }
 
     #[inline(never)]
@@ -366,67 +386,9 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        let descriptor = assemble_load_execution_node_descriptor(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)?;
-        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)?;
-        let explain = plan.explain_with_model(self.intent.model());
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        // Phase 1: render descriptor tree with node-local metadata.
-        let mut lines = vec![descriptor.render_text_tree_verbose()];
-        lines.extend(route_diagnostics);
-
-        // Phase 2: add descriptor-stage summaries for key execution operators.
-        lines.push(format!(
-            "diag.d.has_top_n_seek={}",
-            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
-        ));
-        lines.push(format!(
-            "diag.d.has_index_range_limit_pushdown={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexRangeLimitPushdown,
-            )
-        ));
-        lines.push(format!(
-            "diag.d.has_index_predicate_prefilter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexPredicatePrefilter,
-            )
-        ));
-        lines.push(format!(
-            "diag.d.has_residual_predicate_filter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter,
-            )
-        ));
-
-        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diag.p.mode={:?}", explain.mode()));
-        lines.push(format!(
-            "diag.p.order_pushdown={}",
-            plan_order_pushdown_label(explain.order_pushdown())
-        ));
-        lines.push(format!(
-            "diag.p.predicate_pushdown={}",
-            plan_predicate_pushdown_label(explain.predicate(), explain.access())
-        ));
-        lines.push(format!("diag.p.distinct={}", explain.distinct()));
-        lines.push(format!("diag.p.page={:?}", explain.page()));
-        lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
-
-        Ok(lines.join("\n"))
+        self.explain_execution_verbose_from_plan(&plan)
     }
 
     #[inline(never)]
@@ -696,9 +658,7 @@ impl<E: EntityKind> Query<E> {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainPlan, QueryError> {
-        let plan = self
-            .inner
-            .build_plan_with_visible_indexes(visible_indexes)?;
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
         Ok(plan.explain_with_model(E::MODEL))
     }
@@ -707,11 +667,32 @@ impl<E: EntityKind> Query<E> {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let plan = self
-            .inner
-            .build_plan_with_visible_indexes(visible_indexes)?;
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
         Ok(plan.fingerprint().to_string())
+    }
+
+    // Build one typed access plan using either schema-owned indexes or the
+    // visibility slice already resolved at the session boundary.
+    fn build_plan_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        self.inner.build_plan_for_visibility(visible_indexes)
+    }
+
+    // Wrap one built plan as the typed planned-query DTO.
+    fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
+        let _projection = plan.projection_spec(E::MODEL);
+
+        PlannedQuery::from_inner(PlannedQueryCore::new(E::MODEL, plan))
+    }
+
+    // Wrap one built plan as the typed compiled-query DTO.
+    fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
+        let _projection = plan.projection_spec(E::MODEL);
+
+        CompiledQuery::from_inner(CompiledQueryCore::new(E::MODEL, E::PATH, plan))
     }
 
     #[must_use]
@@ -1082,58 +1063,36 @@ impl<E: EntityKind> Query<E> {
 
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        let plan = self.inner.build_plan()?;
-        let _projection = plan.projection_spec(E::MODEL);
+        let plan = self.build_plan_for_visibility(None)?;
 
-        Ok(PlannedQuery::from_inner(PlannedQueryCore::new(
-            E::MODEL,
-            plan,
-        )))
+        Ok(Self::planned_query_from_plan(plan))
     }
 
     pub(in crate::db) fn planned_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<PlannedQuery<E>, QueryError> {
-        let plan = self
-            .inner
-            .build_plan_with_visible_indexes(visible_indexes)?;
-        let _projection = plan.projection_spec(E::MODEL);
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        Ok(PlannedQuery::from_inner(PlannedQueryCore::new(
-            E::MODEL,
-            plan,
-        )))
+        Ok(Self::planned_query_from_plan(plan))
     }
 
     /// Compile this intent into query-owned handoff state.
     ///
     /// This boundary intentionally does not expose executor runtime shape.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        let plan = self.inner.build_plan()?;
-        let _projection = plan.projection_spec(E::MODEL);
+        let plan = self.build_plan_for_visibility(None)?;
 
-        Ok(CompiledQuery::from_inner(CompiledQueryCore::new(
-            E::MODEL,
-            E::PATH,
-            plan,
-        )))
+        Ok(Self::compiled_query_from_plan(plan))
     }
 
     pub(in crate::db) fn plan_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<CompiledQuery<E>, QueryError> {
-        let plan = self
-            .inner
-            .build_plan_with_visible_indexes(visible_indexes)?;
-        let _projection = plan.projection_spec(E::MODEL);
+        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        Ok(CompiledQuery::from_inner(CompiledQueryCore::new(
-            E::MODEL,
-            E::PATH,
-            plan,
-        )))
+        Ok(Self::compiled_query_from_plan(plan))
     }
 }
 

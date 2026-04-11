@@ -1,7 +1,7 @@
 //! Module: testing::entity_tags
-//! Responsibility: module-local ownership and contracts for testing::entity_tags.
+//! Responsibility: stable, append-only `EntityTag` assignments for crate-local tests.
 //! Does not own: production entity identity assignment.
-//! Boundary: stable, append-only `EntityTag` assignments for crate-local tests.
+//! Boundary: keeps persisted test keyspaces deterministic across fixture edits.
 
 use crate::types::EntityTag;
 

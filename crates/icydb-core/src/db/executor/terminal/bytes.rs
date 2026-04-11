@@ -1,7 +1,6 @@
 //! Module: db::executor::terminal::bytes
-//! Responsibility: module-local ownership and contracts for db::executor::terminal::bytes.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Implements the bytes terminal used to estimate row payload cost without
+//! materializing full projection output.
 
 use crate::{
     db::{

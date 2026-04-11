@@ -1,7 +1,5 @@
 //! Module: types::ulid::fixture
-//! Responsibility: module-local ownership and contracts for types::ulid::fixture.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Provides deterministic ULID fixture helpers for tests and seeded data.
 
 use crate::types::Ulid;
 use icydb_utils::hash_u128;

@@ -1,7 +1,6 @@
 //! Module: types::identity::entity_tag
-//! Responsibility: module-local ownership and contracts for types::identity::entity_tag.
-//! Does not own: schema naming or runtime dispatch policy.
-//! Boundary: compact, copyable runtime entity identity primitive.
+//! Defines the compact runtime entity tag used by execution, registry, and
+//! code-generated schema plumbing.
 
 ///
 /// EntityTag

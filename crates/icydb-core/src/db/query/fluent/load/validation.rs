@@ -1,7 +1,6 @@
 //! Module: db::query::fluent::load::validation
-//! Responsibility: module-local ownership and contracts for db::query::fluent::load::validation.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Shares fluent load validation helpers for terminal field resolution and
+//! paged-vs-non-paged mode checks.
 
 use crate::{
     db::query::{

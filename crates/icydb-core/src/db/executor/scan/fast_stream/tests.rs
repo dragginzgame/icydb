@@ -1,5 +1,5 @@
 //! Module: db::executor::scan::fast_stream::tests
-//! Responsibility: module-local ownership and contracts for db::executor::scan::fast_stream::tests.
+//! Covers fast-stream scan behavior and continuation handling.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -1,5 +1,5 @@
 //! Module: db::sql::parser::tests
-//! Responsibility: module-local ownership and contracts for db::sql::parser::tests.
+//! Covers SQL parser behavior, error classification, and syntax edge cases.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

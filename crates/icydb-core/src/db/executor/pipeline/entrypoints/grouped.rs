@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::entrypoints::grouped
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::entrypoints::grouped.
+//! Defines grouped pipeline entrypoints from prepared route shapes into grouped
+//! runtime execution.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

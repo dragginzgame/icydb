@@ -1,7 +1,7 @@
 //! Module: model::field
-//! Responsibility: module-local ownership and contracts for model::field.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: runtime field metadata and storage-decode contracts.
+//! Does not own: planner-wide query semantics or row-container orchestration.
+//! Boundary: field-level runtime schema surface used by storage and planning layers.
 
 use crate::{traits::FieldValueKind, types::EntityTag};
 

@@ -1,7 +1,6 @@
 //! Module: types::decimal
-//! Responsibility: module-local ownership and contracts for types::decimal.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the fixed-point decimal runtime type and its arithmetic,
+//! normalization, and value-conversion helpers.
 
 use crate::{
     traits::{

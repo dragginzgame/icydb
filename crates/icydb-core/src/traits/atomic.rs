@@ -1,7 +1,7 @@
 //! Module: traits::atomic
-//! Responsibility: module-local ownership and contracts for traits::atomic.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: semantic indivisibility markers for value types.
+//! Does not own: structural merge behavior or schema kind lowering.
+//! Boundary: marks values that update as whole replacements at runtime.
 
 ///
 /// Atomic

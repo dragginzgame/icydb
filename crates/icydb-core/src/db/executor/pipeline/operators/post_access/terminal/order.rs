@@ -1,5 +1,5 @@
 //! Module: db::executor::pipeline::operators::post_access::terminal::order
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::operators::post_access::terminal::order.
+//! Defines post-access ordering helpers for load and delete terminal flows.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -1,7 +1,6 @@
 //! Module: db::cursor::validation
-//! Responsibility: module-local ownership and contracts for db::cursor::validation.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Validates optional cursor payloads against planned scalar and grouped query
+//! shapes without exposing token internals across boundaries.
 
 use crate::{
     db::{

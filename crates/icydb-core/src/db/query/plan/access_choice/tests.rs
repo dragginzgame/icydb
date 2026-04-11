@@ -1,5 +1,5 @@
 //! Module: db::query::plan::access_choice::tests
-//! Responsibility: module-local ownership and contracts for db::query::plan::access_choice::tests.
+//! Covers access-choice classification and route-selection heuristics.
 //! Does not own: production access-choice behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

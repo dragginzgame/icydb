@@ -1,8 +1,8 @@
 //! Module: validate
 //!
-//! Responsibility: module-local ownership and contracts for validate.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: top-level validation entrypoint over visitable trees.
+//! Does not own: visitor diagnostics or per-type validation implementations.
+//! Boundary: convenient crate-level validation surface that delegates to visitor traversal.
 
 use crate::{
     traits::Visitable,
@@ -13,6 +13,7 @@ use crate::{
 
 ///
 /// validate
+///
 /// Validate a visitable tree, collecting issues by path.
 ///
 /// Validation is non-failing at the traversal level. All validation

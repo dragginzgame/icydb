@@ -16,8 +16,8 @@ use crate::{
         executor::{
             aggregate::AggregateFoldMode,
             route::{
-                AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
-                FastPathOrder, TopNSeekSpec,
+                AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, FastPathOrder,
+                TopNSeekSpec,
             },
         },
         query::{
@@ -431,14 +431,14 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
 
 pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_descriptor(
     has_order_by: bool,
-    route_shape: ExecutionRouteShape,
+    route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     if !has_order_by {
         return None;
     }
 
-    let node_type = if route_shape.is_streaming() {
+    let node_type = if route_plan.is_streaming() {
         ExplainExecutionNodeType::OrderByAccessSatisfied
     } else {
         ExplainExecutionNodeType::OrderByMaterializedSort
@@ -603,9 +603,9 @@ pub(in crate::db::executor::explain::descriptor) fn top_n_seek_descriptor(
 }
 
 pub(in crate::db::executor::explain::descriptor) const fn explain_execution_mode(
-    route_shape: ExecutionRouteShape,
+    route_plan: &ExecutionRoutePlan,
 ) -> ExplainExecutionMode {
-    if route_shape.is_streaming() {
+    if route_plan.is_streaming() {
         ExplainExecutionMode::Streaming
     } else {
         ExplainExecutionMode::Materialized
@@ -614,7 +614,6 @@ pub(in crate::db::executor::explain::descriptor) const fn explain_execution_mode
 
 pub(in crate::db::executor::explain::descriptor) const fn explain_aggregate_ordering_source(
     route_plan: &ExecutionRoutePlan,
-    route_shape: ExecutionRouteShape,
 ) -> ExplainExecutionOrderingSource {
     match route_plan.aggregate_seek_spec() {
         Some(AggregateSeekSpec::First { fetch }) => {
@@ -623,7 +622,7 @@ pub(in crate::db::executor::explain::descriptor) const fn explain_aggregate_orde
         Some(AggregateSeekSpec::Last { fetch }) => {
             ExplainExecutionOrderingSource::IndexSeekLast { fetch }
         }
-        None if route_shape.is_materialized() => ExplainExecutionOrderingSource::Materialized,
+        None if route_plan.is_materialized() => ExplainExecutionOrderingSource::Materialized,
         None => ExplainExecutionOrderingSource::AccessOrder,
     }
 }

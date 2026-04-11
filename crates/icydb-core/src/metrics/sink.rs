@@ -1,15 +1,10 @@
 //! Module: metrics::sink
-//! Responsibility: module-local ownership and contracts for metrics::sink.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
-
-//! Metrics sink boundary.
+//! Responsibility: instrumentation sink traits and the bridge into metrics state.
+//! Does not own: stored metrics DTO definitions or executor business logic.
+//! Boundary: the only allowed connection between runtime instrumentation and global metrics state.
 //!
-//! Core DB logic MUST NOT depend on metrics::state directly.
-//! All instrumentation flows through MetricsEvent and MetricsSink.
-//!
-//! This module is the only allowed bridge between execution logic
-//! and the global metrics state.
+//! Core DB logic MUST NOT depend on `metrics::state` directly.
+//! All instrumentation flows through `MetricsEvent` and `MetricsSink`.
 use crate::{metrics::state as metrics, traits::EntityKind};
 use std::{cell::RefCell, marker::PhantomData};
 

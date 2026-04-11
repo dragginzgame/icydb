@@ -1,7 +1,6 @@
 //! Module: types::unit
-//! Responsibility: module-local ownership and contracts for types::unit.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the zero-sized unit key/value wrapper used by schemas that need an
+//! explicit empty identity.
 
 use crate::{
     traits::{

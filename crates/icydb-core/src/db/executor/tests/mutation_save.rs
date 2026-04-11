@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::mutation_save
-//! Responsibility: module-local ownership and contracts for db::executor::tests::mutation_save.
+//! Covers save and mutation execution behavior in the executor layer.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

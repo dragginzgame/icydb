@@ -1,5 +1,5 @@
 //! Module: db::sql::lowering::tests
-//! Responsibility: module-local ownership and contracts for db::sql::lowering::tests.
+//! Covers SQL lowering from parsed statements into structural query shapes.
 //! Does not own: production SQL lowering behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

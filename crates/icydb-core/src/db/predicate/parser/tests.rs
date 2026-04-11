@@ -1,5 +1,5 @@
 //! Module: db::predicate::parser::tests
-//! Responsibility: module-local ownership and contracts for standalone predicate parsing.
+//! Covers standalone predicate parsing behavior and parse-error boundaries.
 //! Does not own: SQL statement parsing or lowering.
 //! Boundary: verifies the predicate-owned reduced SQL parser contract.
 

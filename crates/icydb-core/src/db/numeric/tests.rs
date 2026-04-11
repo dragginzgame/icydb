@@ -1,5 +1,5 @@
 //! Module: db::numeric::tests
-//! Responsibility: module-local ownership and contracts for db::numeric::tests.
+//! Covers numeric comparison, coercion, and ordering helper behavior.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

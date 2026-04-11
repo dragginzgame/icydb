@@ -1,5 +1,5 @@
 //! Module: db::executor::terminal::ranking::by_slot
-//! Responsibility: module-local ownership and contracts for db::executor::terminal::ranking::by_slot.
+//! Defines ranking helpers that read order values from slot-based row layouts.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

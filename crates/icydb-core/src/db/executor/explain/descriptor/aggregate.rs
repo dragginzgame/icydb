@@ -7,7 +7,7 @@
 use crate::db::{
     executor::{
         ExecutionPreparation,
-        preparation::slot_map_for_model_plan,
+        planning::preparation::slot_map_for_model_plan,
         route::{AggregateRouteShape, build_execution_route_plan_for_aggregate_spec},
     },
     query::{
@@ -67,11 +67,10 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
         ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let route_plan =
         build_execution_route_plan_for_aggregate_spec(plan, aggregate, &execution_preparation);
-    let route_shape = route_plan.shape();
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
-    let ordering_source = explain_aggregate_ordering_source(&route_plan, route_shape);
-    let execution_mode = explain_execution_mode(route_shape);
+    let ordering_source = explain_aggregate_ordering_source(&route_plan);
+    let execution_mode = explain_execution_mode(&route_plan);
     let covering_projection =
         aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
     let node_properties = explain_node_properties_for_route(

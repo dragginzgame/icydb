@@ -4,6 +4,9 @@ use std::ops::Not;
 ///
 /// Item
 ///
+/// Canonical schema item descriptor for one scalar, relation, or primitive
+/// field target plus its attached sanitizers and validators.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Item {
@@ -147,6 +150,9 @@ impl VisitableNode for Item {
 
 ///
 /// ItemTarget
+///
+/// Local item target declaration, either by schema path or primitive runtime
+/// kind.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

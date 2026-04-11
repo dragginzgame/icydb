@@ -1,7 +1,6 @@
 //! Module: types::date
-//! Responsibility: module-local ownership and contracts for types::date.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the day-precision date type used by typed values, ordering, and
+//! ISO-8601 wire conversion.
 
 use crate::{
     traits::{

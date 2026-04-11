@@ -8,7 +8,7 @@ use crate::db::{
     query::plan::AccessPlannedQuery,
     query::{
         explain::ExplainPlan,
-        fingerprint::{finalize_sha256_digest, hash_parts, new_plan_fingerprint_hasher_v1},
+        fingerprint::{finalize_sha256_digest, hash_parts, new_plan_fingerprint_hasher},
     },
 };
 
@@ -39,11 +39,11 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn fingerprint(&self) -> PlanFingerprint {
         let projection = self.projection_spec_for_identity();
-        let mut hasher = new_plan_fingerprint_hasher_v1();
+        let mut hasher = new_plan_fingerprint_hasher();
         hash_parts::hash_planned_query_profile_with_projection(
             &mut hasher,
             self,
-            hash_parts::ExplainHashProfile::FingerprintV1,
+            hash_parts::ExplainHashProfile::Fingerprint,
             &projection,
         );
 
@@ -56,11 +56,11 @@ impl ExplainPlan {
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
         // Phase 1: hash canonical explain fields under the current fingerprint profile.
-        let mut hasher = new_plan_fingerprint_hasher_v1();
+        let mut hasher = new_plan_fingerprint_hasher();
         hash_parts::hash_explain_plan_profile(
             &mut hasher,
             self,
-            hash_parts::ExplainHashProfile::FingerprintV1,
+            hash_parts::ExplainHashProfile::Fingerprint,
         );
 
         // Phase 2: finalize into the fixed-width fingerprint payload.

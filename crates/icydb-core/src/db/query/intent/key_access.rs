@@ -1,7 +1,7 @@
 //! Module: db::query::intent::key_access
-//! Responsibility: module-local ownership and contracts for db::query::intent::key_access.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: typed primary-key access hints owned by query intent.
+//! Does not own: full logical-plan validation or access-path execution.
+//! Boundary: lowers key-only builder state into planner-owned access plans.
 
 use crate::{
     db::access::{AccessPlan, normalize_access_plan_value},
@@ -11,6 +11,7 @@ use crate::{
 
 ///
 /// KeyAccess
+///
 /// Primary-key-only access hints for query planning.
 ///
 
@@ -22,6 +23,7 @@ pub(crate) enum KeyAccess<K> {
 
 ///
 /// KeyAccessKind
+///
 /// Identifies which key-only builder set the access path.
 ///
 
@@ -34,6 +36,7 @@ pub(crate) enum KeyAccessKind {
 
 ///
 /// KeyAccessState
+///
 /// Tracks key-only access plus its origin for intent validation.
 ///
 

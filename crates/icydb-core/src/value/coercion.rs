@@ -1,7 +1,7 @@
 //! Module: value::coercion
-//! Responsibility: module-local ownership and contracts for value::coercion.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: coarse coercion-family classification for dynamic values.
+//! Does not own: detailed scalar coercion rules or planner/operator semantics.
+//! Boundary: lightweight routing surface used by coercion tables.
 
 //! Coercion-routing family classification for `Value`.
 //!

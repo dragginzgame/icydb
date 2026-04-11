@@ -5,7 +5,6 @@
 
 mod aggregate;
 mod authority;
-mod continuation;
 mod covering;
 mod delete;
 pub(in crate::db::executor) mod diagnostics;
@@ -17,10 +16,9 @@ mod mutation;
 mod order;
 mod pipeline;
 mod plan_metrics;
-mod plan_validate;
-mod preparation;
+pub(super) mod planning;
 mod projection;
-pub(super) mod route;
+pub(in crate::db) use planning::route;
 mod runtime_context;
 mod scan;
 mod stream;
@@ -46,12 +44,6 @@ pub(in crate::db) use aggregate::{
     ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
 };
 pub use authority::EntityAuthority;
-pub(in crate::db::executor) use continuation::{
-    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationCapabilities,
-    GroupedContinuationContext, GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver,
-    PreparedLoadCursor, ResolvedScalarContinuationContext, RouteContinuationPlan,
-    ScalarContinuationBindings,
-};
 pub(in crate::db::executor) use covering::{
     CoveringProjectionComponentRows, covering_projection_scan_direction,
     covering_requires_row_presence_check, decode_covering_projection_pairs,
@@ -80,8 +72,14 @@ pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
-pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
-pub(in crate::db::executor) use preparation::ExecutionPreparation;
+pub(in crate::db::executor) use planning::continuation::{
+    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationCapabilities,
+    GroupedContinuationContext, GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver,
+    PreparedLoadCursor, ResolvedScalarContinuationContext, RouteContinuationPlan,
+    ScalarContinuationBindings,
+};
+pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
+pub use planning::route::RouteExecutionMode;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub use projection::SqlProjectionTextExecutorAttribution;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
@@ -94,7 +92,6 @@ pub use projection::{
 pub(in crate::db) use projection::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
 };
-pub use route::RouteExecutionMode;
 pub(in crate::db) use runtime_context::*;
 #[cfg(feature = "structural-read-metrics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
@@ -122,7 +119,15 @@ pub(in crate::db::executor) use util::saturating_row_len;
 /// while `ExecutablePlan` remains the validated query/lowered-spec container.
 ///
 
-pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
+pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoutePlan;
+
+/// Validate plans at executor boundaries using structural entity authority.
+pub(in crate::db::executor) fn validate_executor_plan_for_authority(
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<(), InternalError> {
+    authority.validate_executor_plan(plan)
+}
 
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
@@ -134,7 +139,7 @@ pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
 //   indicate executor/planner contract breaches.
 
 use crate::{
-    db::{CompiledQuery, cursor::CursorPlanError, data::DataKey},
+    db::{CompiledQuery, cursor::CursorPlanError, data::DataKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };

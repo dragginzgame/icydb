@@ -1,7 +1,7 @@
 //! Module: lib
-//! Responsibility: module-local ownership and contracts for lib.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: crate root for the IcyDB core runtime surface.
+//! Does not own: canister-facing facade APIs from the public `icydb` crate.
+//! Boundary: exposes the engine subsystems used by schema, query, executor, and storage layers.
 
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.

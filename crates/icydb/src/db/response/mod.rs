@@ -110,7 +110,8 @@ impl<E: EntityKind> Response<E> {
 /// ProjectionResponse
 ///
 /// Public facade over projection-shaped SQL query results.
-/// Wraps the core projection response and exposes projection-row iteration.
+/// Wraps the core projection response and exposes projection-row iteration and
+/// cardinality checks on the facade surface.
 ///
 
 #[derive(Debug)]

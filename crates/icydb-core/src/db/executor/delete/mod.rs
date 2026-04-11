@@ -23,7 +23,7 @@ use crate::{
                 mutation_write_context, preflight_mutation_plan_for_authority,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path, set_rows_from_len},
-            preparation::slot_map_for_model_plan,
+            planning::preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
             traversal::row_read_consistency_for_plan,
         },

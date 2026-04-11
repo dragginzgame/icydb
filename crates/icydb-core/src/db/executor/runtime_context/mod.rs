@@ -3,8 +3,6 @@
 //! Does not own: routing policy, plan lowering, or mutation commit semantics.
 //! Boundary: read-only data/index access surface consumed by executor submodules.
 
-mod load;
-
 use crate::{
     db::{
         Db,
@@ -37,6 +35,17 @@ use std::ops::Bound;
 #[derive(Clone, Copy)]
 pub(in crate::db) struct Context<'a, E: EntityKind + EntityValue> {
     pub(in crate::db::executor) db: &'a Db<E::Canister>,
+}
+
+impl<E> crate::db::executor::pipeline::contracts::LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Construct one load executor bound to a database handle and debug mode.
+    #[must_use]
+    pub(in crate::db) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+        Self { db, debug }
+    }
 }
 
 ///

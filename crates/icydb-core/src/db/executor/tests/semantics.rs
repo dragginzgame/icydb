@@ -1,5 +1,6 @@
 //! Module: db::executor::tests::semantics
-//! Responsibility: module-local ownership and contracts for db::executor::tests::semantics.
+//! Covers executor semantic correctness across load, aggregate, and delete
+//! behavior.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -122,14 +123,8 @@ where
         executable
             .render_snapshot_canonical()
             .expect("grouped execution pipeline snapshot should render executable snapshot"),
-        format!(
-            "route_execution_mode_case={:?}",
-            route_plan.shape().execution_mode_case()
-        ),
-        format!(
-            "route_execution_mode={:?}",
-            route_plan.shape().execution_mode(),
-        ),
+        format!("route_shape_kind={:?}", route_plan.route_shape_kind()),
+        format!("route_execution_mode={:?}", route_plan.execution_mode(),),
         format!(
             "route_continuation_mode={:?}",
             route_plan.continuation().capabilities().mode()
@@ -309,7 +304,7 @@ continuation_signature=aa41320fc8a144bf8aaebcc8b67db3ecf596268268d1fb2b03fd7bf87
 index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4187:head:0000000000000010:tail:ffffffffffffffff)}]
 index_range_specs=[]
 explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: "ordered_group", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: "group" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }
-route_execution_mode_case=AggregateGrouped
+route_shape_kind=AggregateGrouped
 route_execution_mode=Materialized
 route_continuation_mode=Initial
 grouped_outcome=MaterializedFallback

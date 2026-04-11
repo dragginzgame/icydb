@@ -1,5 +1,5 @@
 //! Module: db::index::key::tests::ordered_semantics
-//! Responsibility: module-local ownership and contracts for db::index::key::tests::ordered_semantics.
+//! Covers ordered-semantic invariants for encoded index keys.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

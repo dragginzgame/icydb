@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::aggregate_projection
-//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate_projection.
+//! Covers aggregate projection behavior and grouped output materialization.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

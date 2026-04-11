@@ -1,5 +1,5 @@
 //! Module: db::query::plan::tests::pushdown
-//! Responsibility: module-local ownership and contracts for db::query::plan::tests::pushdown.
+//! Covers access pushdown and planner pushdown eligibility behavior.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -9,7 +9,7 @@ use crate::{
             AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        executor::route::derive_secondary_pushdown_applicability_from_contract,
+        executor::planning::route::derive_secondary_pushdown_applicability_from_contract,
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, LoadSpec, LogicalPlan,

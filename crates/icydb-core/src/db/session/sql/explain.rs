@@ -10,7 +10,7 @@ use crate::{
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor,
             assemble_prepared_sql_scalar_aggregate_execution_descriptor,
-            route::AggregateRouteShape,
+            planning::route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
         session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},

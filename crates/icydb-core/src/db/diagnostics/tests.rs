@@ -1,5 +1,5 @@
 //! Module: db::diagnostics::tests
-//! Responsibility: module-local ownership and contracts for db::diagnostics::tests.
+//! Covers diagnostic node and counter behavior.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -677,13 +677,12 @@ fn integrity_report_classifies_unsupported_entity_rows_as_misuse() {
     let store = integrity_store_snapshot(&report, STORE_A_PATH);
 
     assert_eq!(store.misuse_findings(), 1);
-    assert_eq!(store.compatibility_findings(), 0);
     assert_eq!(store.corrupted_data_rows(), 0);
     assert_eq!(report.totals().misuse_findings(), 1);
 }
 
 #[test]
-fn integrity_report_classifies_incompatible_row_formats() {
+fn integrity_report_classifies_incompatible_row_formats_as_corruption() {
     reset_stores();
 
     let entity = IntegrityIndexedEntity {
@@ -698,10 +697,9 @@ fn integrity_report_classifies_incompatible_row_formats() {
     let report = diagnostics_integrity_report();
     let store = integrity_store_snapshot(&report, STORE_A_PATH);
 
-    assert_eq!(store.compatibility_findings(), 1);
     assert_eq!(store.misuse_findings(), 0);
-    assert_eq!(store.corrupted_data_rows(), 0);
-    assert_eq!(report.totals().compatibility_findings(), 1);
+    assert_eq!(store.corrupted_data_rows(), 1);
+    assert_eq!(report.totals().corrupted_data_rows(), 1);
 }
 
 #[test]
@@ -779,7 +777,6 @@ fn integrity_totals_candid_shape_is_stable() {
         "missing_index_entries",
         "divergent_index_entries",
         "orphan_index_references",
-        "compatibility_findings",
         "misuse_findings",
     ] {
         assert!(
@@ -804,7 +801,6 @@ fn integrity_store_snapshot_candid_shape_is_stable() {
         "missing_index_entries",
         "divergent_index_entries",
         "orphan_index_references",
-        "compatibility_findings",
         "misuse_findings",
     ] {
         assert!(

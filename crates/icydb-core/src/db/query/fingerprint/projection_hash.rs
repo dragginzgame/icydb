@@ -24,7 +24,7 @@ use crate::{
 };
 use sha2::Sha256;
 
-const PROJECTION_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
+const PROJECTION_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
 
 const PROJECTION_FIELD_SCALAR_TAG: u8 = 0x10;
 
@@ -91,38 +91,38 @@ impl ProjectionSpec {
     #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) fn structural_hash_for_test(&self) -> [u8; 32] {
         let mut hasher = new_hash_sha256();
-        hash_projection_structural_fingerprint_v1(&mut hasher, self);
+        hash_projection_structural_fingerprint(&mut hasher, self);
         finalize_sha256_digest(hasher)
     }
 }
 
-/// Hash one projection semantic shape using the v1 structural encoding.
+/// Hash one projection semantic shape using the current structural encoding.
 #[expect(clippy::cast_possible_truncation)]
-pub(super) fn hash_projection_structural_fingerprint_v1(
+pub(super) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
 ) {
     let shape = ProjectionHashShape::semantic(projection);
 
-    write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_V1);
+    write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_TAG);
     write_u32(hasher, shape.projection.fields().count() as u32);
     for field in shape.projection.fields() {
-        hash_projection_field_v1(hasher, field);
+        hash_projection_field(hasher, field);
     }
 }
 
-fn hash_projection_field_v1(hasher: &mut Sha256, field: &ProjectionField) {
+fn hash_projection_field(hasher: &mut Sha256, field: &ProjectionField) {
     match field {
         ProjectionField::Scalar { expr, alias: _ } => {
             // Field aliases are explain/display metadata and must not affect
             // projection semantic identity.
             write_tag(hasher, PROJECTION_FIELD_SCALAR_TAG);
-            hash_expr_v1(hasher, expr, false);
+            hash_expr(hasher, expr, false);
         }
     }
 }
 
-fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
+fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
     #[cfg(not(test))]
     let _ = numeric_literal_context;
 
@@ -136,7 +136,7 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool)
             write_tag(hasher, EXPR_LITERAL_TAG);
             #[cfg(test)]
             if numeric_literal_context {
-                hash_numeric_literal_semantic_v1(hasher, value);
+                hash_numeric_literal_semantic(hasher, value);
             } else {
                 write_value(hasher, value);
             }
@@ -146,28 +146,28 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool)
         #[cfg(test)]
         Expr::Unary { op, expr } => {
             write_tag(hasher, EXPR_UNARY_TAG);
-            write_tag(hasher, unary_op_tag_v1(*op));
-            hash_expr_v1(hasher, expr.as_ref(), numeric_literal_context);
+            write_tag(hasher, unary_op_tag(*op));
+            hash_expr(hasher, expr.as_ref(), numeric_literal_context);
         }
         #[cfg(test)]
         Expr::Binary { op, left, right } => {
             write_tag(hasher, EXPR_BINARY_TAG);
-            write_tag(hasher, binary_op_tag_v1(*op));
+            write_tag(hasher, binary_op_tag(*op));
             // Expression hashing preserves AST operand order. Commutative
-            // normalization is intentionally out-of-scope for v1 identity.
+            // normalization is intentionally out-of-scope for structural identity.
             let binary_numeric_literal_context =
                 numeric_literal_context || binary_op_uses_numeric_widen_semantics(*op);
-            hash_expr_v1(hasher, left.as_ref(), binary_numeric_literal_context);
-            hash_expr_v1(hasher, right.as_ref(), binary_numeric_literal_context);
+            hash_expr(hasher, left.as_ref(), binary_numeric_literal_context);
+            hash_expr(hasher, right.as_ref(), binary_numeric_literal_context);
         }
         Expr::Aggregate(aggregate) => {
             write_tag(hasher, EXPR_AGGREGATE_TAG);
-            hash_aggregate_expr_v1(hasher, aggregate);
+            hash_aggregate_expr(hasher, aggregate);
         }
         #[cfg(test)]
         Expr::Alias { expr, name: _ } => {
             // Expression alias wrappers are presentation metadata only.
-            hash_expr_v1(hasher, expr.as_ref(), numeric_literal_context);
+            hash_expr(hasher, expr.as_ref(), numeric_literal_context);
         }
     }
 }
@@ -175,7 +175,7 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool)
 // Canonicalize numeric-coercible literal leaves when they appear under numeric
 // operators so promotion-path representation differences do not fragment identity.
 #[cfg(test)]
-fn hash_numeric_literal_semantic_v1(hasher: &mut Sha256, value: &Value) {
+fn hash_numeric_literal_semantic(hasher: &mut Sha256, value: &Value) {
     let Some(decimal) = coerce_numeric_decimal(value) else {
         write_value(hasher, value);
         return;
@@ -190,8 +190,8 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
     matches!(op, BinaryOp::Add | BinaryOp::Mul | BinaryOp::Eq)
 }
 
-fn hash_aggregate_expr_v1(hasher: &mut Sha256, aggregate: &AggregateExpr) {
-    write_tag(hasher, aggregate_kind_tag_v1(aggregate.kind()));
+fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
+    write_tag(hasher, aggregate_kind_tag(aggregate.kind()));
     match aggregate.target_field() {
         Some(field) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
@@ -210,14 +210,14 @@ fn hash_aggregate_expr_v1(hasher: &mut Sha256, aggregate: &AggregateExpr) {
 }
 
 #[cfg(test)]
-const fn unary_op_tag_v1(op: UnaryOp) -> u8 {
+const fn unary_op_tag(op: UnaryOp) -> u8 {
     match op {
         UnaryOp::Not => UNARY_OP_NOT_TAG,
     }
 }
 
 #[cfg(test)]
-const fn binary_op_tag_v1(op: BinaryOp) -> u8 {
+const fn binary_op_tag(op: BinaryOp) -> u8 {
     match op {
         BinaryOp::Add => BINARY_OP_ADD_TAG,
         BinaryOp::Mul => BINARY_OP_MUL_TAG,
@@ -226,7 +226,7 @@ const fn binary_op_tag_v1(op: BinaryOp) -> u8 {
     }
 }
 
-const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
+const fn aggregate_kind_tag(kind: AggregateKind) -> u8 {
     match kind {
         AggregateKind::Count => AGGREGATE_KIND_COUNT_TAG,
         AggregateKind::Sum => AGGREGATE_KIND_SUM_TAG,
@@ -247,7 +247,7 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
 mod tests {
     use crate::db::query::{
         builder::{count, sum},
-        fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
+        fingerprint::projection_hash::hash_projection_structural_fingerprint,
         plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
     };
     use crate::{types::Decimal, value::Value};
@@ -255,7 +255,7 @@ mod tests {
 
     fn hash_projection(spec: &ProjectionSpec) -> [u8; 32] {
         let mut hasher = crate::db::codec::new_hash_sha256();
-        hash_projection_structural_fingerprint_v1(&mut hasher, spec);
+        hash_projection_structural_fingerprint(&mut hasher, spec);
         super::super::finalize_sha256_digest(hasher)
     }
 
@@ -413,7 +413,7 @@ mod tests {
         assert_ne!(
             hash_projection(&rank_plus_score),
             hash_projection(&score_plus_rank),
-            "projection hash preserves AST operand order for commutative operators in v1",
+            "projection hash preserves AST operand order for commutative operators in the current profile",
         );
     }
 
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn projection_hash_encoder_signature_accepts_projection_semantics_only() {
-        let hash: fn(&mut Sha256, &ProjectionSpec) = hash_projection_structural_fingerprint_v1;
+        let hash: fn(&mut Sha256, &ProjectionSpec) = hash_projection_structural_fingerprint;
 
         let _ = hash;
     }

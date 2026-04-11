@@ -1,5 +1,6 @@
 //! Module: db::executor::tests::continuation_structure
-//! Responsibility: module-local ownership and contracts for db::executor::tests::continuation_structure.
+//! Covers continuation structure and cursor-shape invariants in executor
+//! output.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

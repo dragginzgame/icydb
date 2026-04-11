@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
+- `0.75.6` keeps the cleanup line moving by making executor planning a real ownership boundary, collapsing more duplicated SQL and pipeline wrapper flows, and simplifying diagnostics so incompatible stored bytes are reported as corruption instead of a fake compatibility bucket, without widening the query surface.
 - `0.75.5` continues the cleanup line by hard-cutting fake internal cursor versioning, collapsing a few more aggregate/relation/explain wrapper seams, and deleting several tiny helper-only query modules so the repo carries less compatibility theater and less file-level indirection before `0.76`.
 - `0.75.4` finishes the current cleanup slice by removing dead non-test projection-expression scaffolding, tightening several remaining SQL/delete/session wrappers onto shared paths, and leaving `icydb-core` clean under strict all-target clippy before the next `0.76` feature work.
 - `0.75.3` keeps the audit line structural by collapsing duplicated SQL projection and covering-read flows onto one shared executor path, deleting obsolete single-component scan wrappers, and moving deep perf attribution behind an opt-in feature so the default runtime is simpler before the next optimization pass.

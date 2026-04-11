@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::runtime::grouped_distinct::tests
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_distinct::tests.
+//! Covers grouped DISTINCT runtime behavior and paging invariants.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

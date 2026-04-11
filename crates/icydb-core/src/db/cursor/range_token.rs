@@ -1,7 +1,6 @@
 //! Module: db::cursor::range_token
-//! Responsibility: module-local ownership and contracts for db::cursor::range_token.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines executor-owned continuation payloads for index-range traversal
+//! without leaking physical key bytes across layers.
 
 use crate::db::{
     access::LoweredKey,

@@ -1,5 +1,5 @@
 //! Module: db::executor::tests::cursor_validation
-//! Responsibility: module-local ownership and contracts for db::executor::tests::cursor_validation.
+//! Covers executor cursor-validation behavior and continuation guardrails.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

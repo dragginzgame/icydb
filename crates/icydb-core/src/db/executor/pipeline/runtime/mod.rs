@@ -6,7 +6,7 @@
 mod fast_path;
 
 #[cfg(test)]
-use crate::db::executor::route::ensure_load_fast_path_spec_arity;
+use crate::db::executor::planning::route::ensure_load_fast_path_spec_arity;
 use crate::{
     db::executor::{
         ExecutionTrace, aggregate::runtime::finalize_path_outcome_for_path,

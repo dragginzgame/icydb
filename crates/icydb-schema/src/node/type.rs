@@ -3,6 +3,9 @@ use crate::prelude::*;
 ///
 /// Type
 ///
+/// Canonical runtime type descriptor for one schema node's attached sanitizers
+/// and validators.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Type {
@@ -52,6 +55,8 @@ impl VisitableNode for Type {
 ///
 /// TypeSanitizer
 ///
+/// Reference to one sanitizer node plus its bound argument list.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TypeSanitizer {
@@ -80,7 +85,7 @@ impl ValidateNode for TypeSanitizer {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
 
-        // check path
+        // Resolve the referenced sanitizer path against the schema graph.
         let res = schema_read().check_node_as::<Sanitizer>(self.path());
         if let Err(e) = res {
             errs.add(e.to_string());
@@ -94,6 +99,8 @@ impl VisitableNode for TypeSanitizer {}
 
 ///
 /// TypeValidator
+///
+/// Reference to one validator node plus its bound argument list.
 ///
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,7 +130,7 @@ impl ValidateNode for TypeValidator {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
 
-        // check path
+        // Resolve the referenced validator path against the schema graph.
         let res = schema_read().check_node_as::<Validator>(self.path());
         if let Err(e) = res {
             errs.add(e.to_string());

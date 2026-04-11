@@ -1,6 +1,5 @@
 mod db;
 mod macros;
-mod metrics;
 
 use icydb_schema::{
     build::get_schema,
@@ -10,17 +9,14 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use std::sync::Arc;
 
-// generate
 /// Generate canister actor code for the given schema path.
 #[must_use]
 pub fn generate(canister_path: &str) -> String {
-    // load schema and get the specified canister
+    // Load the validated schema and resolve the requested canister node.
     let schema = get_schema().expect("schema must be valid before codegen");
-
-    // filter by name
     let canister = schema.cast_node::<Canister>(canister_path).unwrap();
 
-    // create the ActorBuilder and generate the code
+    // Render the canister actor glue from the schema-owned metadata.
     let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone());
     let tokens = code.generate();
 
@@ -29,6 +25,9 @@ pub fn generate(canister_path: &str) -> String {
 
 ///
 /// ActorBuilder
+///
+/// Internal codegen helper that renders one canister's generated runtime
+/// module from the validated schema graph.
 ///
 
 pub(crate) struct ActorBuilder {
@@ -48,9 +47,9 @@ impl ActorBuilder {
     pub fn generate(self) -> TokenStream {
         let mut tokens = quote!();
 
-        // shared between all canisters
+        // Emit the shared runtime wiring and the generated metrics endpoints.
         tokens.extend(db::generate(&self));
-        tokens.extend(metrics::generate(&self));
+        tokens.extend(generate_metrics(&self));
 
         quote! {
             #tokens
@@ -84,5 +83,28 @@ impl ActorBuilder {
                 }
             })
             .collect()
+    }
+}
+
+/// Render the metrics/snapshot endpoints for a canister actor.
+#[must_use]
+fn generate_metrics(_builder: &ActorBuilder) -> TokenStream {
+    quote! {
+        #[::icydb::__reexports::canic_cdk::query]
+        pub fn icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
+            ::icydb::__macro::execute_generated_storage_report(&db())
+        }
+
+        #[::icydb::__reexports::canic_cdk::query]
+        pub fn icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
+            Ok(::icydb::metrics::metrics_report(window_start_ms))
+        }
+
+        #[::icydb::__reexports::canic_cdk::update]
+        pub fn icydb_metrics_reset() -> Result<(), ::icydb::Error> {
+            ::icydb::metrics::metrics_reset_all();
+
+            Ok(())
+        }
     }
 }

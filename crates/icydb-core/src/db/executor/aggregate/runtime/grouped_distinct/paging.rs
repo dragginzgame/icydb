@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::runtime::grouped_distinct::paging
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_distinct::paging.
+//! Defines paging helpers for grouped DISTINCT execution outputs.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -1,7 +1,6 @@
 //! Module: types::nat
-//! Responsibility: module-local ownership and contracts for types::nat.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the unsigned big-integer runtime types used by typed values and
+//! numeric arithmetic helpers.
 
 mod nat128;
 

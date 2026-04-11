@@ -1,7 +1,6 @@
 //! Module: types::identity::id
-//! Responsibility: module-local ownership and contracts for types::identity::id.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the typed entity identifier wrapper used at API, query, and value
+//! boundaries.
 
 use crate::{
     traits::{

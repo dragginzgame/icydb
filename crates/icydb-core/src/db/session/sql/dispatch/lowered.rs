@@ -303,34 +303,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_lowered_sql_dispatch_query_text_core(lowered, authority)
     }
 
-    /// Execute one already-lowered shared SQL `SELECT` shape for resolved authority.
-    ///
-    /// This narrower boundary exists specifically for generated canister query
-    /// surfaces that need row-shaped SQL payloads without retaining the full
-    /// typed dispatch enum in the outer query facade.
-    #[doc(hidden)]
-    pub fn execute_lowered_sql_projection_for_authority(
-        &self,
-        lowered: &LoweredSqlCommand,
-        authority: EntityAuthority,
-    ) -> Result<SqlQuerySurfaceRowParts, QueryError> {
-        let Some(query) = lowered.query() else {
-            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
-                SqlSurface::QueryFrom,
-                session_sql_lane(lowered),
-            )));
-        };
-
-        match query {
-            LoweredSqlQuery::Select(select) => self
-                .execute_lowered_sql_projection_core(select.clone(), authority)
-                .map(SqlProjectionPayload::into_parts),
-            LoweredSqlQuery::Delete(delete) => {
-                self.execute_lowered_sql_delete_projection_core(delete, authority)
-            }
-        }
-    }
-
     // Execute one lowered SQL query command for the generated query surface,
     // which may keep rendered SQL projection rows when the terminal short path
     // can prove them directly.

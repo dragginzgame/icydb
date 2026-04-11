@@ -1,7 +1,7 @@
 //! Module: traits::macros
-//! Responsibility: module-local ownership and contracts for traits::macros.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: internal macro helpers for repetitive trait impl surfaces.
+//! Does not own: public trait definitions or generated type semantics.
+//! Boundary: keeps impl boilerplate local to the traits subsystem.
 
 ///
 /// MACROS

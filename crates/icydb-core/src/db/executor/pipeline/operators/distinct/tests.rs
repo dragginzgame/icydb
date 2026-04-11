@@ -1,5 +1,5 @@
 //! Module: db::executor::pipeline::operators::distinct::tests
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::operators::distinct::tests.
+//! Covers distinct operator behavior in pipeline execution.
 //! Does not own: production distinct-operator behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

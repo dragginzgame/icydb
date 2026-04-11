@@ -1,8 +1,8 @@
 //! Module: serialize
 //!
-//! Responsibility: module-local ownership and contracts for serialize.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: generic serialization and bounded-deserialization helpers.
+//! Does not own: database-specific payload policy or storage limits.
+//! Boundary: format-level helper layer reused by db codecs and tests.
 
 mod cbor;
 

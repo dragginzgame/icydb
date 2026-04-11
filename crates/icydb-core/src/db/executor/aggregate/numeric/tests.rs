@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::numeric::tests
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::numeric::tests.
+//! Covers numeric aggregate execution behavior and numeric fold invariants.
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

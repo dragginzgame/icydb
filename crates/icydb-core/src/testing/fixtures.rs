@@ -1,7 +1,7 @@
 //! Module: testing::fixtures
-//! Responsibility: module-local ownership and contracts for testing::fixtures.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: shared fixture constructors and test helper macros.
+//! Does not own: stable entity-tag assignment or production schema metadata.
+//! Boundary: internal test-support utilities reused across `icydb-core` tests.
 
 use crate::model::{entity::EntityModel, field::FieldModel, index::IndexModel};
 

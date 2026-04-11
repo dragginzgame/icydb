@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::runtime::grouped_distinct::strategy
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_distinct::strategy.
+//! Defines strategy selection for grouped DISTINCT aggregate execution.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

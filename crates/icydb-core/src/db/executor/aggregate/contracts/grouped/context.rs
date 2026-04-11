@@ -1,5 +1,6 @@
 //! Module: db::executor::aggregate::contracts::grouped::context
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::contracts::grouped::context.
+//! Defines grouped aggregate execution context shared across grouped runtime
+//! preparation and evaluation.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

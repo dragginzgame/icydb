@@ -1,8 +1,8 @@
 //! Module: value
 //!
-//! Responsibility: module-local ownership and contracts for value.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: canonical dynamic value representation plus storage-key helpers.
+//! Does not own: planner semantics or db-level decode policy.
+//! Boundary: shared value/domain surface used by query, executor, and storage layers.
 
 mod coercion;
 mod compare;

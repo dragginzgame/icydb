@@ -1,5 +1,5 @@
 //! Module: db::query::plan::validate::grouped::structure::tests
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::grouped::structure::tests.
+//! Covers grouped structure validation and grouped-plan shape rules.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

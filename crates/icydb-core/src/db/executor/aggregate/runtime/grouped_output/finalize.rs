@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::runtime::grouped_output::finalize
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::runtime::grouped_output::finalize.
+//! Finalizes grouped aggregate output pages after grouped runtime execution.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

@@ -3,6 +3,8 @@ use crate::prelude::*;
 ///
 /// Value
 ///
+/// Canonical value descriptor pairing cardinality with one item definition.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Value {
@@ -11,6 +13,7 @@ pub struct Value {
 }
 
 impl Value {
+    /// Build one value descriptor from its schema cardinality and item target.
     #[must_use]
     pub const fn new(cardinality: Cardinality, item: Item) -> Self {
         Self { cardinality, item }

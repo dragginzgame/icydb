@@ -42,7 +42,7 @@ impl<E: EntityKind> WriteResponse<E> {
 ///
 /// WriteBatchResponse
 ///
-/// Facade over batch write results with explicit accessors.
+/// Facade over batch write results with explicit entity and identity accessors.
 ///
 
 #[derive(Debug)]

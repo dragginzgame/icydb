@@ -46,7 +46,8 @@ impl<E: EntityKind> PagedResponse<E> {
 /// PagedGroupedResponse
 ///
 /// Public grouped pagination payload.
-/// Grouped rows are returned as core grouped rows to preserve grouped value fidelity.
+/// Grouped rows stay in the core grouped-row representation so grouped value
+/// fidelity and execution tracing remain intact at the facade boundary.
 ///
 pub struct PagedGroupedResponse {
     items: Vec<icydb_core::db::GroupedRow>,

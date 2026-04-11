@@ -1,5 +1,6 @@
 //! Module: db::executor::pipeline::runtime::fast_path::strategy
-//! Responsibility: module-local ownership and contracts for db::executor::pipeline::runtime::fast_path::strategy.
+//! Resolves scalar pipeline fast-path eligibility before falling back to the
+//! generic kernel.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -31,7 +32,7 @@ pub(super) enum FastPathResolutionStrategy {
 
 impl FastPathResolutionStrategy {
     pub(super) const fn for_route(route_plan: &ExecutionPlan) -> Self {
-        if route_plan.shape().is_streaming() {
+        if route_plan.is_streaming() {
             Self::StreamingFastPathFirst
         } else {
             Self::FallbackOnly

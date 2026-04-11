@@ -4,6 +4,9 @@ use std::sync::{LazyLock, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 ///
 /// BuildError
 ///
+/// Error returned when the process-global schema graph fails validation before
+/// build-time code generation.
+///
 
 #[derive(Debug, ThisError)]
 pub enum BuildError {
@@ -11,11 +14,7 @@ pub enum BuildError {
     Validation(ErrorTree),
 }
 
-///
-/// SCHEMA
-/// the static data structure
-///
-
+/// Process-global schema graph used during build-time code generation.
 static SCHEMA: LazyLock<RwLock<Schema>> = LazyLock::new(|| RwLock::new(Schema::new()));
 
 static SCHEMA_VALIDATED: OnceLock<bool> = OnceLock::new();
@@ -27,8 +26,7 @@ pub fn schema_write() -> RwLockWriteGuard<'static, Schema> {
         .expect("schema RwLock poisoned while acquiring write lock")
 }
 
-// schema_read
-// just reads the schema directly without validation
+/// Read the schema graph without triggering validation.
 pub(crate) fn schema_read() -> RwLockReadGuard<'static, Schema> {
     SCHEMA
         .read()
@@ -43,7 +41,7 @@ pub fn get_schema() -> Result<RwLockReadGuard<'static, Schema>, Error> {
     Ok(schema)
 }
 
-// validate
+/// Validate the schema once per process before exposing it to codegen.
 fn validate(schema: &Schema) -> Result<(), ErrorTree> {
     if *SCHEMA_VALIDATED.get_or_init(|| false) {
         return Ok(());

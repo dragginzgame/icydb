@@ -1,5 +1,6 @@
 //! Module: db::codec::tests
-//! Responsibility: module-local ownership and contracts for db::codec::tests.
+//! Covers codec-level roundtrip and corruption-handling invariants for the
+//! database wire helpers.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

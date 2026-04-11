@@ -1,5 +1,5 @@
 //! Module: db::query::plan::covering::tests
-//! Responsibility: module-local ownership and contracts for db::query::plan::covering::tests.
+//! Covers covering-plan derivation, ordering, and projection-context behavior.
 //! Does not own: production covering-plan behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 

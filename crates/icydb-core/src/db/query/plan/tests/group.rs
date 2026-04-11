@@ -1,5 +1,5 @@
 //! Module: db::query::plan::tests::group
-//! Responsibility: module-local ownership and contracts for db::query::plan::tests::group.
+//! Covers grouped query-plan semantics and grouped validation behavior.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

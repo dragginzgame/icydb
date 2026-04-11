@@ -1,7 +1,7 @@
 //! Module: testing
-//! Responsibility: module-local ownership and contracts for testing.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: shared crate-local test helpers and stable fixture constants.
+//! Does not own: production runtime behavior or public testing APIs.
+//! Boundary: internal-only support surface for `icydb-core` tests.
 
 mod entity_tags;
 mod fixtures;

@@ -1,7 +1,6 @@
 //! Module: db::access::execution_contract::pushdown
-//! Responsibility: module-local ownership and contracts for db::access::execution_contract::pushdown.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the secondary ORDER BY pushdown matcher used by access planning and
+//! execution-contract reporting.
 
 use crate::db::{
     access::plan::{SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection},

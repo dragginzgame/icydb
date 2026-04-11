@@ -8,7 +8,6 @@ mod index;
 mod item;
 mod list;
 mod map;
-mod memory_id;
 mod newtype;
 mod primary_key;
 mod record;
@@ -38,7 +37,6 @@ pub use index::*;
 pub use item::*;
 pub use list::*;
 pub use map::*;
-pub(crate) use memory_id::{validate_memory_id_in_range, validate_memory_id_not_reserved};
 pub use newtype::*;
 pub use primary_key::*;
 pub use record::*;
@@ -51,8 +49,13 @@ pub use r#type::*;
 pub use validator::*;
 pub use value::*;
 
+const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
+
 ///
 /// NodeError
+///
+/// Error raised when schema-node lookup or downcasting crosses an invalid
+/// boundary.
 ///
 
 #[derive(Debug, ThisError)]
@@ -70,8 +73,10 @@ pub enum NodeError {
 
 ///
 /// MacroNode
-/// shared traits for every node that is created via a macro
-/// as_any has to be implemented on each type manually
+///
+/// Shared trait implemented by every schema node emitted by macro/codegen
+/// surfaces.
+/// `as_any` keeps downcasting local to the schema-node boundary.
 ///
 
 pub trait MacroNode: Any {
@@ -80,7 +85,8 @@ pub trait MacroNode: Any {
 
 ///
 /// TypeNode
-/// shared traits for every type node
+///
+/// Shared trait for schema nodes that expose one canonical runtime `Type`.
 ///
 
 pub trait TypeNode: MacroNode {
@@ -89,6 +95,9 @@ pub trait TypeNode: MacroNode {
 
 ///
 /// ValidateNode
+///
+/// Trait implemented by schema nodes that can validate their own local
+/// invariants against the process-global schema graph.
 ///
 
 pub trait ValidateNode {
@@ -100,14 +109,17 @@ pub trait ValidateNode {
 ///
 /// VisitableNode
 ///
+/// Trait implemented by schema nodes that participate in recursive visitor
+/// traversal.
+///
 
 pub trait VisitableNode: ValidateNode {
-    // route_key
+    // Route key contributes one node-local path segment to the visitor path.
     fn route_key(&self) -> String {
         String::new()
     }
 
-    // accept
+    // Drive the enter/children/exit visitor sequence for this node.
     fn accept<V: Visitor>(&self, visitor: &mut V) {
         visitor.push(&self.route_key());
         visitor.visit(self, Event::Enter);
@@ -116,6 +128,29 @@ pub trait VisitableNode: ValidateNode {
         visitor.pop();
     }
 
-    // drive
+    // Visit child nodes in canonical order.
     fn drive<V: Visitor>(&self, _: &mut V) {}
+}
+
+// Validate one memory id against the declared canister range.
+pub(crate) fn validate_memory_id_in_range(
+    errs: &mut ErrorTree,
+    label: &str,
+    memory_id: u8,
+    min: u8,
+    max: u8,
+) {
+    if memory_id < min || memory_id > max {
+        err!(errs, "{label} {memory_id} outside of range {min}-{max}");
+    }
+}
+
+// Reject memory id values reserved by stable-structures internals.
+pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str, memory_id: u8) {
+    if memory_id == RESERVED_INTERNAL_MEMORY_ID {
+        err!(
+            errs,
+            "{label} {memory_id} is reserved for stable-structures internals",
+        );
+    }
 }

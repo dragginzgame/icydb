@@ -1,5 +1,5 @@
 //! Module: db::executor::aggregate::field::tests
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::field::tests.
+//! Covers field-target aggregate behavior and extrema field extraction.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

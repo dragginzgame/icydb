@@ -1,7 +1,7 @@
 //! Module: value::compare
-//! Responsibility: module-local ownership and contracts for value::compare.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: canonical dynamic-value comparison helpers.
+//! Does not own: planner ordering policy above the raw comparison contract.
+//! Boundary: deterministic comparison primitives for ordering, maps, and hashing.
 
 use crate::value::{Value, ValueEnum};
 use std::cmp::Ordering;

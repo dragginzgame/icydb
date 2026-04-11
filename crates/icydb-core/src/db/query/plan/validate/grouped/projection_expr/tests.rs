@@ -1,5 +1,5 @@
 //! Module: db::query::plan::validate::grouped::projection_expr::tests
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::grouped::projection_expr::tests.
+//! Covers grouped projection-expression validation rules.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

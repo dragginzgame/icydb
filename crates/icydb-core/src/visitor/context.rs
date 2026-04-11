@@ -1,10 +1,11 @@
 //! Module: visitor::context
-//! Responsibility: module-local ownership and contracts for visitor::context.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: visitor issue-reporting context and path scoping helpers.
+//! Does not own: concrete sanitize/validate traversal behavior.
+//! Boundary: shared diagnostics context passed through visitor entrypoints.
 
 ///
 /// VisitorContext
+///
 /// Narrow interface exposed to visitors for reporting non-fatal issues.
 /// Implemented by adapters via a short-lived context object.
 ///

@@ -1,7 +1,6 @@
 //! Module: value::hash
-//! Responsibility: module-local ownership and contracts for value::hash.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Defines the stable value hashing contract used by fingerprinting,
+//! diagnostics, and persisted comparison helpers.
 
 #[cfg(test)]
 mod tests;
