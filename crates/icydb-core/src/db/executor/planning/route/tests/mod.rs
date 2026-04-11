@@ -5,6 +5,7 @@
 
 mod aggregate;
 mod covering;
+mod field_extrema;
 mod grouped;
 
 use super::terminal::derive_load_terminal_fast_path_contract;
