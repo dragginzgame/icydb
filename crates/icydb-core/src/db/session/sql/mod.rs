@@ -39,6 +39,10 @@ use crate::db::session::sql::surface::{
     SqlSurface, session_sql_lane, sql_statement_route_from_statement, unsupported_sql_lane_message,
 };
 
+#[cfg(feature = "structural-read-metrics")]
+pub use crate::db::session::sql::projection::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 pub use crate::db::session::sql::surface::{
     SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
 };
