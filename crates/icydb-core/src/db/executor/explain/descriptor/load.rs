@@ -205,11 +205,31 @@ fn explain_access_order_satisfied(
         return false;
     }
 
+    let access_class = plan.access_strategy().class();
+    let Some(order_contract) =
+        plan.scalar_plan().order.as_ref().and_then(|order| {
+            order.deterministic_secondary_order_contract(plan.primary_key_name())
+        })
+    else {
+        return true;
+    };
+
+    if let Some((index, prefix_len)) = access_class.single_path_index_prefix_details() {
+        if !index.is_unique()
+            && prefix_len > 0
+            && matches!(
+                order_contract.direction(),
+                crate::db::query::plan::OrderDirection::Desc
+            )
+        {
+            return false;
+        }
+    }
+
     if load_terminal_fast_path.is_some() {
         return true;
     }
 
-    let access_class = plan.access_strategy().class();
     let Some((index, prefix_len)) = access_class.single_path_index_range_details() else {
         return true;
     };
@@ -219,14 +239,6 @@ fn explain_access_order_satisfied(
     if prefix_len == 0 {
         return true;
     }
-
-    let Some(order_contract) =
-        plan.scalar_plan().order.as_ref().and_then(|order| {
-            order.deterministic_secondary_order_contract(plan.primary_key_name())
-        })
-    else {
-        return true;
-    };
 
     order_contract.non_primary_key_terms().len() <= 1
 }
