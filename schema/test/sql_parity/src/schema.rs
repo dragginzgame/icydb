@@ -111,6 +111,24 @@ pub struct CustomerOrderProfile {}
 pub struct CustomerOrder {}
 
 ///
+/// SqlWriteProbe
+///
+/// Technical numeric-key fixture used to probe reduced SQL INSERT/UPDATE
+/// coverage on the typed dispatch lane without depending on ULID literals.
+///
+
+#[entity(
+    store = "SqlParityStore",
+    pk(field = "id"),
+    fields(
+        field(ident = "id", value(item(prim = "Nat64"))),
+        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "age", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlWriteProbe {}
+
+///
 /// PlannerChoice
 ///
 /// Technical deterministic-planning fixture used to lock public SQL route

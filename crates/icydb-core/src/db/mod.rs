@@ -79,11 +79,6 @@ pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
-#[doc(hidden)]
-pub use executor::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
 pub use migration::{
@@ -137,6 +132,11 @@ pub use session::{
 };
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub use session::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[doc(hidden)]
+pub use session::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 #[cfg(feature = "sql")]
 pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,

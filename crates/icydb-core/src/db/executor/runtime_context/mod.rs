@@ -154,6 +154,7 @@ fn update_row_check_metrics(update: impl FnOnce(&mut RowCheckMetrics)) {
 
 enum RowPresenceProbeSource {
     BorrowedDataStore,
+    #[cfg(test)]
     StoreHandle,
 }
 
@@ -300,6 +301,7 @@ fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
                 .row_presence_probe_borrowed_data_store_count
                 .saturating_add(1);
         }
+        #[cfg(test)]
         RowPresenceProbeSource::StoreHandle => {
             metrics.row_presence_probe_store_handle_count = metrics
                 .row_presence_probe_store_handle_count
@@ -454,28 +456,6 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
     })
 }
 
-// Read only row presence from structural store authority while treating
-// missing rows as a normal filtered-out outcome.
-pub(in crate::db::executor) fn read_row_presence_ignoring_missing_from_store(
-    store: StoreHandle,
-    key: &DataKey,
-) -> Result<bool, InternalError> {
-    store.with_data(|data| {
-        read_row_presence_ignoring_missing(data, key, RowPresenceProbeSource::StoreHandle)
-    })
-}
-
-// Read only row presence from structural store authority while preserving the
-// fail-closed missing-row contract.
-pub(in crate::db::executor) fn read_row_presence_requiring_existing_from_store(
-    store: StoreHandle,
-    key: &DataKey,
-) -> Result<bool, InternalError> {
-    store.with_data(|data| {
-        read_row_presence_requiring_existing(data, key, RowPresenceProbeSource::StoreHandle)
-    })
-}
-
 // Read only row presence under one consistency contract from one already
 // borrowed data-store boundary. Covering-read decode paths use this helper to
 // batch stale-row filtering under one store borrow instead of re-entering the
@@ -510,28 +490,6 @@ fn read_row_presence_with_consistency(
             }
         }
         MissingRowPolicy::Ignore => Ok(row_exists),
-    }
-}
-
-fn read_row_presence_ignoring_missing(
-    data: &DataStore,
-    key: &DataKey,
-    source: RowPresenceProbeSource,
-) -> Result<bool, InternalError> {
-    probe_row_presence(data, key, source)
-}
-
-fn read_row_presence_requiring_existing(
-    data: &DataStore,
-    key: &DataKey,
-    source: RowPresenceProbeSource,
-) -> Result<bool, InternalError> {
-    let row_exists = probe_row_presence(data, key, source)?;
-
-    if row_exists {
-        Ok(true)
-    } else {
-        Err(ExecutorError::missing_row(key).into())
     }
 }
 

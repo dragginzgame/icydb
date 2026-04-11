@@ -12,9 +12,8 @@ use crate::db::{
     },
     query::{
         explain::{ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor},
-        plan::AccessPlannedQuery,
+        plan::{AccessPlannedQuery, AggregateKind},
     },
-    sql::lowering::PreparedSqlScalarAggregateStrategy,
 };
 
 use crate::db::executor::explain::descriptor::shared::{
@@ -39,27 +38,27 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor(
     )
 }
 
-// Assemble one canonical typed SQL scalar aggregate execution descriptor from
-// one already-prepared SQL scalar strategy so EXPLAIN does not rediscover
-// aggregate kind or projected-field shape from raw SQL terminal variants.
+// Assemble one canonical scalar aggregate execution descriptor from one
+// aggregate shape plus preselected aggregation semantics.
 #[inline(never)]
-pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor(
+pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_projection(
     plan: &AccessPlannedQuery,
-    strategy: &PreparedSqlScalarAggregateStrategy,
     aggregate: AggregateRouteShape<'_>,
+    aggregation: AggregateKind,
+    projected_field: Option<&str>,
 ) -> ExplainExecutionDescriptor {
     assemble_aggregate_terminal_execution_descriptor_from_shape(
         plan,
         aggregate,
-        strategy.aggregate_kind(),
-        strategy.projected_field(),
+        aggregation,
+        projected_field,
     )
 }
 
 fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
-    aggregation: crate::db::query::plan::AggregateKind,
+    aggregation: AggregateKind,
     projected_field: Option<&str>,
 ) -> ExplainExecutionDescriptor {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.

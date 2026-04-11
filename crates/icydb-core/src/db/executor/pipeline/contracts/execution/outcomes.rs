@@ -4,23 +4,17 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
-#[cfg(feature = "sql")]
-use crate::value::Value;
 
 ///
 /// MaterializedExecutionPayload
 ///
 /// Final materialization payload for one scalar execution attempt.
-/// Shared load lanes continue returning `StructuralCursorPage`, while fused
-/// immediate SQL terminals may emit final projected rows directly.
+/// Shared load lanes always return one structural cursor page, leaving any
+/// surface-specific row shaping to the outer session boundary.
 ///
 
 pub(in crate::db::executor) enum MaterializedExecutionPayload {
     StructuralPage(StructuralCursorPage),
-    #[cfg(feature = "sql")]
-    SqlProjectedRows(Vec<Vec<Value>>),
-    #[cfg(feature = "sql")]
-    SqlRenderedRows(Vec<Vec<String>>),
 }
 
 ///

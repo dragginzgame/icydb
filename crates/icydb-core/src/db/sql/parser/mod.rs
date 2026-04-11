@@ -21,11 +21,11 @@ use crate::{
 
 pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(crate) use model::{
-    SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-    SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
+    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.
@@ -127,6 +127,10 @@ impl Parser {
         self.cursor.eat_keyword(keyword)
     }
 
+    fn eat_identifier_keyword(&mut self, keyword: &str) -> bool {
+        self.cursor.eat_identifier_keyword(keyword)
+    }
+
     fn eat_comma(&mut self) -> bool {
         self.cursor.eat_comma()
     }
@@ -153,6 +157,14 @@ impl Parser {
 
     fn peek_kind(&self) -> Option<&TokenKind> {
         self.cursor.peek_kind()
+    }
+
+    fn expect_identifier_keyword(&mut self, keyword: &str) -> Result<(), SqlParseError> {
+        if self.eat_identifier_keyword(keyword) {
+            return Ok(());
+        }
+
+        Err(SqlParseError::expected(keyword, self.peek_kind()))
     }
 
     const fn is_eof(&self) -> bool {

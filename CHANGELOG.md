@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
+- `0.76.3` keeps the `0.76` line easier to maintain by reorganizing large session, query, and executor test suites into clearer owner `tests/` files and by turning a few repetitive ordered-route checks into compact case tables, without changing SQL or query behavior.
+- `0.76.0` opens the `0.76` SQL-surface line by locking the remaining non-`JOIN` gaps into one explicit tracker, documenting which shapes are intentionally still fail-closed, and setting the boundary for later SQL-only follow-up patches without changing execution behavior yet.
 - `0.76.2` keeps the same SQL-only completion line moving without changing the runtime model: grouped top-level `SELECT DISTINCT ... GROUP BY ...` now normalizes away during lowering, grouped `TRIM(...)`-style projection over grouped fields now runs through the session-owned grouped SQL lane, projection aliases now work as output-label syntax, and narrow `ORDER BY` aliases now work for already-supported field and `LOWER/UPPER(...)` order targets without widening planner or runtime semantics.
-- `0.76.1` starts the `0.76` line by fixing scalar `SELECT DISTINCT` without primary-key projection, adding both global and grouped aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
+- `0.76.1` delivers the first SQL-surface feature slice by fixing scalar `SELECT DISTINCT` without primary-key projection, adding both global and grouped aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
 
 See detailed breakdown:
 [docs/changelog/0.76.md](docs/changelog/0.76.md)

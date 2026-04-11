@@ -20,8 +20,9 @@ use crate::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use page::KernelRow;
 pub(in crate::db::executor) use page::RetainedSlotLayout;
-pub(in crate::db::executor) use page::RetainedSlotRow;
-pub(in crate::db::executor) use row_decode::{RowDecoder, RowLayout};
+pub(in crate::db) use page::RetainedSlotRow;
+pub(in crate::db::executor) use row_decode::RowDecoder;
+pub(in crate::db) use row_decode::RowLayout;
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.

@@ -289,7 +289,7 @@ impl ExecutionKernel {
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
-            ExecutionOutputOptions::new(false, false),
+            ExecutionOutputOptions::new(false),
         );
 
         // Resolve the ordered key stream using canonical routing logic.

@@ -61,6 +61,12 @@ const fn unsupported_sql_aggregate_surface_lane_message(route: &SqlStatementRout
         SqlStatementRoute::Query { .. } => {
             "execute_sql_aggregate requires constrained global aggregate SELECT"
         }
+        SqlStatementRoute::Insert { .. } => {
+            "execute_sql_aggregate rejects INSERT; use execute_sql_dispatch"
+        }
+        SqlStatementRoute::Update { .. } => {
+            "execute_sql_aggregate rejects UPDATE; use execute_sql_dispatch"
+        }
         SqlStatementRoute::Explain { .. } => {
             "execute_sql_aggregate rejects EXPLAIN; use execute_sql_dispatch"
         }

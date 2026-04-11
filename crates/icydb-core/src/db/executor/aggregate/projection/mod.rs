@@ -141,7 +141,7 @@ where
 {
     // Execute one `MIN(field)` / `MAX(field)` value request through the
     // aggregate field-extrema path and then project the winning row's field
-    // value. This keeps SQL aggregate extrema on the dedicated aggregate
+    // value. This keeps aggregate extrema on the dedicated aggregate
     // route instead of the two-step ranked-id plus follow-up field load path.
     pub(in crate::db) fn execute_scalar_extrema_value_boundary(
         &self,
@@ -622,7 +622,7 @@ where
     }
 
     // Execute one field-target selected-value projection (`first_value_by` /
-    // `last_value_by` / SQL `MIN/MAX(field)`) using a planner-validated slot
+    // `last_value_by` / surface `MIN/MAX(field)`) using a planner-validated slot
     // and route-owned selected-row semantics.
     fn execute_selected_value_field_projection_with_slot(
         &self,

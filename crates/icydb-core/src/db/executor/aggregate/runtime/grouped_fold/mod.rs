@@ -410,7 +410,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         &execution_preparation,
         ProjectionMaterializationMode::SharedValidation,
         PreparedExecutionProjection::empty(),
-        ExecutionOutputOptions::new(true, false),
+        ExecutionOutputOptions::new(true),
     );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(

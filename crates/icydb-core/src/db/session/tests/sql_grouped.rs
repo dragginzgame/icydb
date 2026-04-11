@@ -1,6 +1,29 @@
 use super::*;
 use crate::db::query::explain::{ExplainExecutionNodeType, ExplainGrouping};
 
+// Execute one indexed grouped SQL case, assert the fully materialized ordered
+// grouped contract, and project rows into a compact assertion shape.
+fn execute_indexed_grouped_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) -> Vec<(Value, Vec<Value>)> {
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(sql, None)
+        .unwrap_or_else(|err| panic!("{context} SQL execution should succeed: {err}"));
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "{context} should fully materialize under LIMIT 10",
+    );
+
+    execution
+        .rows()
+        .iter()
+        .map(|row| (row.group_key()[0].clone(), row.aggregate_values().to_vec()))
+        .collect()
+}
+
 #[test]
 fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
     reset_session_sql_store();
@@ -519,12 +542,17 @@ fn query_from_sql_indexed_grouped_mixed_count_and_sum_explain_and_execution_proj
     );
 }
 
+// This is an intentionally table-driven grouped aggregate matrix. Keeping the
+// admitted ordered grouped cases inline makes the outward SQL contract easier
+// to audit than splitting them across many tiny helpers.
 #[test]
-fn execute_sql_grouped_indexed_count_by_name_preserves_ordered_group_rows() {
+#[expect(clippy::too_many_lines)]
+fn execute_sql_grouped_indexed_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed deterministic indexed rows for one grouped ordered cohort.
+    // Phase 1: seed one deterministic duplicate-free cohort for the plain
+    // ordered grouped aggregate matrix.
     seed_indexed_session_sql_entities(
         &session,
         &[
@@ -536,619 +564,252 @@ fn execute_sql_grouped_indexed_count_by_name_preserves_ordered_group_rows() {
         ],
     );
 
-    // Phase 2: execute the admitted indexed grouped shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+    // Phase 2: execute the ordered grouped aggregate matrix and assert each
+    // aggregate shape stays on the same public grouped-row contract.
+    let cases = [
+        (
+            "COUNT(*)",
             "SELECT name, COUNT(*) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped COUNT(*) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(2)),
-        (Value::Text("bravo".to_string()), Value::Uint(1)),
-        (Value::Text("charlie".to_string()), Value::Uint(2)),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped COUNT(*) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped COUNT(*) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_count_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one grouped ordered field-count cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted indexed grouped COUNT(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+            ],
+        ),
+        (
+            "COUNT(age)",
             "SELECT name, COUNT(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped COUNT(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(2)),
-        (Value::Text("bravo".to_string()), Value::Uint(1)),
-        (Value::Text("charlie".to_string()), Value::Uint(2)),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped COUNT(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped COUNT(field) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_count_distinct_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-            ("charlie", 50),
-        ],
-    );
-
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(DISTINCT age) \
-             FROM IndexedSessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped COUNT(DISTINCT field) SQL execution should succeed");
-
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(2)),
-        (Value::Text("bravo".to_string()), Value::Uint(1)),
-        (Value::Text("charlie".to_string()), Value::Uint(2)),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped COUNT(DISTINCT field) should dedupe admitted field values per group",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_sum_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one grouped ordered SUM(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted indexed grouped SUM(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+            ],
+        ),
+        (
+            "SUM(age)",
             "SELECT name, SUM(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped SUM(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (
-            Value::Text("alpha".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
+            vec![
+                (
+                    Value::Text("alpha".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("bravo".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(90_u64))],
+                ),
+            ],
         ),
         (
-            Value::Text("bravo".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
-        ),
-        (
-            Value::Text("charlie".to_string()),
-            Value::Decimal(crate::types::Decimal::from(90_u64)),
-        ),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped SUM(field) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_sum_distinct_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-            ("charlie", 50),
-        ],
-    );
-
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
-            "SELECT name, SUM(DISTINCT age) \
-             FROM IndexedSessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped SUM(DISTINCT field) SQL execution should succeed");
-
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (
-            Value::Text("alpha".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
-        ),
-        (
-            Value::Text("bravo".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
-        ),
-        (
-            Value::Text("charlie".to_string()),
-            Value::Decimal(crate::types::Decimal::from(90_u64)),
-        ),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped SUM(DISTINCT field) should dedupe admitted numeric field values per group",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_avg_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one grouped ordered AVG(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted indexed grouped AVG(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "AVG(age)",
             "SELECT name, AVG(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped AVG(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (
-            Value::Text("alpha".to_string()),
-            Value::Decimal(crate::types::Decimal::from(15_u64)),
+            vec![
+                (
+                    Value::Text("alpha".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(15_u64))],
+                ),
+                (
+                    Value::Text("bravo".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(45_u64))],
+                ),
+            ],
         ),
         (
-            Value::Text("bravo".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
-        ),
-        (
-            Value::Text("charlie".to_string()),
-            Value::Decimal(crate::types::Decimal::from(45_u64)),
-        ),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped AVG(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped AVG(field) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_avg_distinct_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-            ("charlie", 50),
-        ],
-    );
-
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
-            "SELECT name, AVG(DISTINCT age) \
-             FROM IndexedSessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped AVG(DISTINCT field) SQL execution should succeed");
-
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (
-            Value::Text("alpha".to_string()),
-            Value::Decimal(crate::types::Decimal::from(15_u64)),
-        ),
-        (
-            Value::Text("bravo".to_string()),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
-        ),
-        (
-            Value::Text("charlie".to_string()),
-            Value::Decimal(crate::types::Decimal::from(45_u64)),
-        ),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped AVG(DISTINCT field) should dedupe admitted numeric field values per group",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_min_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one grouped ordered MIN(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted indexed grouped MIN(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "MIN(age)",
             "SELECT name, MIN(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped MIN(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(10)),
-        (Value::Text("bravo".to_string()), Value::Uint(30)),
-        (Value::Text("charlie".to_string()), Value::Uint(40)),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped MIN(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped MIN(field) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_min_distinct_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+            ],
+        ),
+        (
+            "MIN(DISTINCT age)",
             "SELECT name, MIN(DISTINCT age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped MIN(DISTINCT field) SQL execution should succeed");
-
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(10)),
-        (Value::Text("bravo".to_string()), Value::Uint(30)),
-        (Value::Text("charlie".to_string()), Value::Uint(40)),
-    ];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped MIN(DISTINCT field) should match MIN(field) on the admitted ordered grouped lane",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_max_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one grouped ordered MAX(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted indexed grouped MAX(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+            ],
+        ),
+        (
+            "MAX(age)",
             "SELECT name, MAX(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped MAX(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (Value::Text("alpha".to_string()), Value::Uint(20)),
-        (Value::Text("bravo".to_string()), Value::Uint(30)),
-        (Value::Text("charlie".to_string()), Value::Uint(50)),
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(20)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(50)]),
+            ],
+        ),
+        (
+            "COUNT(*) + SUM(age)",
+            "SELECT name, COUNT(*), SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (
+                    Value::Text("alpha".to_string()),
+                    vec![
+                        Value::Uint(2),
+                        Value::Decimal(crate::types::Decimal::from(30_u64)),
+                    ],
+                ),
+                (
+                    Value::Text("bravo".to_string()),
+                    vec![
+                        Value::Uint(1),
+                        Value::Decimal(crate::types::Decimal::from(30_u64)),
+                    ],
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    vec![
+                        Value::Uint(2),
+                        Value::Decimal(crate::types::Decimal::from(90_u64)),
+                    ],
+                ),
+            ],
+        ),
     ];
 
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped MAX(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped MAX(field) should fully materialize under LIMIT 10",
-    );
+    for (label, sql, expected_rows) in cases {
+        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
+
+        assert_eq!(
+            actual_rows, expected_rows,
+            "{label} should preserve grouped-key order on the admitted ordered grouped lane",
+        );
+    }
 }
 
 #[test]
-fn execute_sql_grouped_indexed_count_and_sum_age_by_name_preserves_ordered_group_rows() {
+fn execute_sql_grouped_indexed_distinct_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed deterministic indexed rows for one mixed grouped ordered cohort.
+    // Phase 1: seed one deterministic duplicate-heavy cohort for the distinct
+    // aggregate matrix on the ordered grouped lane.
     seed_indexed_session_sql_entities(
         &session,
         &[
+            ("alpha", 10),
             ("alpha", 10),
             ("alpha", 20),
             ("bravo", 30),
             ("charlie", 40),
             ("charlie", 50),
+            ("charlie", 50),
         ],
     );
 
-    // Phase 2: execute the admitted indexed grouped mixed shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*), SUM(age) \
+    // Phase 2: execute the distinct aggregate matrix and assert the public
+    // grouped rows keep both ordering and per-group dedupe semantics.
+    let cases = [
+        (
+            "COUNT(DISTINCT age)",
+            "SELECT name, COUNT(DISTINCT age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed grouped COUNT(*) + SUM(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-                row.aggregate_values()[1].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        (
-            Value::Text("alpha".to_string()),
-            Value::Uint(2),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+            ],
         ),
         (
-            Value::Text("bravo".to_string()),
-            Value::Uint(1),
-            Value::Decimal(crate::types::Decimal::from(30_u64)),
+            "SUM(DISTINCT age)",
+            "SELECT name, SUM(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (
+                    Value::Text("alpha".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("bravo".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(90_u64))],
+                ),
+            ],
         ),
         (
-            Value::Text("charlie".to_string()),
-            Value::Uint(2),
-            Value::Decimal(crate::types::Decimal::from(90_u64)),
+            "AVG(DISTINCT age)",
+            "SELECT name, AVG(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (
+                    Value::Text("alpha".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(15_u64))],
+                ),
+                (
+                    Value::Text("bravo".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+                ),
+                (
+                    Value::Text("charlie".to_string()),
+                    vec![Value::Decimal(crate::types::Decimal::from(45_u64))],
+                ),
+            ],
+        ),
+        (
+            "MIN(DISTINCT age)",
+            "SELECT name, MIN(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec![
+                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+            ],
         ),
     ];
 
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed grouped COUNT(*) + SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed grouped COUNT(*) + SUM(field) should fully materialize under LIMIT 10",
-    );
+    for (label, sql, expected_rows) in cases {
+        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
+
+        assert_eq!(
+            actual_rows, expected_rows,
+            "{label} should preserve ordered grouped rows after per-group DISTINCT dedupe",
+        );
+    }
 }
 
 #[test]
@@ -1311,11 +972,12 @@ fn query_from_sql_indexed_filtered_grouped_avg_field_explain_and_execution_proje
 }
 
 #[test]
-fn execute_sql_grouped_indexed_filtered_count_by_name_preserves_ordered_group_rows() {
+fn execute_sql_grouped_indexed_filtered_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered cohort.
+    // Phase 1: seed one deterministic filtered cohort for the ordered grouped
+    // aggregate matrix on the admitted index-backed filter path.
     seed_indexed_session_sql_entities(
         &session,
         &[
@@ -1327,149 +989,52 @@ fn execute_sql_grouped_indexed_filtered_count_by_name_preserves_ordered_group_ro
         ],
     );
 
-    // Phase 2: execute the admitted filtered grouped shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+    // Phase 2: execute the filtered grouped aggregate matrix and assert the
+    // grouped public surface stays stable after the index-backed filter.
+    let cases = [
+        (
+            "filtered COUNT(*)",
             "SELECT name, COUNT(*) \
              FROM IndexedSessionSqlEntity \
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed filtered grouped COUNT(*) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![(Value::Text("alpha".to_string()), Value::Uint(2))];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed filtered grouped COUNT(*) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed filtered grouped COUNT(*) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_filtered_sum_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered SUM(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("delta", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted filtered grouped SUM(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![(Value::Text("alpha".to_string()), vec![Value::Uint(2)])],
+        ),
+        (
+            "filtered SUM(age)",
             "SELECT name, SUM(age) \
              FROM IndexedSessionSqlEntity \
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed filtered grouped SUM(field) SQL execution should succeed");
-
-    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![(
-        Value::Text("alpha".to_string()),
-        Value::Decimal(crate::types::Decimal::from(30_u64)),
-    )];
-
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed filtered grouped SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed filtered grouped SUM(field) should fully materialize under LIMIT 10",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_indexed_filtered_avg_age_by_name_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed deterministic indexed rows for one filtered grouped ordered AVG(field) cohort.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("delta", 50),
-        ],
-    );
-
-    // Phase 2: execute the admitted filtered grouped AVG(field) shape on the public SQL grouped lane.
-    let execution = session
-        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            vec![(
+                Value::Text("alpha".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+            )],
+        ),
+        (
+            "filtered AVG(age)",
             "SELECT name, AVG(age) \
              FROM IndexedSessionSqlEntity \
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("indexed filtered grouped AVG(field) SQL execution should succeed");
+            vec![(
+                Value::Text("alpha".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(15_u64))],
+            )],
+        ),
+    ];
 
-    // Phase 3: assert ordered grouped output stays in grouped-key order after the index-backed filter.
-    let actual_rows = execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![(
-        Value::Text("alpha".to_string()),
-        Value::Decimal(crate::types::Decimal::from(15_u64)),
-    )];
+    for (label, sql, expected_rows) in cases {
+        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
 
-    assert_eq!(
-        actual_rows, expected_rows,
-        "indexed filtered grouped AVG(field) should preserve grouped-key order on the admitted ordered grouped lane",
-    );
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "indexed filtered grouped AVG(field) should fully materialize under LIMIT 10",
-    );
+        assert_eq!(
+            actual_rows, expected_rows,
+            "{label} should preserve grouped-key order on the admitted ordered grouped lane",
+        );
+    }
 }
 
 #[test]

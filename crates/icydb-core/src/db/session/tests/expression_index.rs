@@ -1,5 +1,93 @@
 use super::*;
 
+// Seed one deterministic mixed-case dataset for expression-index routing
+// checks where `LOWER(name)` order differs from primary-key order.
+fn seed_expression_order_fixture(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &str, u64)],
+) {
+    seed_expression_indexed_session_sql_entities(session, rows);
+}
+
+// Assert the shared non-covering order-only expression route contract.
+fn assert_expression_order_index_range_descriptor(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    context: &str,
+) {
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "{context} should stay on the shared index-range root",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "{context} should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "{context} should report access-satisfied ordering",
+    );
+}
+
+// Assert the shared covering-read route contract for key-only expression-index
+// routes, parameterized only by the specific query spelling under test.
+fn assert_expression_covering_read_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("expression covering SQL query should lower")
+        .explain_execution()
+        .expect("expression covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "{context} should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "{context} should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "{context} should expose the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("expression covering explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "{context} should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("planner_proven".to_string())),
+        "{context} should inherit the planner-proven covering mode",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "{context} should report access-satisfied ordering",
+    );
+}
+
 #[test]
 fn execute_sql_projection_expression_order_query_matches_entity_rows() {
     reset_indexed_session_sql_store();
@@ -8,7 +96,7 @@ fn execute_sql_projection_expression_order_query_matches_entity_rows() {
     // Phase 1: seed one deterministic mixed-case dataset so expression order
     // semantics disagree with primary-key order instead of accidentally
     // matching one tie-break-only fallback.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_243_u128, "sam", 10),
@@ -65,7 +153,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
 
     // Phase 1: seed one deterministic mixed-case dataset whose primary-key
     // order disagrees with canonical `LOWER(name), id` traversal.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_243_u128, "sam", 10),
@@ -134,7 +222,7 @@ fn execute_sql_projection_expression_order_desc_query_matches_entity_rows() {
 
     // Phase 1: reuse one deterministic mixed-case dataset whose primary-key
     // order disagrees with reverse expression order.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_243_u128, "sam", 10),
@@ -190,7 +278,7 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
 
     // Phase 1: seed one deterministic mixed-case dataset so EXPLAIN EXECUTION
     // can prove the expression-index route instead of a materialized fallback.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_251_u128, "sam", 10),
@@ -209,27 +297,7 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
         .explain_execution()
         .expect("expression order-only SQL explain_execution should succeed");
 
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "expression order-only queries should stay on the shared index-range root",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "expression order-only index-range roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "expression order-only index-range roots should report access-satisfied ordering",
-    );
+    assert_expression_order_index_range_descriptor(&descriptor, "expression order-only queries");
 }
 
 #[test]
@@ -240,7 +308,7 @@ fn session_explain_execution_order_only_expression_key_only_query_uses_covering_
     // Phase 1: seed one deterministic mixed-case dataset so the key-only
     // expression-order sibling can prove true covering eligibility without
     // claiming original `name` reconstruction from the lowered key.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_261_u128, "sam", 10),
@@ -251,49 +319,10 @@ fn session_explain_execution_order_only_expression_key_only_query_uses_covering_
 
     // Phase 2: require the session-backed query-builder explain to reuse the
     // planner-proven covering-read route for the `id`-only projection.
-    let descriptor = session
-        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
-            "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect("expression key-only order SQL query should lower")
-        .explain_execution()
-        .expect("expression key-only order SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "expression key-only order queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "expression key-only order queries should expose the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "expression key-only order explain roots should expose the covering-read route label",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect("expression key-only order explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "expression key-only order covering nodes should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "session-backed expression key-only order explain should inherit the planner-proven covering mode",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "expression key-only order explain roots should report access-satisfied ordering",
+    assert_expression_covering_read_descriptor(
+        &session,
+        "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        "expression key-only order queries",
     );
 }
 
@@ -305,7 +334,7 @@ fn session_explain_execution_order_only_expression_key_only_desc_query_uses_cove
     // Phase 1: seed one deterministic mixed-case dataset so the descending
     // key-only expression-order sibling stays on the same honest covering
     // family.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_264_u128, "sam", 10),
@@ -316,51 +345,10 @@ fn session_explain_execution_order_only_expression_key_only_desc_query_uses_cove
 
     // Phase 2: require the session-backed query-builder explain to surface the
     // covering route and the planner-proven existing-row mode.
-    let descriptor = session
-        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
-            "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        )
-        .expect("descending expression key-only order SQL query should lower")
-        .explain_execution()
-        .expect("descending expression key-only order SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending expression key-only order queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "descending expression key-only order queries should expose the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "descending expression key-only order explain roots should expose the covering-read route label",
-    );
-    let projection_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::CoveringRead,
-    )
-    .expect("descending expression key-only order explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "descending expression key-only order covering nodes should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "descending session-backed expression key-only order explain should inherit the planner-proven covering mode",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending expression key-only order explain roots should report access-satisfied ordering",
+    assert_expression_covering_read_descriptor(
+        &session,
+        "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        "descending expression key-only order queries",
     );
 }
 
@@ -373,7 +361,7 @@ fn session_explain_execution_expression_key_only_strict_text_range_query_uses_co
     // Phase 1: seed one deterministic mixed-case dataset so the bounded
     // expression-key sibling can prove true covering eligibility without
     // claiming original `name` reconstruction from the lowered key.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_267_u128, "sam", 10),
@@ -385,51 +373,10 @@ fn session_explain_execution_expression_key_only_strict_text_range_query_uses_co
 
     // Phase 2: require the session-backed query-builder explain to reuse the
     // planner-proven covering-read route for the bounded `id`-only projection.
-    let descriptor = session
-        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
-            "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect("expression key-only strict text-range SQL query should lower")
-        .explain_execution()
-        .expect("expression key-only strict text-range SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "expression key-only strict text-range queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "expression key-only strict text-range queries should expose the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "expression key-only strict text-range explain roots should expose the covering-read route label",
-    );
-    let projection_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::CoveringRead,
-    )
-    .expect("expression key-only strict text-range explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "expression key-only strict text-range covering nodes should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "session-backed expression key-only strict text-range explain should inherit the planner-proven covering mode",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "expression key-only strict text-range explain roots should report access-satisfied ordering",
+    assert_expression_covering_read_descriptor(
+        &session,
+        "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        "expression key-only strict text-range queries",
     );
 }
 
@@ -441,7 +388,7 @@ fn session_explain_execution_expression_key_only_strict_text_range_desc_query_us
 
     // Phase 1: seed one deterministic mixed-case dataset so the descending
     // bounded expression-key sibling stays on the same honest covering family.
-    seed_expression_indexed_session_sql_entities(
+    seed_expression_order_fixture(
         &session,
         &[
             (9_271_u128, "sam", 10),
@@ -453,55 +400,10 @@ fn session_explain_execution_expression_key_only_strict_text_range_desc_query_us
 
     // Phase 2: require the session-backed query-builder explain to surface the
     // covering route and the planner-proven existing-row mode.
-    let descriptor = session
-        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
-            "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        )
-        .expect("descending expression key-only strict text-range SQL query should lower")
-        .explain_execution()
-        .expect(
-            "descending expression key-only strict text-range SQL explain_execution should succeed",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending expression key-only strict text-range queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "descending expression key-only strict text-range queries should expose the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "descending expression key-only strict text-range explain roots should expose the covering-read route label",
-    );
-    let projection_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::CoveringRead,
-    )
-    .expect(
-        "descending expression key-only strict text-range explain tree should emit a covering-read node",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "descending expression key-only strict text-range covering nodes should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "descending session-backed expression key-only strict text-range explain should inherit the planner-proven covering mode",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending expression key-only strict text-range explain roots should report access-satisfied ordering",
+    assert_expression_covering_read_descriptor(
+        &session,
+        "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        "descending expression key-only strict text-range queries",
     );
 }
 

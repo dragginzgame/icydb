@@ -39,6 +39,8 @@ use std::thread::LocalKey;
 pub use sql::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
 #[cfg(feature = "sql")]
 pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
 
 ///
 /// DbSession

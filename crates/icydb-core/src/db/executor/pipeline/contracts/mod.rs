@@ -18,14 +18,13 @@ use crate::{
     traits::EntityKind,
 };
 
-#[cfg(any(test, feature = "perf-attribution"))]
-pub(in crate::db::executor) use execution::StructuralCursorPagePayload;
+pub(in crate::db) use execution::StructuralCursorPage;
+pub(in crate::db) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
-    CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionOutputOptions, ExecutionRuntimeAdapter,
-    MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionProjection,
-    ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest, StructuralCursorPage,
+    CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionOutputOptions,
+    ExecutionRuntimeAdapter, MaterializedExecutionAttempt, MaterializedExecutionPayload,
+    PreparedExecutionProjection, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,

@@ -18,6 +18,8 @@ use crate::{
 pub(crate) enum SqlStatement {
     Select(SqlSelectStatement),
     Delete(SqlDeleteStatement),
+    Insert(SqlInsertStatement),
+    Update(SqlUpdateStatement),
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowIndexes(SqlShowIndexesStatement),
@@ -249,6 +251,50 @@ pub(crate) struct SqlDeleteStatement {
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
+}
+
+///
+/// SqlInsertStatement
+///
+/// Canonical parsed `INSERT` statement shape for reduced SQL.
+///
+/// This stays intentionally narrow in the current slice: one explicit column
+/// list and one single-row literal `VALUES` tuple.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlInsertStatement {
+    pub(crate) entity: String,
+    pub(crate) columns: Vec<String>,
+    pub(crate) values: Vec<Value>,
+}
+
+///
+/// SqlAssignment
+///
+/// One parsed `UPDATE ... SET field = literal` assignment.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAssignment {
+    pub(crate) field: String,
+    pub(crate) value: Value,
+}
+
+///
+/// SqlUpdateStatement
+///
+/// Canonical parsed `UPDATE` statement shape for reduced SQL.
+///
+/// This stays intentionally narrow in the current slice: one `SET` list plus
+/// one optional reduced predicate that later session policy constrains further.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlUpdateStatement {
+    pub(crate) entity: String,
+    pub(crate) assignments: Vec<SqlAssignment>,
+    pub(crate) predicate: Option<Predicate>,
 }
 
 ///

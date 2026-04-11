@@ -8,13 +8,12 @@ mod inputs;
 mod outcomes;
 mod stream;
 
-#[cfg(any(test, feature = "perf-attribution"))]
-pub(in crate::db::executor) use inputs::StructuralCursorPagePayload;
+pub(in crate::db) use inputs::StructuralCursorPage;
+pub(in crate::db) use inputs::StructuralCursorPagePayload;
 pub(in crate::db::executor) use inputs::{
-    CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionOutputOptions, ExecutionRuntimeAdapter, PreparedExecutionProjection,
-    ProjectionMaterializationMode, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest, StructuralCursorPage,
+    CursorEmissionMode, ExecutionInputs, ExecutionOutputOptions, ExecutionRuntimeAdapter,
+    PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
+    RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use outcomes::{
     ExecutionOutcomeMetrics, MaterializedExecutionAttempt, MaterializedExecutionPayload,

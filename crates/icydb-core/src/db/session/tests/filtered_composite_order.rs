@@ -1,15 +1,10 @@
 use super::*;
 
-#[test]
-fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic filtered composite-index dataset where
-    // the guarded `tier = 'gold'` equality prefix should expose one ordered
-    // `handle` suffix window without needing an extra bounded text predicate.
+// Seed the canonical filtered composite-order fixture used by the guarded
+// equality-prefix order-only tests in this file.
+fn seed_filtered_composite_order_fixture(session: &DbSession<SessionSqlCanister>) {
     seed_filtered_composite_indexed_session_sql_entities(
-        &session,
+        session,
         &[
             (9_221, "alpha", false, "gold", "bramble", 10),
             (9_222, "bravo-user", true, "gold", "bravo", 20),
@@ -18,6 +13,68 @@ fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_g
             (9_225, "charlie-user", true, "gold", "charlie", 50),
         ],
     );
+}
+
+// Assert the shared index-prefix covering contract for guarded filtered
+// composite order-only routes.
+fn assert_filtered_composite_order_descriptor(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    expect_access_satisfied: bool,
+    context: &str,
+) {
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "{context} should stay on the shared index-prefix root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "{context} should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "{context} should expose the covering-read route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "{context} should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "{context} should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "{context} should report secondary order pushdown",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        expect_access_satisfied,
+        "{context} should keep the expected access-satisfied ordering contract",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // the guarded `tier = 'gold'` equality prefix should expose one ordered
+    // `handle` suffix window without needing an extra bounded text predicate.
+    seed_filtered_composite_order_fixture(&session);
 
     // Phase 2: require the projection lane to return only the guarded
     // equality-prefix subset under the `ORDER BY handle, id` suffix shape.
@@ -49,16 +106,7 @@ fn execute_sql_projection_filtered_composite_order_only_desc_covering_query_retu
     // Phase 1: seed one deterministic filtered composite-index dataset where
     // reverse traversal still depends on the same guarded `tier = 'gold'`
     // equality prefix before ordering by the `handle` suffix.
-    seed_filtered_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_221, "alpha", false, "gold", "bramble", 10),
-            (9_222, "bravo-user", true, "gold", "bravo", 20),
-            (9_223, "bristle-user", true, "gold", "bristle", 30),
-            (9_224, "brisk-user", true, "silver", "brisk", 40),
-            (9_225, "charlie-user", true, "gold", "charlie", 50),
-        ],
-    );
+    seed_filtered_composite_order_fixture(&session);
 
     // Phase 2: require reverse ordered projection rows from the same guarded
     // equality-prefix composite window.
@@ -93,16 +141,7 @@ fn session_explain_execution_order_only_filtered_composite_covering_query_uses_i
     // Phase 1: seed one deterministic filtered composite-index dataset so
     // EXPLAIN EXECUTION can prove the guarded equality-prefix query uses the
     // composite filtered secondary index instead of materializing rows.
-    seed_filtered_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_221, "alpha", false, "gold", "bramble", 10),
-            (9_222, "bravo-user", true, "gold", "bravo", 20),
-            (9_223, "bristle-user", true, "gold", "bristle", 30),
-            (9_224, "brisk-user", true, "silver", "brisk", 40),
-            (9_225, "charlie-user", true, "gold", "charlie", 50),
-        ],
-    );
+    seed_filtered_composite_order_fixture(&session);
     // Phase 2: require the guarded composite order-only SQL lane to surface
     // the shared index-prefix covering route with access-satisfied suffix ordering.
     let descriptor = session
@@ -113,46 +152,10 @@ fn session_explain_execution_order_only_filtered_composite_covering_query_uses_i
         .explain_execution()
         .expect("filtered composite order-only covering SQL explain_execution should succeed");
 
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "guarded filtered composite-order queries should stay on the shared index-prefix root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "guarded filtered composite-order coverable projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "guarded filtered composite-order explain roots should expose the covering-read route label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "guarded filtered composite-order explain roots should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "guarded filtered composite-order explain roots should expose the concrete equality-prefix value",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "guarded filtered composite-order roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "guarded filtered composite-order roots should report access-satisfied suffix ordering",
+    assert_filtered_composite_order_descriptor(
+        &descriptor,
+        true,
+        "guarded filtered composite-order queries",
     );
 }
 
@@ -165,16 +168,7 @@ fn session_explain_execution_order_only_filtered_composite_desc_covering_query_u
     // Phase 1: seed one deterministic filtered composite-index dataset so
     // reverse EXPLAIN EXECUTION can prove the same guarded equality-prefix
     // route instead of a materialized reverse sort.
-    seed_filtered_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_221, "alpha", false, "gold", "bramble", 10),
-            (9_222, "bravo-user", true, "gold", "bravo", 20),
-            (9_223, "bristle-user", true, "gold", "bristle", 30),
-            (9_224, "brisk-user", true, "silver", "brisk", 40),
-            (9_225, "charlie-user", true, "gold", "charlie", 50),
-        ],
-    );
+    seed_filtered_composite_order_fixture(&session);
 
     // Phase 2: require the descending guarded composite order-only SQL lane
     // to surface the shared index-prefix covering route.
@@ -186,46 +180,10 @@ fn session_explain_execution_order_only_filtered_composite_desc_covering_query_u
         .explain_execution()
         .expect("descending filtered composite order-only covering SQL explain_execution should succeed");
 
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "descending guarded filtered composite-order queries should stay on the shared index-prefix root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "descending guarded filtered composite-order coverable projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "descending guarded filtered composite-order explain roots should expose the covering-read route label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "descending guarded filtered composite-order explain roots should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "descending guarded filtered composite-order explain roots should expose the concrete equality-prefix value",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending guarded filtered composite-order roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_none(),
-        "descending guarded filtered composite-order roots should fail closed on reverse suffix streaming safety",
+    assert_filtered_composite_order_descriptor(
+        &descriptor,
+        false,
+        "descending guarded filtered composite-order queries",
     );
 }
 
@@ -239,16 +197,7 @@ fn session_explain_execution_order_only_filtered_composite_desc_offset_query_sta
     // the `tier = 'gold'` equality prefix keeps the suffix order meaningful
     // even though reverse offset paging must still stay on the shared
     // materialized boundary.
-    seed_filtered_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_221, "alpha", false, "gold", "bramble", 10),
-            (9_222, "bravo-user", true, "gold", "bravo", 20),
-            (9_223, "bristle-user", true, "gold", "bristle", 30),
-            (9_224, "brisk-user", true, "silver", "brisk", 40),
-            (9_225, "charlie-user", true, "gold", "charlie", 50),
-        ],
-    );
+    seed_filtered_composite_order_fixture(&session);
 
     // Phase 2: require the descending offset composite filtered order-only
     // shape to keep the index-prefix route but stop before Top-N derivation.

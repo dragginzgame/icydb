@@ -457,6 +457,14 @@ fn execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
             "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
             "execute_sql_aggregate rejects DELETE",
         ),
+        (
+            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "execute_sql_aggregate rejects INSERT",
+        ),
+        (
+            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
+            "execute_sql_aggregate rejects UPDATE",
+        ),
     ];
 
     for (sql, expected) in cases {

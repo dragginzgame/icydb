@@ -391,17 +391,6 @@ impl StorageKey {
             Self::Unit => Value::Unit,
         }
     }
-
-    /// Convert one authoritative persisted primary-key storage value back into
-    /// its semantic query value.
-    ///
-    /// This helper is intentionally narrower than `as_value`: it is only for
-    /// row-identity paths that already trust `DataKey` / index-entry primary-key
-    /// ownership and need the semantic value without rereading the row.
-    #[must_use]
-    pub(crate) const fn as_primary_key_value(&self) -> Value {
-        self.as_value()
-    }
 }
 
 impl Ord for StorageKey {

@@ -44,8 +44,8 @@ pub use crate::db::session::sql::surface::{
 };
 #[cfg(feature = "perf-attribution")]
 pub use crate::db::{
-    executor::SqlProjectionTextExecutorAttribution,
     session::sql::dispatch::LoweredSqlDispatchExecutorAttribution,
+    session::sql::projection::SqlProjectionTextExecutorAttribution,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +68,45 @@ const fn unsupported_sql_computed_projection_message(
         SqlComputedProjectionSurface::ExecuteSqlGrouped => {
             "execute_sql_grouped rejects computed text projection; use execute_sql_dispatch(...)"
         }
+    }
+}
+
+const fn unsupported_sql_write_surface_message(
+    surface: SqlSurface,
+    statement: &SqlStatement,
+) -> &'static str {
+    match (surface, statement) {
+        (SqlSurface::QueryFrom, SqlStatement::Insert(_)) => {
+            "query_from_sql rejects INSERT; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::QueryFrom, SqlStatement::Update(_)) => {
+            "query_from_sql rejects UPDATE; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSql, SqlStatement::Insert(_)) => {
+            "execute_sql rejects INSERT; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSql, SqlStatement::Update(_)) => {
+            "execute_sql rejects UPDATE; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlStatement::Insert(_)) => {
+            "execute_sql_grouped rejects INSERT; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlStatement::Update(_)) => {
+            "execute_sql_grouped rejects UPDATE; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::Explain, SqlStatement::Insert(_) | SqlStatement::Update(_)) => {
+            "explain_sql requires EXPLAIN"
+        }
+        (
+            _,
+            SqlStatement::Select(_)
+            | SqlStatement::Delete(_)
+            | SqlStatement::Explain(_)
+            | SqlStatement::Describe(_)
+            | SqlStatement::ShowIndexes(_)
+            | SqlStatement::ShowColumns(_)
+            | SqlStatement::ShowEntities(_),
+        ) => unreachable!(),
     }
 }
 
@@ -97,6 +136,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
+        if matches!(
+            &parsed.statement,
+            SqlStatement::Insert(_) | SqlStatement::Update(_)
+        ) {
+            return Err(QueryError::unsupported_query(
+                unsupported_sql_write_surface_message(lane_surface, &parsed.statement),
+            ));
+        }
+
         if computed_projection::computed_sql_projection_plan(&parsed.statement)?.is_some() {
             return Err(QueryError::unsupported_query(
                 unsupported_sql_computed_projection_message(computed_surface),

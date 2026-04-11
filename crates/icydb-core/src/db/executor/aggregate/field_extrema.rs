@@ -271,7 +271,7 @@ impl ExecutionKernel {
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
-            ExecutionOutputOptions::new(false, false),
+            ExecutionOutputOptions::new(false),
         );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,

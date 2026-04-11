@@ -133,12 +133,6 @@ impl PredicateProgram {
         &self.executable
     }
 
-    /// Return whether this compiled predicate only touches one covered slot set.
-    #[must_use]
-    pub(in crate::db) fn references_only_slots(&self, covered_slots: &[bool]) -> bool {
-        executable_predicate_references_only_slots(&self.executable, covered_slots)
-    }
-
     /// Mark every structural slot referenced by this executable predicate.
     pub(in crate::db) fn mark_referenced_slots(&self, required_slots: &mut [bool]) {
         mark_executable_predicate_referenced_slots(&self.executable, required_slots);
@@ -226,36 +220,6 @@ fn compile_scalar_predicate_program(
         .scalar()
         == ScalarPredicateCapability::ScalarSafe)
         .then_some(ScalarPredicateProgram)
-}
-
-// Return whether the executable predicate can be evaluated from one covered
-// slot set without reading any additional row fields.
-fn executable_predicate_references_only_slots(
-    predicate: &ExecutablePredicate,
-    covered_slots: &[bool],
-) -> bool {
-    let slot_is_covered = |slot: Option<usize>| {
-        slot.and_then(|slot| covered_slots.get(slot).copied())
-            .unwrap_or(false)
-    };
-
-    match predicate {
-        ExecutablePredicate::True | ExecutablePredicate::False => true,
-        ExecutablePredicate::And(children) | ExecutablePredicate::Or(children) => children
-            .iter()
-            .all(|child| executable_predicate_references_only_slots(child, covered_slots)),
-        ExecutablePredicate::Not(child) => {
-            executable_predicate_references_only_slots(child.as_ref(), covered_slots)
-        }
-        ExecutablePredicate::Compare(compare) => slot_is_covered(compare.field_slot),
-        ExecutablePredicate::IsNull { field_slot }
-        | ExecutablePredicate::IsNotNull { field_slot }
-        | ExecutablePredicate::IsMissing { field_slot }
-        | ExecutablePredicate::IsEmpty { field_slot }
-        | ExecutablePredicate::IsNotEmpty { field_slot }
-        | ExecutablePredicate::TextContains { field_slot, .. }
-        | ExecutablePredicate::TextContainsCi { field_slot, .. } => slot_is_covered(*field_slot),
-    }
 }
 
 // Mark every slot referenced by the canonical executable predicate tree.

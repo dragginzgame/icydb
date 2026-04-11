@@ -82,7 +82,7 @@ impl EntityAuthority {
 
     /// Borrow the frozen structural row-decode layout for this entity.
     #[must_use]
-    pub(in crate::db::executor) const fn row_layout(&self) -> RowLayout {
+    pub(in crate::db) const fn row_layout(&self) -> RowLayout {
         self.row_layout
     }
 

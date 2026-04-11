@@ -1,5 +1,60 @@
 use super::*;
 
+// Seed the canonical ordered secondary-index fixture for direct covering
+// `ORDER BY name` tests.
+fn seed_indexed_covering_order_fixture(session: &DbSession<SessionSqlCanister>) {
+    seed_indexed_session_sql_entities(
+        session,
+        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
+    );
+}
+
+// Assert the shared covering index-range contract for basic order-only
+// covering routes.
+fn assert_indexed_covering_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "{context} should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "{context} should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "{context} should expose the covering-read route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "{context} should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "{context} should report access-satisfied ordering",
+    );
+}
+
 #[test]
 fn execute_sql_projection_index_coverable_primary_key_and_prefix_field_matches_entity_rows() {
     reset_indexed_session_sql_store();
@@ -43,10 +98,7 @@ fn execute_sql_projection_index_coverable_secondary_order_field_matches_entity_r
     // Phase 1: seed one deterministic ordered secondary-index dataset on the
     // indexed `name` field so the projection lane can stay on the same
     // coverable order-by-name shape tracked by PocketIC attribution.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
-    );
+    seed_indexed_covering_order_fixture(&session);
 
     // Phase 2: verify the projection lane returns the same ordered `name`
     // row as the entity lane for a direct secondary-index covering query.
@@ -72,10 +124,7 @@ fn execute_sql_projection_index_coverable_secondary_order_field_with_offset_matc
     // Phase 1: seed one deterministic ordered secondary-index dataset so the
     // covering projection lane can validate post-filter pagination against the
     // entity lane on the same index-ordered shape.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
-    );
+    seed_indexed_covering_order_fixture(&session);
 
     // Phase 2: verify the projection lane preserves the same ordered page
     // window as the entity lane for a direct secondary-index covering query.
@@ -101,51 +150,14 @@ fn session_explain_execution_order_only_covering_query_uses_index_range_access()
     // Phase 1: seed one deterministic secondary-order dataset so the SQL lane
     // can prove planner-selected order-only index access instead of a
     // materialized full scan that merely returns the same first row.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
-    );
+    seed_indexed_covering_order_fixture(&session);
 
     // Phase 2: require EXPLAIN EXECUTION to surface the shared planner/runtime
     // order-only index-range path for one coverable `ORDER BY name, id` query.
-    let descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
-        )
-        .expect("order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("order-only covering SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "order-only single-field secondary queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "order-only coverable projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "order-only covering explain roots should expose the covering-read route label",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "order-only index-range roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "order-only index-range roots should report access-satisfied ordering",
+    assert_indexed_covering_descriptor(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
+        "order-only single-field secondary queries",
     );
 }
 

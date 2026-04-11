@@ -27,6 +27,14 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "query_from_sql must reject SHOW ENTITIES statements",
         ),
+        (
+            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "query_from_sql must reject INSERT statements",
+        ),
+        (
+            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
+            "query_from_sql must reject UPDATE statements",
+        ),
     ];
 
     // Phase 2: assert each lane remains fail-closed through unsupported execution.
@@ -84,6 +92,14 @@ fn execute_sql_rejects_non_query_statement_lanes_matrix() {
             "execute_sql rejects SHOW COLUMNS",
         ),
         ("SHOW ENTITIES", "execute_sql rejects SHOW ENTITIES"),
+        (
+            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "execute_sql rejects INSERT",
+        ),
+        (
+            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
+            "execute_sql rejects UPDATE",
+        ),
     ];
 
     for (sql, expected) in cases {
@@ -120,6 +136,14 @@ fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
             "execute_sql_grouped rejects SHOW COLUMNS",
         ),
         ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
+        (
+            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "execute_sql_grouped rejects INSERT",
+        ),
+        (
+            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
+            "execute_sql_grouped rejects UPDATE",
+        ),
     ];
 
     for (sql, expected) in cases {
@@ -209,6 +233,52 @@ fn sql_statement_route_select_classifies_query_entity() {
     assert_eq!(
         route,
         SqlStatementRoute::Query {
+            entity: "SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "SessionSqlEntity");
+    assert!(!route.is_explain());
+    assert!(!route.is_describe());
+    assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
+    assert!(!route.is_show_entities());
+}
+
+#[test]
+fn sql_statement_route_insert_classifies_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)")
+        .expect("insert SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::Insert {
+            entity: "SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "SessionSqlEntity");
+    assert!(!route.is_explain());
+    assert!(!route.is_describe());
+    assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
+    assert!(!route.is_show_entities());
+}
+
+#[test]
+fn sql_statement_route_update_classifies_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("UPDATE SessionSqlEntity SET age = 22 WHERE id = 1")
+        .expect("update SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::Update {
             entity: "SessionSqlEntity".to_string(),
         }
     );

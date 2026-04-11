@@ -15,11 +15,14 @@ use crate::db::{
 
 /// Canonical SQL statement routing metadata derived from reduced SQL parser output.
 ///
-/// Carries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes` /
-/// `ShowColumns` / `ShowEntities`) and canonical parsed entity identifier.
+/// Carries surface kind (`Query` / `Insert` / `Update` / `Explain` /
+/// `Describe` / `ShowIndexes` / `ShowColumns` / `ShowEntities`) and canonical
+/// parsed entity identifier.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlStatementRoute {
     Query { entity: String },
+    Insert { entity: String },
+    Update { entity: String },
     Explain { entity: String },
     Describe { entity: String },
     ShowIndexes { entity: String },
@@ -126,6 +129,8 @@ impl SqlStatementRoute {
     pub const fn entity(&self) -> &str {
         match self {
             Self::Query { entity }
+            | Self::Insert { entity }
+            | Self::Update { entity }
             | Self::Explain { entity }
             | Self::Describe { entity }
             | Self::ShowIndexes { entity }
@@ -175,6 +180,12 @@ pub(in crate::db::session::sql) fn sql_statement_route_from_statement(
         },
         SqlStatement::Delete(delete) => SqlStatementRoute::Query {
             entity: delete.entity.clone(),
+        },
+        SqlStatement::Insert(insert) => SqlStatementRoute::Insert {
+            entity: insert.entity.clone(),
+        },
+        SqlStatement::Update(update) => SqlStatementRoute::Update {
+            entity: update.entity.clone(),
         },
         SqlStatement::Explain(explain) => match &explain.statement {
             SqlExplainTarget::Select(select) => SqlStatementRoute::Explain {

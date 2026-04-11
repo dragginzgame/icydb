@@ -29,6 +29,7 @@ mod sql_grouped;
 mod sql_projection;
 mod sql_scalar;
 mod sql_surface;
+mod sql_write;
 mod temporal;
 mod verbose_route_choice;
 
@@ -153,6 +154,22 @@ const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
 )]
 struct SessionSqlEntity {
     id: Ulid,
+    name: String,
+    age: u64,
+}
+
+///
+/// SessionSqlWriteEntity
+///
+/// Numeric-key SQL write fixture used to lock reduced `INSERT` / `UPDATE`
+/// dispatch semantics against literal-addressable primary keys.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlWriteEntity {
+    id: u64,
     name: String,
     age: u64,
 }
@@ -498,6 +515,23 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("age", FieldKind::Uint),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlWriteEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "SessionSqlWriteEntity",
+    entity_tag = EntityTag::new(0x1044),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Uint),
         ("name", FieldKind::Text),
         ("age", FieldKind::Uint),
     ],
@@ -971,7 +1005,7 @@ where
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
         | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "projection column dispatch only supports row-producing SELECT or DELETE statements",
+            "projection column dispatch only supports row-producing SQL dispatch statements",
         )),
     }
 }
@@ -995,7 +1029,7 @@ where
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
         | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "projection row dispatch only supports row-producing SELECT or DELETE statements",
+            "projection row dispatch only supports row-producing SQL dispatch statements",
         )),
     }
 }

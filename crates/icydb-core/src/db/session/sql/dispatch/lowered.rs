@@ -5,18 +5,18 @@
 //! Boundary: keeps lowered-command execution bridges explicit and authority-aware.
 
 #[cfg(feature = "perf-attribution")]
-use crate::db::{
-    executor::attribute_sql_projection_text_rows_for_canister,
-    session::sql::{
-        SqlProjectionTextExecutorAttribution, projection::projection_labels_from_projection_spec,
+use crate::db::session::sql::{
+    SqlProjectionTextExecutorAttribution,
+    projection::{
+        attribute_sql_projection_text_rows_for_canister, projection_labels_from_projection_spec,
     },
 };
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
-            EntityAuthority, execute_initial_grouped_rows_for_canister,
-            execute_sql_delete_projection_for_canister,
+            EntityAuthority, delete::execute_structural_delete_projection_for_canister,
+            pipeline::execute_initial_grouped_rows_for_canister,
         },
         query::intent::StructuralQuery,
         session::sql::{
@@ -268,7 +268,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let (_, plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
-        let deleted = execute_sql_delete_projection_for_canister(&self.db, authority, plan)
+        let deleted = execute_structural_delete_projection_for_canister(&self.db, authority, plan)
             .map_err(QueryError::execute)?;
         let (rows, row_count) = deleted.into_parts();
         let rows = sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;

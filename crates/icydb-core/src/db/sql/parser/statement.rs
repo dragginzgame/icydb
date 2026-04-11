@@ -6,9 +6,10 @@
 use crate::db::{
     reduced_sql::{Keyword, SqlParseError},
     sql::parser::{
-        Parser, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-        SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement,
+        Parser, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
+        SqlExplainStatement, SqlExplainTarget, SqlInsertStatement, SqlSelectStatement,
+        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+        SqlUpdateStatement,
     },
 };
 
@@ -19,6 +20,12 @@ impl Parser {
         }
         if self.eat_keyword(Keyword::Delete) {
             return Ok(SqlStatement::Delete(self.parse_delete_statement()?));
+        }
+        if self.eat_keyword(Keyword::Insert) {
+            return Ok(SqlStatement::Insert(self.parse_insert_statement()?));
+        }
+        if self.eat_keyword(Keyword::Update) {
+            return Ok(SqlStatement::Update(self.parse_update_statement()?));
         }
         if self.eat_keyword(Keyword::Explain) {
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
@@ -35,7 +42,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, EXPLAIN, DESCRIBE, SHOW",
+            "one of SELECT, DELETE, INSERT, UPDATE, EXPLAIN, DESCRIBE, SHOW",
             self.peek_kind(),
         ))
     }
@@ -49,6 +56,7 @@ impl Parser {
         match statement {
             SqlStatement::Select(select) => self.select_clause_order_error(select),
             SqlStatement::Delete(delete) => self.delete_clause_order_error(delete),
+            SqlStatement::Insert(_) | SqlStatement::Update(_) => None,
             SqlStatement::Explain(explain) => match &explain.statement {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
@@ -233,6 +241,139 @@ impl Parser {
             limit,
             offset,
         })
+    }
+
+    fn parse_insert_statement(&mut self) -> Result<SqlInsertStatement, SqlParseError> {
+        self.expect_identifier_keyword("INTO")?;
+        let entity = self.expect_identifier()?;
+        self.reject_insert_table_alias_if_present()?;
+
+        if !self.peek_lparen() {
+            return Err(SqlParseError::unsupported_feature(
+                "INSERT without explicit column list",
+            ));
+        }
+
+        self.expect_lparen()?;
+        let columns = self.parse_identifier_list()?;
+        self.expect_rparen()?;
+        self.expect_identifier_keyword("VALUES")?;
+        self.expect_lparen()?;
+
+        let mut values = Vec::new();
+        loop {
+            values.push(self.parse_literal()?);
+
+            if self.eat_comma() {
+                continue;
+            }
+
+            break;
+        }
+
+        self.expect_rparen()?;
+
+        if columns.len() != values.len() {
+            return Err(SqlParseError::invalid_syntax(
+                "INSERT column list and VALUES tuple length must match",
+            ));
+        }
+
+        Ok(SqlInsertStatement {
+            entity,
+            columns,
+            values,
+        })
+    }
+
+    fn reject_insert_table_alias_if_present(&self) -> Result<(), SqlParseError> {
+        if self.peek_keyword(Keyword::As) {
+            return Err(SqlParseError::unsupported_feature("table aliases"));
+        }
+
+        if matches!(
+            self.peek_kind(),
+            Some(crate::db::reduced_sql::TokenKind::Identifier(value))
+                if !value.eq_ignore_ascii_case("VALUES")
+        ) {
+            return Err(SqlParseError::unsupported_feature("table aliases"));
+        }
+
+        Ok(())
+    }
+
+    fn parse_update_statement(&mut self) -> Result<SqlUpdateStatement, SqlParseError> {
+        let entity = self.expect_identifier()?;
+        self.reject_update_table_alias_if_present()?;
+        self.expect_identifier_keyword("SET")?;
+        let assignments = self.parse_update_assignments()?;
+        let predicate = if self.eat_keyword(Keyword::Where) {
+            Some(self.parse_predicate()?)
+        } else {
+            None
+        };
+
+        Ok(SqlUpdateStatement {
+            entity,
+            assignments,
+            predicate,
+        })
+    }
+
+    fn parse_update_assignments(&mut self) -> Result<Vec<SqlAssignment>, SqlParseError> {
+        let mut assignments = Vec::new();
+        loop {
+            let field = self.expect_identifier()?;
+            self.expect_assignment_eq()?;
+            let value = self.parse_literal()?;
+            assignments.push(SqlAssignment { field, value });
+
+            if self.eat_comma() {
+                continue;
+            }
+
+            break;
+        }
+
+        if assignments.is_empty() {
+            return Err(SqlParseError::expected(
+                "one UPDATE assignment",
+                self.peek_kind(),
+            ));
+        }
+
+        Ok(assignments)
+    }
+
+    fn reject_update_table_alias_if_present(&self) -> Result<(), SqlParseError> {
+        if self.peek_keyword(Keyword::As) {
+            return Err(SqlParseError::unsupported_feature("table aliases"));
+        }
+
+        if matches!(
+            self.peek_kind(),
+            Some(crate::db::reduced_sql::TokenKind::Identifier(value))
+                if !value.eq_ignore_ascii_case("SET")
+        ) {
+            return Err(SqlParseError::unsupported_feature("table aliases"));
+        }
+
+        Ok(())
+    }
+
+    fn expect_assignment_eq(&mut self) -> Result<(), SqlParseError> {
+        if matches!(
+            self.peek_kind(),
+            Some(crate::db::reduced_sql::TokenKind::Eq)
+        ) {
+            let _ = self.cursor.advance();
+            return Ok(());
+        }
+
+        Err(SqlParseError::expected(
+            "'=' in UPDATE assignment",
+            self.peek_kind(),
+        ))
     }
 
     fn parse_describe_statement(&mut self) -> Result<SqlDescribeStatement, SqlParseError> {

@@ -1,6 +1,6 @@
 use crate::schema::{
     Customer, CustomerAccount, CustomerOrder, CustomerOrderProfile, PlannerChoice,
-    PlannerPrefixChoice, PlannerUniquePrefixChoice,
+    PlannerPrefixChoice, PlannerUniquePrefixChoice, SqlWriteProbe,
 };
 
 const PERF_CUSTOMER_NAMES: &[&str] = &[
@@ -232,6 +232,28 @@ pub fn perf_audit_customer_orders() -> Vec<CustomerOrder> {
     }
 
     rows
+}
+
+/// Build one deterministic baseline SQL write-probe fixture batch.
+#[must_use]
+pub fn sql_write_probes() -> Vec<SqlWriteProbe> {
+    vec![SqlWriteProbe {
+        id: 1,
+        name: "seed".to_string(),
+        age: 21,
+        ..Default::default()
+    }]
+}
+
+/// Build one larger deterministic SQL write-probe fixture batch for perf audits.
+#[must_use]
+pub fn perf_audit_sql_write_probes() -> Vec<SqlWriteProbe> {
+    vec![SqlWriteProbe {
+        id: 1,
+        name: "perf-seed".to_string(),
+        age: 21,
+        ..Default::default()
+    }]
 }
 
 /// Build one deterministic planner-choice fixture batch.

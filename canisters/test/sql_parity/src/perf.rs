@@ -25,7 +25,7 @@ use icydb::{
     value::Value,
 };
 use icydb_testing_test_sql_parity_fixtures::schema::{
-    Customer, CustomerAccount, CustomerOrder, SqlParityCanister,
+    Customer, CustomerAccount, CustomerOrder, SqlParityCanister, SqlWriteProbe,
 };
 
 const MAX_REPEAT_COUNT: u32 = 100;
@@ -45,6 +45,7 @@ pub enum SqlPerfSurface {
     TypedDispatchCustomer,
     TypedDispatchCustomerOrder,
     TypedDispatchCustomerAccount,
+    TypedDispatchSqlWriteProbe,
     TypedQueryFromSqlCustomerExecute,
     TypedExecuteSqlCustomer,
     TypedInsertCustomer,
@@ -1189,6 +1190,9 @@ fn measure_once(
         }
         SqlPerfSurface::TypedDispatchCustomerAccount => {
             measure_typed_dispatch_surface::<CustomerAccount>(sql)
+        }
+        SqlPerfSurface::TypedDispatchSqlWriteProbe => {
+            measure_typed_dispatch_surface::<SqlWriteProbe>(sql)
         }
         SqlPerfSurface::TypedQueryFromSqlCustomerExecute => measure_surface_call(|| {
             let session = db();

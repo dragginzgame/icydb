@@ -1,5 +1,31 @@
 use super::*;
 
+fn assert_verbose_access_choice(
+    verbose: &str,
+    expected_choice: &str,
+    expected_rejection: &str,
+    context: &str,
+) {
+    let diagnostics = session_verbose_diagnostics_map(verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&expected_choice.to_string()),
+        "{context} must project the session-visible order-compatible index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "{context} must report the canonical order-compatibility tie-break",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| rejections.contains(expected_rejection)),
+        "{context} must report the lexicographically earlier but order-incompatible candidate as planner-rejected for the same canonical reason",
+    );
+}
+
 #[test]
 fn fluent_load_explain_execution_surface_adapters_are_available() {
     reset_session_sql_store();
@@ -69,25 +95,11 @@ fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank
         .explain_execution_verbose()
         .expect("session deterministic prefix verbose explain should build");
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_handle_idx)".to_string()),
-        "session fluent verbose explain must project the session-visible order-compatible prefix index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session fluent verbose explain must report the canonical order-compatibility tie-break when prefix rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "session fluent verbose explain must report the lexicographically earlier but order-incompatible prefix index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexPrefix(z_tier_handle_idx)",
+        "index:a_tier_label_idx=order_compatible_preferred",
+        "session fluent verbose prefix explain",
     );
 }
 
@@ -117,25 +129,11 @@ fn session_fluent_verbose_range_choice_prefers_order_compatible_index_when_rank_
         .explain_execution_verbose()
         .expect("session deterministic range verbose explain should build");
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
-        "session fluent verbose explain must project the session-visible order-compatible range index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session fluent verbose explain must report the canonical order-compatibility tie-break when range rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "session fluent verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexRange(z_tier_score_label_idx)",
+        "index:a_tier_score_handle_idx=order_compatible_preferred",
+        "session fluent verbose range explain",
     );
 }
 
@@ -165,25 +163,11 @@ fn session_fluent_verbose_range_choice_desc_prefers_order_compatible_index_when_
         .explain_execution_verbose()
         .expect("session descending deterministic range verbose explain should build");
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
-        "session descending verbose explain must project the session-visible order-compatible range index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session descending verbose explain must report the canonical order-compatibility tie-break when range rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "session descending verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexRange(z_tier_score_label_idx)",
+        "index:a_tier_score_handle_idx=order_compatible_preferred",
+        "session descending verbose range explain",
     );
 }
 
@@ -213,25 +197,11 @@ fn session_fluent_verbose_equality_prefix_suffix_order_prefers_order_compatible_
         .explain_execution_verbose()
         .expect("session deterministic equality-prefix suffix-order verbose explain should build");
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
-        "session fluent verbose explain must project the session-visible order-compatible equality-prefix suffix-order index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session fluent verbose explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "session fluent verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexPrefix(z_tier_score_label_idx)",
+        "index:a_tier_score_handle_idx=order_compatible_preferred",
+        "session fluent verbose equality-prefix suffix-order explain",
     );
 }
 
@@ -261,18 +231,15 @@ fn session_fluent_verbose_equality_prefix_suffix_order_desc_prefers_order_compat
         .explain_execution_verbose()
         .expect("session descending deterministic equality-prefix suffix-order verbose explain should build");
 
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexPrefix(z_tier_score_label_idx)",
+        "index:a_tier_score_handle_idx=order_compatible_preferred",
+        "session descending verbose equality-prefix suffix-order explain",
+    );
+
     let diagnostics = session_verbose_diagnostics_map(&verbose);
 
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
-        "session descending verbose explain must project the session-visible order-compatible equality-prefix suffix-order index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session descending verbose explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
-    );
     assert_eq!(
         diagnostics.get("diag.r.load_order_route_contract"),
         Some(&"materialized_boundary".to_string()),
@@ -282,14 +249,6 @@ fn session_fluent_verbose_equality_prefix_suffix_order_desc_prefers_order_compat
         diagnostics.get("diag.r.load_order_route_reason"),
         Some(&"descending_non_unique_secondary_prefix_not_admitted".to_string()),
         "session descending verbose explain must expose the planner-owned materialized-boundary reason for descending non-unique equality-prefix suffix-order shapes",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "session descending verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
     );
 }
 
@@ -304,18 +263,15 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
         .explain_execution_verbose()
         .expect("session deterministic order-only verbose explain should build");
 
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexRange(z_alpha_idx)",
+        "index:a_beta_idx=order_compatible_preferred",
+        "session fluent verbose order-only explain",
+    );
+
     let diagnostics = session_verbose_diagnostics_map(&verbose);
 
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_alpha_idx)".to_string()),
-        "session fluent verbose explain must project the session-visible order-compatible fallback index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session fluent verbose explain must report the canonical order-compatibility tie-break when order-only ranking ties",
-    );
     assert_eq!(
         diagnostics.get("diag.r.load_order_route_contract"),
         Some(&"direct_streaming".to_string()),
@@ -325,14 +281,6 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
         diagnostics.get("diag.r.load_order_route_reason"),
         Some(&"none".to_string()),
         "session fluent verbose explain must keep direct order-only fallback admission reason-free once the chosen route is already streaming-safe",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_beta_idx=order_compatible_preferred")
-            }),
-        "session fluent verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
     );
 }
 
@@ -349,25 +297,11 @@ fn session_fluent_verbose_composite_order_only_choice_prefers_order_compatible_i
         .explain_execution_verbose()
         .expect("session deterministic composite order-only verbose explain should build");
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
-        "session fluent verbose explain must project the session-visible order-compatible composite fallback index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session fluent verbose explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "session fluent verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexRange(z_tier_handle_idx)",
+        "index:a_tier_label_idx=order_compatible_preferred",
+        "session fluent verbose composite order-only explain",
     );
 }
 
@@ -386,24 +320,10 @@ fn session_fluent_verbose_composite_order_only_choice_desc_prefers_order_compati
             "session descending deterministic composite order-only verbose explain should build",
         );
 
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
-        "session descending verbose explain must project the session-visible order-compatible composite fallback index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "session descending verbose explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "session descending verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+    assert_verbose_access_choice(
+        &verbose,
+        "IndexRange(z_tier_handle_idx)",
+        "index:a_tier_label_idx=order_compatible_preferred",
+        "session descending verbose composite order-only explain",
     );
 }

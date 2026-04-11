@@ -43,9 +43,14 @@ use std::cmp::Ordering;
 use super::project_rows_from_projection;
 use super::{
     GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr,
-    compile_grouped_projection_plan, compile_scalar_projection_expr,
-    eval_canonical_scalar_projection_expr, eval_grouped_projection_expr,
-    eval_scalar_projection_expr, evaluate_grouped_projection_values,
+    compile_grouped_projection_plan, eval_grouped_projection_expr,
+    evaluate_grouped_projection_values,
+};
+use crate::db::{
+    executor::projection::eval::{
+        eval_canonical_scalar_projection_expr, eval_scalar_projection_expr,
+    },
+    query::plan::expr::compile_scalar_projection_expr,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -110,7 +115,7 @@ fn row(
 }
 
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
+pub(in crate::db) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
     RowLayout::from_model(ProjectionEvalEntity::MODEL)
 }
 

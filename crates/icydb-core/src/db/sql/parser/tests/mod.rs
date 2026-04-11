@@ -4,11 +4,12 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-    SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
-    SqlOrderTerm, SqlParseError, SqlProjection, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
+    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+    SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -1102,13 +1103,63 @@ fn parse_sql_rejects_delete_limit_before_order_with_actionable_message() {
 }
 
 #[test]
-fn parse_sql_rejects_insert_statement() {
+fn parse_insert_statement_with_explicit_columns_and_values() {
+    let statement = parse_sql("INSERT INTO users (id, name, age) VALUES (7, 'Ada', 21)")
+        .expect("insert statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
+            values: vec![
+                Value::Int(7),
+                Value::Text("Ada".to_string()),
+                Value::Int(21)
+            ],
+        }),
+    );
+}
+
+#[test]
+fn parse_update_statement_with_assignments_and_predicate() {
+    let statement = parse_sql("UPDATE users SET name = 'Ada', age = 21 WHERE id = 7")
+        .expect("update statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Update(SqlUpdateStatement {
+            entity: "users".to_string(),
+            assignments: vec![
+                SqlAssignment {
+                    field: "name".to_string(),
+                    value: Value::Text("Ada".to_string()),
+                },
+                SqlAssignment {
+                    field: "age".to_string(),
+                    value: Value::Int(21),
+                },
+            ],
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "id",
+                CompareOp::Eq,
+                Value::Int(7),
+                CoercionId::Strict,
+            ))),
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_rejects_missing_column_list() {
     let err = parse_sql("INSERT INTO users VALUES (1)")
-        .expect_err("insert should be rejected by reduced parser");
+        .expect_err("insert without explicit column list should stay fail-closed");
 
     assert_eq!(
         err,
-        super::SqlParseError::UnsupportedFeature { feature: "INSERT" }
+        super::SqlParseError::UnsupportedFeature {
+            feature: "INSERT without explicit column list"
+        }
     );
 }
 
@@ -1135,7 +1186,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SELECT * FROM users EXCEPT SELECT * FROM users",
             "UNION/INTERSECT/EXCEPT",
         ),
-        ("UPDATE users SET age = 1", "UPDATE"),
         (
             "SELECT age, COUNT(*) FROM users GROUP BY age HAVING age >= 21 OR COUNT(*) > 1",
             "HAVING boolean operators beyond AND",

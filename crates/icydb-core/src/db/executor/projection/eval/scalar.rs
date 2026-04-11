@@ -53,12 +53,10 @@ pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr(
 
 /// Evaluate one compiled scalar projection expression through one canonical
 /// reader that can borrow decoded slot values from the structural row cache.
-/// This keeps repeated field references on the structural SQL path from
+/// This keeps repeated field references on the retained-slot structural path from
 /// cloning cached `Value`s before an operator actually needs ownership.
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db::executor) fn eval_canonical_scalar_projection_expr_with_required_value_reader_cow<
-    'a,
->(
+pub(in crate::db) fn eval_canonical_scalar_projection_expr_with_required_value_reader_cow<'a>(
     expr: &'a ScalarProjectionExpr,
     read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 ) -> Result<Cow<'a, Value>, InternalError> {

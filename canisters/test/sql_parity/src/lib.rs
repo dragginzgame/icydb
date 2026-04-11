@@ -22,7 +22,7 @@ use icydb_testing_test_sql_parity_fixtures::{
     fixtures,
     schema::{
         Customer, CustomerAccount, CustomerOrder, PlannerChoice, PlannerPrefixChoice,
-        PlannerUniquePrefixChoice,
+        PlannerUniquePrefixChoice, SqlWriteProbe,
     },
 };
 
@@ -65,6 +65,7 @@ fn fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PlannerUniquePrefixChoice>().execute()?;
     db().delete::<PlannerPrefixChoice>().execute()?;
     db().delete::<PlannerChoice>().execute()?;
+    db().delete::<SqlWriteProbe>().execute()?;
     db().delete::<CustomerOrder>().execute()?;
     db().delete::<CustomerAccount>().execute()?;
     db().delete::<Customer>().execute()?;
@@ -83,6 +84,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
     db().insert_many_atomic(customers)?;
     db().insert_many_atomic(fixtures::customer_accounts())?;
+    db().insert_many_atomic(fixtures::sql_write_probes())?;
     db().insert_many_atomic(fixtures::planner_unique_prefix_choices())?;
     db().insert_many_atomic(fixtures::planner_prefix_choices())?;
     db().insert_many_atomic(fixtures::planner_choices())?;
@@ -101,6 +103,7 @@ fn fixtures_load_perf_audit() -> Result<(), icydb::Error> {
 
     db().insert_many_atomic(fixtures::perf_audit_customers())?;
     db().insert_many_atomic(fixtures::perf_audit_customer_accounts())?;
+    db().insert_many_atomic(fixtures::perf_audit_sql_write_probes())?;
     db().insert_many_atomic(fixtures::planner_unique_prefix_choices())?;
     db().insert_many_atomic(fixtures::planner_prefix_choices())?;
     db().insert_many_atomic(fixtures::planner_choices())?;

@@ -1,3 +1,4 @@
+use crate::db::QueryError;
 use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlStatement,
     SqlLoweringError,
@@ -48,6 +49,16 @@ fn prepare_statement(
             statement,
             expected_entity,
         )?)),
+        SqlStatement::Insert(statement) => {
+            ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+            Ok(SqlStatement::Insert(statement))
+        }
+        SqlStatement::Update(statement) => {
+            ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+            Ok(SqlStatement::Update(statement))
+        }
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
             statement,
             expected_entity,
@@ -125,6 +136,9 @@ fn lower_prepared_statement(
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
             LoweredSqlQuery::Delete(lower_delete_shape(statement)),
         ))),
+        SqlStatement::Insert(_) | SqlStatement::Update(_) => {
+            Err(QueryError::unsupported_query_lane_dispatch().into())
+        }
         SqlStatement::Explain(statement) => lower_explain_prepared(statement, primary_key_field),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {

@@ -293,6 +293,139 @@ fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     }
 }
 
+fn assert_order_only_fallback_index_range(
+    model: &EntityModel,
+    order: &[(&str, OrderDirection)],
+    expected_index: &IndexModel,
+    context: &str,
+) {
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let planner_shape =
+        plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            *expected_index,
+            vec![0usize],
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        )),
+        "{context} should fall back to one whole-index range",
+    );
+}
+
+fn assert_order_compatible_prefix_choice(
+    model: &EntityModel,
+    predicate: &Predicate,
+    order: &[(&str, OrderDirection)],
+    expected_index_name: &str,
+    expected_values: &[Value],
+    context: &str,
+) {
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let planner_shape = plan_access_for_test_with_order(
+        model,
+        schema,
+        Some(predicate),
+        Some(canonical_order(order)),
+    )
+    .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("{context} should lower to one index-prefix path");
+    };
+    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
+        panic!("{context} should lower to one index-prefix path");
+    };
+
+    assert_eq!(
+        index.name(),
+        expected_index_name,
+        "{context} should keep the order-compatible index when rank ties",
+    );
+    assert_eq!(
+        values, expected_values,
+        "{context} should preserve the canonical equality prefix on the selected route",
+    );
+}
+
+// This assertion helper stays flat so the order/range expectation matrix stays
+// readable at each call site without introducing another test-only wrapper type.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "table-driven planner tests keep the expectation shape explicit at call sites"
+)]
+fn assert_order_compatible_range_choice(
+    model: &EntityModel,
+    predicate: &Predicate,
+    order: &[(&str, OrderDirection)],
+    expected_index_name: &str,
+    expected_prefix_values: &[Value],
+    expected_lower: Bound<Value>,
+    expected_upper: Bound<Value>,
+    context: &str,
+) {
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let planner_shape = plan_access_for_test_with_order(
+        model,
+        schema,
+        Some(predicate),
+        Some(canonical_order(order)),
+    )
+    .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("{context} should lower to one index range");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("{context} should lower to one index range");
+    };
+
+    assert_eq!(
+        spec.index().name(),
+        expected_index_name,
+        "{context} should keep the order-compatible range index when rank ties",
+    );
+    assert_eq!(
+        spec.prefix_values(),
+        expected_prefix_values,
+        "{context} should preserve the equality-bound prefix on the selected index range",
+    );
+    assert_eq!(spec.lower(), &expected_lower);
+    assert_eq!(spec.upper(), &expected_upper);
+}
+
+fn assert_order_compatible_order_only_choice(
+    model: &EntityModel,
+    order: &[(&str, OrderDirection)],
+    expected_index_name: &str,
+    context: &str,
+) {
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let planner_shape =
+        plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("{context} should lower to one index range");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("{context} should lower to one index range");
+    };
+
+    assert_eq!(
+        spec.index().name(),
+        expected_index_name,
+        "{context} should keep the order-compatible fallback index when rank ties",
+    );
+    assert!(spec.prefix_values().is_empty());
+    assert_eq!(spec.lower(), &Bound::Unbounded);
+    assert_eq!(spec.upper(), &Bound::Unbounded);
+}
+
 #[test]
 fn normalize_union_dedups_identical_paths() {
     let key = Value::Ulid(Ulid::from_u128(1));
@@ -389,141 +522,72 @@ fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
 
 #[test]
 fn planner_order_only_single_field_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
-    let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, schema, None, Some(order))
-            .expect("order-only access planning should succeed");
-
-    assert_eq!(
-        planner_shape,
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            PLANNER_ORDER_INDEXES[0],
-            vec![0usize],
-            Vec::new(),
-            Bound::Unbounded,
-            Bound::Unbounded,
-        )),
-        "canonical order-only secondary scans should fall back to one whole-index range",
+    assert_order_only_fallback_index_range(
+        &PLANNER_ORDER_MODEL,
+        &[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)],
+        &PLANNER_ORDER_INDEXES[0],
+        "canonical order-only secondary scans",
     );
 }
 
 #[test]
 fn planner_order_only_single_field_desc_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
-    let order = canonical_order(&[("name", OrderDirection::Desc), ("id", OrderDirection::Desc)]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_MODEL, schema, None, Some(order))
-            .expect("descending order-only access planning should succeed");
-
-    assert_eq!(
-        planner_shape,
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            PLANNER_ORDER_INDEXES[0],
-            vec![0usize],
-            Vec::new(),
-            Bound::Unbounded,
-            Bound::Unbounded,
-        )),
-        "canonical descending order-only secondary scans should fall back to one whole-index range",
+    assert_order_only_fallback_index_range(
+        &PLANNER_ORDER_MODEL,
+        &[("name", OrderDirection::Desc), ("id", OrderDirection::Desc)],
+        &PLANNER_ORDER_INDEXES[0],
+        "canonical descending order-only secondary scans",
     );
 }
 
 #[test]
 fn planner_order_only_composite_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
-    let order = canonical_order(&[
-        ("code", OrderDirection::Asc),
-        ("serial", OrderDirection::Asc),
-        ("id", OrderDirection::Asc),
-    ]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, schema, None, Some(order))
-            .expect("composite order-only access planning should succeed");
-
-    assert_eq!(
-        planner_shape,
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            PLANNER_ORDER_COMPOSITE_INDEXES[0],
-            vec![0usize],
-            Vec::new(),
-            Bound::Unbounded,
-            Bound::Unbounded,
-        )),
-        "canonical composite order-only scans should use one whole-index range fallback",
+    assert_order_only_fallback_index_range(
+        &PLANNER_ORDER_COMPOSITE_MODEL,
+        &[
+            ("code", OrderDirection::Asc),
+            ("serial", OrderDirection::Asc),
+            ("id", OrderDirection::Asc),
+        ],
+        &PLANNER_ORDER_COMPOSITE_INDEXES[0],
+        "canonical composite order-only scans",
     );
 }
 
 #[test]
 fn planner_order_only_composite_desc_index_falls_back_to_index_range() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_COMPOSITE_MODEL);
-    let order = canonical_order(&[
-        ("code", OrderDirection::Desc),
-        ("serial", OrderDirection::Desc),
-        ("id", OrderDirection::Desc),
-    ]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_ORDER_COMPOSITE_MODEL, schema, None, Some(order))
-            .expect("descending composite order-only access planning should succeed");
-
-    assert_eq!(
-        planner_shape,
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            PLANNER_ORDER_COMPOSITE_INDEXES[0],
-            vec![0usize],
-            Vec::new(),
-            Bound::Unbounded,
-            Bound::Unbounded,
-        )),
-        "canonical descending composite order-only scans should use one whole-index range fallback",
+    assert_order_only_fallback_index_range(
+        &PLANNER_ORDER_COMPOSITE_MODEL,
+        &[
+            ("code", OrderDirection::Desc),
+            ("serial", OrderDirection::Desc),
+            ("id", OrderDirection::Desc),
+        ],
+        &PLANNER_ORDER_COMPOSITE_INDEXES[0],
+        "canonical descending composite order-only scans",
     );
 }
 
 #[test]
 fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tier",
         CompareOp::Eq,
         Value::Text("gold".to_string()),
         CoercionId::Strict,
     ));
-    let order = canonical_order(&[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_prefix_choice(
         &PLANNER_RANKING_MODEL,
-        schema,
-        Some(&predicate),
-        Some(order),
-    )
-    .expect("ranking test access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("ranking test predicate should lower to one index-prefix path");
-    };
-    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
-        panic!("ranking test predicate should lower to one index-prefix path");
-    };
-
-    assert_eq!(
-        index.name(),
+        &predicate,
+        &[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)],
         "z_tier_handle_idx",
-        "planner must use the order-compatible composite index instead of lexicographic name order when predicate rank ties",
-    );
-    assert_eq!(
-        values,
         &[Value::Text("gold".to_string())],
-        "planner must preserve the canonical equality prefix on the selected composite route",
+        "ranking test prefix predicate",
     );
 }
 
 #[test]
 fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -538,44 +602,24 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
             CoercionId::Strict,
         )),
     ]);
-    let order = canonical_order(&[
-        ("score", OrderDirection::Asc),
-        ("label", OrderDirection::Asc),
-        ("id", OrderDirection::Asc),
-    ]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_range_choice(
         &PLANNER_RANGE_RANKING_MODEL,
-        schema,
-        Some(&predicate),
-        Some(order),
-    )
-    .expect("range ranking test access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("range ranking predicate should lower to one index path");
-    };
-    let AccessPath::IndexRange { spec } = path.as_ref() else {
-        panic!("range ranking predicate should lower to one index range");
-    };
-
-    assert_eq!(
-        spec.index().name(),
+        &predicate,
+        &[
+            ("score", OrderDirection::Asc),
+            ("label", OrderDirection::Asc),
+            ("id", OrderDirection::Asc),
+        ],
         "z_tier_score_label_idx",
-        "planner must keep the order-compatible range index when prefix/range rank ties and name order points at the wrong index",
-    );
-    assert_eq!(
-        spec.prefix_values(),
         &[Value::Text("gold".to_string())],
-        "range ranking must preserve the equality-bound prefix on the selected index range",
+        Bound::Excluded(Value::Uint(10)),
+        Bound::Unbounded,
+        "range ranking predicate",
     );
-    assert_eq!(spec.lower(), &Bound::Excluded(Value::Uint(10)));
-    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]
 fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -590,44 +634,24 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
             CoercionId::Strict,
         )),
     ]);
-    let order = canonical_order(&[
-        ("score", OrderDirection::Desc),
-        ("label", OrderDirection::Desc),
-        ("id", OrderDirection::Desc),
-    ]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_range_choice(
         &PLANNER_RANGE_RANKING_MODEL,
-        schema,
-        Some(&predicate),
-        Some(order),
-    )
-    .expect("descending range ranking test access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("descending range ranking predicate should lower to one index path");
-    };
-    let AccessPath::IndexRange { spec } = path.as_ref() else {
-        panic!("descending range ranking predicate should lower to one index range");
-    };
-
-    assert_eq!(
-        spec.index().name(),
+        &predicate,
+        &[
+            ("score", OrderDirection::Desc),
+            ("label", OrderDirection::Desc),
+            ("id", OrderDirection::Desc),
+        ],
         "z_tier_score_label_idx",
-        "planner must keep the descending order-compatible range index when prefix/range rank ties and name order points at the wrong index",
-    );
-    assert_eq!(
-        spec.prefix_values(),
         &[Value::Text("gold".to_string())],
-        "descending range ranking must preserve the equality-bound prefix on the selected index range",
+        Bound::Excluded(Value::Uint(10)),
+        Bound::Unbounded,
+        "descending range ranking predicate",
     );
-    assert_eq!(spec.lower(), &Bound::Excluded(Value::Uint(10)));
-    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]
 fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -642,38 +666,18 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
             CoercionId::Strict,
         )),
     ]);
-    let order = canonical_order(&[("label", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_prefix_choice(
         &PLANNER_RANGE_RANKING_MODEL,
-        schema,
-        Some(&predicate),
-        Some(order),
-    )
-    .expect("equality-prefix suffix-order access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("equality-prefix suffix-order predicate should lower to one index-prefix path");
-    };
-    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
-        panic!("equality-prefix suffix-order predicate should lower to one index-prefix path");
-    };
-
-    assert_eq!(
-        index.name(),
+        &predicate,
+        &[("label", OrderDirection::Asc), ("id", OrderDirection::Asc)],
         "z_tier_score_label_idx",
-        "planner must keep the order-compatible suffix index when equality-prefix rank ties and name order points at the wrong composite route",
-    );
-    assert_eq!(
-        values,
-        &[Value::Text("gold".to_string()), Value::Uint(20),],
-        "planner must preserve the full equality prefix on the selected composite route",
+        &[Value::Text("gold".to_string()), Value::Uint(20)],
+        "equality-prefix suffix-order predicate",
     );
 }
 
 #[test]
 fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -688,131 +692,56 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
             CoercionId::Strict,
         )),
     ]);
-    let order = canonical_order(&[
-        ("label", OrderDirection::Desc),
-        ("id", OrderDirection::Desc),
-    ]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_prefix_choice(
         &PLANNER_RANGE_RANKING_MODEL,
-        schema,
-        Some(&predicate),
-        Some(order),
-    )
-    .expect("descending equality-prefix suffix-order access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!(
-            "descending equality-prefix suffix-order predicate should lower to one index-prefix path"
-        );
-    };
-    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
-        panic!(
-            "descending equality-prefix suffix-order predicate should lower to one index-prefix path"
-        );
-    };
-
-    assert_eq!(
-        index.name(),
+        &predicate,
+        &[
+            ("label", OrderDirection::Desc),
+            ("id", OrderDirection::Desc),
+        ],
         "z_tier_score_label_idx",
-        "planner must keep the descending order-compatible suffix index when equality-prefix rank ties and name order points at the wrong composite route",
-    );
-    assert_eq!(
-        values,
-        &[Value::Text("gold".to_string()), Value::Uint(20),],
-        "planner must preserve the full descending equality prefix on the selected composite route",
+        &[Value::Text("gold".to_string()), Value::Uint(20)],
+        "descending equality-prefix suffix-order predicate",
     );
 }
 
 #[test]
 fn planner_order_only_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_ONLY_RANKING_MODEL);
-    let order = canonical_order(&[("alpha", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
-
-    let planner_shape = plan_access_for_test_with_order(
+    assert_order_compatible_order_only_choice(
         &PLANNER_ORDER_ONLY_RANKING_MODEL,
-        schema,
-        None,
-        Some(order),
-    )
-    .expect("order-only ranking access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("order-only ranking should lower to one index path");
-    };
-    let AccessPath::IndexRange { spec } = path.as_ref() else {
-        panic!("order-only ranking should lower to one index range");
-    };
-
-    assert_eq!(
-        spec.index().name(),
+        &[("alpha", OrderDirection::Asc), ("id", OrderDirection::Asc)],
         "z_alpha_idx",
-        "planner must keep the order-compatible fallback index when predicate rank is absent and name order points at the wrong index",
+        "order-only ranking fallback",
     );
-    assert!(spec.prefix_values().is_empty());
-    assert_eq!(spec.lower(), &Bound::Unbounded);
-    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]
 fn planner_composite_order_only_selection_prefers_order_compatible_index_over_name_order_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
-    let order = canonical_order(&[
-        ("tier", OrderDirection::Asc),
-        ("handle", OrderDirection::Asc),
-        ("id", OrderDirection::Asc),
-    ]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, schema, None, Some(order))
-            .expect("composite order-only ranking access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("composite order-only ranking should lower to one index path");
-    };
-    let AccessPath::IndexRange { spec } = path.as_ref() else {
-        panic!("composite order-only ranking should lower to one index range");
-    };
-
-    assert_eq!(
-        spec.index().name(),
+    assert_order_compatible_order_only_choice(
+        &PLANNER_RANKING_MODEL,
+        &[
+            ("tier", OrderDirection::Asc),
+            ("handle", OrderDirection::Asc),
+            ("id", OrderDirection::Asc),
+        ],
         "z_tier_handle_idx",
-        "planner must keep the order-compatible composite fallback index when predicate rank is absent and name order points at the wrong route",
+        "composite order-only ranking fallback",
     );
-    assert!(spec.prefix_values().is_empty());
-    assert_eq!(spec.lower(), &Bound::Unbounded);
-    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]
 fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_over_name_order_tie()
 {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
-    let order = canonical_order(&[
-        ("tier", OrderDirection::Desc),
-        ("handle", OrderDirection::Desc),
-        ("id", OrderDirection::Desc),
-    ]);
-
-    let planner_shape =
-        plan_access_for_test_with_order(&PLANNER_RANKING_MODEL, schema, None, Some(order))
-            .expect("descending composite order-only ranking access planning should succeed");
-
-    let AccessPlan::Path(path) = planner_shape else {
-        panic!("descending composite order-only ranking should lower to one index path");
-    };
-    let AccessPath::IndexRange { spec } = path.as_ref() else {
-        panic!("descending composite order-only ranking should lower to one index range");
-    };
-
-    assert_eq!(
-        spec.index().name(),
+    assert_order_compatible_order_only_choice(
+        &PLANNER_RANKING_MODEL,
+        &[
+            ("tier", OrderDirection::Desc),
+            ("handle", OrderDirection::Desc),
+            ("id", OrderDirection::Desc),
+        ],
         "z_tier_handle_idx",
-        "planner must keep the descending order-compatible composite fallback index when predicate rank is absent and name order points at the wrong route",
+        "descending composite order-only ranking fallback",
     );
-    assert!(spec.prefix_values().is_empty());
-    assert_eq!(spec.lower(), &Bound::Unbounded);
-    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]

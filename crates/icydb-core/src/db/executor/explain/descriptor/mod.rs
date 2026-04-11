@@ -10,7 +10,7 @@ pub(in crate::db::executor::explain::descriptor) mod shared;
 pub(in crate::db) use self::{
     aggregate::{
         assemble_aggregate_terminal_execution_descriptor,
-        assemble_prepared_sql_scalar_aggregate_execution_descriptor,
+        assemble_scalar_aggregate_execution_descriptor_with_projection,
     },
     load::{assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics},
 };

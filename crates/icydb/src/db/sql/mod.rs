@@ -504,8 +504,8 @@ mod tests {
     #[test]
     fn render_describe_lines_output_contract_vector_is_stable() {
         let description = EntitySchemaDescription::new(
-            "schema.public.Character".to_string(),
-            "Character".to_string(),
+            "schema.public.ExampleEntity".to_string(),
+            "ExampleEntity".to_string(),
             "id".to_string(),
             vec![
                 EntityFieldDescription::new("id".to_string(), "Ulid".to_string(), true, true),
@@ -513,12 +513,12 @@ mod tests {
             ],
             vec![
                 EntityIndexDescription::new(
-                    "character_name_idx".to_string(),
+                    "example_entity_name_idx".to_string(),
                     false,
                     vec!["name".to_string()],
                 ),
                 EntityIndexDescription::new(
-                    "character_pk".to_string(),
+                    "example_entity_pk".to_string(),
                     true,
                     vec!["id".to_string()],
                 ),
@@ -536,15 +536,15 @@ mod tests {
         assert_eq!(
             render_describe_lines(&description),
             vec![
-                "entity: Character".to_string(),
-                "path: schema.public.Character".to_string(),
+                "entity: ExampleEntity".to_string(),
+                "path: schema.public.ExampleEntity".to_string(),
                 "primary_key: id".to_string(),
                 "fields:".to_string(),
                 "  - id: Ulid (primary_key=true, queryable=true)".to_string(),
                 "  - name: Text (primary_key=false, queryable=true)".to_string(),
                 "indexes:".to_string(),
-                "  - character_name_idx(name)".to_string(),
-                "  - character_pk(id), unique".to_string(),
+                "  - example_entity_name_idx(name)".to_string(),
+                "  - example_entity_pk(id), unique".to_string(),
                 "relations:".to_string(),
                 "  - mentor_id -> User (Strong, Single)".to_string(),
             ],
@@ -556,15 +556,15 @@ mod tests {
     fn render_show_indexes_lines_output_contract_vector_is_stable() {
         let indexes = vec![
             "PRIMARY KEY (id)".to_string(),
-            "INDEX character_name_idx(name)".to_string(),
+            "INDEX example_entity_name_idx(name)".to_string(),
         ];
 
         assert_eq!(
-            render_show_indexes_lines("Character", indexes.as_slice()),
+            render_show_indexes_lines("ExampleEntity", indexes.as_slice()),
             vec![
-                "surface=indexes entity=Character index_count=2".to_string(),
+                "surface=indexes entity=ExampleEntity index_count=2".to_string(),
                 "PRIMARY KEY (id)".to_string(),
-                "INDEX character_name_idx(name)".to_string(),
+                "INDEX example_entity_name_idx(name)".to_string(),
             ],
             "show-indexes shell output must remain contract-stable across release lines",
         );
@@ -578,9 +578,9 @@ mod tests {
         ];
 
         assert_eq!(
-            render_show_columns_lines("Character", columns.as_slice()),
+            render_show_columns_lines("ExampleEntity", columns.as_slice()),
             vec![
-                "surface=columns entity=Character column_count=2".to_string(),
+                "surface=columns entity=ExampleEntity column_count=2".to_string(),
                 "id: Ulid (primary_key=true, queryable=true)".to_string(),
                 "name: Text (primary_key=false, queryable=true)".to_string(),
             ],
@@ -591,7 +591,7 @@ mod tests {
     #[test]
     fn render_show_entities_lines_output_contract_vector_is_stable() {
         let entities = vec![
-            "Character".to_string(),
+            "ExampleEntity".to_string(),
             "Order".to_string(),
             "User".to_string(),
         ];
@@ -600,7 +600,7 @@ mod tests {
             render_show_entities_lines(entities.as_slice()),
             vec![
                 "surface=entities".to_string(),
-                "entity=Character".to_string(),
+                "entity=ExampleEntity".to_string(),
                 "entity=Order".to_string(),
                 "entity=User".to_string(),
             ],

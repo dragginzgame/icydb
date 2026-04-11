@@ -1,12 +1,9 @@
 //! Module: db::executor::projection::materialize
 //! Responsibility: shared projection materialization helpers that are used by both structural and typed row flows.
-//! Does not own: the structural SQL row loop itself or expression evaluation semantics.
+//! Does not own: session-owned structural row shaping or expression evaluation semantics.
 //! Boundary: keeps validation, grouped projection materialization, and shared row-walk helpers behind one executor-owned boundary.
 
-#[cfg(feature = "sql")]
-mod structural;
-
-#[cfg(all(feature = "sql", test))]
+#[cfg(test)]
 use crate::{
     db::query::plan::expr::ProjectionField,
     db::response::ProjectedRow,
@@ -21,11 +18,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-#[cfg(feature = "sql")]
 use std::borrow::Cow;
 
-#[cfg(all(feature = "sql", test))]
-use crate::db::executor::projection::compile_scalar_projection_expr;
 #[cfg(test)]
 use crate::db::executor::projection::eval::eval_scalar_projection_expr_with_value_reader;
 use crate::db::executor::projection::eval::{
@@ -33,39 +27,20 @@ use crate::db::executor::projection::eval::{
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_scalar_projection_expr_with_value_ref_reader,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub use structural::SqlProjectionTextExecutorAttribution;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub(in crate::db) use structural::attribute_sql_projection_text_rows_for_canister;
-#[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
-pub(in crate::db::executor) use structural::record_sql_projection_full_row_decode_materialization;
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
-pub use structural::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db) use structural::{
-    execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db::executor) use structural::{
-    project_sql_distinct_projection_slot_rows_for_dispatch,
-    project_sql_projection_slot_rows_for_dispatch,
-    render_sql_distinct_projection_slot_rows_for_dispatch,
-    render_sql_projection_slot_rows_for_dispatch,
-};
+#[cfg(test)]
+use crate::db::query::plan::expr::compile_scalar_projection_expr;
 
 ///
 /// PreparedProjectionPlan
 ///
 /// PreparedProjectionPlan is the executor-owned projection materialization plan
-/// shared by typed row projection, slot-row validation, and structural SQL
-/// row projection. Production paths consume only planner-compiled scalar
-/// programs so projection execution no longer carries a generic field-resolve
-/// fallback.
+/// shared by typed row projection, slot-row validation, and higher-level
+/// structural row shaping. Production paths consume only planner-compiled
+/// scalar programs so projection execution no longer carries a generic
+/// field-resolve fallback.
 ///
 
-pub(super) enum PreparedProjectionPlan {
+pub(in crate::db) enum PreparedProjectionPlan {
     Scalar(Vec<ScalarProjectionExpr>),
 }
 
@@ -73,17 +48,15 @@ pub(super) enum PreparedProjectionPlan {
 /// PreparedProjectionShape
 ///
 /// PreparedProjectionShape is the executor-owned prepared projection contract
-/// shared by slot-row validation, SQL short-path projection setup, and
-/// structural SQL fallback materialization.
+/// shared by slot-row validation and higher-level structural row shaping.
 /// It freezes the canonical projection semantic spec plus the derived direct
 /// slot layouts needed by compiled scalar projection flow.
 ///
 
-pub(in crate::db::executor) struct PreparedProjectionShape {
+pub(in crate::db) struct PreparedProjectionShape {
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
-    #[cfg(feature = "sql")]
     direct_projection_field_slots: Option<Vec<(String, usize)>>,
     #[cfg(any(test, feature = "perf-attribution"))]
     projected_slot_mask: Vec<bool>,
@@ -91,13 +64,20 @@ pub(in crate::db::executor) struct PreparedProjectionShape {
 
 impl PreparedProjectionShape {
     #[must_use]
-    pub(in crate::db::executor) const fn projection(&self) -> &ProjectionSpec {
+    pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
     }
 
     #[must_use]
-    pub(super) const fn prepared(&self) -> &PreparedProjectionPlan {
+    pub(in crate::db) const fn prepared(&self) -> &PreparedProjectionPlan {
         &self.prepared
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[ScalarProjectionExpr] {
+        let PreparedProjectionPlan::Scalar(compiled_fields) = self.prepared();
+
+        compiled_fields.as_slice()
     }
 
     #[must_use]
@@ -105,7 +85,6 @@ impl PreparedProjectionShape {
         self.projection_is_model_identity
     }
 
-    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) fn direct_projection_field_slots(&self) -> Option<&[(String, usize)]> {
         self.direct_projection_field_slots.as_deref()
@@ -116,13 +95,32 @@ impl PreparedProjectionShape {
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.projected_slot_mask.as_slice()
     }
+
+    /// Build one projection shape directly from test-owned prepared parts.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn from_test_parts(
+        projection: ProjectionSpec,
+        prepared: PreparedProjectionPlan,
+        projection_is_model_identity: bool,
+        direct_projection_field_slots: Option<Vec<(String, usize)>>,
+        projected_slot_mask: Vec<bool>,
+    ) -> Self {
+        Self {
+            projection,
+            prepared,
+            projection_is_model_identity,
+            direct_projection_field_slots,
+            projected_slot_mask,
+        }
+    }
 }
 
 ///
 /// PreparedSlotProjectionValidation
 ///
 /// PreparedSlotProjectionValidation is the executor-owned slot-row projection
-/// validation bundle reused by page kernels and SQL slot-row short paths.
+/// validation bundle reused by page kernels and retained-slot row shaping.
 /// It freezes the canonical projection semantic spec plus the compiled
 /// validation/evaluation shape so execute no longer recomputes that plan at
 /// each slot-row validation boundary.
@@ -132,7 +130,7 @@ pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProj
 
 /// Build one executor-owned prepared projection shape from planner-frozen metadata.
 #[must_use]
-pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
+pub(in crate::db) fn prepare_projection_shape_from_plan(
     field_count: usize,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
@@ -144,7 +142,6 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
             )
             .to_vec(),
     );
-    #[cfg(feature = "sql")]
     let direct_projection_field_slots = direct_projection_field_slots_from_projection(
         &projection,
         plan.frozen_direct_projection_slots(),
@@ -159,7 +156,6 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
         projection,
         prepared,
         projection_is_model_identity: plan.projection_is_model_identity(),
-        #[cfg(feature = "sql")]
         direct_projection_field_slots,
         #[cfg(any(test, feature = "perf-attribution"))]
         projected_slot_mask,
@@ -185,7 +181,6 @@ pub(in crate::db::executor) fn validate_prepared_projection_row<'a>(
     Ok(())
 }
 
-#[cfg(feature = "sql")]
 fn direct_projection_field_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
@@ -217,7 +212,7 @@ fn projected_slot_mask_from_slots(field_count: usize, projected_slots: &[bool]) 
     mask
 }
 
-#[cfg(all(feature = "sql", test))]
+#[cfg(test)]
 pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
     projection: &ProjectionSpec,
     rows: &[(Id<E>, E)],
@@ -274,8 +269,7 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 
 // Walk one prepared projection plan through one reader that can borrow slot
 // values from retained structural rows until an expression needs ownership.
-#[cfg(feature = "sql")]
-pub(super) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
+pub(in crate::db) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
     prepared: &'a PreparedProjectionPlan,
     projection: &ProjectionSpec,
     read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,

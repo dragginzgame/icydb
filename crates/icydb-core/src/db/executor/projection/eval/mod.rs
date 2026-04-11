@@ -11,15 +11,13 @@ use crate::error::InternalError;
 use crate::value::Value;
 use thiserror::Error as ThisError;
 
-pub(in crate::db::executor) use crate::db::query::plan::expr::ScalarProjectionExpr;
-#[cfg(test)]
-pub(in crate::db::executor) use crate::db::query::plan::expr::compile_scalar_projection_expr;
+pub(in crate::db) use crate::db::query::plan::expr::ScalarProjectionExpr;
 #[cfg(test)]
 pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
+pub(in crate::db) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
 #[cfg(test)]
@@ -33,7 +31,7 @@ pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_r
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub(in crate::db::executor) enum ProjectionEvalError {
+pub(in crate::db) enum ProjectionEvalError {
     #[error("projection expression references unknown field '{field}'")]
     UnknownField { field: String },
 
@@ -78,7 +76,7 @@ pub(in crate::db::executor) enum ProjectionEvalError {
 
 impl ProjectionEvalError {
     /// Map one projection evaluation failure into the executor invalid-logical-plan boundary.
-    pub(in crate::db::executor) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
+    pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
         InternalError::query_invalid_logical_plan(self.to_string())
     }
 

@@ -6,23 +6,23 @@
 mod aggregate;
 mod authority;
 mod covering;
-mod delete;
+pub(in crate::db) mod delete;
 pub(in crate::db::executor) mod diagnostics;
-mod explain;
+pub(in crate::db) mod explain;
 pub(in crate::db) mod group;
 mod kernel;
 mod mutation;
 mod order;
-mod pipeline;
+pub(in crate::db) mod pipeline;
 mod plan_metrics;
 pub(super) mod planning;
 mod prepared_execution_plan;
-mod projection;
+pub(in crate::db) mod projection;
 pub(in crate::db) use planning::route;
 mod runtime_context;
 mod scan;
 mod stream;
-mod terminal;
+pub(in crate::db) mod terminal;
 #[cfg(test)]
 mod tests;
 mod traversal;
@@ -46,18 +46,14 @@ pub(in crate::db) use aggregate::{
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
     CoveringProjectionComponentRows, covering_projection_scan_direction,
-    covering_requires_row_presence_check, decode_covering_projection_pairs,
-    decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
-    resolve_covering_projection_components_from_lowered_specs,
+    covering_requires_row_presence_check, decode_single_covering_projection_pairs,
+    reorder_covering_projection_pairs, resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
-#[cfg(feature = "sql")]
-pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use explain::{
     assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
     assemble_load_execution_verbose_diagnostics,
-    assemble_prepared_sql_scalar_aggregate_execution_descriptor,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
@@ -67,8 +63,7 @@ pub(in crate::db::executor) use order::{
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
-#[cfg(feature = "sql")]
-pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
+pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
     LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, RouteContinuationPlan,
@@ -81,18 +76,11 @@ pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedE
 pub(in crate::db::executor) use prepared_execution_plan::{
     PreparedAggregatePlan, PreparedLoadPlan, classify_bytes_by_projection_mode,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub use projection::SqlProjectionTextExecutorAttribution;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub(in crate::db) use projection::attribute_sql_projection_text_rows_for_canister;
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
-pub use projection::{
-    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db) use projection::{
-    execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
-};
+#[cfg(test)]
+pub(in crate::db) use projection::PreparedProjectionPlan;
+#[cfg(test)]
+#[cfg(test)]
+pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 pub(in crate::db) use runtime_context::{
     Context, StoreResolver, record_row_check_covering_candidate_seen,
     record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
@@ -104,9 +92,7 @@ pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(in crate::db::executor) use runtime_context::{
-    read_data_row_with_consistency_from_store, read_row_presence_ignoring_missing_from_store,
-    read_row_presence_requiring_existing_from_store,
-    read_row_presence_with_consistency_from_data_store,
+    read_data_row_with_consistency_from_store, read_row_presence_with_consistency_from_data_store,
     sum_row_payload_bytes_from_ordered_key_stream_with_store,
     sum_row_payload_bytes_full_scan_window_with_store,
     sum_row_payload_bytes_key_range_window_with_store,
@@ -121,8 +107,6 @@ pub(in crate::db::executor) use stream::key::{
 pub(in crate::db) use terminal::KernelRow;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
-#[cfg(feature = "sql")]
-pub(in crate::db::executor) use terminal::RetainedSlotRow;
 pub(in crate::db::executor) use util::saturating_row_len;
 
 ///

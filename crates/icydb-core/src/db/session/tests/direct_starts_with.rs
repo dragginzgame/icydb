@@ -1,5 +1,55 @@
 use super::*;
 
+// Seed the canonical uppercase-prefix dataset used by the direct
+// STARTS_WITH/LIKE/text-range parity checks on the generic indexed session
+// fixture surface.
+fn seed_direct_starts_with_fixture(session: &DbSession<SessionSqlCanister>) {
+    seed_indexed_session_sql_entities(
+        session,
+        &[
+            ("Sable", 10),
+            ("Saffron", 20),
+            ("Sierra", 30),
+            ("Slate", 40),
+            ("Summit", 50),
+            ("Atlas", 60),
+        ],
+    );
+}
+
+// Assert the shared non-covering expression-index route for direct lower/upper
+// STARTS_WITH and explicit text-range spellings.
+fn assert_direct_casefold_expression_route(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
+        .explain_execution()
+        .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "{context} should keep the shared expression index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "{context} should keep the non-covering materialized route",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::ResidualPredicateFilter
+        )
+        .is_some(),
+        "{context} should keep the residual filter stage",
+    );
+}
+
 #[test]
 fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
@@ -7,17 +57,7 @@ fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
 
     // Phase 1: seed one deterministic uppercase-prefix dataset under the same
     // secondary text index used by the strict LIKE prefix regression.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     // Phase 2: prove the new direct spelling returns the same indexed
     // projection rows as the established strict LIKE prefix path.
@@ -54,17 +94,7 @@ fn execute_sql_entity_direct_starts_with_matches_indexed_like_rows() {
 
     // Phase 1: seed one deterministic uppercase-prefix dataset under the same
     // secondary text index used by the strict LIKE prefix regression.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     // Phase 2: prove the direct spelling keeps entity-row execution aligned
     // with the established strict LIKE prefix path.
@@ -106,17 +136,7 @@ fn execute_sql_entity_direct_starts_with_matches_indexed_like_rows() {
 fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
         &session,
@@ -140,17 +160,7 @@ fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_ro
 fn execute_sql_projection_direct_lower_text_range_matches_indexed_lower_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
         &session,
@@ -174,43 +184,12 @@ fn execute_sql_projection_direct_lower_text_range_matches_indexed_lower_like_row
 fn session_explain_execution_direct_lower_text_range_keeps_expression_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
+    seed_direct_starts_with_fixture(&session);
+
+    assert_direct_casefold_expression_route(
         &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
-
-    let descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
-        )
-        .expect("LOWER(field) ordered text-range SQL query should lower")
-        .explain_execution()
-        .expect("LOWER(field) ordered text-range SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "LOWER(field) ordered text-range queries should stay on the shared expression index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(false),
-        "LOWER(field) ordered text-range projections should still materialize raw field rows from the expression index route",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::ResidualPredicateFilter
-        )
-        .is_some(),
-        "LOWER(field) ordered text-range explain roots should keep the residual filter stage",
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+        "LOWER(field) ordered text-range queries",
     );
 }
 
@@ -219,17 +198,7 @@ fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expre
 {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let cases = [
         (
@@ -247,30 +216,7 @@ fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expre
     ];
 
     for (sql, context) in cases {
-        let descriptor = session
-            .query_from_sql::<IndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
-            .explain_execution()
-            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
-
-        assert_eq!(
-            descriptor.node_type(),
-            ExplainExecutionNodeType::IndexRangeScan,
-            "{context} should keep the shared expression index-range root",
-        );
-        assert_eq!(
-            descriptor.covering_scan(),
-            Some(false),
-            "{context} should keep the non-covering materialized route",
-        );
-        assert!(
-            explain_execution_find_first_node(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter
-            )
-            .is_some(),
-            "{context} should keep the residual filter stage",
-        );
+        assert_direct_casefold_expression_route(&session, sql, context);
     }
 }
 
@@ -278,17 +224,7 @@ fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expre
 fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let like_rows = session
         .execute_sql::<IndexedSessionSqlEntity>(
@@ -316,17 +252,7 @@ fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows()
 fn execute_sql_entity_direct_upper_text_range_matches_indexed_upper_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let like_rows = session
         .execute_sql::<IndexedSessionSqlEntity>(
@@ -354,43 +280,12 @@ fn execute_sql_entity_direct_upper_text_range_matches_indexed_upper_like_rows() 
 fn session_explain_execution_direct_upper_text_range_keeps_expression_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
+    seed_direct_starts_with_fixture(&session);
+
+    assert_direct_casefold_expression_route(
         &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
-
-    let descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
-            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-        )
-        .expect("UPPER(field) ordered text-range SQL query should lower")
-        .explain_execution()
-        .expect("UPPER(field) ordered text-range SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "UPPER(field) ordered text-range queries should stay on the shared expression index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(false),
-        "UPPER(field) ordered text-range projections should still materialize raw field rows from the expression index route",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::ResidualPredicateFilter
-        )
-        .is_some(),
-        "UPPER(field) ordered text-range explain roots should keep the residual filter stage",
+        "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+        "UPPER(field) ordered text-range queries",
     );
 }
 
@@ -399,17 +294,7 @@ fn session_explain_execution_direct_upper_equivalent_prefix_forms_preserve_expre
 {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("Sonja She-Devil", 10),
-            ("Stamm Bladecaster", 20),
-            ("Syra Child of Nature", 30),
-            ("Sir Edward Lion", 40),
-            ("Sethra Bhoaghail", 50),
-            ("Aldren", 60),
-        ],
-    );
+    seed_direct_starts_with_fixture(&session);
 
     let cases = [
         (
@@ -427,30 +312,7 @@ fn session_explain_execution_direct_upper_equivalent_prefix_forms_preserve_expre
     ];
 
     for (sql, context) in cases {
-        let descriptor = session
-            .query_from_sql::<IndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
-            .explain_execution()
-            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
-
-        assert_eq!(
-            descriptor.node_type(),
-            ExplainExecutionNodeType::IndexRangeScan,
-            "{context} should keep the shared expression index-range root",
-        );
-        assert_eq!(
-            descriptor.covering_scan(),
-            Some(false),
-            "{context} should keep the non-covering materialized route",
-        );
-        assert!(
-            explain_execution_find_first_node(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter
-            )
-            .is_some(),
-            "{context} should keep the residual filter stage",
-        );
+        assert_direct_casefold_expression_route(&session, sql, context);
     }
 }
 
@@ -492,17 +354,7 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
         let run_delete = |sql: &str| {
             reset_indexed_session_sql_store();
             let session = indexed_sql_session();
-            seed_indexed_session_sql_entities(
-                &session,
-                &[
-                    ("Sonja She-Devil", 10),
-                    ("Stamm Bladecaster", 20),
-                    ("Syra Child of Nature", 30),
-                    ("Sir Edward Lion", 40),
-                    ("Sethra Bhoaghail", 50),
-                    ("Aldren", 60),
-                ],
-            );
+            seed_direct_starts_with_fixture(&session);
 
             let deleted_rows = session
                 .execute_sql::<IndexedSessionSqlEntity>(sql)

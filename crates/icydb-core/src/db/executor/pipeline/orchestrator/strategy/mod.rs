@@ -33,6 +33,10 @@ use crate::{
 /// Captures one pre-bound scalar or grouped lane without an extra boxed
 /// trait-object shell around the already-concrete prepared runtime.
 ///
+#[expect(
+    clippy::large_enum_variant,
+    reason = "prepared runtimes stay inline to avoid reworking orchestrator ownership during this cleanup pass"
+)]
 pub(in crate::db::executor::pipeline::orchestrator) enum ExecutionSpec {
     Scalar(PreparedScalarRouteRuntime),
     Grouped(PreparedGroupedRouteRuntime),

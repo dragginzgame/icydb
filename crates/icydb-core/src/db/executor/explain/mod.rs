@@ -8,5 +8,5 @@ mod descriptor;
 pub(in crate::db) use descriptor::{
     assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
     assemble_load_execution_verbose_diagnostics,
-    assemble_prepared_sql_scalar_aggregate_execution_descriptor,
+    assemble_scalar_aggregate_execution_descriptor_with_projection,
 };

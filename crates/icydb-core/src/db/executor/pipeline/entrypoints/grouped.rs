@@ -195,7 +195,7 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
 
 /// Execute one initial grouped rows path directly from one structural load plan.
 ///
-/// This SQL-only helper keeps the generated query surface on the same grouped
+/// This feature-gated helper keeps the generated query surface on the same grouped
 /// runtime spine without reopening a typed `LoadExecutor<E>` boundary.
 #[cfg(feature = "sql")]
 pub(in crate::db) fn execute_initial_grouped_rows_for_canister<C>(
@@ -234,7 +234,7 @@ where
     };
 
     // Phase 2: execute one grouped page and return the grouped cursor payload
-    // directly so SQL surfaces can format the outward cursor as needed.
+    // directly so the outer surface can format the outward cursor as needed.
     let (page, _) = execute_prepared_grouped_route_runtime(prepared)?;
 
     Ok(page)

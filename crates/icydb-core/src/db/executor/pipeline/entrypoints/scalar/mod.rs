@@ -16,12 +16,10 @@ use crate::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
             ExecutionPreparation, ExecutionTrace, ExecutorPlanError, LoadCursorInput,
             PreparedLoadPlan, ScalarContinuationContext, StoreResolver, TraversalRuntime,
-            aggregate::runtime::finalize_path_outcome_for_path,
             pipeline::contracts::{
-                CoveringComponentScanState, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
-                ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
-                MaterializedExecutionPayload, PreparedExecutionProjection,
-                ProjectionMaterializationMode, StructuralCursorPage,
+                CursorPage, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionOutputOptions,
+                ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
+                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -43,9 +41,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    metrics::sink::{ExecKind, PathSpan},
     traits::{CanisterKind, EntityKind, EntityValue},
-    value::Value,
 };
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
@@ -86,7 +82,6 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     resolved_continuation: ScalarContinuationContext,
     unpaged_rows_mode: bool,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
-    fuse_immediate_sql_terminal: bool,
     debug: bool,
 }
 
@@ -194,7 +189,6 @@ fn execute_prepared_scalar_path_execution(
         resolved_continuation,
         unpaged_rows_mode,
         projection_runtime_mode,
-        fuse_immediate_sql_terminal,
         debug,
     } = prepared;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
@@ -202,11 +196,6 @@ fn execute_prepared_scalar_path_execution(
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority,
-        CoveringComponentScanState {
-            entity_tag: authority.entity_tag(),
-            index_prefix_specs: index_prefix_specs.as_slice(),
-            index_range_specs: index_range_specs.as_slice(),
-        },
     );
 
     // Phase 1: apply structural route hints derived from the scalar load plan.
@@ -243,10 +232,7 @@ fn execute_prepared_scalar_path_execution(
         &execution_preparation,
         projection_runtime_mode,
         prepared_projection,
-        ExecutionOutputOptions::new(
-            projection_runtime_mode.emit_cursor(),
-            fuse_immediate_sql_terminal,
-        ),
+        ExecutionOutputOptions::new(projection_runtime_mode.emit_cursor()),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
@@ -269,15 +255,11 @@ fn execute_prepared_scalar_path_execution(
 // Finalize one scalar runtime tuple when the payload must be a structural page.
 fn finalize_scalar_structural_path_execution(
     entity_path: &'static str,
-    structural_payload_error: &'static str,
+    _structural_payload_error: &'static str,
     execution: ScalarPathExecution,
-) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
+) -> (StructuralCursorPage, Option<ExecutionTrace>) {
     let (payload, metrics, mut trace, execution_time_micros) = execution;
-    let MaterializedExecutionPayload::StructuralPage(page) = payload else {
-        return Err(InternalError::query_executor_invariant(
-            structural_payload_error,
-        ));
-    };
+    let MaterializedExecutionPayload::StructuralPage(page) = payload;
     let page = finalize_structural_page_for_path(
         entity_path,
         page,
@@ -286,7 +268,7 @@ fn finalize_scalar_structural_path_execution(
         execution_time_micros,
     );
 
-    Ok((page, trace))
+    (page, trace)
 }
 
 /// Execute one prepared scalar runtime bundle and finalize the structural page.
@@ -294,11 +276,11 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
     let entity_path = prepared.authority.entity_path();
-    finalize_scalar_structural_path_execution(
+    Ok(finalize_scalar_structural_path_execution(
         entity_path,
         "shared scalar route runtime must finalize one structural cursor page",
         execute_prepared_scalar_path_execution(prepared)?,
-    )
+    ))
 }
 
 // Prepare one scalar runtime bundle once per canister instead of once per
@@ -337,7 +319,7 @@ where
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
         route_plan.load_terminal_fast_path(),
-    )?;
+    );
 
     // Phase 2: hand off the generic-free runtime bundle to scalar kernel
     // dispatch.
@@ -353,7 +335,6 @@ where
         resolved_continuation,
         unpaged_rows_mode,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
-        fuse_immediate_sql_terminal: false,
         debug,
     })
 }
@@ -387,7 +368,7 @@ where
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
         route_plan.load_terminal_fast_path(),
-    )?;
+    );
 
     // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
     Ok(PreparedScalarRouteRuntime {
@@ -405,7 +386,6 @@ where
         ),
         unpaged_rows_mode: true,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
-        fuse_immediate_sql_terminal: false,
         debug,
     })
 }
@@ -430,17 +410,17 @@ where
     Ok(page)
 }
 
-/// Execute one initial scalar rows path directly from one structural load plan.
+/// Execute one retained-slot initial scalar rows path directly from one
+/// structural load plan.
 ///
-/// This SQL-only helper avoids rebuilding the broader prepared-load wrapper
-/// when the canister query surface already has a fixed initial continuation.
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
+/// This helper avoids rebuilding the broader prepared-load wrapper when an
+/// outer structural consumer already has a fixed initial continuation.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_initial_scalar_retained_slot_page_for_canister<C>(
     db: &Db<C>,
     debug: bool,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
-    projection_runtime_mode: ScalarProjectionRuntimeMode,
 ) -> Result<StructuralCursorPage, InternalError>
 where
     C: CanisterKind,
@@ -470,9 +450,9 @@ where
         authority,
         &plan,
         execution_preparation.compiled_predicate(),
-        projection_runtime_mode,
+        ScalarProjectionRuntimeMode::RetainSlotRows,
         route_plan.load_terminal_fast_path(),
-    )?;
+    );
 
     // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
     let prepared = PreparedScalarRouteRuntime {
@@ -489,165 +469,12 @@ where
             continuation_contract.continuation_signature(),
         ),
         unpaged_rows_mode: true,
-        // SQL projection entrypoints choose their terminal materialization
-        // contract up front so the shared scalar runtime can stay structural.
-        projection_runtime_mode,
-        fuse_immediate_sql_terminal: false,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
         debug,
     };
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
-}
-
-#[cfg(feature = "sql")]
-fn finalize_immediate_sql_terminal_for_path(
-    entity_path: &'static str,
-    row_count: usize,
-    metrics: ExecutionOutcomeMetrics,
-    execution_trace: &mut Option<ExecutionTrace>,
-    execution_time_micros: u64,
-) {
-    finalize_path_outcome_for_path(
-        entity_path,
-        execution_trace,
-        metrics,
-        false,
-        execution_time_micros,
-    );
-    let mut span = PathSpan::new(ExecKind::Load, entity_path);
-    span.set_rows(u64::try_from(row_count).unwrap_or(u64::MAX));
-}
-
-#[cfg(feature = "sql")]
-fn execute_initial_scalar_sql_projection_payload_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-    projection_runtime_mode: ScalarProjectionRuntimeMode,
-) -> Result<MaterializedExecutionPayload, InternalError>
-where
-    C: CanisterKind,
-{
-    let continuation_contract = plan
-        .planned_continuation_contract(authority.entity_path())
-        .ok_or_else(|| {
-            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
-        })?;
-    let index_prefix_specs =
-        crate::db::access::lower_index_prefix_specs(authority.entity_tag(), &plan.access).map_err(
-            |_| ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error(),
-        )?;
-    let index_range_specs =
-        crate::db::access::lower_index_range_specs(authority.entity_tag(), &plan.access).map_err(
-            |_| ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error(),
-        )?;
-
-    // Phase 1: resolve structural store authority and execution preparation once.
-    validate_executor_plan_for_authority(authority, &plan)?;
-    let store = db.recovered_store(authority.store_path())?;
-    let route_plan = build_initial_execution_route_plan_for_load(authority, &plan, None)?;
-    let slot_map = slot_map_for_model_plan(&plan);
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
-    let prepared_projection = PreparedExecutionProjection::compile(
-        authority,
-        &plan,
-        execution_preparation.compiled_predicate(),
-        projection_runtime_mode,
-        route_plan.load_terminal_fast_path(),
-    )?;
-
-    // Phase 2: execute the shared scalar runtime with direct terminal fusion enabled.
-    let prepared = PreparedScalarRouteRuntime {
-        store,
-        authority,
-        plan,
-        route_plan,
-        execution_preparation,
-        prepared_projection,
-        index_prefix_specs,
-        index_range_specs,
-        resolved_continuation: ScalarContinuationContext::for_runtime(
-            PlannedCursor::none(),
-            continuation_contract.continuation_signature(),
-        ),
-        unpaged_rows_mode: true,
-        projection_runtime_mode,
-        fuse_immediate_sql_terminal: true,
-        debug,
-    };
-    let entity_path = prepared.authority.entity_path();
-    let (payload, metrics, mut trace, execution_time_micros) =
-        execute_prepared_scalar_path_execution(prepared)?;
-    let row_count = match &payload {
-        MaterializedExecutionPayload::StructuralPage(page) => page.row_count(),
-        MaterializedExecutionPayload::SqlProjectedRows(rows) => rows.len(),
-        MaterializedExecutionPayload::SqlRenderedRows(rows) => rows.len(),
-    };
-    finalize_immediate_sql_terminal_for_path(
-        entity_path,
-        row_count,
-        metrics,
-        &mut trace,
-        execution_time_micros,
-    );
-
-    Ok(payload)
-}
-
-#[cfg(feature = "sql")]
-pub(in crate::db) fn execute_initial_scalar_sql_projection_rows_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<Vec<Vec<Value>>, InternalError>
-where
-    C: CanisterKind,
-{
-    match execute_initial_scalar_sql_projection_payload_for_canister(
-        db,
-        debug,
-        authority,
-        plan,
-        ScalarProjectionRuntimeMode::SqlImmediateMaterialization,
-    )? {
-        MaterializedExecutionPayload::SqlProjectedRows(rows) => Ok(rows),
-        MaterializedExecutionPayload::StructuralPage(_)
-        | MaterializedExecutionPayload::SqlRenderedRows(_) => {
-            Err(InternalError::query_executor_invariant(
-                "immediate SQL projection value path did not return projected rows",
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "sql")]
-pub(in crate::db) fn execute_initial_scalar_sql_projection_text_rows_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<Vec<Vec<String>>, InternalError>
-where
-    C: CanisterKind,
-{
-    match execute_initial_scalar_sql_projection_payload_for_canister(
-        db,
-        debug,
-        authority,
-        plan,
-        ScalarProjectionRuntimeMode::SqlImmediateRenderedDispatch,
-    )? {
-        MaterializedExecutionPayload::SqlRenderedRows(rows) => Ok(rows),
-        MaterializedExecutionPayload::StructuralPage(_)
-        | MaterializedExecutionPayload::SqlProjectedRows(_) => {
-            Err(InternalError::query_executor_invariant(
-                "immediate SQL projection text path did not return rendered rows",
-            ))
-        }
-    }
 }
 
 // Execute one fully materialized scalar rows path from already-resolved typed
@@ -692,7 +519,7 @@ where
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
         route_plan.load_terminal_fast_path(),
-    )?;
+    );
 
     // Phase 3: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.
@@ -708,14 +535,13 @@ where
         resolved_continuation,
         unpaged_rows_mode: false,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
-        fuse_immediate_sql_terminal: false,
         debug: executor.debug,
     };
     let (page, _) = finalize_scalar_structural_path_execution(
         authority.entity_path(),
         "shared scalar materialized boundary must emit one structural page",
         execute_prepared_scalar_path_execution(prepared)?,
-    )?;
+    );
 
     Ok(page)
 }

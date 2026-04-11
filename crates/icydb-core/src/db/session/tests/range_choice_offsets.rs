@@ -1,72 +1,225 @@
 use super::*;
 
+// Expected scan direction for one range-ordered window shape.
+enum RangeScanDirectionExpectation {
+    Asc,
+    Desc,
+}
+
+// Expected ordered-route shape for one range-ordered window shape.
+enum RangeOrderedRouteExpectation {
+    TopNSeekAccessSatisfied,
+    MaterializedSort,
+}
+
+// Expected EXPLAIN route properties for one index-range ordered window shape.
+struct RangeRouteExpectations<'a> {
+    access_name: &'a str,
+    scan_direction: RangeScanDirectionExpectation,
+    ordered_route: RangeOrderedRouteExpectation,
+}
+
+// Build the shared bounded range filter once so the individual cases differ
+// only on direction and optional offset.
+fn deterministic_range_choice_predicate() -> Predicate {
+    Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Gt,
+            Value::Uint(10),
+            CoercionId::Strict,
+        )),
+    ])
+}
+
+// Build one deterministic range-choice execution descriptor for the requested
+// direction and optional offset window.
+fn deterministic_range_choice_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    descending: bool,
+    offset: Option<u32>,
+) -> ExplainExecutionNodeDescriptor {
+    let mut load = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(deterministic_range_choice_predicate());
+    load = if descending {
+        load.order_by_desc("score")
+            .order_by_desc("label")
+            .order_by_desc("id")
+    } else {
+        load.order_by("score").order_by("label").order_by("id")
+    };
+    if let Some(offset) = offset {
+        load = load.offset(offset);
+    }
+
+    load.limit(2)
+        .explain_execution()
+        .expect("session deterministic range explain_execution should build")
+}
+
+// Build one fallback order-only execution descriptor for either the scalar or
+// composite route family.
+fn order_only_fallback_descriptor(
+    session: &DbSession<SessionSqlCanister>,
+    composite: bool,
+    descending: bool,
+    offset: Option<u32>,
+) -> ExplainExecutionNodeDescriptor {
+    if composite {
+        let mut load = session.load::<SessionDeterministicChoiceEntity>();
+        load = if descending {
+            load.order_by_desc("tier")
+                .order_by_desc("handle")
+                .order_by_desc("id")
+        } else {
+            load.order_by("tier").order_by("handle").order_by("id")
+        };
+        if let Some(offset) = offset {
+            load = load.offset(offset);
+        }
+
+        return load
+            .limit(2)
+            .explain_execution()
+            .expect("session deterministic composite order-only explain_execution should build");
+    }
+
+    let mut load = session.load::<SessionOrderOnlyChoiceEntity>();
+    load = if descending {
+        load.order_by_desc("alpha").order_by_desc("id")
+    } else {
+        load.order_by("alpha").order_by("id")
+    };
+    if let Some(offset) = offset {
+        load = load.offset(offset);
+    }
+
+    load.limit(2)
+        .explain_execution()
+        .expect("session deterministic order-only explain_execution should build")
+}
+
+// Assert the shared EXPLAIN contract for index-range ordered windows while
+// letting each case override only the route properties that differ.
+fn assert_range_route_descriptor(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    expectations: RangeRouteExpectations<'_>,
+    context: &str,
+) {
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "{context} should stay on the chosen index-range route",
+    );
+    assert!(
+        descriptor.access_strategy().is_some_and(
+            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == expectations.access_name)
+        ),
+        "{context} should expose the chosen order-compatible fallback index",
+    );
+    match expectations.scan_direction {
+        RangeScanDirectionExpectation::Asc => {
+            assert_ne!(
+                descriptor.node_properties().get("scan_dir"),
+                Some(&Value::Text("desc".to_string())),
+                "{context} should not expose the descending scan direction",
+            );
+        }
+        RangeScanDirectionExpectation::Desc => {
+            assert_eq!(
+                descriptor.node_properties().get("scan_dir"),
+                Some(&Value::Text("desc".to_string())),
+                "{context} should expose the descending scan direction",
+            );
+        }
+    }
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "{context} should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "{context} should derive bounded index-range limit pushdown",
+    );
+    match expectations.ordered_route {
+        RangeOrderedRouteExpectation::TopNSeekAccessSatisfied => {
+            assert!(
+                explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek)
+                    .is_some(),
+                "{context} should expose bounded Top-N seek routing",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByAccessSatisfied
+                )
+                .is_some(),
+                "{context} should keep access-satisfied ordering",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByMaterializedSort
+                )
+                .is_none(),
+                "{context} should stay off the materialized-sort fallback",
+            );
+        }
+        RangeOrderedRouteExpectation::MaterializedSort => {
+            assert!(
+                explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek)
+                    .is_none(),
+                "{context} should stay off the bounded Top-N seek route",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByAccessSatisfied
+                )
+                .is_none(),
+                "{context} should stay off the access-satisfied ordering route",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByMaterializedSort
+                )
+                .is_some(),
+                "{context} should expose the materialized-sort fallback",
+            );
+        }
+    }
+}
+
 #[test]
 fn session_explain_execution_range_choice_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = deterministic_range_choice_descriptor(&session, false, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("score")
-        .order_by("label")
-        .order_by("id")
-        .limit(2)
-        .explain_execution()
-        .expect("session deterministic range explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "range-choice roots should stay on the chosen index-range route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "range-choice roots should expose the chosen order-compatible range index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "range-choice roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "range-choice roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "range-choice roots should stay off the prefix-only Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "range-choice roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            scan_direction: RangeScanDirectionExpectation::Asc,
+            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+        },
+        "range-choice roots",
     );
 }
 
@@ -74,74 +227,16 @@ fn session_explain_execution_range_choice_uses_bounded_index_range_hints() {
 fn session_explain_execution_range_choice_desc_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = deterministic_range_choice_descriptor(&session, true, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("score")
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .limit(2)
-        .explain_execution()
-        .expect("session descending deterministic range explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending range-choice roots should stay on the chosen index-range route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "descending range-choice roots should expose the chosen order-compatible range index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending range-choice roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending range-choice roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "descending range-choice roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "descending range-choice roots should stay off the prefix-only Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending range-choice roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            scan_direction: RangeScanDirectionExpectation::Desc,
+            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+        },
+        "descending range-choice roots",
     );
 }
 
@@ -149,70 +244,16 @@ fn session_explain_execution_range_choice_desc_uses_bounded_index_range_hints() 
 fn session_explain_execution_range_choice_offset_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = deterministic_range_choice_descriptor(&session, false, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("score")
-        .order_by("label")
-        .order_by("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("session deterministic range offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "range-choice offset roots should stay on the chosen index-range route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "range-choice offset roots should expose the chosen order-compatible range index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "range-choice offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "range-choice offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "range-choice offset roots should stay off the prefix-only Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "range-choice offset roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            scan_direction: RangeScanDirectionExpectation::Asc,
+            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+        },
+        "range-choice offset roots",
     );
 }
 
@@ -220,75 +261,16 @@ fn session_explain_execution_range_choice_offset_uses_bounded_index_range_hints(
 fn session_explain_execution_range_choice_desc_offset_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = deterministic_range_choice_descriptor(&session, true, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("score")
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("session descending deterministic range offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending range-choice offset roots should stay on the chosen index-range route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
-        ),
-        "descending range-choice offset roots should expose the chosen order-compatible range index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending range-choice offset roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending range-choice offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "descending range-choice offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "descending range-choice offset roots should stay off the prefix-only Top-N seek shape",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending range-choice offset roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_score_label_idx",
+            scan_direction: RangeScanDirectionExpectation::Desc,
+            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+        },
+        "descending range-choice offset roots",
     );
 }
 
@@ -296,55 +278,16 @@ fn session_explain_execution_range_choice_desc_offset_uses_bounded_index_range_h
 fn session_explain_execution_composite_order_only_choice_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, true, false, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
-        .limit(2)
-        .explain_execution()
-        .expect("session deterministic composite order-only explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "composite order-only roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
-        ),
-        "composite order-only roots should expose the chosen order-compatible fallback index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "composite order-only roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "composite order-only roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "composite order-only roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "composite order-only roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_handle_idx",
+            scan_direction: RangeScanDirectionExpectation::Asc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "composite order-only roots",
     );
 }
 
@@ -352,63 +295,16 @@ fn session_explain_execution_composite_order_only_choice_uses_bounded_index_rang
 fn session_explain_execution_order_only_choice_offset_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, false, false, Some(1));
 
-    let descriptor = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by("alpha")
-        .order_by("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("session deterministic order-only offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "order-only offset roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_alpha_idx")
-        ),
-        "order-only offset roots should expose the chosen order-compatible fallback index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "order-only offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "order-only offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "order-only offset roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "order-only offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "order-only offset roots should stay off the materialized order fallback lane",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_alpha_idx",
+            scan_direction: RangeScanDirectionExpectation::Asc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "order-only offset roots",
     );
 }
 
@@ -487,70 +383,16 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 fn session_explain_execution_order_only_choice_desc_offset_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, false, true, Some(1));
 
-    let descriptor = session
-        .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by_desc("alpha")
-        .order_by_desc("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session descending deterministic order-only offset explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending order-only offset roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_alpha_idx")
-        ),
-        "descending order-only offset roots should expose the chosen order-compatible fallback index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending order-only offset roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending order-only offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "descending order-only offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "descending order-only offset roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending order-only offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "descending order-only offset roots should stay off the materialized order fallback lane",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_alpha_idx",
+            scan_direction: RangeScanDirectionExpectation::Desc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "descending order-only offset roots",
     );
 }
 
@@ -558,62 +400,16 @@ fn session_explain_execution_order_only_choice_desc_offset_uses_bounded_index_ra
 fn session_explain_execution_composite_order_only_choice_desc_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, true, true, None);
 
-    let descriptor = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by_desc("tier")
-        .order_by_desc("handle")
-        .order_by_desc("id")
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session descending deterministic composite order-only explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending composite order-only roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
-        ),
-        "descending composite order-only roots should expose the chosen order-compatible fallback index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending composite order-only roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending composite order-only roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "descending composite order-only roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "descending composite order-only roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending composite order-only roots should keep access-satisfied ordering",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_handle_idx",
+            scan_direction: RangeScanDirectionExpectation::Desc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "descending composite order-only roots",
     );
 }
 
@@ -621,64 +417,16 @@ fn session_explain_execution_composite_order_only_choice_desc_uses_bounded_index
 fn session_explain_execution_composite_order_only_choice_offset_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, true, false, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("session deterministic composite order-only offset explain_execution should build");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "composite order-only offset roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
-        ),
-        "composite order-only offset roots should expose the chosen order-compatible fallback index",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "composite order-only offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "composite order-only offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "composite order-only offset roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "composite order-only offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "composite order-only offset roots should stay off the materialized order fallback lane",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_handle_idx",
+            scan_direction: RangeScanDirectionExpectation::Asc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "composite order-only offset roots",
     );
 }
 
@@ -770,70 +518,15 @@ fn session_explain_execution_composite_order_only_choice_desc_offset_uses_bounde
  {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
+    let descriptor = order_only_fallback_descriptor(&session, true, true, Some(1));
 
-    let descriptor = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by_desc("tier")
-        .order_by_desc("handle")
-        .order_by_desc("id")
-        .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect(
-            "session descending deterministic composite order-only offset explain_execution should build",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending composite order-only offset roots should stay on the chosen index-range fallback route",
-    );
-    assert!(
-        descriptor.access_strategy().is_some_and(
-            |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
-        ),
-        "descending composite order-only offset roots should expose the chosen order-compatible fallback index",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("scan_dir"),
-        Some(&Value::Text("desc".to_string())),
-        "descending composite order-only offset roots should expose the descending scan direction",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending composite order-only offset roots should expose secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::IndexRangeLimitPushdown
-        )
-        .is_some(),
-        "descending composite order-only offset roots should derive bounded index-range limit pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_some(),
-        "descending composite order-only offset roots should also derive Top-N seek for bounded ordered windows",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending composite order-only offset roots should keep access-satisfied ordering",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_none(),
-        "descending composite order-only offset roots should stay off the materialized order fallback lane",
+    assert_range_route_descriptor(
+        &descriptor,
+        RangeRouteExpectations {
+            access_name: "z_tier_handle_idx",
+            scan_direction: RangeScanDirectionExpectation::Desc,
+            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+        },
+        "descending composite order-only offset roots",
     );
 }

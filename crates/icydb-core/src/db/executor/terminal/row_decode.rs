@@ -3,8 +3,6 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-use crate::db::executor::projection::record_sql_projection_full_row_decode_materialization;
 #[cfg(test)]
 use crate::model::field::EnumVariantModel;
 #[cfg(test)]
@@ -33,7 +31,7 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db::executor) struct RowLayout {
+pub(in crate::db) struct RowLayout {
     contract: StructuralRowContract,
     field_count: usize,
     primary_key_slot: usize,
@@ -42,7 +40,7 @@ pub(in crate::db::executor) struct RowLayout {
 impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[must_use]
-    pub(in crate::db::executor) const fn from_model(model: &'static EntityModel) -> Self {
+    pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
         let contract = StructuralRowContract::from_model(model);
 
         Self {
@@ -54,24 +52,18 @@ impl RowLayout {
 
     /// Borrow the frozen field-count authority carried by this layout.
     #[must_use]
-    pub(in crate::db::executor) const fn field_count(self) -> usize {
+    pub(in crate::db) const fn field_count(self) -> usize {
         self.field_count
     }
 
     /// Borrow the frozen primary-key slot authority carried by this layout.
     #[must_use]
-    pub(in crate::db::executor) const fn primary_key_slot(self) -> usize {
+    pub(in crate::db) const fn primary_key_slot(self) -> usize {
         self.primary_key_slot
     }
 
-    /// Borrow one authoritative field name by structural slot index.
-    #[must_use]
-    pub(in crate::db::executor) fn field_name(self, slot: usize) -> Option<&'static str> {
-        self.contract.fields().get(slot).map(|field| field.name)
-    }
-
     /// Open one raw row through the authority-owned structural decode contract.
-    pub(in crate::db::executor) fn open_raw_row(
+    pub(in crate::db) fn open_raw_row(
         self,
         row: &RawRow,
     ) -> Result<StructuralSlotReader<'_>, InternalError> {
@@ -189,9 +181,6 @@ impl RowDecoder {
         // Phase 1: let dense callers stay on the dedicated direct full-row
         // decode path so compact retained layouts do not regress all-slot reads.
         if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_full_row_decode_materialization();
-
             return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
         }
 
@@ -231,9 +220,6 @@ fn decode_structural_slots(
     if required_slots
         .is_none_or(|required_slots| required_slots_match_full_layout(layout, required_slots))
     {
-        #[cfg(any(test, feature = "structural-read-metrics"))]
-        record_sql_projection_full_row_decode_materialization();
-
         return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
     }
 
@@ -247,9 +233,9 @@ fn decode_structural_slots(
     )
 }
 
-// Detect the dense retained-slot case up front so full-row and full-slot SQL
-// paths can stay on the straight-line dense decode before compact retained-row
-// conversion instead of paying the sparse per-slot decode machinery.
+// Detect the dense retained-slot case up front so full-row and full-slot
+// structural paths can stay on the straight-line dense decode before compact
+// retained-row conversion instead of paying the sparse per-slot decode machinery.
 fn required_slots_match_full_layout(layout: &RowLayout, required_slots: &[usize]) -> bool {
     required_slots.len() == layout.field_count
         && required_slots

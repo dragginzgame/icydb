@@ -9,7 +9,7 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor,
-            assemble_prepared_sql_scalar_aggregate_execution_descriptor,
+            explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             planning::route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
@@ -165,15 +165,16 @@ impl<C: CanisterKind> DbSession<C> {
                     .build_plan_with_visible_indexes(&visible_indexes)?;
                 authority.finalize_static_planning_shape(&mut plan);
                 let query_explain = plan.explain_with_model(model);
-                let execution = assemble_prepared_sql_scalar_aggregate_execution_descriptor(
+                let execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
                     &plan,
-                    &strategy,
                     AggregateRouteShape::new_from_fields(
                         strategy.aggregate_kind(),
                         strategy.projected_field(),
                         model.fields(),
                         model.primary_key().name(),
                     ),
+                    strategy.aggregate_kind(),
+                    strategy.projected_field(),
                 );
                 let terminal_plan = ExplainAggregateTerminalPlan::new(
                     query_explain,
