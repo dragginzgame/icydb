@@ -303,7 +303,7 @@ fn runtime_cursor_signature_validation_internal_references() -> BTreeMap<String,
 #[test]
 fn runtime_continuation_policy_method_references_stay_within_continuation_boundary() {
     let counts = runtime_continuation_policy_reference_counts();
-    let allowed_prefix = "src/db/executor/continuation/";
+    let allowed_prefix = "src/db/executor/planning/continuation/";
 
     let violations = counts
         .keys()

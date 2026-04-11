@@ -53,7 +53,7 @@ fn load_execute_stage_order_matches_linear_contract() {
 
 #[test]
 fn route_layer_does_not_compute_page_window_directly() {
-    let route_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route");
+    let route_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/planning/route");
     let files = collect_rs_files(&route_root);
     let mut offenders = Vec::new();
 
