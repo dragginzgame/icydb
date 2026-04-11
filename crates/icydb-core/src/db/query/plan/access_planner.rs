@@ -1,7 +1,8 @@
 //! Module: db::query::plan::access_planner
-//! Responsibility: module-local ownership and contracts for db::query::plan::access_planner.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: derive the canonical access plan from normalized query
+//! intent, predicate, ordering, and planner-visible index metadata.
+//! Does not own: executor runtime behavior or final access-choice scoring policy outside planning.
+//! Boundary: turns validated logical query intent into planner-owned access plans.
 
 use crate::{
     db::{

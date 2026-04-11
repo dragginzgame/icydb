@@ -3,11 +3,6 @@
 //! Does not own: text/JSON rendering orchestration or logical-plan projection.
 //! Boundary: shared helper surface consumed by explain renderers and execution DTOs.
 
-mod aggregate;
-mod pipeline;
-mod scan;
-mod terminal;
-
 use crate::{
     db::query::explain::{
         ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
@@ -18,20 +13,77 @@ use crate::{
 pub(in crate::db::query::explain) const fn layer_label(
     node_type: ExplainExecutionNodeType,
 ) -> &'static str {
-    if scan::owns(node_type) {
+    if scan_layer_owns(node_type) {
         return "scan";
     }
-    if pipeline::owns(node_type) {
+    if pipeline_layer_owns(node_type) {
         return "pipeline";
     }
-    if aggregate::owns(node_type) {
+    if aggregate_layer_owns(node_type) {
         return "aggregate";
     }
-    if terminal::owns(node_type) {
+    if terminal_layer_owns(node_type) {
         return "terminal";
     }
 
     "unknown"
+}
+
+const fn scan_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
+    matches!(
+        node_type,
+        ExplainExecutionNodeType::ByKeyLookup
+            | ExplainExecutionNodeType::ByKeysLookup
+            | ExplainExecutionNodeType::PrimaryKeyRangeScan
+            | ExplainExecutionNodeType::IndexPrefixScan
+            | ExplainExecutionNodeType::IndexRangeScan
+            | ExplainExecutionNodeType::IndexMultiLookup
+            | ExplainExecutionNodeType::FullScan
+            | ExplainExecutionNodeType::Union
+            | ExplainExecutionNodeType::Intersection
+    )
+}
+
+const fn pipeline_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
+    matches!(
+        node_type,
+        ExplainExecutionNodeType::IndexPredicatePrefilter
+            | ExplainExecutionNodeType::ResidualPredicateFilter
+            | ExplainExecutionNodeType::OrderByAccessSatisfied
+            | ExplainExecutionNodeType::OrderByMaterializedSort
+            | ExplainExecutionNodeType::CursorResume
+            | ExplainExecutionNodeType::IndexRangeLimitPushdown
+            | ExplainExecutionNodeType::TopNSeek
+            | ExplainExecutionNodeType::SecondaryOrderPushdown
+    )
+}
+
+const fn aggregate_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
+    matches!(
+        node_type,
+        ExplainExecutionNodeType::DistinctPreOrdered
+            | ExplainExecutionNodeType::DistinctMaterialized
+            | ExplainExecutionNodeType::AggregateCount
+            | ExplainExecutionNodeType::AggregateExists
+            | ExplainExecutionNodeType::AggregateMin
+            | ExplainExecutionNodeType::AggregateMax
+            | ExplainExecutionNodeType::AggregateFirst
+            | ExplainExecutionNodeType::AggregateLast
+            | ExplainExecutionNodeType::AggregateSum
+            | ExplainExecutionNodeType::AggregateSeekFirst
+            | ExplainExecutionNodeType::AggregateSeekLast
+            | ExplainExecutionNodeType::GroupedAggregateHashMaterialized
+            | ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
+    )
+}
+
+const fn terminal_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
+    matches!(
+        node_type,
+        ExplainExecutionNodeType::ProjectionMaterialized
+            | ExplainExecutionNodeType::CoveringRead
+            | ExplainExecutionNodeType::LimitOffset
+    )
 }
 
 pub(in crate::db::query::explain) const fn execution_mode_detail_label(

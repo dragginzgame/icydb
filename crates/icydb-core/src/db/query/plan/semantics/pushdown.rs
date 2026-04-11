@@ -1,7 +1,8 @@
 //! Module: db::query::plan::semantics::pushdown
-//! Responsibility: module-local ownership and contracts for db::query::plan::semantics::pushdown.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: derive planner-visible pushdown semantics for order and
+//! predicate behavior from normalized access plans.
+//! Does not own: access-plan construction or executor route realization.
+//! Boundary: keeps pushdown semantics separate from both validation and execution.
 
 use crate::db::query::plan::{AccessPlannedQuery, DeterministicSecondaryOrderContract};
 

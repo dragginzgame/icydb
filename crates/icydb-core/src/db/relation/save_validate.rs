@@ -1,7 +1,8 @@
 //! Module: relation::save_validate
-//! Responsibility: save-time strong relation existence/integrity validation.
+//! Responsibility: validate save-time strong relation targets against target
+//! store existence before commit planning proceeds.
 //! Does not own: reverse-index mutation planning or delete-time relation blocking.
-//! Boundary: executor save preflight delegates relation semantics to this module.
+//! Boundary: executor save preflight delegates strong-relation target validation to this module.
 
 use crate::{
     db::{

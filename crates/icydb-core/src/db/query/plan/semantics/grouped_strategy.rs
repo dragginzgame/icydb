@@ -1,7 +1,8 @@
 //! Module: db::query::plan::semantics::grouped_strategy
-//! Responsibility: module-local ownership and contracts for db::query::plan::semantics::grouped_strategy.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: derive grouped-query execution semantics from grouped
+//! projection, aggregate, and ordering contracts.
+//! Does not own: grouped executor runtime implementation.
+//! Boundary: keeps grouped planning semantics explicit before executor handoff.
 
 use crate::db::{
     access::AccessPlan,

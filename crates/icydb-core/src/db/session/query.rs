@@ -1,7 +1,8 @@
 //! Module: db::session::query
-//! Responsibility: module-local ownership and contracts for db::session::query.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-bound query planning, explain, and cursor execution
+//! helpers that recover store visibility before delegating to query-owned logic.
+//! Does not own: query intent construction or executor runtime semantics.
+//! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
 use crate::{
     db::{
@@ -30,6 +31,24 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    // Resolve the planner-visible index slice for one typed query exactly once
+    // at the session boundary before handing execution/planning off to query-owned logic.
+    fn with_query_visible_indexes<E, T>(
+        &self,
+        query: &Query<E>,
+        op: impl FnOnce(
+            &Query<E>,
+            &crate::db::query::plan::VisibleIndexes<'static>,
+        ) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        op(query, &visible_indexes)
+    }
+
     // Compile one typed query using only the indexes currently visible for the
     // query's recovered store.
     pub(in crate::db) fn compile_query_with_visible_indexes<E>(
@@ -39,9 +58,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.plan_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.plan_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -53,9 +72,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.planned_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.planned_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -66,9 +85,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Hash one typed query plan using only the indexes currently visible for
@@ -80,9 +99,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.plan_hash_hex_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.plan_hash_hex_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Explain one load execution shape using only planner-visible
@@ -94,9 +113,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_execution_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_execution_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Render one load execution descriptor as deterministic text using
@@ -108,9 +127,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_execution_text_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_execution_text_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Render one load execution descriptor as canonical JSON using
@@ -122,9 +141,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_execution_json_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_execution_json_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Render one load execution descriptor plus route diagnostics using
@@ -136,9 +155,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_execution_verbose_with_visible_indexes(&visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_execution_verbose_with_visible_indexes(visible_indexes)
+        })
     }
 
     // Explain one prepared fluent aggregate terminal using only
@@ -152,9 +171,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityValue + EntityKind<Canister = C>,
         S: PreparedFluentAggregateExplainStrategy,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_prepared_aggregate_terminal_with_visible_indexes(&visible_indexes, strategy)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query
+                .explain_prepared_aggregate_terminal_with_visible_indexes(visible_indexes, strategy)
+        })
     }
 
     // Explain one `bytes_by(field)` terminal using only planner-visible
@@ -167,9 +187,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_bytes_by_with_visible_indexes(&visible_indexes, target_field)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_bytes_by_with_visible_indexes(visible_indexes, target_field)
+        })
     }
 
     // Explain one prepared fluent projection terminal using only
@@ -182,9 +202,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_prepared_projection_terminal_with_visible_indexes(&visible_indexes, strategy)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            query.explain_prepared_projection_terminal_with_visible_indexes(
+                visible_indexes,
+                strategy,
+            )
+        })
     }
 
     // Validate that one execution strategy is admissible for scalar paged load

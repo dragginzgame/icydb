@@ -1,7 +1,8 @@
 //! Module: db::query::plan::validate::intent_policy
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::intent_policy.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: enforce high-level query-intent policy constraints before
+//! access planning proceeds.
+//! Does not own: symbol lookup or detailed order/group validation rules.
+//! Boundary: keeps coarse query-shape policy checks centralized within plan validation.
 
 use crate::db::{
     contracts::first_violated_rule,

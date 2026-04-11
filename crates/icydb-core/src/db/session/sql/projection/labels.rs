@@ -1,7 +1,8 @@
 //! Module: db::session::sql::projection::labels
-//! Responsibility: module-local ownership and contracts for db::session::sql::projection::labels.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: derive stable outward SQL projection column labels from
+//! structural plans, prepared projection specs, and computed SQL surfaces.
+//! Does not own: projection execution or projection payload storage.
+//! Boundary: keeps SQL projection naming policy at the session boundary.
 
 use crate::{
     db::{

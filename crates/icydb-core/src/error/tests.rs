@@ -299,7 +299,6 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
         match err {
             CursorPlanError::InvalidContinuationCursor { .. }
             | CursorPlanError::InvalidContinuationCursorPayload { .. }
-            | CursorPlanError::ContinuationCursorVersionMismatch { .. }
             | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
             | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
             | CursorPlanError::ContinuationCursorWindowMismatch { .. }
@@ -320,7 +319,6 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
         CursorPlanError::ContinuationCursorInvariantViolation {
             reason: "invariant".to_string(),
         },
-        CursorPlanError::ContinuationCursorVersionMismatch { version: 9 },
         CursorPlanError::ContinuationCursorSignatureMismatch {
             entity_path: "tests::Entity",
             expected: "aabb".to_string(),

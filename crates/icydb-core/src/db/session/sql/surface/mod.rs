@@ -1,7 +1,8 @@
 //! Module: db::session::sql::surface
-//! Responsibility: module-local ownership and contracts for db::session::sql::surface.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: classify lowered SQL commands onto the supported session SQL
+//! surfaces and route families.
+//! Does not own: execution, planning, or result shaping once a surface is chosen.
+//! Boundary: keeps lane and route classification together above dispatch entrypoints.
 
 mod lane;
 mod route;

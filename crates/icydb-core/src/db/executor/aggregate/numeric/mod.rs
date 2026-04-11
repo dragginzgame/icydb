@@ -13,12 +13,10 @@ mod tests;
 use crate::{
     db::{
         access::AccessPathKind,
-        cursor::{ContinuationRuntime, LoopAction},
         data::DataRow,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, KeyStreamLoopControl, PreparedAggregatePlan, TraversalRuntime,
+            ExecutablePlan, PreparedAggregatePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_from_decoded_slot,
@@ -32,7 +30,6 @@ use crate::{
                 PreparedScalarNumericPayload,
             },
             pipeline::contracts::LoadExecutor,
-            plan_metrics::record_rows_scanned_for_path,
             terminal::{RowDecoder, RowLayout},
         },
         numeric::{add_decimal_terms, average_decimal_terms},
@@ -244,76 +241,9 @@ where
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
-        // Phase 1: consume prepared aggregate stage state into one direct stream fold.
-        let consistency = prepared.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&prepared);
-        let row_layout = prepared.authority.row_layout();
-        let PreparedAggregateStreamingInputsCore {
-            authority,
-            store,
-            logical_plan,
-            execution_preparation,
-            index_prefix_specs,
-            index_range_specs,
-            ..
-        } = prepared;
-        let mut continuation = ContinuationRuntime::from_window(
-            ExecutionKernel::window_cursor_contract(&logical_plan, None),
-        );
-
-        // Phase 2: resolve the canonical ordered key stream from access descriptors.
-        let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
-            crate::db::index::predicate::IndexPredicateExecution {
-                program,
-                rejected_keys_counter: None,
-            }
-        });
-        let access = ExecutableAccess::new(
-            &logical_plan.access,
-            AccessStreamBindings::new(
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, direction),
-            ),
-            None,
-            index_predicate_execution,
-        );
-        let runtime = TraversalRuntime::new(store, authority.entity_tag());
-        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
-        let row_decoder = RowDecoder::structural();
-
-        // Phase 3: stream-fold numeric values directly from row reads.
-        let mut rows_scanned = 0usize;
         let mut accumulator = NumericAggregateAccumulator::new();
-
-        loop {
-            match Self::loop_control_from_continuation_action(continuation.pre_fetch()) {
-                KeyStreamLoopControl::Skip => continue,
-                KeyStreamLoopControl::Emit => {}
-                KeyStreamLoopControl::Stop => break,
-            }
-
-            let Some(data_key) = key_stream.next_key()? else {
-                break;
-            };
-            let Some(row) = Self::read_kernel_row_for_field_aggregate(
-                store,
-                &row_layout,
-                row_decoder,
-                consistency,
-                &data_key,
-            )?
-            else {
-                continue;
-            };
-            rows_scanned = rows_scanned.saturating_add(1);
-
-            match continuation.accept_row() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
-
+        Self::for_each_existing_stream_row(prepared, direction, |row| {
             let mut read_slot = |index: usize| row.slot_ref(index);
             let value = extract_numeric_field_decimal_with_slot_ref_reader(
                 target_field,
@@ -322,9 +252,8 @@ where
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);
-        }
-
-        record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
+            Ok(())
+        })?;
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.
         finalize_numeric_field_output(accumulator, kind)
@@ -334,14 +263,6 @@ where
         prepared: &PreparedAggregateStreamingInputsCore,
     ) -> Direction {
         ExecutionOrderContract::from_plan(false, prepared.order_spec()).primary_scan_direction()
-    }
-
-    const fn loop_control_from_continuation_action(action: LoopAction) -> KeyStreamLoopControl {
-        match action {
-            LoopAction::Skip => KeyStreamLoopControl::Skip,
-            LoopAction::Emit => KeyStreamLoopControl::Emit,
-            LoopAction::Stop => KeyStreamLoopControl::Stop,
-        }
     }
 
     // Resolve the plan-free numeric boundary once from the typed request and

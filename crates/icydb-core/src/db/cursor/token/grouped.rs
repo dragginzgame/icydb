@@ -12,7 +12,7 @@ use crate::{
 };
 
 use crate::db::cursor::token::{
-    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef, GroupedCursorTokenVersion,
+    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef,
     MAX_GROUPED_CONTINUATION_TOKEN_BYTES, TokenWireError,
 };
 
@@ -74,7 +74,6 @@ impl GroupedContinuationToken {
 
     pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
         let wire = GroupedContinuationTokenWireRef {
-            version: GroupedCursorTokenVersion::V1.encode(),
             signature: self.signature.into_bytes(),
             last_group_key: self.last_group_key.as_slice(),
             direction: self.direction,
@@ -86,7 +85,6 @@ impl GroupedContinuationToken {
 
     pub(in crate::db) fn encode_hex(&self) -> Result<String, TokenWireError> {
         let wire = GroupedContinuationTokenWireRef {
-            version: GroupedCursorTokenVersion::V1.encode(),
             signature: self.signature.into_bytes(),
             last_group_key: self.last_group_key.as_slice(),
             direction: self.direction,
@@ -96,34 +94,16 @@ impl GroupedContinuationToken {
         serialize_hex(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
     }
 
-    #[cfg(test)]
-    pub(crate) fn encode_with_version_for_test(
-        &self,
-        version: u8,
-    ) -> Result<Vec<u8>, TokenWireError> {
-        let wire = GroupedContinuationTokenWireRef {
-            version,
-            signature: self.signature.into_bytes(),
-            last_group_key: self.last_group_key.as_slice(),
-            direction: self.direction,
-            initial_offset: self.initial_offset,
-        };
-
-        serialize(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
-    }
-
     pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
         let wire: GroupedContinuationTokenWire =
             deserialize_protocol_payload(bytes, MAX_GROUPED_CONTINUATION_TOKEN_BYTES)
                 .map_err(|err| TokenWireError::decode(err.to_string()))?;
-        let version = GroupedCursorTokenVersion::decode(wire.version)
-            .ok_or_else(|| TokenWireError::unsupported_version(wire.version))?;
 
         Ok(Self::new_with_direction(
             ContinuationSignature::from_bytes(wire.signature),
             wire.last_group_key,
             wire.direction,
-            version.decode_initial_offset(wire.initial_offset),
+            wire.initial_offset,
         ))
     }
 }
@@ -186,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_continuation_token_v1_wire_vector_is_frozen() {
+    fn grouped_continuation_token_wire_vector_is_frozen() {
         let token = grouped_token_fixture(Direction::Asc);
 
         let encoded = token
@@ -195,12 +175,12 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a56776657273696f6e01697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e634173636e696e697469616c5f6f666673657404"
+            "a4697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e634173636e696e697469616c5f6f666673657404"
         );
     }
 
     #[test]
-    fn grouped_continuation_token_v1_desc_wire_vector_is_frozen() {
+    fn grouped_continuation_token_desc_wire_vector_is_frozen() {
         let token = grouped_token_fixture(Direction::Desc);
 
         let encoded = token
@@ -209,21 +189,9 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a56776657273696f6e01697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e64446573636e696e697469616c5f6f666673657404",
-            "grouped continuation token v1 DESC wire encoding must remain stable",
+            "a4697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e64446573636e696e697469616c5f6f666673657404",
+            "grouped continuation token DESC wire encoding must remain stable",
         );
-    }
-
-    #[test]
-    fn grouped_continuation_token_decode_rejects_unsupported_version() {
-        let token = grouped_token_fixture(Direction::Asc);
-        let encoded = token
-            .encode_with_version_for_test(9)
-            .expect("grouped continuation token test wire should encode");
-        let err = GroupedContinuationToken::decode(encoded.as_slice())
-            .expect_err("unknown grouped cursor wire version must fail");
-
-        assert_eq!(err, TokenWireError::UnsupportedVersion { version: 9 });
     }
 
     #[test]

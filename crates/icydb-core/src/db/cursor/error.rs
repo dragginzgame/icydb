@@ -33,10 +33,6 @@ pub enum CursorPlanError {
     #[error("{reason}")]
     ContinuationCursorInvariantViolation { reason: String },
 
-    /// Cursor token version is unsupported.
-    #[error("unsupported continuation cursor version: {version}")]
-    ContinuationCursorVersionMismatch { version: u8 },
-
     /// Cursor token does not belong to this canonical query shape.
     #[error(
         "continuation cursor does not match query plan signature for '{entity_path}': expected={expected}, actual={actual}"
@@ -264,11 +260,6 @@ impl CursorPlanError {
         Self::continuation_cursor_invariant(Self::cursor_requires_non_empty_order_message())
     }
 
-    /// Construct one cursor version mismatch error.
-    pub(in crate::db) const fn continuation_cursor_version_mismatch(version: u8) -> Self {
-        Self::ContinuationCursorVersionMismatch { version }
-    }
-
     /// Construct one cursor-signature mismatch error for the current entity path.
     pub(in crate::db) fn continuation_cursor_signature_mismatch(
         entity_path: &'static str,
@@ -333,9 +324,6 @@ impl CursorPlanError {
             TokenWireError::Encode(message) | TokenWireError::Decode(message) => {
                 Self::invalid_continuation_cursor_payload(message)
             }
-            TokenWireError::UnsupportedVersion { version } => {
-                Self::continuation_cursor_version_mismatch(version)
-            }
         }
     }
 
@@ -350,11 +338,6 @@ impl CursorPlanError {
             Self::InvalidContinuationCursorPayload { reason } => {
                 InternalError::cursor_executor_invariant(format!(
                     "pk cursor decode rejected invalid continuation payload: {reason}"
-                ))
-            }
-            Self::ContinuationCursorVersionMismatch { version } => {
-                InternalError::cursor_executor_invariant(format!(
-                    "pk cursor decode rejected unsupported continuation version: {version}"
                 ))
             }
             Self::ContinuationCursorSignatureMismatch { .. } => {
@@ -402,7 +385,6 @@ impl CursorPlanError {
             }
             Self::InvalidContinuationCursor { .. }
             | Self::InvalidContinuationCursorPayload { .. }
-            | Self::ContinuationCursorVersionMismatch { .. }
             | Self::ContinuationCursorSignatureMismatch { .. }
             | Self::ContinuationCursorBoundaryArityMismatch { .. }
             | Self::ContinuationCursorWindowMismatch { .. }

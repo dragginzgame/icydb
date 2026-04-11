@@ -142,11 +142,13 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     {
         let (rows, next_cursor, execution_trace) = self.inner.execute_grouped_text_cursor()?;
 
-        Ok(PagedGroupedResponse::new(
-            rows,
-            next_cursor,
-            execution_trace,
-        ))
+        Ok(
+            crate::db::session::DbSession::<E::Canister>::paged_grouped_response(
+                rows,
+                next_cursor,
+                execution_trace,
+            ),
+        )
     }
 
     /// Return the stable plan hash for this query.

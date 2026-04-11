@@ -1,7 +1,8 @@
 //! Module: db::session::sql::dispatch::computed
-//! Responsibility: module-local ownership and contracts for db::session::sql::dispatch::computed.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned dispatch helpers for the bounded computed SQL
+//! projection surface that stays outside generic structural planning.
+//! Does not own: generic projection planning or executor projection semantics.
+//! Boundary: keeps computed select-list dispatch isolated from the structural SQL lane.
 
 use crate::{
     db::{

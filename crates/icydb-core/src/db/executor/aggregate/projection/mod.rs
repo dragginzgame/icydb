@@ -11,13 +11,11 @@ mod covering;
 
 use crate::{
     db::{
-        cursor::{ContinuationRuntime, LoopAction},
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, CoveringProjectionComponentRows,
-            ExecutableAccess, ExecutablePlan, ExecutionKernel, KeyStreamLoopControl,
-            PreparedAggregatePlan, TraversalRuntime,
+            CoveringProjectionComponentRows, ExecutablePlan, ExecutionKernel,
+            PreparedAggregatePlan,
             aggregate::{
                 AggregateKind, PreparedAggregateSpec, PreparedAggregateStreamingInputs,
                 PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
@@ -41,7 +39,6 @@ use crate::{
             decode_single_covering_projection_pairs,
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
-            plan_metrics::record_rows_scanned_for_path,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
             terminal::{RowDecoder, RowLayout},
@@ -579,77 +576,12 @@ where
     fn execute_streaming_count_non_null_scalar_projection_boundary(
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
         prepared: PreparedAggregateStreamingInputs<'_>,
-        row_layout: &RowLayout,
+        _row_layout: &RowLayout,
         direction: Direction,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        // Phase 1: consume prepared aggregate state into one direct existing-row stream.
-        let consistency = prepared.consistency();
-        let PreparedAggregateStreamingInputs {
-            authority,
-            store,
-            logical_plan,
-            execution_preparation,
-            index_prefix_specs,
-            index_range_specs,
-            ..
-        } = prepared;
-        let mut continuation = ContinuationRuntime::from_window(
-            ExecutionKernel::window_cursor_contract(&logical_plan, None),
-        );
-
-        // Phase 2: resolve the canonical ordered key stream from access descriptors.
-        let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
-            crate::db::index::predicate::IndexPredicateExecution {
-                program,
-                rejected_keys_counter: None,
-            }
-        });
-        let access = ExecutableAccess::new(
-            &logical_plan.access,
-            AccessStreamBindings::new(
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, direction),
-            ),
-            None,
-            index_predicate_execution,
-        );
-        let runtime = TraversalRuntime::new(store, authority.entity_tag());
-        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
-        let row_decoder = RowDecoder::structural();
-
-        // Phase 3: decode only the target field and count non-null rows.
-        let mut rows_scanned = 0usize;
+        let prepared = prepared.into_core();
         let mut count = 0u32;
-
-        loop {
-            match Self::loop_control_from_projection_continuation(continuation.pre_fetch()) {
-                KeyStreamLoopControl::Skip => continue,
-                KeyStreamLoopControl::Emit => {}
-                KeyStreamLoopControl::Stop => break,
-            }
-
-            let Some(data_key) = key_stream.next_key()? else {
-                break;
-            };
-            let Some(row) = Self::read_kernel_row_for_field_aggregate(
-                store,
-                row_layout,
-                row_decoder,
-                consistency,
-                &data_key,
-            )?
-            else {
-                continue;
-            };
-            rows_scanned = rows_scanned.saturating_add(1);
-
-            match continuation.accept_row() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
-
+        Self::for_each_existing_stream_row(prepared, direction, |row| {
             let mut read_slot = |index: usize| row.slot_ref(index);
             let value = extract_orderable_field_value_with_slot_ref_reader(
                 &boundary.target_field_name,
@@ -660,9 +592,8 @@ where
             if !matches!(value, Value::Null) {
                 count = count.saturating_add(1);
             }
-        }
-
-        record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
+            Ok(())
+        })?;
 
         Ok(ScalarProjectionBoundaryOutput::Count(count))
     }
@@ -921,17 +852,6 @@ where
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_exists("projection EXISTS helper result kind mismatch")
-    }
-
-    // Preserve the same continuation-to-loop-control mapping used by the
-    // aggregate streaming helpers without duplicating enum matching at each
-    // projection streaming callsite.
-    const fn loop_control_from_projection_continuation(action: LoopAction) -> KeyStreamLoopControl {
-        match action {
-            LoopAction::Skip => KeyStreamLoopControl::Skip,
-            LoopAction::Emit => KeyStreamLoopControl::Emit,
-            LoopAction::Stop => KeyStreamLoopControl::Stop,
-        }
     }
 }
 

@@ -1,7 +1,8 @@
 //! Module: cursor::token
 //! Responsibility: typed continuation token wire contracts for scalar/grouped cursor paths.
 //! Does not own: cursor compatibility validation, ordering policy, or resume-bound semantics.
-//! Boundary: defines versioned token payloads consumed by cursor encode/decode boundaries.
+//! Boundary: defines the current token payloads consumed by cursor
+//! encode/decode boundaries.
 
 mod error;
 mod grouped;
@@ -12,10 +13,9 @@ pub(crate) use error::TokenWireError;
 pub(in crate::db) use grouped::GroupedContinuationToken;
 pub(crate) use scalar::ContinuationToken;
 pub(in crate::db::cursor::token) use wire::{
-    ContinuationTokenWire, ContinuationTokenWireRef, CursorTokenVersion,
-    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef, GroupedCursorTokenVersion,
-    IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES,
-    MAX_GROUPED_CONTINUATION_TOKEN_BYTES,
+    ContinuationTokenWire, ContinuationTokenWireRef, GroupedContinuationTokenWire,
+    GroupedContinuationTokenWireRef, IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef,
+    MAX_CONTINUATION_TOKEN_BYTES, MAX_GROUPED_CONTINUATION_TOKEN_BYTES,
 };
 
 ///

@@ -1,7 +1,8 @@
 //! Module: db::query::plan::validate::errors
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::errors.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: own the query-plan validation error taxonomy and its
+//! mapping from lower planner, cursor, and schema validation domains.
+//! Does not own: the validation logic that decides which error applies.
+//! Boundary: keeps query-plan validation failures under one planner-owned error surface.
 
 use crate::db::{access::AccessPlanError, cursor::CursorPlanError, schema::ValidateError};
 use thiserror::Error as ThisError;

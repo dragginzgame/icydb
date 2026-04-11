@@ -1,7 +1,8 @@
 //! Module: db::query::plan::validate::symbols
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::symbols.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: validate user-facing field and symbol references against
+//! the model and grouped/query projection surfaces.
+//! Does not own: ordering, cursor, or grouped policy enforcement outside symbol lookup.
+//! Boundary: keeps symbol-resolution failures localized within query-plan validation.
 
 use crate::{
     db::query::{

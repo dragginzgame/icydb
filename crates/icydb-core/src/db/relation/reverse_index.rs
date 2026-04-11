@@ -184,17 +184,7 @@ fn relation_target_keys_for_source_slots(
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
-    // Phase 1: keep single relation slots on the scalar fast path when the
-    // persisted field already uses a storage-key-compatible leaf codec.
-    if let Some(keys) =
-        relation_target_storage_keys_from_scalar_slot(row_fields, source_info, relation)?
-    {
-        return relation_target_raw_keys_from_storage_keys(source_info, relation, keys);
-    }
-
-    // Phase 2: decode the declared relation field payload directly into target
-    // storage keys without rebuilding a runtime `Value` container.
-    let keys = relation_target_storage_keys_from_field_bytes(row_fields, source_info, relation)?;
+    let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
 
     relation_target_raw_keys_from_storage_keys(source_info, relation, keys)
 }
@@ -225,16 +215,7 @@ fn source_slots_reference_relation_target(
     relation: StrongRelationInfo,
     target_key: StorageKey,
 ) -> Result<bool, InternalError> {
-    // Phase 1: keep singular relation slots on the scalar fast path.
-    if let Some(keys) =
-        relation_target_storage_keys_from_scalar_slot(row_fields, source_info, relation)?
-    {
-        return Ok(keys.into_iter().any(|candidate| candidate == target_key));
-    }
-
-    // Phase 2: decode only the declared relation field payload and test
-    // membership directly against the target key needed by the proof loop.
-    let keys = relation_target_storage_keys_from_field_bytes(row_fields, source_info, relation)?;
+    let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
 
     Ok(keys.into_iter().any(|candidate| candidate == target_key))
 }
@@ -351,6 +332,26 @@ fn relation_target_raw_keys_from_storage_keys(
     canonicalize_relation_target_keys(&mut keys);
 
     Ok(keys)
+}
+
+// Decode one relation field into structural target storage keys through the
+// shared scalar-fast-path or field-bytes path used by delete validation and
+// reverse-index mutation preparation.
+fn relation_target_storage_keys_for_source_slots(
+    row_fields: &StructuralSlotReader<'_>,
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<Vec<StorageKey>, InternalError> {
+    // Phase 1: keep single relation slots on the scalar fast path when the
+    // persisted field already uses a storage-key-compatible leaf codec.
+    if let Some(keys) = relation_target_storage_keys_from_scalar_slot(row_fields, source, relation)?
+    {
+        return Ok(keys);
+    }
+
+    // Phase 2: decode the declared relation field payload directly into target
+    // storage keys without rebuilding a runtime `Value` container.
+    relation_target_storage_keys_from_field_bytes(row_fields, source, relation)
 }
 
 // Decode the one strong-relation field payload needed by structural delete

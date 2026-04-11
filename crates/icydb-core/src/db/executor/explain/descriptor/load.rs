@@ -1,7 +1,8 @@
 //! Module: db::executor::explain::descriptor::load
-//! Responsibility: module-local ownership and contracts for db::executor::explain::descriptor::load.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: assemble stable EXPLAIN descriptor trees and verbose route
+//! diagnostics for scalar load execution plans.
+//! Does not own: route derivation policy or final explain rendering formats.
+//! Boundary: projects executor route/planner contracts into descriptor nodes and diagnostics lines.
 
 use crate::{
     db::{
@@ -60,16 +61,6 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
         plan,
         &route_plan,
     ))
-}
-
-#[inline(never)]
-pub(in crate::db) fn assemble_load_execution_node_descriptor_with_visible_indexes(
-    fields: &'static [FieldModel],
-    primary_key_name: &'static str,
-    _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
-    plan: &AccessPlannedQuery,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    assemble_load_execution_node_descriptor(fields, primary_key_name, plan)
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
@@ -217,15 +208,6 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics(
         plan,
         &route_plan,
     ))
-}
-
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_visible_indexes(
-    fields: &'static [FieldModel],
-    primary_key_name: &'static str,
-    _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
-    plan: &AccessPlannedQuery,
-) -> Result<Vec<String>, InternalError> {
-    assemble_load_execution_verbose_diagnostics(fields, primary_key_name, plan)
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one

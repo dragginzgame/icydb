@@ -1,7 +1,8 @@
 //! Module: db::session::write
-//! Responsibility: module-local ownership and contracts for db::session::write.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned typed write APIs for insert, replace, update,
+//! and structural mutation entrypoints over the shared save pipeline.
+//! Does not own: commit staging, mutation execution, or persistence encoding.
+//! Boundary: keeps public session write semantics above the executor save surface.
 
 #[cfg(test)]
 use crate::db::{DataStore, IndexStore};

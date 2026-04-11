@@ -66,32 +66,6 @@ fn grouped_pushdown_plan() -> (
 }
 
 #[test]
-fn load_cursor_rejects_version_mismatch_at_plan_time() {
-    let (plan, signature, initial_offset) = scalar_phase_plan();
-    let boundary = CursorBoundary {
-        slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(10)),
-            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2001))),
-        ],
-    };
-    let token =
-        ContinuationToken::new_with_direction(signature, boundary, Direction::Asc, initial_offset);
-    let version_mismatch_cursor = token
-        .encode_with_version_for_test(99)
-        .expect("version-mismatch cursor should encode");
-
-    let err = unwrap_cursor_plan_error(
-        plan.prepare_cursor(Some(version_mismatch_cursor.as_slice()))
-            .expect_err("unsupported cursor version should be rejected during planning"),
-    );
-
-    assert!(matches!(
-        err,
-        CursorPlanError::ContinuationCursorVersionMismatch { version: 99 }
-    ));
-}
-
-#[test]
 fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
     let (plan, signature, initial_offset) = scalar_phase_plan();
     let boundary = CursorBoundary {
@@ -248,30 +222,6 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
             expected_offset: 2,
             actual_offset: 0,
         }
-    ));
-}
-
-#[test]
-fn grouped_cursor_rejects_unsupported_version_at_plan_time() {
-    let (plan, signature, initial_offset) = grouped_pushdown_plan();
-    let token = GroupedContinuationToken::new_with_direction(
-        signature,
-        vec![Value::Uint(7)],
-        Direction::Asc,
-        initial_offset,
-    );
-    let cursor = token
-        .encode_with_version_for_test(9)
-        .expect("unsupported-version grouped cursor should encode");
-
-    let err = unwrap_cursor_plan_error(
-        plan.prepare_grouped_cursor(Some(cursor.as_slice()))
-            .expect_err("unsupported grouped cursor version must be rejected"),
-    );
-
-    assert!(matches!(
-        err,
-        CursorPlanError::ContinuationCursorVersionMismatch { version } if version == 9
     ));
 }
 

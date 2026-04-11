@@ -1,13 +1,31 @@
 //! Module: db::query::api::result_ext
-//! Responsibility: module-local ownership and contracts for db::query::api::result_ext.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: cardinality helpers for query/session-facing `EntityResponse`
+//! values over canonical row/entity payloads.
+//! Does not own: response DTO storage or transport-layer error mapping.
+//! Boundary: exposes query-layer response semantics while keeping the DTO layer generic.
 
 use crate::{
-    db::{EntityResponse, ResponseError, Row, query::api::private::SealedResponseCardinalityExt},
+    db::{EntityResponse, ResponseError, Row},
     prelude::*,
     types::Id,
 };
+
+mod private {
+    use crate::{db::EntityResponse, prelude::*};
+
+    ///
+    /// SealedResponseCardinalityExt
+    ///
+    /// Internal marker used to seal query-layer response cardinality extension
+    /// trait implementations to canonical response DTOs.
+    ///
+
+    pub trait SealedResponseCardinalityExt<E: EntityKind> {}
+
+    impl<E: EntityKind> SealedResponseCardinalityExt<E> for EntityResponse<E> {}
+}
+
+use private::SealedResponseCardinalityExt;
 
 ///
 /// ResponseCardinalityExt

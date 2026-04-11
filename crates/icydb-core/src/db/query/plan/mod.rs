@@ -6,14 +6,12 @@
 mod access_choice;
 mod access_plan;
 mod access_planner;
-mod constant_predicate;
 mod continuation;
 mod covering;
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;
 mod key_item_match;
-mod limit_zero;
 mod logical_builder;
 mod model;
 mod model_builder;
@@ -26,7 +24,7 @@ mod semantics;
 mod tests;
 pub(crate) mod validate;
 
-use crate::model::index::IndexModel;
+use crate::{db::Predicate, model::index::IndexModel};
 
 pub(in crate::db) use access_choice::{
     AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot_with_indexes,
@@ -37,9 +35,6 @@ pub(in crate::db) use access_plan::{
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
-};
-pub(in crate::db::query) use constant_predicate::{
-    fold_constant_predicate, predicate_is_constant_false,
 };
 pub(in crate::db) use continuation::{
     ContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
@@ -63,7 +58,6 @@ pub(in crate::db) use group::{
     resolved_grouped_distinct_execution_strategy_for_model,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
-pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;
 pub(in crate::db::query) use logical_builder::{
     LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec,
     logical_query_from_logical_inputs,
@@ -119,6 +113,36 @@ pub(crate) use validate::{
     validate_group_query_semantics, validate_intent_key_access_policy, validate_intent_plan_shape,
     validate_order_shape, validate_query_semantics,
 };
+
+/// Return true when a query mode declares an explicit load `LIMIT 0` window.
+#[must_use]
+pub(in crate::db::query) fn is_limit_zero_load_window(mode: QueryMode) -> bool {
+    matches!(mode, QueryMode::Load(spec) if spec.limit() == Some(0))
+}
+
+/// Fold canonical constant predicates before access routing.
+///
+/// Contract:
+/// - `Some(Predicate::True)` is elided to `None`
+/// - `Some(Predicate::False)` is preserved so explain semantics remain explicit
+/// - all other predicates are passed through unchanged
+#[must_use]
+pub(in crate::db::query) fn fold_constant_predicate(
+    predicate: Option<Predicate>,
+) -> Option<Predicate> {
+    match predicate {
+        Some(Predicate::True) => None,
+        other => other,
+    }
+}
+
+/// Return true when the normalized predicate is a canonical constant false.
+#[must_use]
+pub(in crate::db::query) const fn predicate_is_constant_false(
+    predicate: Option<&Predicate>,
+) -> bool {
+    matches!(predicate, Some(Predicate::False))
+}
 #[cfg(test)]
 pub(crate) use validate::{PlanPolicyError, PlanUserError};
 

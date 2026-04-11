@@ -1,7 +1,8 @@
 //! Module: db::session::sql::dispatch
-//! Responsibility: module-local ownership and contracts for db::session::sql::dispatch.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned SQL dispatch entrypoints that bind lowered SQL
+//! commands onto structural planning, execution, and outward result shaping.
+//! Does not own: SQL parsing or executor runtime internals.
+//! Boundary: centralizes authority-aware SQL dispatch classification and result packaging.
 
 mod computed;
 mod lowered;

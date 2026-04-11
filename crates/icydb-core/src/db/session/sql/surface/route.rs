@@ -1,7 +1,8 @@
 //! Module: db::session::sql::surface::route
-//! Responsibility: module-local ownership and contracts for db::session::sql::surface::route.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: classify lowered SQL command results into the outward SQL
+//! route/result families returned by session dispatch entrypoints.
+//! Does not own: SQL lane selection or executor/planner behavior.
+//! Boundary: keeps outward SQL route taxonomy separate from execution internals.
 
 use crate::db::{
     GroupedRow, QueryError,

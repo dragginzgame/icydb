@@ -1,7 +1,8 @@
 //! Module: db::session::sql
-//! Responsibility: module-local ownership and contracts for db::session::sql.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned SQL dispatch, explain, projection, and
+//! surface-classification helpers above lowered SQL commands.
+//! Does not own: SQL parsing or structural executor runtime behavior.
+//! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
 mod aggregate;
 mod computed_projection;

@@ -139,6 +139,29 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    const fn response_from_core<E>(inner: core::db::EntityResponse<E>) -> Response<E>
+    where
+        E: EntityKind,
+    {
+        Response::from_core(inner)
+    }
+
+    const fn write_response<E>(entity: E) -> WriteResponse<E>
+    where
+        E: EntityKind,
+    {
+        WriteResponse::new(entity)
+    }
+
+    fn write_batch_response<E>(
+        inner: icydb_core::db::WriteBatchResponse<E>,
+    ) -> WriteBatchResponse<E>
+    where
+        E: EntityKind,
+    {
+        WriteBatchResponse::from_core(inner)
+    }
+
     // ------------------------------------------------------------------
     // Session configuration
     // ------------------------------------------------------------------
@@ -218,7 +241,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Response::from_core(self.inner.execute_sql::<E>(sql)?))
+        Ok(Self::response_from_core(self.inner.execute_sql::<E>(sql)?))
     }
 
     /// Execute one reduced SQL statement and return one unified SQL payload.
@@ -262,16 +285,16 @@ impl<C: CanisterKind> DbSession<C> {
             } => {
                 let rows = Self::projection_rows_from_values(columns, rows, row_count);
 
-                SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
+                Self::projection_sql_query_result(entity_name, rows)
             }
             core::db::SqlDispatchResult::ProjectionText {
                 columns,
                 rows,
                 row_count,
-            } => SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+            } => Self::projection_sql_query_result(
                 entity_name,
                 SqlProjectionRows::new(columns, rows, row_count),
-            )),
+            ),
             core::db::SqlDispatchResult::Grouped {
                 columns,
                 rows,
@@ -306,17 +329,22 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "sql")]
+    fn projection_sql_query_result(entity_name: String, rows: SqlProjectionRows) -> SqlQueryResult {
+        SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
+    }
+
+    #[cfg(feature = "sql")]
     fn projection_rows_from_values(
         columns: Vec<String>,
         rows: Vec<Vec<Value>>,
         row_count: u32,
     ) -> SqlProjectionRows {
         // Phase 1: render each projected row cell into stable text.
-        let mut rendered_rows = Vec::new();
+        let mut rendered_rows = Vec::with_capacity(rows.len());
         let mut max_column_count = 0usize;
 
         for row in rows {
-            let rendered_row = row.iter().map(render_value_text).collect::<Vec<_>>();
+            let rendered_row = Self::render_sql_value_row(row);
             max_column_count = max_column_count.max(rendered_row.len());
             rendered_rows.push(rendered_row);
         }
@@ -339,8 +367,8 @@ impl<C: CanisterKind> DbSession<C> {
         for row in rows {
             let mut rendered_row =
                 Vec::with_capacity(row.group_key().len() + row.aggregate_values().len());
-            rendered_row.extend(row.group_key().iter().map(render_value_text));
-            rendered_row.extend(row.aggregate_values().iter().map(render_value_text));
+            Self::render_sql_values_into(row.group_key(), &mut rendered_row);
+            Self::render_sql_values_into(row.aggregate_values(), &mut rendered_row);
             rendered_rows.push(rendered_row);
         }
 
@@ -348,10 +376,33 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "sql")]
+    fn render_sql_value_row(row: Vec<Value>) -> Vec<String> {
+        let mut rendered_row = Vec::with_capacity(row.len());
+        Self::render_sql_values_into(&row, &mut rendered_row);
+
+        rendered_row
+    }
+
+    #[cfg(feature = "sql")]
+    fn render_sql_values_into(values: &[Value], rendered_row: &mut Vec<String>) {
+        for value in values {
+            rendered_row.push(render_value_text(value));
+        }
+    }
+
+    #[cfg(feature = "sql")]
     fn projection_columns(column_count: usize) -> Vec<String> {
         (0..column_count)
             .map(|index| format!("col_{index}"))
             .collect()
+    }
+
+    pub(crate) const fn paged_grouped_response(
+        rows: Vec<core::db::GroupedRow>,
+        next_cursor: Option<String>,
+        execution_trace: Option<core::db::ExecutionTrace>,
+    ) -> PagedGroupedResponse {
+        PagedGroupedResponse::new(rows, next_cursor, execution_trace)
     }
 
     /// Execute one reduced SQL global aggregate `SELECT` statement.
@@ -377,7 +428,7 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_sql_grouped_text_cursor::<E>(sql, cursor_token)?;
 
-        Ok(PagedGroupedResponse::new(
+        Ok(Self::paged_grouped_response(
             rows,
             next_cursor,
             execution_trace,
@@ -456,7 +507,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Response::from_core(self.inner.execute_query(query)?))
+        Ok(Self::response_from_core(self.inner.execute_query(query)?))
     }
 
     /// Build one trace payload for a query without executing it.
@@ -480,7 +531,7 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_grouped_text_cursor(query, cursor_token)?;
 
-        Ok(PagedGroupedResponse::new(
+        Ok(Self::paged_grouped_response(
             rows,
             next_cursor,
             execution_trace,
@@ -495,7 +546,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::new(self.inner.insert(entity)?))
+        Ok(Self::write_response(self.inner.insert(entity)?))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -510,7 +561,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.insert_many_atomic(entities)?,
         ))
     }
@@ -525,7 +576,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.insert_many_non_atomic(entities)?,
         ))
     }
@@ -534,7 +585,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::new(self.inner.replace(entity)?))
+        Ok(Self::write_response(self.inner.replace(entity)?))
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -549,7 +600,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.replace_many_atomic(entities)?,
         ))
     }
@@ -564,7 +615,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.replace_many_non_atomic(entities)?,
         ))
     }
@@ -573,7 +624,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::new(self.inner.update(entity)?))
+        Ok(Self::write_response(self.inner.update(entity)?))
     }
 
     /// Apply one structural mutation under one explicit write-mode contract.
@@ -596,7 +647,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::new(self.inner.mutate_structural::<E>(
+        Ok(Self::write_response(self.inner.mutate_structural::<E>(
             key,
             patch.inner,
             mode.into_core(),
@@ -615,7 +666,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.update_many_atomic(entities)?,
         ))
     }
@@ -630,7 +681,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(WriteBatchResponse::from_core(
+        Ok(Self::write_batch_response(
             self.inner.update_many_non_atomic(entities)?,
         ))
     }

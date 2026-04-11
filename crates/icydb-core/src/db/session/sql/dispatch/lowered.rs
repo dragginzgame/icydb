@@ -1,7 +1,8 @@
 //! Module: db::session::sql::dispatch::lowered
-//! Responsibility: module-local ownership and contracts for db::session::sql::dispatch::lowered.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: bind lowered SQL commands onto structural query/aggregate
+//! execution and preserve attribution or outward row-shape boundaries.
+//! Does not own: lowered SQL parsing or public session API classification.
+//! Boundary: keeps lowered-command execution bridges explicit and authority-aware.
 
 #[cfg(feature = "perf-attribution")]
 use crate::db::{

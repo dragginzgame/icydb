@@ -1,7 +1,8 @@
 //! Module: db::session::tests
-//! Responsibility: module-local ownership and contracts for db::session::tests.
+//! Responsibility: integration-style unit coverage for the session query, SQL,
+//! explain, cursor, and write boundaries over shared in-memory fixtures.
 //! Does not own: production session behavior outside this test module.
-//! Boundary: verifies this module API while keeping fixture details internal.
+//! Boundary: verifies public and crate-visible session contracts while keeping fixture wiring local.
 
 mod sql_aggregate;
 mod sql_explain;

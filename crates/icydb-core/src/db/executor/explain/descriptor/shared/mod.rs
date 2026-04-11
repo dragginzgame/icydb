@@ -1,7 +1,8 @@
 //! Module: db::executor::explain::descriptor::shared
-//! Responsibility: module-local ownership and contracts for db::executor::explain::descriptor::shared.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: shared EXPLAIN descriptor helpers for access-path, route,
+//! predicate, and node-property projection across load and aggregate surfaces.
+//! Does not own: top-level descriptor assembly or final explain rendering formats.
+//! Boundary: keeps reusable descriptor fragments and annotations under one executor-owned helper surface.
 
 mod predicate;
 

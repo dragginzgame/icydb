@@ -1,7 +1,8 @@
 //! Module: db::query::plan::validate::order
-//! Responsibility: module-local ownership and contracts for db::query::plan::validate::order.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: validate order-by semantics against model fields, grouped
+//! query rules, and cursor/paging invariants.
+//! Does not own: broader query validation policy outside ordering semantics.
+//! Boundary: keeps order-specific validation rules isolated within query-plan validation.
 
 use crate::{
     db::{

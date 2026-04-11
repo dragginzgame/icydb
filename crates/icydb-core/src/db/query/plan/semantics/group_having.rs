@@ -1,7 +1,8 @@
 //! Module: db::query::plan::semantics::group_having
-//! Responsibility: module-local ownership and contracts for db::query::plan::semantics::group_having.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: validate and normalize HAVING semantics against grouped
+//! projection and aggregate visibility rules.
+//! Does not own: grouped executor runtime or generic predicate normalization outside HAVING.
+//! Boundary: keeps HAVING-specific grouped semantics isolated within planning.
 
 use crate::db::{
     cursor::CursorPlanError,

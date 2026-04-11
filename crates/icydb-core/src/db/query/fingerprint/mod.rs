@@ -15,7 +15,7 @@ use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 use sha2::Sha256;
 
 const PLAN_FINGERPRINT_PROFILE_TAG_V1: &[u8] = b"planfp:v1";
-const CONTINUATION_SIGNATURE_PROFILE_TAG_V1: &[u8] = b"contsig:v1";
+const CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig";
 
 // Build one SHA256 stream pre-seeded with the plan fingerprint profile tag.
 pub(in crate::db::query::fingerprint) fn new_plan_fingerprint_hasher_v1() -> Sha256 {
@@ -23,8 +23,8 @@ pub(in crate::db::query::fingerprint) fn new_plan_fingerprint_hasher_v1() -> Sha
 }
 
 // Build one SHA256 stream pre-seeded with the continuation-signature profile tag.
-pub(in crate::db::query::fingerprint) fn new_continuation_signature_hasher_v1() -> Sha256 {
-    new_hash_sha256_prefixed(CONTINUATION_SIGNATURE_PROFILE_TAG_V1)
+pub(in crate::db::query::fingerprint) fn new_continuation_signature_hasher() -> Sha256 {
+    new_hash_sha256_prefixed(CONTINUATION_SIGNATURE_PROFILE_TAG)
 }
 
 // Finalize one SHA256 stream into a fixed-width fingerprint/signature payload.

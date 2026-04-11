@@ -91,14 +91,14 @@ const FINGERPRINT_V1_SECTION_CONSISTENCY_TAG: u8 = 0x07;
 const FINGERPRINT_V1_SECTION_MODE_TAG: u8 = 0x08;
 const FINGERPRINT_V1_SECTION_PROJECTION_SPEC_TAG: u8 = 0x09;
 
-const CONTINUATION_V1_SECTION_ENTITY_PATH_TAG: u8 = 0x01;
-const CONTINUATION_V1_SECTION_MODE_TAG: u8 = 0x02;
-const CONTINUATION_V1_SECTION_ACCESS_TAG: u8 = 0x03;
-const CONTINUATION_V1_SECTION_PREDICATE_TAG: u8 = 0x04;
-const CONTINUATION_V1_SECTION_ORDER_TAG: u8 = 0x05;
-const CONTINUATION_V1_SECTION_DISTINCT_TAG: u8 = 0x06;
-const CONTINUATION_V1_SECTION_GROUPING_SHAPE_TAG: u8 = 0x07;
-const CONTINUATION_V1_SECTION_PROJECTION_SPEC_TAG: u8 = 0x08;
+const CONTINUATION_SECTION_ENTITY_PATH_TAG: u8 = 0x01;
+const CONTINUATION_SECTION_MODE_TAG: u8 = 0x02;
+const CONTINUATION_SECTION_ACCESS_TAG: u8 = 0x03;
+const CONTINUATION_SECTION_PREDICATE_TAG: u8 = 0x04;
+const CONTINUATION_SECTION_ORDER_TAG: u8 = 0x05;
+const CONTINUATION_SECTION_DISTINCT_TAG: u8 = 0x06;
+const CONTINUATION_SECTION_GROUPING_SHAPE_TAG: u8 = 0x07;
+const CONTINUATION_SECTION_PROJECTION_SPEC_TAG: u8 = 0x08;
 
 ///
 /// Hash explain access paths into the plan hash stream.
@@ -448,7 +448,7 @@ const fn order_direction_tag(direction: OrderDirection) -> u8 {
 
 pub(in crate::db::query) enum ExplainHashProfile<'a> {
     FingerprintV1,
-    ContinuationV1 { entity_path: &'a str },
+    Continuation { entity_path: &'a str },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -462,8 +462,8 @@ enum ExplainHashField {
     Page,
     DeleteLimit,
     Consistency,
-    GroupingShapeV1,
-    ProjectionSpecV1,
+    GroupingShape,
+    ProjectionSpec,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -512,42 +512,42 @@ const FINGERPRINT_V1_STEPS: [ExplainHashStep; 9] = [
     },
     ExplainHashStep {
         section_tag: FINGERPRINT_V1_SECTION_PROJECTION_SPEC_TAG,
-        field: ExplainHashField::ProjectionSpecV1,
+        field: ExplainHashField::ProjectionSpec,
     },
 ];
 
-const CONTINUATION_V1_STEPS: [ExplainHashStep; 8] = [
+const CONTINUATION_STEPS: [ExplainHashStep; 8] = [
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_ENTITY_PATH_TAG,
+        section_tag: CONTINUATION_SECTION_ENTITY_PATH_TAG,
         field: ExplainHashField::EntityPath,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_MODE_TAG,
+        section_tag: CONTINUATION_SECTION_MODE_TAG,
         field: ExplainHashField::Mode,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_ACCESS_TAG,
+        section_tag: CONTINUATION_SECTION_ACCESS_TAG,
         field: ExplainHashField::Access,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_PREDICATE_TAG,
+        section_tag: CONTINUATION_SECTION_PREDICATE_TAG,
         field: ExplainHashField::Predicate,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_ORDER_TAG,
+        section_tag: CONTINUATION_SECTION_ORDER_TAG,
         field: ExplainHashField::Order,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_DISTINCT_TAG,
+        section_tag: CONTINUATION_SECTION_DISTINCT_TAG,
         field: ExplainHashField::Distinct,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_GROUPING_SHAPE_TAG,
-        field: ExplainHashField::GroupingShapeV1,
+        section_tag: CONTINUATION_SECTION_GROUPING_SHAPE_TAG,
+        field: ExplainHashField::GroupingShape,
     },
     ExplainHashStep {
-        section_tag: CONTINUATION_V1_SECTION_PROJECTION_SPEC_TAG,
-        field: ExplainHashField::ProjectionSpecV1,
+        section_tag: CONTINUATION_SECTION_PROJECTION_SPEC_TAG,
+        field: ExplainHashField::ProjectionSpec,
     },
 ];
 
@@ -558,9 +558,9 @@ impl<'a> ExplainHashProfile<'a> {
                 entity_path: None,
                 steps: &FINGERPRINT_V1_STEPS,
             },
-            Self::ContinuationV1 { entity_path } => ExplainHashProfileSpec {
+            Self::Continuation { entity_path } => ExplainHashProfileSpec {
                 entity_path: Some(entity_path),
-                steps: &CONTINUATION_V1_STEPS,
+                steps: &CONTINUATION_STEPS,
             },
         }
     }
@@ -587,10 +587,10 @@ fn hash_explain_field(
         ExplainHashField::Page => hash_page(hasher, plan.page()),
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, plan.delete_limit()),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency()),
-        ExplainHashField::GroupingShapeV1 => {
+        ExplainHashField::GroupingShape => {
             hash_grouping_shape_v1(hasher, plan.grouping(), include_group_strategy);
         }
-        ExplainHashField::ProjectionSpecV1 => {
+        ExplainHashField::ProjectionSpec => {
             hash_projection_spec_v1(hasher, projection, plan.grouping(), include_group_strategy);
         }
     }
@@ -621,10 +621,10 @@ fn hash_planned_query_field(
             hash_delete_limit_spec(hasher, scalar.delete_limit.as_ref());
         }
         ExplainHashField::Consistency => hash_consistency(hasher, scalar.consistency),
-        ExplainHashField::GroupingShapeV1 => {
+        ExplainHashField::GroupingShape => {
             hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
         }
-        ExplainHashField::ProjectionSpecV1 => {
+        ExplainHashField::ProjectionSpec => {
             hash_projection_spec_v1_for_plan(hasher, projection, plan, include_group_strategy);
         }
     }
@@ -1114,15 +1114,13 @@ fn hash_group_having_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CONTINUATION_V1_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_V1_STEPS,
-    };
+    use super::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_V1_STEPS};
 
     #[test]
     fn fingerprint_v1_profile_excludes_grouping_shape_field() {
         let has_grouping_shape = FINGERPRINT_V1_STEPS
             .iter()
-            .any(|step| step.field == ExplainHashField::GroupingShapeV1);
+            .any(|step| step.field == ExplainHashField::GroupingShape);
 
         assert!(
             !has_grouping_shape,
@@ -1131,14 +1129,14 @@ mod tests {
     }
 
     #[test]
-    fn continuation_v1_profile_includes_grouping_shape_field() {
-        let has_grouping_shape = CONTINUATION_V1_STEPS
+    fn continuation_profile_includes_grouping_shape_field() {
+        let has_grouping_shape = CONTINUATION_STEPS
             .iter()
-            .any(|step| step.field == ExplainHashField::GroupingShapeV1);
+            .any(|step| step.field == ExplainHashField::GroupingShape);
 
         assert!(
             has_grouping_shape,
-            "ContinuationV1 must remain grouped-shape aware for resume compatibility",
+            "Continuation profile must remain grouped-shape aware for resume compatibility",
         );
     }
 
@@ -1146,7 +1144,7 @@ mod tests {
     fn fingerprint_v1_profile_projection_slot_is_stable() {
         let projection_slots = FINGERPRINT_V1_STEPS
             .iter()
-            .filter(|step| step.field == ExplainHashField::ProjectionSpecV1)
+            .filter(|step| step.field == ExplainHashField::ProjectionSpec)
             .count();
 
         assert_eq!(
@@ -1156,15 +1154,15 @@ mod tests {
     }
 
     #[test]
-    fn continuation_v1_profile_declares_entity_path_contract_slot() {
-        let spec = ExplainHashProfile::ContinuationV1 {
+    fn continuation_profile_declares_entity_path_contract_slot() {
+        let spec = ExplainHashProfile::Continuation {
             entity_path: "tests::Entity",
         }
         .spec();
 
         assert!(
             spec.entity_path.is_some(),
-            "ContinuationV1 must remain entity-path aware for cursor signature isolation",
+            "Continuation profile must remain entity-path aware for cursor signature isolation",
         );
     }
 }

@@ -8,10 +8,7 @@ use crate::{
         executor::{
             BytesByProjectionMode, ExecutablePlan,
             assemble_aggregate_terminal_execution_descriptor,
-            assemble_load_execution_node_descriptor,
-            assemble_load_execution_node_descriptor_with_visible_indexes,
-            assemble_load_execution_verbose_diagnostics,
-            assemble_load_execution_verbose_diagnostics_with_visible_indexes,
+            assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics,
             route::AggregateRouteShape,
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
@@ -244,10 +241,9 @@ impl StructuralQuery {
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
 
-        assemble_load_execution_node_descriptor_with_visible_indexes(
+        assemble_load_execution_node_descriptor(
             self.intent.model().fields(),
             self.intent.model().primary_key().name(),
-            visible_indexes,
             &plan,
         )
         .map_err(QueryError::execute)
@@ -371,17 +367,15 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
+        let descriptor = assemble_load_execution_node_descriptor(
             self.intent.model().fields(),
             self.intent.model().primary_key().name(),
-            visible_indexes,
             &plan,
         )
         .map_err(QueryError::execute)?;
-        let route_diagnostics = assemble_load_execution_verbose_diagnostics_with_visible_indexes(
+        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
             self.intent.model().fields(),
             self.intent.model().primary_key().name(),
-            visible_indexes,
             &plan,
         )
         .map_err(QueryError::execute)?;

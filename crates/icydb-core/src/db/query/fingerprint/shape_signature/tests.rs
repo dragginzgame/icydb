@@ -11,17 +11,14 @@ use crate::{
         access::AccessPath,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
-            GroupedContinuationToken, IndexRangeCursorAnchor, TokenWireError,
-            prepare_grouped_cursor,
+            GroupedContinuationToken, IndexRangeCursorAnchor, prepare_grouped_cursor,
         },
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::field::FieldRef,
             explain::ExplainGrouping,
-            fingerprint::{
-                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
-            },
+            fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher},
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::OrderDirection,
             plan::{
@@ -43,11 +40,11 @@ fn continuation_signature_with_projection(
     entity_path: &'static str,
     projection: &ProjectionSpec,
 ) -> ContinuationSignature {
-    let mut hasher = new_continuation_signature_hasher_v1();
+    let mut hasher = new_continuation_signature_hasher();
     hash_parts::hash_explain_plan_profile_internal(
         &mut hasher,
         explain,
-        hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
+        hash_parts::ExplainHashProfile::Continuation { entity_path },
         Some(projection),
     );
 
@@ -889,7 +886,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                 }),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
-    let expected = "0e283854004019d25f3d5e0768e093e813e062eecc49346aa992a74f6ec5bb4a".to_string();
+    let expected = "a5e069a168698bd8e37ce3060c348256cd2ca70a86f60fc2970c721d65041ff2".to_string();
 
     assert_eq!(
         signature, expected,
@@ -911,7 +908,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
     let signature = signature_hex(grouped_distinct.continuation_signature("tests::Entity"));
-    let expected = "c5600a836ee70450c5c0f91672135c9e6e1278ecacf34144c64bd6387ebb04b4".to_string();
+    let expected = "79d0fdcd2867844c8ea7189eef370e8aafb418cb657e30257e45e1eb96798a9a".to_string();
 
     assert_eq!(
         signature, expected,
@@ -933,7 +930,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
             });
     let signature = signature_hex(global_distinct_sum.continuation_signature("tests::Entity"));
-    let expected = "59ab29ffd24a417a14ae7b79cdc67b28d5b5ca07b957f03685256df87e38bab6".to_string();
+    let expected = "3bcd832bd8a6cb80b127da55d5752376823236964d2687c9fb939bae4b1d153f".to_string();
 
     assert_eq!(
         signature, expected,
@@ -960,7 +957,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
     });
     let signature = signature_hex(grouped_ordered.continuation_signature("tests::Entity"));
-    let expected = "7e2c97e1a1d66a17a7be13ef03fa513a532be3629974e57e5d24ccd04e0ab797".to_string();
+    let expected = "e35dfb5cf4d0b1991cd83b64f309a5cc9fc4073b7d77c1c92343b2168dc636aa".to_string();
 
     assert_eq!(
         signature, expected,
@@ -997,34 +994,4 @@ fn continuation_token_round_trips_index_range_anchor() {
         .index_range_anchor()
         .expect("decoded token should include index-range anchor");
     assert_eq!(decoded_anchor.last_raw_key(), raw_key.as_slice());
-}
-
-#[test]
-fn continuation_token_decode_rejects_unknown_version() {
-    let boundary = CursorBoundary {
-        slots: vec![CursorBoundarySlot::Present(Value::Uint(1))],
-    };
-    let signature = ContinuationSignature::from_bytes([3u8; 32]);
-    let token = ContinuationToken::new_with_direction(signature, boundary, Direction::Asc, 9);
-    let encoded = token
-        .encode_with_version_for_test(99)
-        .expect("unknown-version wire token should encode");
-
-    let err = ContinuationToken::decode(&encoded).expect_err("unknown version must fail");
-    assert_eq!(err, TokenWireError::UnsupportedVersion { version: 99 });
-}
-
-#[test]
-fn continuation_token_decode_rejects_v2_version() {
-    let boundary = CursorBoundary {
-        slots: vec![CursorBoundarySlot::Present(Value::Uint(1))],
-    };
-    let signature = ContinuationSignature::from_bytes([4u8; 32]);
-    let token = ContinuationToken::new_with_direction(signature, boundary, Direction::Desc, 11);
-    let encoded = token
-        .encode_with_version_for_test(2)
-        .expect("v2-version wire token should encode");
-
-    let err = ContinuationToken::decode(&encoded).expect_err("v2-version token must fail");
-    assert_eq!(err, TokenWireError::UnsupportedVersion { version: 2 });
 }

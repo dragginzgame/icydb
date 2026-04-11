@@ -8,10 +8,7 @@ use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
     query::{
-        intent::{
-            IntentError, KeyAccess, KeyAccessKind, KeyAccessState, order::push_order,
-            state::QueryIntent,
-        },
+        intent::{IntentError, KeyAccess, KeyAccessKind, KeyAccessState, state::QueryIntent},
         plan::{
             FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
             GroupedExecutionConfig, OrderDirection, OrderSpec,
@@ -168,6 +165,14 @@ impl<K> QueryIntent<K> {
     // Append one ORDER BY field while preserving any previously-declared order.
     fn push_order_field(&mut self, field: &str, direction: OrderDirection) {
         let scalar = self.scalar_mut();
-        scalar.order = Some(push_order(scalar.order.take(), field, direction));
+        scalar.order = Some(match scalar.order.take() {
+            Some(mut spec) => {
+                spec.fields.push((field.to_string(), direction));
+                spec
+            }
+            None => OrderSpec {
+                fields: vec![(field.to_string(), direction)],
+            },
+        });
     }
 }

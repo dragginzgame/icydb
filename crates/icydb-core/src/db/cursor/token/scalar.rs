@@ -13,9 +13,8 @@ use crate::{
 };
 
 use crate::db::cursor::token::{
-    ContinuationTokenWire, ContinuationTokenWireRef, CursorTokenVersion,
-    IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES,
-    TokenWireError,
+    ContinuationTokenWire, ContinuationTokenWireRef, IndexRangeCursorAnchorWire,
+    IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES, TokenWireError,
 };
 
 ///
@@ -89,7 +88,6 @@ impl ContinuationToken {
             .index_range_anchor()
             .map(IndexRangeCursorAnchorWireRef::from);
         let wire = ContinuationTokenWireRef {
-            version: CursorTokenVersion::V1.encode(),
             signature: self.signature.into_bytes(),
             boundary: &self.boundary,
             direction: self.direction,
@@ -105,8 +103,6 @@ impl ContinuationToken {
             deserialize_protocol_payload(bytes, MAX_CONTINUATION_TOKEN_BYTES)
                 .map_err(|err| TokenWireError::decode(err.to_string()))?;
 
-        CursorTokenVersion::decode(wire.version)
-            .ok_or_else(|| TokenWireError::unsupported_version(wire.version))?;
         let signature = ContinuationSignature::from_bytes(wire.signature);
         let boundary = wire.boundary;
         let direction = wire.direction;
@@ -131,26 +127,6 @@ impl ContinuationToken {
             )),
         }
     }
-
-    #[cfg(test)]
-    pub(crate) fn encode_with_version_for_test(
-        &self,
-        version: u8,
-    ) -> Result<Vec<u8>, TokenWireError> {
-        let index_range_anchor = self
-            .index_range_anchor()
-            .map(IndexRangeCursorAnchorWireRef::from);
-        let wire = ContinuationTokenWireRef {
-            version,
-            signature: self.signature.into_bytes(),
-            boundary: &self.boundary,
-            direction: self.direction,
-            initial_offset: self.initial_offset,
-            index_range_anchor,
-        };
-
-        serialize(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
-    }
 }
 
 ///
@@ -164,7 +140,7 @@ mod tests {
             codec::cursor::encode_cursor,
             cursor::{
                 ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
-                IndexRangeCursorAnchor, TokenWireError,
+                IndexRangeCursorAnchor,
             },
             direction::Direction,
         },
@@ -215,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn continuation_token_v1_wire_vector_is_frozen() {
+    fn continuation_token_wire_vector_is_frozen() {
         let token = scalar_token_fixture(Direction::Asc);
 
         let encoded = token
@@ -224,13 +200,13 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a66776657273696f6e01697369676e617475726598201824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182468626f756e64617279a165736c6f747382a16750726573656e74a16455696e7407a16750726573656e74a164546578746874656e616e742d6169646972656374696f6e634173636e696e697469616c5f6f66667365740372696e6465785f72616e67655f616e63686f72f6",
-            "scalar continuation token v1 wire encoding must remain stable",
+            "a5697369676e617475726598201824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182468626f756e64617279a165736c6f747382a16750726573656e74a16455696e7407a16750726573656e74a164546578746874656e616e742d6169646972656374696f6e634173636e696e697469616c5f6f66667365740372696e6465785f72616e67655f616e63686f72f6",
+            "scalar continuation token wire encoding must remain stable",
         );
     }
 
     #[test]
-    fn continuation_token_v1_index_range_anchor_wire_vector_is_frozen() {
+    fn continuation_token_index_range_anchor_wire_vector_is_frozen() {
         let token = scalar_index_range_token_fixture();
 
         let encoded = token
@@ -239,20 +215,8 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a66776657273696f6e01697369676e617475726598201851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185168626f756e64617279a165736c6f747381a16750726573656e74a16455696e740b69646972656374696f6e634173636e696e697469616c5f6f66667365740972696e6465785f72616e67655f616e63686f72a16c6c6173745f7261775f6b65798318aa18bb18cc",
-            "scalar continuation token v1 with index-range anchor wire encoding must remain stable",
+            "a5697369676e617475726598201851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185168626f756e64617279a165736c6f747381a16750726573656e74a16455696e740b69646972656374696f6e634173636e696e697469616c5f6f66667365740972696e6465785f72616e67655f616e63686f72a16c6c6173745f7261775f6b65798318aa18bb18cc",
+            "scalar continuation token with index-range anchor wire encoding must remain stable",
         );
-    }
-
-    #[test]
-    fn continuation_token_decode_rejects_unsupported_version() {
-        let token = scalar_token_fixture(Direction::Asc);
-        let encoded = token
-            .encode_with_version_for_test(99)
-            .expect("unknown-version scalar token should encode");
-        let err = ContinuationToken::decode(encoded.as_slice())
-            .expect_err("unknown scalar token version must fail");
-
-        assert_eq!(err, TokenWireError::UnsupportedVersion { version: 99 });
     }
 }

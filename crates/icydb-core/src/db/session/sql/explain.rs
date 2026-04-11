@@ -1,13 +1,14 @@
 //! Module: db::session::sql::explain
-//! Responsibility: module-local ownership and contracts for db::session::sql::explain.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned SQL EXPLAIN lowering, plan rendering, and
+//! execution-descriptor rendering across the supported SQL explain surfaces.
+//! Does not own: SQL parsing, structural plan construction, or descriptor text/JSON formatting.
+//! Boundary: keeps SQL explain classification and authority-aware planning at the session edge.
 
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
-            EntityAuthority, assemble_load_execution_node_descriptor_with_visible_indexes,
+            EntityAuthority, assemble_load_execution_node_descriptor,
             assemble_prepared_sql_scalar_aggregate_execution_descriptor,
             route::AggregateRouteShape,
         },
@@ -119,13 +120,12 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (visible_indexes, mut plan) =
+        let (_, mut plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
-        let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
+        let descriptor = assemble_load_execution_node_descriptor(
             authority.fields(),
             authority.primary_key_name(),
-            &visible_indexes,
             &plan,
         )
         .map_err(QueryError::execute)?;

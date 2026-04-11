@@ -1,7 +1,8 @@
 //! Module: db::query::plan::access_choice::model
-//! Responsibility: module-local ownership and contracts for db::query::plan::access_choice::model.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: define access-choice scoring and rejection models used by
+//! planner candidate evaluation.
+//! Does not own: candidate enumeration or final execution-plan assembly.
+//! Boundary: keeps planner access-choice data structures separate from evaluator logic.
 
 pub(super) use crate::db::query::plan::planner::AccessCandidateScore as CandidateScore;
 

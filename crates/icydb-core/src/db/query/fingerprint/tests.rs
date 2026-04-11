@@ -12,7 +12,7 @@ use crate::{
             builder::{field::FieldRef, sum},
             explain::ExplainGrouping,
             fingerprint::{
-                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
+                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher,
                 new_plan_fingerprint_hasher_v1,
             },
             intent::{KeyAccess, build_access_plan_from_keys},
@@ -111,11 +111,11 @@ fn plan_fingerprint_hasher_profile_seed_matches_manual_contract() {
 
 #[test]
 fn continuation_signature_hasher_profile_seed_matches_manual_contract() {
-    let mut helper = new_continuation_signature_hasher_v1();
+    let mut helper = new_continuation_signature_hasher();
     helper.update(b"payload");
 
     let mut manual = Sha256::new();
-    manual.update(b"contsig:v1");
+    manual.update(b"contsig");
     manual.update(b"payload");
 
     assert_eq!(helper.finalize(), manual.finalize());

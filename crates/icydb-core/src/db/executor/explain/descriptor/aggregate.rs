@@ -1,7 +1,8 @@
 //! Module: db::executor::explain::descriptor::aggregate
-//! Responsibility: module-local ownership and contracts for db::executor::explain::descriptor::aggregate.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: assemble stable EXPLAIN descriptor payloads for scalar
+//! aggregate terminals from planner-owned aggregate route shapes.
+//! Does not own: aggregate route selection policy or final explain rendering formats.
+//! Boundary: projects aggregate execution contracts into descriptor fields consumed by explain surfaces.
 
 use crate::db::{
     executor::{

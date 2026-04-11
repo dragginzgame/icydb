@@ -67,9 +67,7 @@ pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan};
 pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
 pub(in crate::db) use explain::{
     assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
-    assemble_load_execution_node_descriptor_with_visible_indexes,
     assemble_load_execution_verbose_diagnostics,
-    assemble_load_execution_verbose_diagnostics_with_visible_indexes,
     assemble_prepared_sql_scalar_aggregate_execution_descriptor,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;

@@ -1,7 +1,8 @@
 //! Module: db::session::sql::aggregate
-//! Responsibility: module-local ownership and contracts for db::session::sql::aggregate.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: session-owned execution and shaping helpers for lowered SQL
+//! scalar aggregate commands.
+//! Does not own: aggregate lowering or aggregate executor route selection.
+//! Boundary: binds lowered SQL aggregate commands onto authority-aware planning and result shaping.
 
 use crate::{
     db::{

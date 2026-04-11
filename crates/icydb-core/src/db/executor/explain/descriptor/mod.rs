@@ -12,10 +12,5 @@ pub(in crate::db) use self::{
         assemble_aggregate_terminal_execution_descriptor,
         assemble_prepared_sql_scalar_aggregate_execution_descriptor,
     },
-    load::{
-        assemble_load_execution_node_descriptor,
-        assemble_load_execution_node_descriptor_with_visible_indexes,
-        assemble_load_execution_verbose_diagnostics,
-        assemble_load_execution_verbose_diagnostics_with_visible_indexes,
-    },
+    load::{assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics},
 };

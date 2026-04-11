@@ -5,17 +5,23 @@
 
 use crate::{
     db::{
+        cursor::{ContinuationRuntime, LoopAction},
         data::{DataKey, DataRow},
+        direction::Direction,
         executor::{
-            aggregate::PreparedAggregateStreamingInputs,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
+            KeyStreamLoopControl, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value_from_decoded_slot,
             },
+            aggregate::{PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore},
             pipeline::contracts::LoadExecutor,
+            plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
+        index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
@@ -312,5 +318,99 @@ where
                 .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Some(value))
+    }
+
+    // Stream one ordered existing-row access path exactly once, handling
+    // continuation gating, row reads, and scan metrics before invoking the
+    // caller-owned fold closure for each admitted row.
+    pub(in crate::db::executor::aggregate) fn for_each_existing_stream_row(
+        prepared: PreparedAggregateStreamingInputsCore,
+        direction: Direction,
+        mut on_row: impl FnMut(KernelRow) -> Result<(), InternalError>,
+    ) -> Result<(), InternalError> {
+        // Phase 1: lower the prepared access/runtime inputs into one key stream.
+        let consistency = prepared.consistency();
+        let PreparedAggregateStreamingInputsCore {
+            authority,
+            store,
+            logical_plan,
+            execution_preparation,
+            index_prefix_specs,
+            index_range_specs,
+        } = prepared;
+        let mut continuation = ContinuationRuntime::from_window(
+            crate::db::executor::ExecutionKernel::window_cursor_contract(&logical_plan, None),
+        );
+        let index_predicate_execution =
+            execution_preparation
+                .strict_mode()
+                .map(|program| IndexPredicateExecution {
+                    program,
+                    rejected_keys_counter: None,
+                });
+        let access = ExecutableAccess::new(
+            &logical_plan.access,
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
+            None,
+            index_predicate_execution,
+        );
+        let runtime = TraversalRuntime::new(store, authority.entity_tag());
+        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
+        let row_layout = authority.row_layout();
+        let row_decoder = RowDecoder::structural();
+
+        // Phase 2: walk the key stream once and invoke the caller fold only
+        // for rows admitted by the canonical continuation contract.
+        let mut rows_scanned = 0usize;
+
+        loop {
+            match Self::loop_control_from_stream_continuation(continuation.pre_fetch()) {
+                KeyStreamLoopControl::Skip => continue,
+                KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
+
+            let Some(data_key) = key_stream.next_key()? else {
+                break;
+            };
+            let Some(row) = Self::read_kernel_row_for_field_aggregate(
+                store,
+                &row_layout,
+                row_decoder,
+                consistency,
+                &data_key,
+            )?
+            else {
+                continue;
+            };
+            rows_scanned = rows_scanned.saturating_add(1);
+
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
+            }
+
+            on_row(row)?;
+        }
+
+        // Phase 3: preserve canonical aggregate scan accounting once per stream fold.
+        record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
+
+        Ok(())
+    }
+
+    // Preserve the canonical continuation-to-loop-control mapping for
+    // aggregate stream folds without re-matching the enum at every callsite.
+    const fn loop_control_from_stream_continuation(action: LoopAction) -> KeyStreamLoopControl {
+        match action {
+            LoopAction::Skip => KeyStreamLoopControl::Skip,
+            LoopAction::Emit => KeyStreamLoopControl::Emit,
+            LoopAction::Stop => KeyStreamLoopControl::Stop,
+        }
     }
 }

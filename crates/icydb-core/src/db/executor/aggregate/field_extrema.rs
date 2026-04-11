@@ -308,89 +308,21 @@ impl ExecutionKernel {
 
         let mut keys_scanned = 0usize;
         let mut selected: Option<(StorageKey, Value)> = None;
-        let pre_key = || KeyStreamLoopControl::Emit;
-        let mut on_key = |data_key: DataKey| -> Result<KeyStreamLoopControl, InternalError> {
-            keys_scanned = keys_scanned.saturating_add(1);
-            let Some(row) =
-                read_data_row_with_consistency_from_store(store, &data_key, consistency)?
-            else {
-                return Ok(KeyStreamLoopControl::Emit);
-            };
-            let key = data_key.storage_key();
-            let value = RowDecoder::decode_required_slot_value(
-                row_layout,
-                key,
-                &row.1,
-                spec.field_slot.index,
-            )?;
-            let value = extract_orderable_field_value_from_decoded_slot(
-                spec.target_field,
-                spec.field_slot,
-                value,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-            let selected_was_empty = selected.is_none();
-            let candidate_replaces = match selected.as_ref() {
-                Some((current_key, current_value)) => {
-                    let field_order = compare_orderable_field_values_with_slot(
-                        spec.target_field,
-                        spec.field_slot,
-                        &value,
-                        current_value,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
-                    let directional_field_order =
-                        apply_aggregate_direction(field_order, spec.direction);
-
-                    directional_field_order == Ordering::Less
-                        || (directional_field_order == Ordering::Equal && key < *current_key)
-                }
-                None => true,
-            };
-            if candidate_replaces {
-                selected = Some((key, value));
-                if selected_was_empty && matches!(spec.kind, AggregateKind::Min) {
-                    // MIN(field) under ascending index-leading traversal is resolved
-                    // by the first in-window existing row.
-                    return Ok(KeyStreamLoopControl::Stop);
-                }
-
-                return Ok(KeyStreamLoopControl::Emit);
-            }
-
-            let Some((_, current_value)) = selected.as_ref() else {
-                return Ok(KeyStreamLoopControl::Emit);
-            };
-            let field_order = compare_orderable_field_values_with_slot(
-                spec.target_field,
-                spec.field_slot,
-                &value,
-                current_value,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-            let directional_field_order = apply_aggregate_direction(field_order, spec.direction);
-
-            // Once traversal leaves the winning field-value group, the ordered
-            // stream cannot produce a better extrema candidate.
-            if directional_field_order == Ordering::Greater {
-                return Ok(KeyStreamLoopControl::Stop);
-            }
-
-            Ok(KeyStreamLoopControl::Emit)
-        };
 
         loop {
-            match pre_key() {
-                KeyStreamLoopControl::Skip => continue,
-                KeyStreamLoopControl::Emit => {}
-                KeyStreamLoopControl::Stop => break,
-            }
-
             let Some(key) = key_stream.next_key()? else {
                 break;
             };
 
-            match on_key(key)? {
+            match Self::fold_streaming_field_extrema_key(
+                store,
+                row_layout,
+                consistency,
+                key,
+                spec,
+                &mut keys_scanned,
+                &mut selected,
+            )? {
                 KeyStreamLoopControl::Skip | KeyStreamLoopControl::Emit => {}
                 KeyStreamLoopControl::Stop => break,
             }
@@ -400,6 +332,83 @@ impl ExecutionKernel {
         let output = spec.finalize_output(selected_key)?;
 
         Ok((output, keys_scanned))
+    }
+
+    // Fold one ordered key into the current extrema winner and decide whether
+    // the ordered stream can terminate without losing correctness.
+    fn fold_streaming_field_extrema_key(
+        store: StoreHandle,
+        row_layout: &RowLayout,
+        consistency: MissingRowPolicy,
+        data_key: DataKey,
+        spec: &FieldExtremaFoldSpec<'_>,
+        keys_scanned: &mut usize,
+        selected: &mut Option<(StorageKey, Value)>,
+    ) -> Result<KeyStreamLoopControl, InternalError> {
+        *keys_scanned = keys_scanned.saturating_add(1);
+        let Some(row) = read_data_row_with_consistency_from_store(store, &data_key, consistency)?
+        else {
+            return Ok(KeyStreamLoopControl::Emit);
+        };
+
+        let key = data_key.storage_key();
+        let value =
+            RowDecoder::decode_required_slot_value(row_layout, key, &row.1, spec.field_slot.index)?;
+        let value = extract_orderable_field_value_from_decoded_slot(
+            spec.target_field,
+            spec.field_slot,
+            value,
+        )
+        .map_err(AggregateFieldValueError::into_internal_error)?;
+
+        let selected_was_empty = selected.is_none();
+        let candidate_replaces = match selected.as_ref() {
+            Some((current_key, current_value)) => {
+                let field_order = compare_orderable_field_values_with_slot(
+                    spec.target_field,
+                    spec.field_slot,
+                    &value,
+                    current_value,
+                )
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+                let directional_field_order =
+                    apply_aggregate_direction(field_order, spec.direction);
+
+                directional_field_order == Ordering::Less
+                    || (directional_field_order == Ordering::Equal && key < *current_key)
+            }
+            None => true,
+        };
+        if candidate_replaces {
+            *selected = Some((key, value));
+            if selected_was_empty && matches!(spec.kind, AggregateKind::Min) {
+                // MIN(field) under ascending index-leading traversal is resolved
+                // by the first in-window existing row.
+                return Ok(KeyStreamLoopControl::Stop);
+            }
+
+            return Ok(KeyStreamLoopControl::Emit);
+        }
+
+        let Some((_, current_value)) = selected.as_ref() else {
+            return Ok(KeyStreamLoopControl::Emit);
+        };
+        let field_order = compare_orderable_field_values_with_slot(
+            spec.target_field,
+            spec.field_slot,
+            &value,
+            current_value,
+        )
+        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let directional_field_order = apply_aggregate_direction(field_order, spec.direction);
+
+        // Once traversal leaves the winning field-value group, the ordered
+        // stream cannot produce a better extrema candidate.
+        if directional_field_order == Ordering::Greater {
+            return Ok(KeyStreamLoopControl::Stop);
+        }
+
+        Ok(KeyStreamLoopControl::Emit)
     }
 
     // Ignore can skip stale leading index entries. If a bounded field-extrema
