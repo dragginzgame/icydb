@@ -273,7 +273,8 @@ const fn infer_numeric_result_subtype(
     match (left_subtype, right_subtype) {
         (NumericSubtype::Integer, NumericSubtype::Integer) => NumericSubtype::Integer,
         (NumericSubtype::Float, NumericSubtype::Float) => NumericSubtype::Float,
-        _ => NumericSubtype::Decimal,
+        (NumericSubtype::Decimal, NumericSubtype::Decimal) => NumericSubtype::Decimal,
+        _ => NumericSubtype::Unknown,
     }
 }
 
