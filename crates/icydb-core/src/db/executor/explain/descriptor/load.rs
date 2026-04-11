@@ -11,6 +11,7 @@ use crate::{
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
                 ExecutionRoutePlan, LoadTerminalFastPathContract, TopNSeekSpec,
+                access_order_satisfied_by_route_contract,
                 build_execution_route_plan_for_grouped_plan,
                 build_initial_execution_route_plan_for_load_with_fast_path,
             },
@@ -160,7 +161,7 @@ fn load_modifier_execution_nodes(
     // distinct strategy, and continuation state.
     if let Some(node) = order_by_execution_node_descriptor(
         plan.scalar_plan().order.is_some(),
-        route_plan,
+        explain_access_order_satisfied(plan, load_terminal_fast_path),
         execution_mode,
     ) {
         nodes.push(node);
@@ -190,6 +191,44 @@ fn load_modifier_execution_nodes(
     }
 
     nodes
+}
+
+// EXPLAIN needs a slightly narrower access-order signal than the generic route
+// contract. Covering-read terminals keep index order intact even when the full
+// row lane materializes, while non-unique bounded range scans over multiple
+// ordered suffix fields still need a fail-closed materialized sort contract.
+fn explain_access_order_satisfied(
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) -> bool {
+    if !access_order_satisfied_by_route_contract(plan) {
+        return false;
+    }
+
+    if load_terminal_fast_path.is_some() {
+        return true;
+    }
+
+    let access_class = plan.access_strategy().class();
+    let Some((index, prefix_len)) = access_class.single_path_index_range_details() else {
+        return true;
+    };
+    if index.is_unique() {
+        return true;
+    }
+    if prefix_len == 0 {
+        return true;
+    }
+
+    let Some(order_contract) =
+        plan.scalar_plan().order.as_ref().and_then(|order| {
+            order.deterministic_secondary_order_contract(plan.primary_key_name())
+        })
+    else {
+        return true;
+    };
+
+    order_contract.non_primary_key_terms().len() <= 1
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one

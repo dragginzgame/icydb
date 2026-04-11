@@ -17,7 +17,7 @@ use crate::{
             aggregate::AggregateFoldMode,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, FastPathOrder,
-                LoadOrderRouteContract, TopNSeekSpec,
+                TopNSeekSpec,
             },
         },
         query::{
@@ -429,19 +429,20 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
 
 pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_descriptor(
     has_order_by: bool,
-    route_plan: &ExecutionRoutePlan,
+    access_order_satisfied: bool,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     if !has_order_by {
         return None;
     }
 
-    let node_type = match route_plan.load_order_route_contract() {
-        LoadOrderRouteContract::DirectStreaming => ExplainExecutionNodeType::OrderByAccessSatisfied,
-        LoadOrderRouteContract::MaterializedBoundary
-        | LoadOrderRouteContract::MaterializedFallback => {
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        }
+    // EXPLAIN should describe whether the chosen access route already preserves
+    // final ORDER BY semantics, even when some outer boundary still materializes
+    // rows for projection, DISTINCT, or page shaping.
+    let node_type = if access_order_satisfied {
+        ExplainExecutionNodeType::OrderByAccessSatisfied
+    } else {
+        ExplainExecutionNodeType::OrderByMaterializedSort
     };
     let mut node = empty_execution_node_descriptor(node_type, execution_mode);
     node.node_properties.insert(
