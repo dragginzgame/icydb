@@ -14,11 +14,6 @@ use crate::db::{
         terminal::RowLayout,
     },
 };
-#[cfg(any(test, feature = "perf-attribution"))]
-use crate::{
-    db::executor::pipeline::entrypoints::execute_initial_scalar_sql_projection_page_for_canister,
-    db::executor::projection::materialize::prepare_projection_shape_from_plan,
-};
 use crate::{
     db::{
         Db,
@@ -162,17 +157,19 @@ where
     // Phase 1: freeze the executor-owned structural projection contract.
     let (prepare_projection_local_instructions, prepared_projection) =
         measure_structural_result(|| {
-            Ok::<PreparedProjectionShape, InternalError>(prepare_projection_shape_from_plan(
-                row_layout.field_count(),
-                &plan,
-            ))
+            Ok::<PreparedProjectionShape, InternalError>(
+                crate::db::executor::projection::materialize::prepare_projection_shape_from_plan(
+                    row_layout.field_count(),
+                    &plan,
+                ),
+            )
         });
     let prepared_projection = prepared_projection?;
 
     // Phase 2: execute the scalar runtime while allowing rendered terminal
     // short paths to return directly.
     let (scalar_runtime_local_instructions, page) = measure_structural_result(|| {
-        execute_initial_scalar_sql_projection_page_for_canister(
+        crate::db::executor::pipeline::entrypoints::execute_initial_scalar_sql_projection_page_for_canister(
             db,
             debug,
             authority,
@@ -266,7 +263,7 @@ where
     Ok(SqlProjectionTextRows::new(rendered_rows, row_count))
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(test)]
 fn project_structural_sql_projection_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -296,7 +293,7 @@ fn project_structural_sql_projection_page(
     }
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(feature = "perf-attribution")]
 fn render_structural_sql_projection_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -598,7 +595,7 @@ fn render_slot_rows_from_direct_field_slots(
     Ok(rendered_rows)
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(test)]
 fn project_data_rows_from_projection_structural(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -616,7 +613,7 @@ fn project_data_rows_from_projection_structural(
     )
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(feature = "perf-attribution")]
 fn render_data_rows_from_projection_structural(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -634,7 +631,7 @@ fn render_data_rows_from_projection_structural(
     )
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(test)]
 fn project_scalar_data_rows_from_projection_structural(
     compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
     rows: &[DataRow],
@@ -673,7 +670,7 @@ fn project_scalar_data_rows_from_projection_structural(
     Ok(projected_rows)
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(feature = "perf-attribution")]
 fn render_scalar_data_rows_from_projection_structural(
     compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
     rows: &[DataRow],
@@ -759,21 +756,30 @@ fn update_sql_projection_materialization_metrics(
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    all(feature = "perf-attribution", feature = "structural-read-metrics")
+))]
 fn record_sql_projection_slot_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.slot_rows_path_hits = metrics.slot_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    all(feature = "perf-attribution", feature = "structural-read-metrics")
+))]
 fn record_sql_projection_data_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_path_hits = metrics.data_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    all(feature = "perf-attribution", feature = "structural-read-metrics")
+))]
 fn record_sql_projection_data_rows_scalar_fallback_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_scalar_fallback_hits =
@@ -781,7 +787,10 @@ fn record_sql_projection_data_rows_scalar_fallback_hit() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    all(feature = "perf-attribution", feature = "structural-read-metrics")
+))]
 fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
     update_sql_projection_materialization_metrics(|metrics| {
         if projected_slot {

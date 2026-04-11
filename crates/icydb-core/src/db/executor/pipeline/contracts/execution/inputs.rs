@@ -670,6 +670,33 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     fuse_immediate_sql_terminal: bool,
 }
 
+///
+/// ExecutionInputFlags
+///
+/// ExecutionInputFlags carries the two remaining scalar execution toggles that
+/// are chosen before shared runtime dispatch.
+/// This keeps the prepared execution-input constructor under the clippy
+/// argument-count threshold without widening the execution contract itself.
+///
+
+pub(in crate::db::executor) struct ExecutionInputFlags {
+    emit_cursor: bool,
+    fuse_immediate_sql_terminal: bool,
+}
+
+impl ExecutionInputFlags {
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        emit_cursor: bool,
+        fuse_immediate_sql_terminal: bool,
+    ) -> Self {
+        Self {
+            emit_cursor,
+            fuse_immediate_sql_terminal,
+        }
+    }
+}
+
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input payload from already-prepared
     /// execution and projection state.
@@ -680,8 +707,7 @@ impl<'a> ExecutionInputs<'a> {
         execution_preparation: &'a ExecutionPreparation,
         projection_materialization: ProjectionMaterializationMode,
         prepared_projection: PreparedExecutionProjection,
-        emit_cursor: bool,
-        fuse_immediate_sql_terminal: bool,
+        flags: ExecutionInputFlags,
     ) -> Self {
         Self {
             runtime,
@@ -690,8 +716,8 @@ impl<'a> ExecutionInputs<'a> {
             execution_preparation,
             projection_materialization,
             prepared_projection,
-            emit_cursor,
-            fuse_immediate_sql_terminal,
+            emit_cursor: flags.emit_cursor,
+            fuse_immediate_sql_terminal: flags.fuse_immediate_sql_terminal,
         }
     }
 

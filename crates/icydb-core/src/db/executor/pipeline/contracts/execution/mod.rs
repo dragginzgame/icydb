@@ -11,7 +11,7 @@ mod stream;
 pub(in crate::db::executor) use inputs::StructuralCursorPagePayload;
 pub(in crate::db::executor) use inputs::{
     CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
+    ExecutionInputFlags, ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
     ProjectionMaterializationMode, RowCollectorMaterializationRequest,
     RuntimePageMaterializationRequest, StructuralCursorPage,
 };

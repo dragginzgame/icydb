@@ -38,6 +38,7 @@ use crate::{
             },
             group::{GroupKey, StableHash, stable_hash_from_digest},
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
+            pipeline::contracts::ExecutionInputFlags,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage,
                 GroupedRouteStage, GroupedStreamStage, PageCursor, PreparedExecutionProjection,
@@ -411,8 +412,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         &execution_preparation,
         ProjectionMaterializationMode::SharedValidation,
         PreparedExecutionProjection::empty(),
-        true,
-        false,
+        ExecutionInputFlags::new(true, false),
     );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(

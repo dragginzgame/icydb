@@ -16,7 +16,7 @@ use crate::{
 };
 use std::{array, borrow::Cow, cmp::Ordering};
 
-const INLINE_ORDER_VALUE_CAPACITY: usize = 4;
+const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
 
 ///
 /// OrderReadableRow
@@ -39,8 +39,8 @@ pub(in crate::db::executor) trait OrderReadableRow {
     }
 }
 
-// Cache a small ORDER BY tuple inline so common single-field and short
-// multi-field sorts do not heap-allocate one key vector per retained row.
+// Cache a small ORDER BY tuple inline so common single-field and two-field
+// sorts do not heap-allocate one key vector per retained row.
 enum CachedOrderValues {
     Inline {
         len: usize,
@@ -123,9 +123,9 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
     // Phase 1: cache resolved order values once per row so bounded selection
     // and final sort do not re-read sparse slots or re-run expression-order
     // derivation inside comparator hot loops.
-    let mut source_rows = std::mem::take(rows);
+    let source_rows = std::mem::take(rows);
     let mut cached_rows = Vec::with_capacity(source_rows.len());
-    for row in source_rows.drain(..) {
+    for row in source_rows {
         let cached_values = cache_order_values_from_row(&row, resolved_order);
 
         cached_rows.push((row, cached_values));

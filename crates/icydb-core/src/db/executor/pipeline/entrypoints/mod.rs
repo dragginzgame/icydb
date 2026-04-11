@@ -6,6 +6,18 @@
 mod grouped;
 mod scalar;
 
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+use crate::{
+    db::{
+        Db,
+        executor::{
+            EntityAuthority,
+            pipeline::contracts::{ProjectionMaterializationMode, StructuralCursorPage},
+        },
+        query::plan::AccessPlannedQuery,
+    },
+    traits::CanisterKind,
+};
 use crate::{
     db::{
         PersistedRow,
@@ -33,8 +45,6 @@ pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use scalar::execute_initial_scalar_sql_projection_page_for_canister;
 pub(in crate::db::executor) use scalar::{
     PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,
     execute_prepared_scalar_route_runtime, execute_prepared_scalar_rows_for_canister,
@@ -44,6 +54,26 @@ pub(in crate::db) use scalar::{
     execute_initial_scalar_sql_projection_rows_for_canister,
     execute_initial_scalar_sql_projection_text_rows_for_canister,
 };
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+    projection_runtime_mode: ProjectionMaterializationMode,
+) -> Result<StructuralCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    scalar::execute_initial_scalar_sql_projection_page_for_canister(
+        db,
+        debug,
+        authority,
+        plan,
+        projection_runtime_mode,
+    )
+}
 
 impl<E> LoadExecutor<E>
 where

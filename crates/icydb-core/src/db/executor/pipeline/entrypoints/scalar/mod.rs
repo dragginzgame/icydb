@@ -20,9 +20,10 @@ use crate::{
             aggregate::runtime::finalize_path_outcome_for_path,
             continuation::ScalarContinuationContext,
             pipeline::contracts::{
-                CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
-                ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
-                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
+                CoveringComponentScanState, ExecutionInputFlags, ExecutionInputs,
+                ExecutionOutcomeMetrics, ExecutionRuntimeAdapter, LoadExecutor,
+                MaterializedExecutionPayload, PreparedExecutionProjection,
+                ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -243,8 +244,10 @@ fn execute_scalar_execution_stage(
         execution_preparation,
         projection_runtime_mode,
         prepared_projection,
-        projection_runtime_mode.emit_cursor(),
-        fuse_immediate_sql_terminal,
+        ExecutionInputFlags::new(
+            projection_runtime_mode.emit_cursor(),
+            fuse_immediate_sql_terminal,
+        ),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
@@ -476,7 +479,7 @@ where
 ///
 /// This SQL-only helper avoids rebuilding the broader prepared-load wrapper
 /// when the canister query surface already has a fixed initial continuation.
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
     db: &Db<C>,
     debug: bool,

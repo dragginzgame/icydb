@@ -24,7 +24,7 @@ use crate::{
 pub(in crate::db::executor) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
     CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+    ExecutionInputFlags, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionProjection,
     ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
     RuntimePageMaterializationRequest, StructuralCursorPage,

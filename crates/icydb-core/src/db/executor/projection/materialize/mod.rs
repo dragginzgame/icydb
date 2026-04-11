@@ -130,7 +130,7 @@ pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProj
 /// Build one executor-owned prepared projection shape from planner-frozen metadata.
 #[must_use]
 pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
-    _field_count: usize,
+    field_count: usize,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
     let projection = plan.frozen_projection_spec().clone();
@@ -148,7 +148,9 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
     );
     #[cfg(any(test, feature = "perf-attribution"))]
     let projected_slot_mask =
-        projected_slot_mask_from_slots(_field_count, plan.projected_slot_mask());
+        projected_slot_mask_from_slots(field_count, plan.projected_slot_mask());
+    #[cfg(not(any(test, feature = "perf-attribution")))]
+    let _ = field_count;
 
     PreparedProjectionShape {
         projection,
