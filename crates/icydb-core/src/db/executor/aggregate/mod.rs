@@ -32,6 +32,7 @@ use crate::{
                 aggregate_materialized_fold_direction,
                 build_execution_route_plan_for_aggregate_spec,
             },
+            terminal::RowLayout,
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
@@ -54,13 +55,10 @@ pub(in crate::db::executor) use execution::{
     PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
     PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
     PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
-    PreparedOrderSensitiveTerminalExecutionState, PreparedScalarNumericAggregateStrategy,
-    PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
-    PreparedScalarNumericPayload, PreparedScalarProjectionBoundary,
-    PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
-    PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
-    PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp, PreparedScalarTerminalStrategy,
-    ScalarProjectionWindow,
+    PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary, PreparedScalarNumericOp,
+    PreparedScalarNumericPayload, PreparedScalarProjectionBoundary, PreparedScalarProjectionOp,
+    PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary, PreparedScalarTerminalOp,
+    PreparedScalarTerminalStrategy, ScalarProjectionWindow,
 };
 pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
 pub(in crate::db) use projection::{
@@ -81,11 +79,24 @@ where
     ) -> Result<PreparedAggregateStreamingInputs<'_>, InternalError> {
         ExecutionKernel::prepare_aggregate_streaming_inputs(self, plan)
     }
+
+    // Materialize one aggregate response page into structural rows plus the
+    // authority-owned row layout used to decode those rows.
+    pub(in crate::db::executor::aggregate) fn load_materialized_aggregate_rows(
+        &self,
+        prepared: PreparedAggregateStreamingInputs<'_>,
+    ) -> Result<(Vec<DataRow>, RowLayout), InternalError> {
+        let row_layout = prepared.authority.row_layout();
+        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
+
+        Ok((rows, row_layout))
+    }
 }
 
 impl ExecutionKernel {
     // Build one canonical aggregate descriptor from already-prepared aggregate
-    // inputs so execution no longer reconstructs `ExecutablePlan<E>` shells.
+    // inputs so execution no longer reconstructs `PreparedExecutionPlan<E>` shells.
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared(
         prepared: PreparedAggregateStreamingInputs<'_>,
         aggregate: PreparedAggregateSpec,
@@ -154,9 +165,7 @@ impl ExecutionKernel {
     {
         let kind = aggregate.kind();
         if let Some(target_field) = aggregate.target_field() {
-            let row_layout = prepared.authority.row_layout();
-            let page = executor.execute_scalar_materialized_page_stage(prepared)?;
-            let (rows, _) = page.into_parts();
+            let (rows, row_layout) = executor.load_materialized_aggregate_rows(prepared)?;
 
             return Self::aggregate_field_extrema_from_materialized(
                 rows,
@@ -166,8 +175,7 @@ impl ExecutionKernel {
                 target_field.field_slot(),
             );
         }
-        let page = executor.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, _) = executor.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_from_materialized(rows, kind)
     }

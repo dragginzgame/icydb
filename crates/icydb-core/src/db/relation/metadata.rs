@@ -32,19 +32,16 @@ pub(super) struct StrongRelationInfo {
 /// Shared target descriptor for strong relation fields.
 ///
 
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
-pub(crate) struct StrongRelationTargetInfo {
-    pub(in crate::db::relation) target_path: &'static str,
-    pub(in crate::db::relation) target_entity_name: &'static str,
-    pub(in crate::db::relation) target_entity_tag: EntityTag,
-    pub(in crate::db::relation) target_store_path: &'static str,
+struct StrongRelationTargetInfo {
+    target_path: &'static str,
+    target_entity_name: &'static str,
+    target_entity_tag: EntityTag,
+    target_store_path: &'static str,
 }
 
 /// Resolve a model field-kind into strong relation target metadata (if applicable).
-pub(crate) const fn strong_relation_target_from_kind(
-    kind: &FieldKind,
-) -> Option<StrongRelationTargetInfo> {
+const fn strong_relation_target_from_kind(kind: &FieldKind) -> Option<StrongRelationTargetInfo> {
     match kind {
         FieldKind::Relation {
             target_path,
@@ -115,6 +112,14 @@ pub(super) fn strong_relations_for_model_iter<'a>(
         .filter(move |relation| {
             target_path_filter.is_none_or(|target_path| relation.target_path == target_path)
         })
+}
+
+/// Return `true` when one model declares any strong relation field.
+#[must_use]
+pub(in crate::db) fn model_has_any_strong_relations(model: &'static EntityModel) -> bool {
+    strong_relations_for_model_iter(model, None)
+        .next()
+        .is_some()
 }
 
 /// Return `true` when one source model declares any strong relation to the

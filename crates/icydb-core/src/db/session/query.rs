@@ -15,7 +15,7 @@ use crate::{
         },
         diagnostics::ExecutionTrace,
         executor::{
-            ExecutablePlan, ExecutionStrategy, GroupedCursorPage, LoadExecutor, PageCursor,
+            ExecutionFamily, GroupedCursorPage, LoadExecutor, PageCursor, PreparedExecutionPlan,
         },
         query::builder::{
             PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
@@ -212,15 +212,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Validate that one execution strategy is admissible for scalar paged load
     // execution and fail closed on grouped/primary-key-only routes.
-    fn ensure_scalar_paged_execution_strategy(
-        strategy: ExecutionStrategy,
-    ) -> Result<(), QueryError> {
-        match strategy {
-            ExecutionStrategy::PrimaryKey => Err(QueryError::invariant(
+    fn ensure_scalar_paged_execution_family(family: ExecutionFamily) -> Result<(), QueryError> {
+        match family {
+            ExecutionFamily::PrimaryKey => Err(QueryError::invariant(
                 CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message(),
             )),
-            ExecutionStrategy::Ordered => Ok(()),
-            ExecutionStrategy::Grouped => Err(QueryError::invariant(
+            ExecutionFamily::Ordered => Ok(()),
+            ExecutionFamily::Grouped => Err(QueryError::invariant(
                 "grouped plans require execute_grouped(...)",
             )),
         }
@@ -228,12 +226,12 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Validate that one execution strategy is admissible for the grouped
     // execution surface.
-    fn ensure_grouped_execution_strategy(strategy: ExecutionStrategy) -> Result<(), QueryError> {
-        match strategy {
-            ExecutionStrategy::Grouped => Ok(()),
-            ExecutionStrategy::PrimaryKey | ExecutionStrategy::Ordered => Err(
-                QueryError::invariant("execute_grouped requires grouped logical plans"),
-            ),
+    fn ensure_grouped_execution_family(family: ExecutionFamily) -> Result<(), QueryError> {
+        match family {
+            ExecutionFamily::Grouped => Ok(()),
+            ExecutionFamily::PrimaryKey | ExecutionFamily::Ordered => Err(QueryError::invariant(
+                "execute_grouped requires grouped logical plans",
+            )),
         }
     }
 
@@ -242,11 +240,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: compile typed intent into one executable plan contract.
+        // Phase 1: compile typed intent into one prepared execution-plan contract.
         let mode = query.mode();
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
+            .into_prepared_execution_plan();
 
         // Phase 2: delegate execution to the shared compiled-plan entry path.
         self.execute_query_dyn(mode, plan)
@@ -265,24 +263,24 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        // Phase 2: compile typed delete intent into one executable plan contract.
+        // Phase 2: compile typed delete intent into one prepared execution-plan contract.
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
+            .into_prepared_execution_plan();
 
         // Phase 3: execute the shared delete core while skipping response-row materialization.
         self.with_metrics(|| self.delete_executor::<E>().execute_count(plan))
             .map_err(QueryError::execute)
     }
 
-    /// Execute one scalar query from one pre-built executable contract.
+    /// Execute one scalar query from one pre-built prepared execution contract.
     ///
     /// This is the shared compiled-plan entry boundary used by the typed
     /// `execute_query(...)` surface and adjacent query execution facades.
     pub(in crate::db) fn execute_query_dyn<E>(
         &self,
         mode: QueryMode,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -300,14 +298,14 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_load_query_with<E, T>(
         &self,
         query: &Query<E>,
-        op: impl FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,
+        op: impl FnOnce(LoadExecutor<E>, PreparedExecutionPlan<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
+            .into_prepared_execution_plan();
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)
@@ -325,21 +323,17 @@ impl<C: CanisterKind> DbSession<C> {
         let explain = compiled.explain();
         let plan_hash = compiled.plan_hash_hex();
 
-        let executable = compiled.into_executable();
+        let executable = compiled.into_prepared_execution_plan();
         let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
-        let execution_strategy = match query.mode() {
-            QueryMode::Load(_) => Some(
-                executable
-                    .execution_strategy()
-                    .map_err(QueryError::execute)?,
-            ),
+        let execution_family = match query.mode() {
+            QueryMode::Load(_) => Some(executable.execution_family().map_err(QueryError::execute)?),
             QueryMode::Delete(_) => None,
         };
 
         Ok(QueryTracePlan::new(
             plan_hash,
             access_strategy,
-            execution_strategy,
+            execution_family,
             explain,
         ))
     }
@@ -353,12 +347,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: build/validate executable plan and reject grouped plans.
+        // Phase 1: build/validate prepared execution plan and reject grouped plans.
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
-        Self::ensure_scalar_paged_execution_strategy(
-            plan.execution_strategy().map_err(QueryError::execute)?,
+            .into_prepared_execution_plan();
+        Self::ensure_scalar_paged_execution_family(
+            plan.execution_family().map_err(QueryError::execute)?,
         )?;
 
         // Phase 2: decode external cursor token and validate it against plan surface.
@@ -463,12 +457,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: build/validate executable plan and require grouped shape.
+        // Phase 1: build/validate prepared execution plan and require grouped shape.
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
-        Self::ensure_grouped_execution_strategy(
-            plan.execution_strategy().map_err(QueryError::execute)?,
+            .into_prepared_execution_plan();
+        Self::ensure_grouped_execution_family(
+            plan.execution_family().map_err(QueryError::execute)?,
         )?;
 
         // Phase 2: decode external grouped cursor token and validate against plan.

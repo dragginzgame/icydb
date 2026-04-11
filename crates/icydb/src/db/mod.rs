@@ -8,8 +8,8 @@ pub mod sql;
 pub use icydb_core::db::Row;
 #[doc(hidden)]
 pub use icydb_core::db::{
-    CoercionId, CompareOp, ComparePredicate, EntityAuthority, InternalError, PersistedRow,
-    PersistedScalar, Predicate, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
+    CoercionId, CompareOp, ComparePredicate, EntityAuthority, PersistedRow, PersistedScalar,
+    Predicate, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     debug_remove_entity_row_data_only, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
     decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,
@@ -21,7 +21,7 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, QueryTracePlan,
-    StorageReport, TraceExecutionStrategy,
+    StorageReport, TraceExecutionFamily,
 };
 pub use icydb_core::db::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
@@ -45,6 +45,8 @@ pub use icydb_core::db::{
 };
 #[cfg(all(feature = "sql", not(feature = "perf-attribution")))]
 pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
+#[doc(hidden)]
+pub use icydb_core::error::InternalError;
 pub use response::{
     PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
 };

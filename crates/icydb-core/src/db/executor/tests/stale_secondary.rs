@@ -68,7 +68,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
         .filter(predicate)
         .order_by("rank")
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("missing-ok stale-secondary load plan should build");
     let response = load
         .execute(plan)
@@ -114,7 +114,7 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
         .filter(predicate)
         .order_by("rank")
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("strict stale-secondary load plan should build");
     let err = load
         .execute(plan)

@@ -238,10 +238,7 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
         route_diagnostic_line_debug("execution_mode", &route_plan.execution_mode()),
-        route_diagnostic_line_bool(
-            "continuation_applied",
-            route_plan.continuation().capabilities().applied(),
-        ),
+        route_diagnostic_line_bool("continuation_applied", route_plan.continuation().applied()),
         route_diagnostic_line_debug("limit", &route_plan.continuation().limit()),
         route_diagnostic_line_debug("fast_path_order", &route_plan.fast_path_order()),
         secondary_order_pushdown_verbose_line(route_plan),

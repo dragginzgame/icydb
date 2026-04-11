@@ -37,7 +37,7 @@ fn load_filter_after_access_with_optional_equality() {
         .by_id(id)
         .filter(equals_opt_value)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("optional equality plan should build");
     let match_response = load
         .execute(match_plan)
@@ -58,7 +58,7 @@ fn load_filter_after_access_with_optional_equality() {
         .by_id(id)
         .filter(no_match)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("mismatch plan should build");
     let mismatch_response = load
         .execute(mismatch_plan)
@@ -129,7 +129,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
         .limit(1)
         .offset(1)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("in+text ordered page plan should build");
     let response = load
         .execute(plan)
@@ -174,7 +174,7 @@ fn load_contains_filters_after_by_id_access() {
         .by_id(id)
         .filter(contains_nine)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains hit plan should build");
     let hit = load.execute(hit_plan).expect("contains hit should execute");
     assert_eq!(hit.len(), 1, "contains predicate should match row");
@@ -189,7 +189,7 @@ fn load_contains_filters_after_by_id_access() {
         .by_id(id)
         .filter(contains_missing)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains miss plan should build");
     let miss = load
         .execute(miss_plan)
@@ -253,7 +253,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
         .order_by("rank")
         .limit(1)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("filtered delete plan should build");
     let deleted = delete
         .execute(plan)
@@ -274,7 +274,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     let remaining_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("remaining load plan should build");
     let remaining = load
         .execute(remaining_plan)

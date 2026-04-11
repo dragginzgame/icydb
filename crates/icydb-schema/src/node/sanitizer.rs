@@ -3,6 +3,9 @@ use crate::prelude::*;
 ///
 /// Sanitizer
 ///
+/// Schema node describing one named sanitizer definition and its shared
+/// definition metadata.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Sanitizer {

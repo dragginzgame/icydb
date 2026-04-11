@@ -18,7 +18,7 @@ use crate::{
                 ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
                 GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
             },
-            pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+            pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -285,7 +285,7 @@ where
         let surface = self.execute_load_surface(
             plan,
             cursor,
-            LoadExecutionMode::grouped_paged(LoadTracingMode::Enabled),
+            LoadSurfaceMode::grouped_paged(LoadTracingMode::Enabled),
         )?;
 
         Self::expect_grouped_traced_surface(surface)

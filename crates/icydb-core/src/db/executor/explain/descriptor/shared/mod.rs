@@ -94,7 +94,6 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
-    let continuation_capabilities = route_plan.continuation().capabilities();
     if let Some(prefix_len) = access_prefix_len(node.access_strategy.as_ref()) {
         node.node_properties
             .insert("prefix_len", Value::from(u64_from_usize(prefix_len)));
@@ -109,7 +108,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     annotate_continuation_node_properties(
         node,
         route_plan.direction(),
-        continuation_capabilities.mode(),
+        route_plan.continuation().mode(),
     );
 }
 
@@ -256,7 +255,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_cursor_resume_node_
     annotate_continuation_node_properties(
         node,
         route_plan.direction(),
-        route_plan.continuation().capabilities().mode(),
+        route_plan.continuation().mode(),
     );
 }
 
@@ -345,7 +344,6 @@ const fn fast_path_rejection_reason(
         FastPathOrder::IndexRange => {
             if route_plan
                 .continuation()
-                .capabilities()
                 .index_range_limit_pushdown_allowed()
             {
                 "idx_limit_no"
@@ -480,7 +478,7 @@ pub(in crate::db::executor::explain::descriptor) fn limit_offset_execution_node_
     let mut node =
         empty_execution_node_descriptor(ExplainExecutionNodeType::LimitOffset, execution_mode);
     node.limit = page.limit;
-    node.cursor = Some(route_plan.continuation().capabilities().applied());
+    node.cursor = Some(route_plan.continuation().applied());
     node.node_properties
         .insert("offset", Value::from(u64_from_usize(page.offset as usize)));
 
@@ -491,7 +489,7 @@ pub(in crate::db::executor::explain::descriptor) fn cursor_resume_execution_node
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    if !route_plan.continuation().capabilities().applied() {
+    if !route_plan.continuation().applied() {
         return None;
     }
 

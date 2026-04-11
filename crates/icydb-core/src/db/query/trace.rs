@@ -3,15 +3,15 @@
 //! Does not own: query semantics, plan hashing primitives, or executor routing policy.
 //! Boundary: read-only diagnostics surface assembled at query/session boundaries.
 
-use crate::db::{executor::ExecutionStrategy, query::explain::ExplainPlan};
+use crate::db::{executor::ExecutionFamily, query::explain::ExplainPlan};
 
 ///
-/// TraceExecutionStrategy
+/// TraceExecutionFamily
 ///
-/// Trace-surface execution-shape label derived from executor strategy selection.
+/// Trace-surface execution-family label derived from executor family selection.
 /// Keeps high-level route shape visible without exposing executor internals.
 ///
-pub type TraceExecutionStrategy = ExecutionStrategy;
+pub type TraceExecutionFamily = ExecutionFamily;
 
 ///
 /// QueryTracePlan
@@ -23,7 +23,7 @@ pub type TraceExecutionStrategy = ExecutionStrategy;
 pub struct QueryTracePlan {
     pub(crate) plan_hash: String,
     pub(crate) access_strategy: String,
-    pub(crate) execution_strategy: Option<TraceExecutionStrategy>,
+    pub(crate) execution_family: Option<TraceExecutionFamily>,
     pub(crate) explain: ExplainPlan,
 }
 
@@ -33,13 +33,13 @@ impl QueryTracePlan {
     pub const fn new(
         plan_hash: String,
         access_strategy: String,
-        execution_strategy: Option<TraceExecutionStrategy>,
+        execution_family: Option<TraceExecutionFamily>,
         explain: ExplainPlan,
     ) -> Self {
         Self {
             plan_hash,
             access_strategy,
-            execution_strategy,
+            execution_family,
             explain,
         }
     }
@@ -56,10 +56,10 @@ impl QueryTracePlan {
         self.access_strategy.as_str()
     }
 
-    /// Return the selected execution strategy classification.
+    /// Return the selected execution family classification.
     #[must_use]
-    pub const fn execution_strategy(&self) -> Option<TraceExecutionStrategy> {
-        self.execution_strategy
+    pub const fn execution_family(&self) -> Option<TraceExecutionFamily> {
+        self.execution_family
     }
 
     /// Borrow planner explain output carried in this trace payload.

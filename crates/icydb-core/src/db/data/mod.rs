@@ -14,7 +14,8 @@ mod structural_row;
 // re-exports (Tier-3 → Tier-2 boundary)
 pub(crate) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub(in crate::db) use entity_decode::{
-    decode_data_rows_into_entity_response, decode_raw_row_for_entity_key,
+    decode_data_rows_into_cursor_page, decode_data_rows_into_entity_response,
+    decode_raw_row_for_entity_key,
 };
 pub(crate) use key::{DataKey, RawDataKey};
 pub(in crate::db) use persisted_row::{

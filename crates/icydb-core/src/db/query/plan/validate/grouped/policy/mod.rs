@@ -4,8 +4,6 @@
 //! Boundary: maps grouped policy reasons into planner-domain grouped plan errors.
 
 mod rules;
-#[cfg(test)]
-mod tests;
 
 use crate::db::{
     query::plan::{

@@ -774,10 +774,7 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 
     assert_eq!(route_plan.fast_path_order(), &LOAD_FAST_PATH_ORDER);
     assert_eq!(route_plan.direction(), Direction::Asc);
-    assert_eq!(
-        route_plan.continuation().capabilities().mode(),
-        ContinuationMode::Initial
-    );
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
 }
 
 #[test]
@@ -1133,10 +1130,7 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
 
     assert_eq!(route_plan.execution_mode(), RouteExecutionMode::Streaming);
     assert_eq!(route_plan.direction(), Direction::Desc);
-    assert_eq!(
-        route_plan.continuation().capabilities().mode(),
-        ContinuationMode::Initial
-    );
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.continuation().effective_offset(), 2);
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
@@ -1176,7 +1170,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
 
     assert_eq!(route_plan.execution_mode(), RouteExecutionMode::Streaming);
     assert_eq!(
-        route_plan.continuation().capabilities().mode(),
+        route_plan.continuation().mode(),
         ContinuationMode::CursorBoundary
     );
     assert_eq!(route_plan.continuation().effective_offset(), 0);
@@ -2101,10 +2095,7 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
         "mutation routes must not advertise load or aggregate fast paths",
     );
     assert_eq!(route_plan.direction(), Direction::Asc);
-    assert_eq!(
-        route_plan.continuation().capabilities().mode(),
-        ContinuationMode::Initial
-    );
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.continuation().effective_offset(), 0);
     assert!(
         route_plan.scan_hints.physical_fetch_hint.is_none(),
@@ -2172,10 +2163,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         route_plan.execution_mode(),
         RouteExecutionMode::Materialized
     );
-    assert_eq!(
-        route_plan.continuation().capabilities().mode(),
-        ContinuationMode::Initial
-    );
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
@@ -2228,10 +2216,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         route_plan.execution_mode(),
         RouteExecutionMode::Materialized
     );
-    assert_eq!(
-        route_plan.continuation().capabilities().mode(),
-        ContinuationMode::Initial
-    );
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
@@ -3829,7 +3814,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_compatible_route.scan_hints.physical_fetch_hint,
         strict_compatible_route.aggregate_seek_fetch_hint(),
         strict_compatible_route.index_range_limit_fast_path_enabled(),
-        strict_compatible_route.continuation().capabilities().mode(),
+        strict_compatible_route.continuation().mode(),
     );
     let strict_uncertain_log = format!(
         "aggregate:mode={:?};fold={:?};fetch={:?};secondary_probe={:?};index_range_limit={};continuation={:?}",
@@ -3838,7 +3823,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_uncertain_route.scan_hints.physical_fetch_hint,
         strict_uncertain_route.aggregate_seek_fetch_hint(),
         strict_uncertain_route.index_range_limit_fast_path_enabled(),
-        strict_uncertain_route.continuation().capabilities().mode(),
+        strict_uncertain_route.continuation().mode(),
     );
     let load_log = format!(
         "load:mode={:?};fetch={:?};scan_budget={:?};index_range_limit={};continuation={:?}",
@@ -3846,7 +3831,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         load_route.scan_hints.physical_fetch_hint,
         load_route.scan_hints.load_scan_budget_hint,
         load_route.index_range_limit_fast_path_enabled(),
-        load_route.continuation().capabilities().mode(),
+        load_route.continuation().mode(),
     );
 
     assert_eq!(

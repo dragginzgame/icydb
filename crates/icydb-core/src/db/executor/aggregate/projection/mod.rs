@@ -14,13 +14,13 @@ use crate::{
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
-            CoveringProjectionComponentRows, ExecutablePlan, ExecutionKernel,
-            PreparedAggregatePlan,
+            CoveringProjectionComponentRows, ExecutionKernel, PreparedAggregatePlan,
+            PreparedExecutionPlan,
             aggregate::{
                 AggregateKind, PreparedAggregateSpec, PreparedAggregateStreamingInputs,
                 PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
-                PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
-                PreparedScalarProjectionStrategy, ScalarProjectionWindow,
+                PreparedScalarProjectionOp, PreparedScalarProjectionStrategy,
+                ScalarProjectionWindow,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_from_decoded_slot,
@@ -58,6 +58,11 @@ use crate::{
 type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
+type PreparedScalarProjectionExecution<'ctx> = (
+    crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
+    PreparedScalarProjectionStrategy,
+    PreparedAggregateStreamingInputs<'ctx>,
+);
 
 // Typed boundary request for one scalar field-projection terminal family call.
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
@@ -140,7 +145,7 @@ where
     // route instead of the two-step ranked-id plus follow-up field load path.
     pub(in crate::db) fn execute_scalar_extrema_value_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
@@ -168,7 +173,7 @@ where
     // projection contract, and then execute that contract.
     pub(in crate::db) fn execute_scalar_projection_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
@@ -182,13 +187,13 @@ where
     }
 
     // Lower one public scalar field-projection request into one prepared
-    // projection contract that no longer retains `ExecutablePlan<E>`.
+    // projection contract that no longer retains `PreparedExecutionPlan<E>`.
     fn prepare_scalar_projection_boundary(
         &self,
         plan: PreparedAggregatePlan,
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
-    ) -> Result<PreparedScalarProjectionExecutionState<'_>, InternalError> {
+    ) -> Result<PreparedScalarProjectionExecution<'_>, InternalError> {
         let target_field_name = target_field.field().to_string();
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot(&target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
@@ -199,38 +204,28 @@ where
 
         let strategy = Self::prepare_scalar_projection_strategy(&prepared, &target_field_name, op);
 
-        Ok(PreparedScalarProjectionExecutionState {
-            boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary {
+        Ok((
+            crate::db::executor::aggregate::PreparedScalarProjectionBoundary {
                 target_field_name,
                 field_slot,
                 op,
             },
             strategy,
             prepared,
-        })
+        ))
     }
 
     // Execute one prepared field-projection contract without re-reading
     // access-path, covering, or distinct policy from the original plan.
     fn execute_prepared_scalar_projection_boundary(
         &self,
-        prepared_state: PreparedScalarProjectionExecutionState<'_>,
+        prepared_state: PreparedScalarProjectionExecution<'_>,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        let PreparedScalarProjectionExecutionState {
-            boundary,
-            strategy,
-            prepared,
-        } = prepared_state;
+        let (boundary, strategy, prepared) = prepared_state;
 
         match strategy {
             PreparedScalarProjectionStrategy::Materialized => {
-                let row_layout = prepared.authority.row_layout();
-
-                self.execute_materialized_scalar_projection_boundary(
-                    boundary,
-                    prepared,
-                    &row_layout,
-                )
+                self.execute_materialized_scalar_projection_boundary(boundary, prepared)
             }
             PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
                 Self::execute_streaming_count_non_null_scalar_projection_boundary(
@@ -430,9 +425,7 @@ where
             }
         }
 
-        let row_layout = prepared.authority.row_layout();
-
-        self.execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout)
+        self.execute_materialized_scalar_projection_boundary(boundary, prepared)
     }
 
     // Execute one prepared constant projection contract without revisiting
@@ -524,7 +517,6 @@ where
         &self,
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
         prepared: PreparedAggregateStreamingInputs<'_>,
-        row_layout: &RowLayout,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = boundary.op {
             return self
@@ -537,14 +529,13 @@ where
                 .map(ScalarProjectionBoundaryOutput::TerminalValue);
         }
 
-        let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
                 let projected_values = Self::project_field_values_from_materialized_structural(
                     rows,
-                    row_layout,
+                    &row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )?;
@@ -559,7 +550,7 @@ where
             PreparedScalarProjectionOp::DistinctValues => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
-                    row_layout,
+                    &row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
@@ -569,7 +560,7 @@ where
             PreparedScalarProjectionOp::CountNonNull => {
                 Self::count_non_null_field_values_from_materialized_structural(
                     rows,
-                    row_layout,
+                    &row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
@@ -578,7 +569,7 @@ where
             PreparedScalarProjectionOp::CountDistinct => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
-                    row_layout,
+                    &row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
@@ -592,7 +583,7 @@ where
             PreparedScalarProjectionOp::ValuesWithIds => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
-                    row_layout,
+                    &row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )

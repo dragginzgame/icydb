@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
+        executor::{PreparedExecutionPlan, pipeline::contracts::LoadExecutor},
         response::EntityResponse,
     },
     error::InternalError,
@@ -20,7 +20,7 @@ where
     /// Execute one `take(k)` terminal over the canonical load response.
     pub(in crate::db) fn take(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_take_terminal_boundary(plan.into_prepared_load_plan(), take_count)

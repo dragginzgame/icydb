@@ -48,7 +48,7 @@ impl GroupedCursorPolicyViolation {
     }
 }
 
-/// Return whether grouped HAVING supports this compare operator in grouped v1.
+/// Return whether grouped HAVING supports this compare operator.
 #[must_use]
 pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
     predicate_grouped_having_compare_op_supported(op)
@@ -97,14 +97,14 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{CompareOp, evaluate_grouped_having_compare_v1},
+        db::predicate::{CompareOp, evaluate_grouped_having_compare},
         value::Value,
     };
 
     #[test]
     fn grouped_having_numeric_equality_uses_numeric_widen_semantics() {
         let matched =
-            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Eq, &Value::Int(7))
+            evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Eq, &Value::Int(7))
                 .expect("eq should be supported");
 
         assert!(matched);
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn grouped_having_numeric_ordering_uses_numeric_widen_semantics() {
         let matched =
-            evaluate_grouped_having_compare_v1(&Value::Uint(2), CompareOp::Lt, &Value::Int(3))
+            evaluate_grouped_having_compare(&Value::Uint(2), CompareOp::Lt, &Value::Int(3))
                 .expect("lt should be supported");
 
         assert!(matched);
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn grouped_having_numeric_vs_non_numeric_is_fail_closed() {
-        let matched = evaluate_grouped_having_compare_v1(
+        let matched = evaluate_grouped_having_compare(
             &Value::Uint(7),
             CompareOp::Eq,
             &Value::Text("7".to_string()),
@@ -133,11 +133,10 @@ mod tests {
 
     #[test]
     fn grouped_having_null_eq_matches_only_null_values() {
-        let null_eq = evaluate_grouped_having_compare_v1(&Value::Null, CompareOp::Eq, &Value::Null)
+        let null_eq = evaluate_grouped_having_compare(&Value::Null, CompareOp::Eq, &Value::Null)
             .expect("eq should be supported");
-        let uint_eq =
-            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Eq, &Value::Null)
-                .expect("eq should be supported");
+        let uint_eq = evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Eq, &Value::Null)
+            .expect("eq should be supported");
 
         assert!(null_eq);
         assert!(!uint_eq);
@@ -145,11 +144,10 @@ mod tests {
 
     #[test]
     fn grouped_having_null_ne_matches_only_non_null_values() {
-        let null_ne = evaluate_grouped_having_compare_v1(&Value::Null, CompareOp::Ne, &Value::Null)
+        let null_ne = evaluate_grouped_having_compare(&Value::Null, CompareOp::Ne, &Value::Null)
             .expect("ne should be supported");
-        let uint_ne =
-            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Ne, &Value::Null)
-                .expect("ne should be supported");
+        let uint_ne = evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Ne, &Value::Null)
+            .expect("ne should be supported");
 
         assert!(!null_ne);
         assert!(uint_ne);

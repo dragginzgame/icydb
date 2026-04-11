@@ -94,7 +94,7 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
         execution_mode,
         ordering_source,
         limit: route_plan.continuation().limit(),
-        cursor: route_plan.continuation().capabilities().applied(),
+        cursor: route_plan.continuation().applied(),
         node_properties,
     }
 }

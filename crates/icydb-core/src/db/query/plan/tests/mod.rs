@@ -4,8 +4,10 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+mod covering;
 mod error_mapping;
 mod group;
+mod planner;
 mod pushdown;
 mod semantics;
 mod structural_guards;

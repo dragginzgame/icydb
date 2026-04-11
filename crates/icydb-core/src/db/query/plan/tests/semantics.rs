@@ -738,7 +738,7 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
             execution: GroupedExecutionConfig::unbounded(),
         });
     let continuation = grouped
-        .continuation_contract(<PlanValidateIndexedEntity as Path>::PATH)
+        .planned_continuation_contract(<PlanValidateIndexedEntity as Path>::PATH)
         .expect("grouped plan should project continuation contract");
 
     assert_eq!(

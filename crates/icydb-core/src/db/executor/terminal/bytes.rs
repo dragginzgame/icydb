@@ -9,16 +9,15 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            CoveringProjectionComponentRows, ExecutableAccess, ExecutablePlan, PreparedLoadPlan,
-            TraversalRuntime,
+            CoveringProjectionComponentRows, ExecutableAccess, PreparedExecutionPlan,
+            PreparedLoadPlan, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_from_decoded_slot,
                 resolve_any_aggregate_target_slot_from_planner_slot,
             },
-            covering_projection_scan_direction, covering_requires_row_presence_check,
-            decode_single_covering_projection_pairs,
-            executable_plan::classify_bytes_by_projection_mode,
+            classify_bytes_by_projection_mode, covering_projection_scan_direction,
+            covering_requires_row_presence_check, decode_single_covering_projection_pairs,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
@@ -312,7 +311,10 @@ where
     }
 
     /// Execute one `bytes()` terminal over the canonical load response.
-    pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
+    pub(in crate::db) fn bytes(
+        &self,
+        plan: PreparedExecutionPlan<E>,
+    ) -> Result<u64, InternalError> {
         self.execute_total_bytes_terminal_boundary(plan.into_prepared_load_plan())
     }
 
@@ -320,7 +322,7 @@ where
     /// window using one planner-resolved field slot.
     pub(in crate::db) fn bytes_by_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<u64, InternalError> {
         self.execute_bytes_by_slot_terminal_boundary(plan.into_prepared_load_plan(), target_field)

@@ -1,4 +1,4 @@
-//! Module: db::executor::executable_plan
+//! Module: db::executor::prepared_execution_plan
 //! Responsibility: bind validated access-planned queries to executor-ready contracts.
 //! Does not own: logical plan semantics or route policy decisions.
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
@@ -19,8 +19,8 @@ use crate::{
         predicate::MissingRowPolicy,
         query::explain::ExplainExecutionNodeDescriptor,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupSpec, OrderSpec,
-            QueryMode, constant_covering_projection_value_from_access,
+            AccessPlannedQuery, ExecutionOrdering, GroupSpec, OrderSpec,
+            PlannedContinuationContract, QueryMode, constant_covering_projection_value_from_access,
             covering_index_projection_context,
         },
     },
@@ -31,14 +31,14 @@ use std::marker::PhantomData;
 #[cfg(test)]
 use std::ops::Bound;
 ///
-/// ExecutionStrategy
+/// ExecutionFamily
 ///
-/// Executor-facing execution shape contract derived from planner ordering.
+/// Executor-facing execution family summary derived from planner ordering.
 /// Session and runtime entrypoints consume this strategy and must not
 /// re-derive grouped/scalar routing shape from boolean flags.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionStrategy {
+pub enum ExecutionFamily {
     PrimaryKey,
     Ordered,
     Grouped,
@@ -89,29 +89,29 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
     BytesByProjectionMode::Materialized
 }
 
-/// ExecutablePlanCore
+/// PreparedExecutionPlanCore
 ///
-/// Generic-free executable-plan payload shared by typed `ExecutablePlan<E>`
+/// Generic-free prepared execution-plan payload shared by typed `PreparedExecutionPlan<E>`
 /// wrappers. This keeps cursor, ordering, and lowered structural plan state
 /// monomorphic while typed access and model-driven behavior remain at the
 /// outer executor boundary.
 ///
 
 #[derive(Debug)]
-struct ExecutablePlanCore {
+struct PreparedExecutionPlanCore {
     plan: AccessPlannedQuery,
-    continuation: Option<ContinuationContract>,
+    continuation: Option<PlannedContinuationContract>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
     index_range_spec_invalid: bool,
 }
 
-impl ExecutablePlanCore {
+impl PreparedExecutionPlanCore {
     #[must_use]
     const fn new(
         plan: AccessPlannedQuery,
-        continuation: Option<ContinuationContract>,
+        continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
         index_prefix_spec_invalid: bool,
         index_range_specs: Vec<LoweredIndexRangeSpec>,
@@ -150,13 +150,13 @@ impl ExecutablePlanCore {
         Ok(contract.order_contract().ordering().clone())
     }
 
-    fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
+    fn execution_family(&self) -> Result<ExecutionFamily, InternalError> {
         let ordering = self.execution_ordering()?;
 
         Ok(match ordering {
-            ExecutionOrdering::PrimaryKey => ExecutionStrategy::PrimaryKey,
-            ExecutionOrdering::Explicit(_) => ExecutionStrategy::Ordered,
-            ExecutionOrdering::Grouped(_) => ExecutionStrategy::Grouped,
+            ExecutionOrdering::PrimaryKey => ExecutionFamily::PrimaryKey,
+            ExecutionOrdering::Explicit(_) => ExecutionFamily::Ordered,
+            ExecutionOrdering::Grouped(_) => ExecutionFamily::Grouped,
         })
     }
 
@@ -267,7 +267,7 @@ impl ExecutablePlanCore {
     ) -> Result<GroupedPaginationWindow, InternalError> {
         let contract = self.continuation_contract()?;
         let window = contract
-            .grouped_paging_window(cursor)
+            .project_grouped_paging_window(cursor)
             .map_err(CursorPlanError::into_internal_error)?;
         let (
             limit,
@@ -287,24 +287,24 @@ impl ExecutablePlanCore {
     }
 
     // Borrow immutable continuation contract for load-mode plans.
-    fn continuation_contract(&self) -> Result<&ContinuationContract, InternalError> {
+    fn continuation_contract(&self) -> Result<&PlannedContinuationContract, InternalError> {
         self.continuation.as_ref().ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })
     }
 }
 
-// Build one canonical lowered executable-plan core from resolved authority
+// Build one canonical lowered prepared execution-plan core from resolved authority
 // plus one logical plan, regardless of whether the caller started from a typed
-// `ExecutablePlan<E>` shell or a structural follow-on rewrite.
-fn build_executable_plan_core(
+// `PreparedExecutionPlan<E>` shell or a structural follow-on rewrite.
+fn build_prepared_execution_plan_core(
     authority: EntityAuthority,
     mut plan: AccessPlannedQuery,
-) -> ExecutablePlanCore {
+) -> PreparedExecutionPlanCore {
     authority.finalize_static_planning_shape(&mut plan);
 
     // Phase 0: derive immutable continuation contract once from planner semantics.
-    let continuation = plan.continuation_contract(authority.entity_path());
+    let continuation = plan.planned_continuation_contract(authority.entity_path());
 
     // Phase 1: lower index-prefix specs once and retain invariant state.
     let (index_prefix_specs, index_prefix_spec_invalid) =
@@ -320,7 +320,7 @@ fn build_executable_plan_core(
             Err(_) => (Vec::new(), true),
         };
 
-    ExecutablePlanCore::new(
+    PreparedExecutionPlanCore::new(
         plan,
         continuation,
         index_prefix_specs,
@@ -331,14 +331,14 @@ fn build_executable_plan_core(
 }
 
 ///
-/// ExecutablePlan
+/// PreparedExecutionPlan
 ///
 /// Executor-ready plan bound to a specific entity type.
 ///
 
 #[derive(Debug)]
-pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
-    core: ExecutablePlanCore,
+pub(in crate::db) struct PreparedExecutionPlan<E: EntityKind> {
+    core: PreparedExecutionPlanCore,
     marker: PhantomData<fn() -> E>,
 }
 
@@ -346,14 +346,14 @@ pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
 /// PreparedLoadPlan
 ///
 /// Generic-free load-plan boundary consumed by continuation resolution and
-/// load pipeline preparation after the typed `ExecutablePlan<E>` shell is no
+/// load pipeline preparation after the typed `PreparedExecutionPlan<E>` shell is no
 /// longer needed.
 ///
 
 #[derive(Debug)]
 pub(in crate::db::executor) struct PreparedLoadPlan {
     authority: EntityAuthority,
-    core: ExecutablePlanCore,
+    core: PreparedExecutionPlanCore,
 }
 
 impl PreparedLoadPlan {
@@ -364,7 +364,7 @@ impl PreparedLoadPlan {
     ) -> Self {
         Self {
             authority,
-            core: build_executable_plan_core(authority, plan),
+            core: build_prepared_execution_plan_core(authority, plan),
         }
     }
 
@@ -444,14 +444,14 @@ impl PreparedLoadPlan {
 /// PreparedAggregatePlan
 ///
 /// Generic-free aggregate-plan boundary consumed by aggregate terminal and
-/// runtime preparation after the typed `ExecutablePlan<E>` shell is no longer
+/// runtime preparation after the typed `PreparedExecutionPlan<E>` shell is no longer
 /// needed.
 ///
 
 #[derive(Debug)]
 pub(in crate::db::executor) struct PreparedAggregatePlan {
     authority: EntityAuthority,
-    core: ExecutablePlanCore,
+    core: PreparedExecutionPlanCore,
 }
 
 impl PreparedAggregatePlan {
@@ -490,7 +490,7 @@ impl PreparedAggregatePlan {
     }
 
     /// Re-shape one prepared aggregate plan into one grouped prepared load plan
-    /// without reconstructing a typed `ExecutablePlan<E>` shell.
+    /// without reconstructing a typed `PreparedExecutionPlan<E>` shell.
     #[must_use]
     pub(in crate::db::executor) fn into_grouped_load_plan(
         self,
@@ -500,7 +500,7 @@ impl PreparedAggregatePlan {
     }
 }
 
-impl<E: EntityKind> ExecutablePlan<E> {
+impl<E: EntityKind> PreparedExecutionPlan<E> {
     pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
         Self::build(plan)
     }
@@ -511,7 +511,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
-            core: build_executable_plan_core(authority, plan),
+            core: build_prepared_execution_plan_core(authority, plan),
             marker: PhantomData,
         }
     }
@@ -554,15 +554,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.mode()
     }
 
-    /// Return whether this executable plan carries grouped logical shape.
+    /// Return whether this prepared execution plan carries grouped logical shape.
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
         self.core.is_grouped()
     }
 
     /// Return planner-projected execution strategy for entrypoint dispatch.
-    pub(in crate::db) fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
-        self.core.execution_strategy()
+    pub(in crate::db) fn execution_family(&self) -> Result<ExecutionFamily, InternalError> {
+        self.core.execution_family()
     }
 
     /// Borrow the structural logical plan for executor-owned tests.
@@ -620,13 +620,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
-    /// Borrow scalar ORDER BY contract for this executable plan, if any.
+    /// Borrow scalar ORDER BY contract for this prepared execution plan, if any.
     #[must_use]
     pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
         self.core.order_spec()
     }
 
-    /// Return whether this executable plan has a residual predicate.
+    /// Return whether this prepared execution plan has a residual predicate.
     #[must_use]
     pub(in crate::db::executor) fn has_predicate(&self) -> bool {
         self.core.has_predicate()
@@ -685,7 +685,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             format!("plan_hash={}", plan.fingerprint()),
             format!("mode={:?}", self.core.mode()),
             format!("is_grouped={}", self.core.is_grouped()),
-            format!("execution_strategy={:?}", self.core.execution_strategy()?),
+            format!("execution_family={:?}", self.core.execution_family()?),
             format!(
                 "load_terminal_fast_path={}",
                 render_load_terminal_fast_path_label(load_terminal_fast_path.as_ref())
@@ -708,10 +708,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         .join("\n"))
     }
 
-    /// Split the executable plan into its canonical structural logical plan.
+    /// Split the prepared execution plan into its canonical structural logical plan.
     ///
     /// Aggregate/scalar prepared boundaries should prefer this helper when they
-    /// no longer need the typed `ExecutablePlan<E>` shell after entering
+    /// no longer need the typed `PreparedExecutionPlan<E>` shell after entering
     /// structural execution preparation.
     pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
         self.core.into_inner()
@@ -746,7 +746,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             .map_err(ExecutorPlanError::from)
     }
 
-    /// Consume one typed load executable plan into one generic-free boundary
+    /// Consume one typed prepared execution plan into one generic-free boundary
     /// payload for continuation and load-pipeline preparation.
     #[must_use]
     pub(in crate::db::executor) fn into_prepared_load_plan(self) -> PreparedLoadPlan {
@@ -756,7 +756,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
-    /// Consume one typed aggregate executable plan into one generic-free
+    /// Consume one typed prepared execution plan into one generic-free
     /// boundary payload for aggregate terminal and runtime preparation.
     #[must_use]
     pub(in crate::db::executor) fn into_prepared_aggregate_plan(self) -> PreparedAggregatePlan {

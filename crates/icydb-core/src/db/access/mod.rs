@@ -22,7 +22,7 @@ pub(in crate::db) use dispatch::{
 };
 pub(in crate::db) use dispatch::{ExecutableAccessPathDispatch, dispatch_executable_access_path};
 pub(in crate::db) use execution_contract::{
-    AccessExecutionMode, AccessRouteClass, AccessStrategy, ExecutableAccessNode,
+    AccessPathExecutionKind, AccessRouteClass, AccessStrategy, ExecutableAccessNode,
     ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode,
     ExecutionOrdering, ExecutionPathPayload,
 };

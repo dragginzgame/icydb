@@ -7,7 +7,7 @@ use crate::{
     db::{
         PersistedRow,
         executor::{
-            ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
+            LoadExecutor, PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
             ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
             ScalarTerminalBoundaryRequest,
         },
@@ -61,7 +61,7 @@ where
     fn execute_scalar_non_paged_terminal<T, F>(&self, execute: F) -> Result<T, QueryError>
     where
         E: EntityValue,
-        F: FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,
+        F: FnOnce(LoadExecutor<E>, PreparedExecutionPlan<E>) -> Result<T, InternalError>,
     {
         self.ensure_non_paged_mode_ready()?;
 

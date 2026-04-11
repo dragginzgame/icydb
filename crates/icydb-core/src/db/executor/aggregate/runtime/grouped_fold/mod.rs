@@ -4,8 +4,6 @@
 //! Boundary: consumes grouped route-stage payload and emits grouped fold-stage payload.
 
 mod bundle;
-mod engine_init;
-mod ingest;
 mod page_finalize;
 
 use std::{
@@ -23,11 +21,11 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                bundle::GroupedAggregateBundle, engine_init::build_grouped_bundle,
-                ingest::fold_group_rows_into_bundle, page_finalize::finalize_grouped_page,
+                bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
+                page_finalize::finalize_grouped_page,
             },
             aggregate::{
-                ExecutionContext, GroupError,
+                ExecutionContext, GroupError, aggregate_materialized_fold_direction,
                 runtime::{
                     grouped_distinct::{
                         execute_global_distinct_field_aggregate,
@@ -488,6 +486,48 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     )
 }
 
+// Build the shared grouped aggregate bundle for canonical grouped terminal
+// projection layout.
+fn build_grouped_bundle(
+    route: &GroupedRouteStage,
+    grouped_execution_context: &ExecutionContext,
+) -> Result<GroupedAggregateBundle, InternalError> {
+    if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy()).is_some()
+    {
+        return Ok(GroupedAggregateBundle::new(Vec::new()));
+    }
+
+    let grouped_specs = route
+        .projection_layout()
+        .aggregate_positions()
+        .iter()
+        .enumerate()
+        .map(|(aggregate_index, projection_index)| {
+            let aggregate_spec = route
+                .grouped_aggregate_execution_specs()
+                .get(aggregate_index)
+                .ok_or_else(|| {
+                    GroupedRouteStage::aggregate_index_out_of_bounds_for_projection_layout(
+                        *projection_index,
+                        aggregate_index,
+                    )
+                })?;
+
+            GroupedAggregateBundleSpec::new(
+                aggregate_spec.kind(),
+                aggregate_materialized_fold_direction(aggregate_spec.kind()),
+                aggregate_spec.distinct(),
+                aggregate_spec.target_field().cloned(),
+                grouped_execution_context
+                    .config()
+                    .max_distinct_values_per_group(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(GroupedAggregateBundle::new(grouped_specs))
+}
+
 // Execute one grouped global-DISTINCT route through the existing dedicated
 // grouped distinct aggregate path when that strategy is active.
 fn try_execute_global_distinct_grouped_fold_stage(
@@ -598,6 +638,62 @@ fn execute_single_grouped_count_fold_stage(
         stream,
         scanned_rows,
     ))
+}
+
+// Ingest grouped source rows into the shared grouped bundle while preserving
+// grouped budget contracts and borrowed grouped-key fast paths.
+fn fold_group_rows_into_bundle(
+    route: &GroupedRouteStage,
+    stream: &mut GroupedStreamStage,
+    grouped_execution_context: &mut ExecutionContext,
+    grouped_bundle: &mut GroupedAggregateBundle,
+) -> Result<(usize, usize), InternalError> {
+    let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
+    let compiled_predicate = execution_preparation.compiled_predicate();
+    let mut scanned_rows = 0usize;
+    let mut filtered_rows = 0usize;
+    let consistency = route.consistency();
+
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+        let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+            continue;
+        };
+        scanned_rows = scanned_rows.saturating_add(1);
+        if let Some(compiled_predicate) = compiled_predicate
+            && !row_view.eval_predicate(compiled_predicate)
+        {
+            continue;
+        }
+        filtered_rows = filtered_rows.saturating_add(1);
+
+        // Phase 1: preserve the borrowed grouped-key fast path so existing
+        // groups stay allocation-free on the hot ingest loop.
+        let borrowed_group_hash = if supports_borrowed_group_probe(&row_view, route.group_fields())?
+        {
+            Some(stable_hash_group_values_from_row_view(
+                &row_view,
+                route.group_fields(),
+            )?)
+        } else {
+            None
+        };
+        let mut owned_group_key = None;
+
+        // Phase 2: update the shared per-group aggregate-state row instead of
+        // routing the row through one engine-owned group map per aggregate.
+        grouped_bundle
+            .ingest_row(
+                grouped_execution_context,
+                &data_key,
+                &row_view,
+                route.group_fields(),
+                borrowed_group_hash,
+                &mut owned_group_key,
+            )
+            .map_err(GroupError::into_internal_error)?;
+    }
+
+    Ok((scanned_rows, filtered_rows))
 }
 
 // Execute the canonical grouped reducer/finalize path for every grouped shape
@@ -991,7 +1087,7 @@ fn grouped_count_row_matches_window(
     });
     let aggregate_value = Value::Uint(u64::from(count));
     if let Some(grouped_having) = route.grouped_having()
-        && !crate::db::executor::aggregate::runtime::grouped_having::group_matches_having(
+        && !crate::db::executor::aggregate::runtime::group_matches_having(
             grouped_having,
             route.group_fields(),
             group_key.canonical_value(),

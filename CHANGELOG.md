@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
+- `0.75.8` keeps the cleanup line moving by simplifying relation validation around one shared strong-relation model, renaming the prepared execution-plan boundary to match its actual role, flattening a few more grouped aggregate/runtime helper layers, and trimming stale hidden exports and tiny helper modules across the build, schema, and facade crates without changing query behavior.
 - `0.75.7` keeps trimming executor and aggregate indirection by flattening continuation and terminal helper layers, so more query execution paths now run through one shared planning/runtime boundary instead of small wrapper-only contracts.
 - `0.75.6` keeps the cleanup line moving by making executor planning a real ownership boundary, collapsing more duplicated SQL and pipeline wrapper flows, and simplifying diagnostics so incompatible stored bytes are reported as corruption instead of a fake compatibility bucket, without widening the query surface.
 - `0.75.5` continues the cleanup line by hard-cutting fake internal cursor versioning, collapsing a few more aggregate/relation/explain wrapper seams, and deleting several tiny helper-only query modules so the repo carries less compatibility theater and less file-level indirection before `0.76`.

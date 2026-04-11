@@ -908,10 +908,10 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
     );
     assert!(
         matches!(
-            trace.execution_strategy(),
-            Some(crate::db::TraceExecutionStrategy::Ordered)
+            trace.execution_family(),
+            Some(crate::db::TraceExecutionFamily::Ordered)
         ),
-        "ordered load shapes should project ordered execution strategy in trace payload",
+        "ordered load shapes should project ordered execution family in trace payload",
     );
     assert!(
         matches!(

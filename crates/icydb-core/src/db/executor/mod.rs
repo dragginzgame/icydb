@@ -8,7 +8,6 @@ mod authority;
 mod covering;
 mod delete;
 pub(in crate::db::executor) mod diagnostics;
-mod executable_plan;
 mod explain;
 pub(in crate::db) mod group;
 mod kernel;
@@ -17,6 +16,7 @@ mod order;
 mod pipeline;
 mod plan_metrics;
 pub(super) mod planning;
+mod prepared_execution_plan;
 mod projection;
 pub(in crate::db) use planning::route;
 mod runtime_context;
@@ -54,9 +54,6 @@ pub(super) use delete::DeleteExecutor;
 #[cfg(feature = "sql")]
 pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
-pub use executable_plan::ExecutionStrategy;
-pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan};
-pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
 pub(in crate::db) use explain::{
     assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
     assemble_load_execution_verbose_diagnostics,
@@ -69,16 +66,21 @@ pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
-pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
+pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use planning::continuation::{
-    AccessWindow, ContinuationCapabilities, ContinuationMode, GroupedContinuationContext,
-    GroupedPaginationWindow, LoadCursorInput, LoadCursorResolver, PreparedLoadCursor,
-    RouteContinuationPlan, ScalarContinuationContext,
+    AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
+    LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, RouteContinuationPlan,
+    ScalarContinuationContext,
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub use planning::route::RouteExecutionMode;
+pub use prepared_execution_plan::ExecutionFamily;
+pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedExecutionPlan};
+pub(in crate::db::executor) use prepared_execution_plan::{
+    PreparedAggregatePlan, PreparedLoadPlan, classify_bytes_by_projection_mode,
+};
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub use projection::SqlProjectionTextExecutorAttribution;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
@@ -91,11 +93,24 @@ pub use projection::{
 pub(in crate::db) use projection::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
 };
-pub(in crate::db) use runtime_context::*;
+pub(in crate::db) use runtime_context::{
+    Context, StoreResolver, record_row_check_covering_candidate_seen,
+    record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
+    record_row_check_index_membership_multi_key_entry,
+    record_row_check_index_membership_single_key_entry, record_row_check_row_emitted,
+};
 #[cfg(feature = "structural-read-metrics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
+pub(in crate::db::executor) use runtime_context::{
+    read_data_row_with_consistency_from_store, read_row_presence_ignoring_missing_from_store,
+    read_row_presence_requiring_existing_from_store,
+    read_row_presence_with_consistency_from_data_store,
+    sum_row_payload_bytes_from_ordered_key_stream_with_store,
+    sum_row_payload_bytes_full_scan_window_with_store,
+    sum_row_payload_bytes_key_range_window_with_store,
+};
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
@@ -115,7 +130,7 @@ pub(in crate::db::executor) use util::saturating_row_len;
 ///
 /// Canonical route-to-kernel execution contract for read execution.
 /// This is route-owned policy output (mode, hints, fast-path ordering),
-/// while `ExecutablePlan` remains the validated query/lowered-spec container.
+/// while `PreparedExecutionPlan` remains the validated query/lowered-spec container.
 ///
 
 pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoutePlan;
@@ -202,10 +217,10 @@ impl ExecutorPlanError {
     }
 
     /// Construct one executor plan error for load execution descriptor access
-    /// attempted against non-load executable plans.
+    /// attempted against non-load prepared execution plans.
     pub(in crate::db) fn load_execution_descriptor_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant(
-            "load execution descriptor requires load-mode executable plans",
+            "load execution descriptor requires load-mode prepared execution plans",
         )
     }
 
@@ -306,11 +321,11 @@ impl From<ExecutorError> for InternalError {
     }
 }
 
-impl<E> From<CompiledQuery<E>> for ExecutablePlan<E>
+impl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>
 where
     E: EntityKind,
 {
     fn from(value: CompiledQuery<E>) -> Self {
-        value.into_executable()
+        value.into_prepared_execution_plan()
     }
 }

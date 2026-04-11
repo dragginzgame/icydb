@@ -423,6 +423,9 @@ Code is considered non-trivial if it:
 
 * Framework: Rust test harness.
 * Unit tests live near code (`mod tests`); macro/schema integration tests live in `testing/macro-tests`.
+* Use leaf-local `mod tests` / `tests.rs` only for unit coverage that stays within the owning module's boundary.
+* If a test needs shared subsystem fixtures, sibling-module behavior, route/pipeline/executor semantics, planner-wide policy, or other cross-module contracts, place it under a subsystem `tests/` directory rooted at that boundary instead of another leaf `tests.rs`.
+* Do not add new cross-module behavior suites to leaf `tests.rs` files when an owner-level `tests/` module already exists for that subsystem.
 * Every inline unit test module (`mod tests`) MUST be preceded by the exact doc banner:
 
 ```rust

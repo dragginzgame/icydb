@@ -221,11 +221,6 @@ impl ExecutionOrderContract {
     }
 
     #[must_use]
-    pub(in crate::db) const fn supports_cursor(&self) -> bool {
-        self.supports_cursor
-    }
-
-    #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
         matches!(&self.ordering, ExecutionOrdering::Grouped(_))
     }

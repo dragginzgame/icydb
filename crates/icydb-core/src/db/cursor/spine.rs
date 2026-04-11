@@ -261,6 +261,7 @@ fn validate_cursor_boundary_anchor_invariants<K: FieldValue, S: CursorPlanSurfac
 }
 
 /// Validate and materialize grouped cursor state through the canonical cursor spine.
+#[cfg(test)]
 pub(in crate::db) fn validate_grouped_cursor(
     cursor: Option<&[u8]>,
     entity_path: &'static str,
@@ -316,6 +317,7 @@ pub(in crate::db) fn validate_grouped_cursor_state(
 }
 
 // Decode one grouped continuation token through the grouped token codec boundary.
+#[cfg(test)]
 fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken, CursorPlanError> {
     GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)
 }

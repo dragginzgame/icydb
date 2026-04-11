@@ -3,6 +3,9 @@ use crate::prelude::*;
 ///
 /// Validator
 ///
+/// Schema node describing one named validator definition and its shared
+/// definition metadata.
+///
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Validator {

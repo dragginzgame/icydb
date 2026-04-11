@@ -7,7 +7,7 @@
 use crate::db::executor::{
     ExecutionTrace,
     pipeline::contracts::{GroupedCursorPage, StructuralCursorPage},
-    pipeline::orchestrator::LoadExecutionMode,
+    pipeline::orchestrator::LoadSurfaceMode,
     pipeline::orchestrator::strategy::ExecutionSpec,
 };
 
@@ -18,13 +18,13 @@ use crate::db::executor::{
 /// Owns immutable entrypoint mode contracts consumed by pipeline stages.
 ///
 pub(in crate::db::executor::pipeline::orchestrator) struct LoadExecutionContext {
-    pub(in crate::db::executor::pipeline::orchestrator) mode: LoadExecutionMode,
+    pub(in crate::db::executor::pipeline::orchestrator) mode: LoadSurfaceMode,
 }
 
 impl LoadExecutionContext {
     // Construct one immutable execution context from one normalized mode contract.
     pub(in crate::db::executor::pipeline::orchestrator) const fn new(
-        mode: LoadExecutionMode,
+        mode: LoadSurfaceMode,
     ) -> Self {
         Self { mode }
     }

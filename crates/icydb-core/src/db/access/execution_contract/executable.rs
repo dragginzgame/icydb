@@ -7,7 +7,7 @@ use crate::{
     db::access::{
         AccessPathKind, ExecutableAccessPathDispatch, dispatch_executable_access_path,
         execution_contract::{
-            AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
+            AccessPathExecutionKind, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
             ExecutionPathPayload,
         },
     },
@@ -25,7 +25,7 @@ use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPath<'a, K> {
-    mode: AccessExecutionMode,
+    execution_kind: AccessPathExecutionKind,
     ordering: ExecutionOrdering,
     bounds: ExecutionBounds,
     distinct: ExecutionDistinctMode,
@@ -37,7 +37,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     /// Construct a normalized executable-path contract.
     #[must_use]
     pub(in crate::db) const fn new(
-        mode: AccessExecutionMode,
+        execution_kind: AccessPathExecutionKind,
         ordering: ExecutionOrdering,
         bounds: ExecutionBounds,
         distinct: ExecutionDistinctMode,
@@ -45,7 +45,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
         payload: ExecutionPathPayload<'a, K>,
     ) -> Self {
         Self {
-            mode,
+            execution_kind,
             ordering,
             bounds,
             distinct,
@@ -76,10 +76,10 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
         }
     }
 
-    /// Return the coarse execution mode.
+    /// Return the coarse execution kind for this path.
     #[must_use]
-    pub(in crate::db) const fn mode(&self) -> AccessExecutionMode {
-        self.mode
+    pub(in crate::db) const fn execution_kind(&self) -> AccessPathExecutionKind {
+        self.execution_kind
     }
 
     /// Return ordering mechanics for this path.
@@ -171,7 +171,7 @@ pub(in crate::db) enum ExecutableAccessNode<'a, K> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
-    pub(in crate::db) mode: AccessExecutionMode,
+    pub(in crate::db) execution_kind: AccessPathExecutionKind,
     pub(in crate::db) ordering: ExecutionOrdering,
     pub(in crate::db) bounds: ExecutionBounds,
     pub(in crate::db) distinct: ExecutionDistinctMode,
@@ -184,7 +184,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     #[must_use]
     pub(in crate::db) const fn for_path(path: ExecutableAccessPath<'a, K>) -> Self {
         Self {
-            mode: path.mode(),
+            execution_kind: path.execution_kind(),
             ordering: path.ordering(),
             bounds: path.bounds(),
             distinct: path.distinct(),
@@ -197,7 +197,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     #[must_use]
     pub(in crate::db) fn union(children: Vec<Self>) -> Self {
         Self {
-            mode: AccessExecutionMode::Composite,
+            execution_kind: AccessPathExecutionKind::Composite,
             ordering: ExecutionOrdering::Natural,
             bounds: ExecutionBounds::Unbounded,
             distinct: ExecutionDistinctMode::RequiresMaterialization,
@@ -210,7 +210,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     #[must_use]
     pub(in crate::db) fn intersection(children: Vec<Self>) -> Self {
         Self {
-            mode: AccessExecutionMode::Intersect,
+            execution_kind: AccessPathExecutionKind::Intersect,
             ordering: ExecutionOrdering::Natural,
             bounds: ExecutionBounds::Unbounded,
             distinct: ExecutionDistinctMode::RequiresMaterialization,

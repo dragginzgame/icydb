@@ -264,6 +264,9 @@ surfaces together, treat that as an exception that must be justified explicitly.
 If tests are split into a separate file, declare `mod tests;` at the top with other module declarations.
 If tests are inline, keep `#[cfg(test)] mod tests { ... }` at the bottom of the module.
 For inline tests, the `///`, `/// TESTS`, `///` banner must have exactly one blank line before it and one blank line after it.
+Use leaf-local `tests.rs` only for tests that stay within that module's own boundary.
+If a test exercises subsystem behavior across sibling modules, shared fixtures, orchestration layers, or boundary contracts, move it to a subsystem-level `tests/` directory owned by that boundary instead of adding another leaf `tests.rs`.
+When a subsystem already has an owner suite such as `executor/tests/`, prefer extending that suite over creating new cross-module `tests.rs` files in leaves.
 
 Imported module example (top of file):
 

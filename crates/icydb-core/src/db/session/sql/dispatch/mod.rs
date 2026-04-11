@@ -313,7 +313,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let plan = self
             .compile_query_with_visible_indexes(query)?
-            .into_executable();
+            .into_prepared_execution_plan();
         let deleted = self
             .with_metrics(|| self.delete_executor::<E>().execute_sql_projection(plan))
             .map_err(QueryError::execute)?;

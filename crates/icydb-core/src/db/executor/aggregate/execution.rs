@@ -205,7 +205,7 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
 /// PreparedAggregateExecutionState
 ///
 /// PreparedAggregateExecutionState is the canonical scalar aggregate execution
-/// payload after the typed boundary has consumed `ExecutablePlan<E>`.
+/// payload after the typed boundary has consumed `PreparedExecutionPlan<E>`.
 /// It keeps aggregate descriptor state together with prepared logical/runtime
 /// inputs so downstream execution no longer reconstructs typed plan shells.
 ///
@@ -219,7 +219,7 @@ pub(in crate::db::executor) struct PreparedAggregateExecutionState<'ctx> {
 /// PreparedAggregateStreamingInputs
 ///
 /// PreparedAggregateStreamingInputs owns canonical aggregate streaming setup
-/// state after `ExecutablePlan` is consumed into logical plan form.
+/// state after `PreparedExecutionPlan` is consumed into logical plan form.
 ///
 
 pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
@@ -315,7 +315,7 @@ impl PreparedAggregateStreamingInputsCore {}
 ///
 /// Non-generic numeric terminal operation resolved at the typed scalar
 /// boundary. Execution branches only on this operation selector plus the
-/// prepared strategy and no longer inspect `ExecutablePlan<E>`.
+/// prepared strategy and no longer inspect `PreparedExecutionPlan<E>`.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -411,20 +411,6 @@ pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
     GlobalDistinct {
         route: Box<GroupedRouteStage>,
     },
-}
-
-///
-/// PreparedScalarNumericExecutionState
-///
-/// PreparedScalarNumericExecutionState pairs one non-generic numeric boundary
-/// contract with the runtime payload needed to execute it.
-/// The boundary itself is plan-free; only the payload determines which
-/// execution family runs.
-///
-
-pub(in crate::db::executor) struct PreparedScalarNumericExecutionState<'ctx> {
-    pub(in crate::db::executor) boundary: PreparedScalarNumericBoundary,
-    pub(in crate::db::executor) payload: PreparedScalarNumericPayload<'ctx>,
 }
 
 ///
@@ -579,7 +565,7 @@ pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
 /// PreparedScalarProjectionBoundary is the plan-free scalar projection
 /// contract derived once at the typed boundary.
 /// It captures the resolved field slot and operation kind without retaining
-/// `ExecutablePlan<E>`.
+/// `PreparedExecutionPlan<E>`.
 ///
 
 #[derive(Clone, Debug)]
@@ -587,21 +573,6 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
     pub(in crate::db::executor) target_field_name: String,
     pub(in crate::db::executor) field_slot: FieldSlot,
     pub(in crate::db::executor) op: PreparedScalarProjectionOp,
-}
-
-///
-/// PreparedScalarProjectionExecutionState
-///
-/// PreparedScalarProjectionExecutionState combines the non-generic prepared
-/// projection contract with the runtime payload required to execute it.
-/// The executor matches the prepared strategy directly while treating the
-/// projection boundary as the stable contract for downstream helpers.
-///
-
-pub(in crate::db::executor) struct PreparedScalarProjectionExecutionState<'ctx> {
-    pub(in crate::db::executor) boundary: PreparedScalarProjectionBoundary,
-    pub(in crate::db::executor) strategy: PreparedScalarProjectionStrategy,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 impl PreparedAggregateStreamingInputs<'_> {
@@ -727,7 +698,7 @@ impl PreparedScalarTerminalOp {
 /// Non-generic scalar terminal execution strategy selected during typed
 /// boundary preparation.
 /// Runtime execution matches this enum directly instead of re-reading fast-path
-/// eligibility from `ExecutablePlan<E>`.
+/// eligibility from `PreparedExecutionPlan<E>`.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -743,27 +714,13 @@ pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
 /// PreparedScalarTerminalBoundary is the plan-free scalar terminal contract
 /// derived once at the typed boundary for COUNT, EXISTS, and id terminals.
 /// It carries the resolved operation and selected execution strategy without
-/// retaining `ExecutablePlan<E>`.
+/// retaining `PreparedExecutionPlan<E>`.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct PreparedScalarTerminalBoundary {
     pub(in crate::db::executor) op: PreparedScalarTerminalOp,
     pub(in crate::db::executor) strategy: PreparedScalarTerminalStrategy,
-}
-
-///
-/// PreparedScalarTerminalExecutionState
-///
-/// PreparedScalarTerminalExecutionState pairs one prepared scalar terminal
-/// boundary with the runtime payload needed to execute it.
-/// Terminal execution consumes this prepared state directly and no longer
-/// receives plan-owned fast-path policy.
-///
-
-pub(in crate::db::executor) struct PreparedScalarTerminalExecutionState<'ctx> {
-    pub(in crate::db::executor) boundary: PreparedScalarTerminalBoundary,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///
@@ -802,21 +759,6 @@ pub(in crate::db::executor) enum PreparedFieldOrderSensitiveTerminalOp {
     Nth { nth: usize },
     Median,
     MinMax,
-}
-
-///
-/// PreparedOrderSensitiveTerminalExecutionState
-///
-/// PreparedOrderSensitiveTerminalExecutionState pairs one prepared
-/// order-sensitive terminal boundary with the runtime payload needed to
-/// execute it.
-/// Runtime execution consumes this state directly instead of rebuilding the
-/// same slot-resolution and prepared aggregate inputs ad hoc.
-///
-
-pub(in crate::db::executor) struct PreparedOrderSensitiveTerminalExecutionState<'ctx> {
-    pub(in crate::db::executor) boundary: PreparedOrderSensitiveTerminalBoundary,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 impl PreparedScalarProjectionOp {

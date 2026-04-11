@@ -47,18 +47,22 @@ impl GroupedContinuationToken {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::db) const fn signature(&self) -> ContinuationSignature {
         self.signature
     }
 
+    #[cfg(test)]
     pub(in crate::db) const fn last_group_key(&self) -> &[Value] {
         self.last_group_key.as_slice()
     }
 
+    #[cfg(test)]
     pub(in crate::db) const fn direction(&self) -> Direction {
         self.direction
     }
 
+    #[cfg(test)]
     pub(in crate::db) const fn initial_offset(&self) -> u32 {
         self.initial_offset
     }

@@ -12,7 +12,7 @@ use crate::{
             CursorPlanError, GroupedContinuationToken,
         },
         direction::Direction,
-        executor::{ExecutablePlan, ExecutorPlanError},
+        executor::{ExecutorPlanError, PreparedExecutionPlan},
     },
     types::Ulid,
     value::Value,
@@ -26,7 +26,11 @@ fn unwrap_cursor_plan_error(err: ExecutorPlanError) -> CursorPlanError {
 }
 
 // Build the current scalar continuation contract used by the executor cursor boundary.
-fn scalar_phase_plan() -> (ExecutablePlan<PhaseEntity>, ContinuationSignature, u32) {
+fn scalar_phase_plan() -> (
+    PreparedExecutionPlan<PhaseEntity>,
+    ContinuationSignature,
+    u32,
+) {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
@@ -34,17 +38,17 @@ fn scalar_phase_plan() -> (ExecutablePlan<PhaseEntity>, ContinuationSignature, u
         .expect("scalar phase query should plan")
         .into_inner();
     let continuation = plan
-        .continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
+        .planned_continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
         .expect("scalar phase load plan should project continuation contract");
     let signature = continuation.continuation_signature();
     let initial_offset = continuation.expected_initial_offset();
 
-    (ExecutablePlan::new(plan), signature, initial_offset)
+    (PreparedExecutionPlan::new(plan), signature, initial_offset)
 }
 
 // Build the grouped continuation contract used by grouped executor cursor validation.
 fn grouped_pushdown_plan() -> (
-    ExecutablePlan<PushdownParityEntity>,
+    PreparedExecutionPlan<PushdownParityEntity>,
     ContinuationSignature,
     u32,
 ) {
@@ -57,12 +61,12 @@ fn grouped_pushdown_plan() -> (
         .expect("grouped query should plan")
         .into_inner();
     let continuation = plan
-        .continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
+        .planned_continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
         .expect("grouped load plan should project continuation contract");
     let signature = continuation.continuation_signature();
     let initial_offset = continuation.expected_initial_offset();
 
-    (ExecutablePlan::new(plan), signature, initial_offset)
+    (PreparedExecutionPlan::new(plan), signature, initial_offset)
 }
 
 #[test]
@@ -150,7 +154,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         .expect("foreign entity plan should build")
         .into_inner();
     let foreign_contract = foreign_plan
-        .continuation_contract(<SimpleEntity as crate::traits::Path>::PATH)
+        .planned_continuation_contract(<SimpleEntity as crate::traits::Path>::PATH)
         .expect("foreign entity load plan should project continuation contract");
     let foreign_cursor = ContinuationToken::new_with_direction(
         foreign_contract.continuation_signature(),
@@ -165,7 +169,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     .encode()
     .expect("foreign entity cursor should encode");
 
-    let local_plan: ExecutablePlan<PhaseEntity> = {
+    let local_plan: PreparedExecutionPlan<PhaseEntity> = {
         let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .limit(1)
@@ -173,7 +177,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
             .expect("local entity plan should build")
             .into_inner();
 
-        ExecutablePlan::new(plan)
+        PreparedExecutionPlan::new(plan)
     };
     let err = unwrap_cursor_plan_error(
         local_plan
@@ -197,10 +201,10 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
         .expect("offset plan should build")
         .into_inner();
     let continuation = plan
-        .continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
+        .planned_continuation_contract(<PhaseEntity as crate::traits::Path>::PATH)
         .expect("offset load plan should project continuation contract");
     let signature = continuation.continuation_signature();
-    let plan: ExecutablePlan<PhaseEntity> = ExecutablePlan::new(plan);
+    let plan: PreparedExecutionPlan<PhaseEntity> = PreparedExecutionPlan::new(plan);
     let boundary = CursorBoundary {
         slots: vec![
             CursorBoundarySlot::Present(Value::Uint(10)),
@@ -236,7 +240,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
         .expect("grouped source plan should build")
         .into_inner();
     let source_contract = source_plan
-        .continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
+        .planned_continuation_contract(<PushdownParityEntity as crate::traits::Path>::PATH)
         .expect("grouped source plan should project continuation contract");
     let cursor = GroupedContinuationToken::new_with_direction(
         source_contract.continuation_signature(),
@@ -255,7 +259,8 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
         .plan()
         .expect("grouped target plan should build")
         .into_inner();
-    let target_plan: ExecutablePlan<PushdownParityEntity> = ExecutablePlan::new(target_plan);
+    let target_plan: PreparedExecutionPlan<PushdownParityEntity> =
+        PreparedExecutionPlan::new(target_plan);
     let err = unwrap_cursor_plan_error(
         target_plan
             .prepare_grouped_cursor(Some(cursor.as_slice()))

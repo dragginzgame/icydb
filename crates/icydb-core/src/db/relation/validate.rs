@@ -13,9 +13,9 @@ use crate::{
             metadata::{StrongRelationInfo, strong_relations_for_model_iter},
             model_has_strong_relations_to_target,
             reverse_index::{
-                ReverseRelationSourceInfo, decode_relation_target_data_key_for_relation,
-                decode_reverse_entry, relation_target_store,
-                reverse_index_key_for_target_storage_key, source_row_references_relation_target,
+                ReverseRelationSourceInfo, decode_relation_target_data_key, decode_reverse_entry,
+                relation_target_store, reverse_index_key_for_target_storage_key,
+                source_row_references_relation_target,
             },
         },
     },
@@ -119,7 +119,7 @@ where
         let target_index_store = relation_target_store(db, source_info, relation)?;
 
         for target_raw_key in deleted_target_keys {
-            let Some(target_data_key) = decode_relation_target_data_key_for_relation(
+            let Some(target_data_key) = decode_relation_target_data_key(
                 source_info,
                 relation,
                 target_raw_key,

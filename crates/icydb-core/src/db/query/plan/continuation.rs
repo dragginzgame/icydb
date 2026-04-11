@@ -6,10 +6,7 @@
 use crate::{
     db::{
         access::AccessPlan,
-        cursor::{
-            ContinuationSignature, CursorPlanError, CursorValidationOutcome, GroupedPlannedCursor,
-            PlannedCursor,
-        },
+        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
@@ -19,7 +16,7 @@ use crate::{
 };
 
 ///
-/// ContinuationContract
+/// PlannedContinuationContract
 ///
 /// Immutable planner-owned continuation semantic contract.
 /// Runtime layers consume this contract and must not re-derive continuation
@@ -27,7 +24,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ContinuationContract {
+pub(in crate::db) struct PlannedContinuationContract {
     pub(in crate::db) shape_signature: ExecutionShapeSignature,
     pub(in crate::db) boundary_arity: usize,
     pub(in crate::db) window_size: usize,
@@ -78,6 +75,69 @@ impl GroupedContinuationWindow {
         self,
     ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
         (
+            self.limit,
+            self.initial_offset_for_page,
+            self.selection_bound,
+            self.resume_initial_offset,
+            self.resume_boundary,
+        )
+    }
+}
+
+///
+/// GroupedWindowProjection
+///
+/// Internal grouped paging-window projection assembled from one planned
+/// continuation contract plus validated grouped cursor state.
+/// This keeps grouped resume arithmetic in one local phase instead of spreading
+/// it across the outward `GroupedContinuationWindow` construction path.
+///
+
+struct GroupedWindowProjection {
+    limit: Option<usize>,
+    initial_offset_for_page: usize,
+    selection_bound: Option<usize>,
+    resume_initial_offset: u32,
+    resume_boundary: Option<Value>,
+}
+
+impl GroupedWindowProjection {
+    // Project grouped window arithmetic from planner-owned continuation state.
+    fn from_contract_and_cursor(
+        contract: &PlannedContinuationContract,
+        cursor: &GroupedPlannedCursor,
+    ) -> Self {
+        let resume_initial_offset = if cursor.is_empty() {
+            contract.effective_offset(false)
+        } else {
+            cursor.initial_offset()
+        };
+        let initial_offset_for_page = if cursor.is_empty() {
+            contract.window_size()
+        } else {
+            0
+        };
+        let selection_bound = contract.page_limit().and_then(|limit| {
+            limit
+                .checked_add(initial_offset_for_page)
+                .and_then(|count| count.checked_add(1))
+        });
+        let resume_boundary = cursor
+            .last_group_key()
+            .map(|last_group_key| Value::List(last_group_key.to_vec()));
+
+        Self {
+            limit: contract.page_limit(),
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        }
+    }
+
+    // Finalize the outward grouped paging-window DTO.
+    fn into_window(self) -> GroupedContinuationWindow {
+        GroupedContinuationWindow::new(
             self.limit,
             self.initial_offset_for_page,
             self.selection_bound,
@@ -190,7 +250,7 @@ impl ScalarAccessWindowPlan {
     }
 }
 
-impl ContinuationContract {
+impl PlannedContinuationContract {
     #[must_use]
     pub(in crate::db) const fn new(
         shape_signature: ExecutionShapeSignature,
@@ -274,36 +334,6 @@ impl ContinuationContract {
         effective_offset_for_cursor_window(self.expected_initial_offset(), cursor_present)
     }
 
-    /// Validate optional cursor bytes against this immutable continuation contract.
-    pub(in crate::db) fn validate_cursor_bytes(
-        &self,
-        entity_path: &'static str,
-        entity_tag: crate::types::EntityTag,
-        entity_model: &crate::model::entity::EntityModel,
-        bytes: Option<&[u8]>,
-    ) -> Result<CursorValidationOutcome, CursorPlanError> {
-        if self.is_grouped() {
-            self.validate_grouped_cursor_policy_if_applied(bytes.is_some())?;
-        }
-
-        let access = if self.is_grouped() {
-            None
-        } else {
-            self.access_plan().resolve_strategy().as_path().cloned()
-        };
-
-        crate::db::cursor::validate_cursor_compatibility(
-            &self.order_contract,
-            access,
-            entity_path,
-            entity_tag,
-            entity_model,
-            self.continuation_signature(),
-            self.expected_initial_offset(),
-            bytes,
-        )
-    }
-
     /// Validate scalar cursor bytes against this immutable continuation contract.
     pub(in crate::db) fn prepare_scalar_cursor(
         &self,
@@ -318,14 +348,17 @@ impl ContinuationContract {
             ));
         }
 
-        match self.validate_cursor_bytes(entity_path, entity_tag, entity_model, bytes)? {
-            CursorValidationOutcome::Scalar(cursor) => Ok(*cursor),
-            CursorValidationOutcome::Grouped(_) => {
-                Err(CursorPlanError::continuation_cursor_invariant(
-                    "grouped plans require grouped cursor preparation",
-                ))
-            }
-        }
+        crate::db::cursor::prepare_cursor(
+            self.access_plan().resolve_strategy().as_path().cloned(),
+            entity_path,
+            entity_tag,
+            entity_model,
+            self.order_contract.order_spec(),
+            self.order_contract.direction(),
+            self.continuation_signature(),
+            self.expected_initial_offset(),
+            bytes,
+        )
     }
 
     /// Validate grouped cursor bytes against this immutable continuation contract.
@@ -398,7 +431,7 @@ impl ContinuationContract {
     }
 
     /// Derive grouped paging contracts from validated grouped cursor state.
-    pub(in crate::db) fn grouped_paging_window(
+    pub(in crate::db) fn project_grouped_paging_window(
         &self,
         cursor: &GroupedPlannedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
@@ -407,32 +440,7 @@ impl ContinuationContract {
             !cursor.is_empty(),
         )?;
 
-        let resume_initial_offset = if cursor.is_empty() {
-            self.effective_offset(false)
-        } else {
-            cursor.initial_offset()
-        };
-        let initial_offset_for_page = if cursor.is_empty() {
-            self.window_size()
-        } else {
-            0
-        };
-        let selection_bound = self.page_limit().and_then(|limit| {
-            limit
-                .checked_add(initial_offset_for_page)
-                .and_then(|count| count.checked_add(1))
-        });
-        let resume_boundary = cursor
-            .last_group_key()
-            .map(|last_group_key| Value::List(last_group_key.to_vec()));
-
-        Ok(GroupedContinuationWindow::new(
-            self.page_limit(),
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ))
+        Ok(GroupedWindowProjection::from_contract_and_cursor(self, cursor).into_window())
     }
 
     // Enforce grouped continuation ownership once for all grouped cursor entrypoints.
@@ -488,10 +496,10 @@ impl AccessPlannedQuery {
 
     /// Build one immutable continuation contract from planner-owned semantics.
     #[must_use]
-    pub(in crate::db) fn continuation_contract(
+    pub(in crate::db) fn planned_continuation_contract(
         &self,
         entity_path: &'static str,
-    ) -> Option<ContinuationContract> {
+    ) -> Option<PlannedContinuationContract> {
         if !self.scalar_plan().mode.is_load() {
             return None;
         }
@@ -525,7 +533,7 @@ impl AccessPlannedQuery {
             .grouped_plan()
             .and_then(|grouped| grouped_cursor_policy_violation(grouped, true));
 
-        Some(ContinuationContract::new(
+        Some(PlannedContinuationContract::new(
             shape_signature,
             boundary_arity,
             window_size,
@@ -543,7 +551,7 @@ impl AccessPlannedQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContinuationContract, ScalarAccessWindowPlan};
+    use super::{PlannedContinuationContract, ScalarAccessWindowPlan};
     use crate::{
         db::{
             access::{AccessPath, AccessPlan},
@@ -563,8 +571,10 @@ mod tests {
         ContinuationSignature::from_bytes([0x11; 32])
     }
 
-    fn grouped_contract(violation: Option<GroupedCursorPolicyViolation>) -> ContinuationContract {
-        ContinuationContract::new(
+    fn grouped_contract(
+        violation: Option<GroupedCursorPolicyViolation>,
+    ) -> PlannedContinuationContract {
+        PlannedContinuationContract::new(
             ExecutionShapeSignature::new(continuation_signature_fixture()),
             1,
             4,
@@ -575,7 +585,7 @@ mod tests {
         )
     }
 
-    fn applied_grouped_cursor(contract: &ContinuationContract) -> GroupedPlannedCursor {
+    fn applied_grouped_cursor(contract: &PlannedContinuationContract) -> GroupedPlannedCursor {
         GroupedPlannedCursor::new(vec![Value::Uint(7)], contract.expected_initial_offset())
     }
 
@@ -618,7 +628,7 @@ mod tests {
             .prepare_grouped_cursor_token("PlanEntity", Some(continuation_token))
             .expect_err("grouped cursor token reuse should honor grouped cursor policy");
         let window_err = contract
-            .grouped_paging_window(&applied_grouped_cursor(&contract))
+            .project_grouped_paging_window(&applied_grouped_cursor(&contract))
             .expect_err("grouped paging window should honor grouped cursor policy");
 
         assert!(matches!(
@@ -643,7 +653,7 @@ mod tests {
             .prepare_grouped_cursor_token("PlanEntity", None)
             .expect("initial grouped page should not be blocked by continuation-only policy");
         let window = contract
-            .grouped_paging_window(&GroupedPlannedCursor::none())
+            .project_grouped_paging_window(&GroupedPlannedCursor::none())
             .expect(
                 "initial grouped page window should not be blocked by continuation-only policy",
             );

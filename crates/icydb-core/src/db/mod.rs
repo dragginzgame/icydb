@@ -38,13 +38,12 @@ use crate::{
         registry::StoreHandle,
         relation::model_has_strong_relations_to_target,
     },
+    error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
-#[doc(hidden)]
-pub use crate::error::InternalError;
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::{
@@ -70,7 +69,7 @@ pub use diagnostics::{
 #[doc(hidden)]
 pub use executor::EntityAuthority;
 pub use executor::MutationMode;
-pub use executor::{ExecutionStrategy, RouteExecutionMode};
+pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
 pub use executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
@@ -116,7 +115,7 @@ pub use query::{
     },
     intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
-    trace::{QueryTracePlan, TraceExecutionStrategy},
+    trace::{QueryTracePlan, TraceExecutionFamily},
 };
 pub use registry::StoreRegistry;
 pub(in crate::db) use response::GroupedTextCursorPageWithTrace;

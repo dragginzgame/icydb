@@ -1,5 +1,4 @@
 mod db;
-mod macros;
 
 use icydb_schema::{
     build::get_schema,
@@ -21,6 +20,31 @@ pub fn generate(canister_path: &str) -> String {
     let tokens = code.generate();
 
     tokens.to_string()
+}
+
+/// Build-script helper that emits generated actor code for one schema canister path.
+///
+/// The generated file only contains actor/runtime wiring. Schema registration
+/// remains derive-owned and is not performed by this helper.
+#[macro_export]
+macro_rules! build {
+    ($actor:expr) => {
+        use std::{env::var, fs::File, io::Write, path::PathBuf};
+
+        // Register the build inputs and generated-code cfg knobs expected by
+        // the emitted actor glue.
+        println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rustc-check-cfg=cfg(icydb)");
+        println!("cargo:rustc-check-cfg=cfg(feature, values(\"sql\"))");
+        println!("cargo:rustc-cfg=icydb");
+
+        // Render the actor module into Cargo's output directory.
+        let out_dir = var("OUT_DIR").expect("OUT_DIR not set");
+        let output = ::icydb::build::generate($actor);
+        let actor_file = PathBuf::from(out_dir.clone()).join("actor.rs");
+        let mut file = File::create(actor_file)?;
+        file.write_all(output.as_bytes())?;
+    };
 }
 
 ///

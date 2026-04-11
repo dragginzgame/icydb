@@ -7,6 +7,8 @@ mod grouped;
 mod scalar;
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+use crate::db::executor::pipeline::contracts::StructuralCursorPage;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 use crate::{
     db::{
         Db,
@@ -24,10 +26,8 @@ use crate::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         data::decode_data_rows_into_entity_response,
         executor::{
-            ExecutablePlan, ExecutionTrace, LoadCursorInput,
-            pipeline::contracts::{
-                CursorPage, GroupedCursorPage, LoadExecutor, StructuralCursorPage,
-            },
+            CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
+            pipeline::contracts::{GroupedCursorPage, LoadExecutor},
         },
         response::EntityResponse,
     },
@@ -36,7 +36,7 @@ use crate::{
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
-    LoadExecutionMode, LoadTracingMode,
+    LoadSurfaceMode, LoadTracingMode,
 };
 #[cfg(test)]
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
@@ -56,22 +56,6 @@ pub(in crate::db) use scalar::{
     execute_initial_scalar_sql_projection_rows_for_canister,
     execute_initial_scalar_sql_projection_text_rows_for_canister,
 };
-
-// Decode one structural scalar page into the final typed cursor page at the
-// executor entrypoint boundary instead of on the structural page payload type.
-pub(in crate::db::executor) fn decode_structural_page_into_cursor_page<E>(
-    page: StructuralCursorPage,
-) -> Result<CursorPage<E>, InternalError>
-where
-    E: PersistedRow + EntityValue,
-{
-    let (data_rows, next_cursor) = page.into_parts();
-
-    Ok(CursorPage {
-        items: decode_data_rows_into_entity_response::<E>(data_rows)?,
-        next_cursor,
-    })
-}
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub(in crate::db) fn execute_initial_scalar_sql_projection_page_for_canister<C>(
@@ -100,7 +84,7 @@ where
     // Execute one scalar load plan without explicit cursor input.
     pub(crate) fn execute(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         let page = execute_prepared_scalar_rows_for_canister(
             &self.db,
@@ -115,7 +99,7 @@ where
     // Execute one scalar load plan and optionally emit execution trace output.
     pub(in crate::db) fn execute_paged_with_cursor_traced(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         self.execute_load_scalar_page_with_trace(
@@ -128,7 +112,7 @@ where
     #[cfg(test)]
     pub(in crate::db) fn execute_paged_with_cursor(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<CursorPage<E>, InternalError> {
         let (page, _) = self.execute_paged_with_cursor_traced(plan, cursor)?;
@@ -139,7 +123,7 @@ where
     // Execute one grouped load plan with grouped cursor support and trace output.
     pub(in crate::db) fn execute_grouped_paged_with_cursor_traced(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         cursor: impl Into<GroupedPlannedCursor>,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         self.execute_load_grouped_page_with_trace(

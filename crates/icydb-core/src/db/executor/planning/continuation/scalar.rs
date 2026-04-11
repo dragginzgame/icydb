@@ -16,9 +16,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
-            planning::{
-                continuation::capabilities::ContinuationCapabilities, route::LoadOrderRouteContract,
-            },
+            planning::route::LoadOrderRouteContract,
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
@@ -130,15 +128,6 @@ impl ScalarContinuationContext {
         }
     }
 
-    /// Derive immutable continuation capabilities from runtime + planner policy.
-    #[must_use]
-    pub(in crate::db::executor) const fn continuation_capabilities(
-        &self,
-        continuation_policy: ContinuationPolicy,
-    ) -> ContinuationCapabilities {
-        ContinuationCapabilities::new(self.route_continuation_mode(), continuation_policy)
-    }
-
     /// Derive one route continuation plan from scalar runtime state and planner policy.
     ///
     /// This keeps continuation/window derivation in continuation authority so
@@ -149,9 +138,9 @@ impl ScalarContinuationContext {
         plan: &AccessPlannedQuery,
         continuation_policy: ContinuationPolicy,
     ) -> RouteContinuationPlan {
-        let continuation_capabilities = self.continuation_capabilities(continuation_policy);
         RouteContinuationPlan::from_scalar_access_window_plan(
-            continuation_capabilities,
+            self.route_continuation_mode(),
+            continuation_policy,
             plan.scalar_access_window_plan(self.has_cursor_boundary()),
         )
     }
@@ -175,9 +164,7 @@ impl ScalarContinuationContext {
         route_continuation: RouteContinuationPlan,
     ) {
         debug_assert!(
-            route_continuation
-                .capabilities()
-                .strict_advance_required_when_applied(),
+            route_continuation.strict_advance_required_when_applied(),
             "route invariant: continuation executions must enforce strict advancement policy",
         );
         debug_assert_eq!(

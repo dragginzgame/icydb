@@ -12,7 +12,7 @@ use crate::{
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::{
-                grouped_fold::bundle::GroupedAggregateBundle, grouped_having::group_matches_having,
+                group_matches_having, grouped_fold::bundle::GroupedAggregateBundle,
                 grouped_output::project_grouped_values_from_projection,
             },
             group::GroupKey,

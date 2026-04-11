@@ -6,6 +6,8 @@
 use crate::{
     db::{
         data::{DataKey, DataRow, PersistedRow, RawRow},
+        executor::CursorPage,
+        executor::PageCursor,
         response::{EntityResponse, Row},
     },
     error::InternalError,
@@ -65,6 +67,20 @@ where
     }
 
     Ok(EntityResponse::new(decoded_rows))
+}
+
+/// Decode persisted data rows into one typed cursor page at the final typed boundary.
+pub(in crate::db) fn decode_data_rows_into_cursor_page<E>(
+    rows: Vec<DataRow>,
+    next_cursor: Option<PageCursor>,
+) -> Result<CursorPage<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    Ok(CursorPage {
+        items: decode_data_rows_into_entity_response::<E>(rows)?,
+        next_cursor,
+    })
 }
 
 // Build the canonical row-decode failure message for one persisted row.

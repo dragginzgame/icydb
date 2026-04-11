@@ -8,24 +8,15 @@ use crate::{
     db::{
         Db,
         relation::{
-            StrongRelationTargetInfo, build_relation_target_raw_key,
-            for_each_relation_target_value, strong_relation_target_from_kind,
+            for_each_relation_target_value,
+            metadata::{StrongRelationInfo, strong_relations_for_model_iter},
+            raw_relation_target_key_from_value,
         },
     },
     error::InternalError,
-    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
-
-/// Return `true` when one entity model declares at least one strong relation target.
-#[must_use]
-pub(in crate::db) fn model_has_strong_relation_targets(model: &'static EntityModel) -> bool {
-    model
-        .fields()
-        .iter()
-        .any(|field| strong_relation_target_from_kind(&field.kind).is_some())
-}
 
 /// Validate strong relation references for one save candidate entity.
 pub(in crate::db) fn validate_save_strong_relations<E>(
@@ -36,22 +27,20 @@ where
     E: EntityKind + EntityValue,
 {
     // Phase 1: identify strong relation fields and read declared relation values.
-    for (field_index, field) in E::MODEL.fields.iter().enumerate() {
-        let Some(relation) = strong_relation_target_from_kind(&field.kind) else {
-            continue;
-        };
-
-        let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::executor_invariant(format!(
-                "entity field missing: {} field={}",
-                E::PATH,
-                field.name
-            ))
-        })?;
+    for relation in strong_relations_for_model_iter(E::MODEL, None) {
+        let value = entity
+            .get_value_by_index(relation.field_index)
+            .ok_or_else(|| {
+                InternalError::executor_invariant(format!(
+                    "entity field missing: {} field={}",
+                    E::PATH,
+                    relation.field_name
+                ))
+            })?;
 
         // Phase 2: validate each referenced relation key against target storage.
         for_each_relation_target_value(&value, |item| {
-            validate_save_relation_value::<E>(db, field.name, relation, item)
+            validate_save_relation_value::<E>(db, relation, item)
         })?;
     }
 
@@ -61,15 +50,14 @@ where
 /// Validate one strong relation key against target-store membership.
 fn validate_save_relation_value<E>(
     db: &Db<E::Canister>,
-    field_name: &str,
-    relation: StrongRelationTargetInfo,
+    relation: StrongRelationInfo,
     value: &Value,
 ) -> Result<(), InternalError>
 where
     E: EntityKind + EntityValue,
 {
     // Phase 1: normalize relation key into canonical target raw-key form.
-    let raw_key = build_relation_target_raw_key(
+    let raw_key = raw_relation_target_key_from_value(
         relation.target_entity_tag,
         relation.target_entity_name,
         value,
@@ -78,7 +66,7 @@ where
         InternalError::relation_target_raw_key_error(
             err,
             E::PATH,
-            field_name,
+            relation.field_name,
             relation.target_path,
             relation.target_entity_name,
             value,
@@ -93,7 +81,7 @@ where
         .map_err(|err| {
             InternalError::strong_relation_target_store_missing(
                 E::PATH,
-                field_name,
+                relation.field_name,
                 relation.target_path,
                 relation.target_store_path,
                 value,
@@ -104,7 +92,7 @@ where
     if !exists {
         return Err(InternalError::strong_relation_target_missing(
             E::PATH,
-            field_name,
+            relation.field_name,
             relation.target_path,
             value,
         ));

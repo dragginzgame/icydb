@@ -100,17 +100,17 @@ pub(in crate::db) fn compare_text(
     }
 }
 
-/// Return whether grouped HAVING supports this compare operator in grouped v1.
+/// Return whether grouped HAVING supports this compare operator.
 #[must_use]
 pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
     grouped_having_compare_kind(op).is_some()
 }
 
-/// Evaluate one grouped HAVING comparison under grouped-v1 predicate semantics.
+/// Evaluate one grouped HAVING comparison under the canonical grouped semantics.
 ///
-/// Returns `None` when `op` is outside grouped HAVING v1 support.
+/// Returns `None` when `op` is outside grouped HAVING support.
 #[must_use]
-pub(in crate::db) fn evaluate_grouped_having_compare_v1(
+pub(in crate::db) fn evaluate_grouped_having_compare(
     actual: &Value,
     op: CompareOp,
     expected: &Value,

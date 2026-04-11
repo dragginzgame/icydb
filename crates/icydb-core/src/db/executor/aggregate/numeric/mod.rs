@@ -16,7 +16,7 @@ use crate::{
         data::DataRow,
         direction::Direction,
         executor::{
-            ExecutablePlan, PreparedAggregatePlan,
+            PreparedAggregatePlan, PreparedExecutionPlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_from_decoded_slot,
@@ -26,8 +26,7 @@ use crate::{
             aggregate::{
                 PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
                 PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary,
-                PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
-                PreparedScalarNumericPayload,
+                PreparedScalarNumericOp, PreparedScalarNumericPayload,
             },
             pipeline::contracts::LoadExecutor,
             terminal::{RowDecoder, RowLayout},
@@ -65,6 +64,11 @@ impl ScalarNumericFieldBoundaryRequest {
     }
 }
 
+type PreparedScalarNumericExecution<'ctx> = (
+    PreparedScalarNumericBoundary,
+    PreparedScalarNumericPayload<'ctx>,
+);
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -74,7 +78,7 @@ where
     // execute the prepared boundary.
     pub(in crate::db) fn execute_numeric_field_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<Option<Decimal>, InternalError> {
@@ -94,7 +98,7 @@ where
         plan: PreparedAggregatePlan,
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
-    ) -> Result<PreparedScalarNumericExecutionState<'_>, InternalError> {
+    ) -> Result<PreparedScalarNumericExecution<'_>, InternalError> {
         // Phase 1: resolve the plan-free numeric boundary exactly once.
         let boundary =
             Self::resolve_prepared_scalar_numeric_boundary(&plan, &target_field, request)?;
@@ -102,16 +106,16 @@ where
         // Phase 2: derive the execution payload family from the prepared boundary.
         let payload = self.prepare_scalar_numeric_payload(plan, &boundary, request)?;
 
-        Ok(PreparedScalarNumericExecutionState { boundary, payload })
+        Ok((boundary, payload))
     }
 
     // Execute one prepared numeric aggregate contract without re-deriving
     // strategy from the original plan.
     fn execute_prepared_scalar_numeric_boundary(
         &self,
-        prepared_state: PreparedScalarNumericExecutionState<'_>,
+        prepared_state: PreparedScalarNumericExecution<'_>,
     ) -> Result<Option<Decimal>, InternalError> {
-        let PreparedScalarNumericExecutionState { boundary, payload } = prepared_state;
+        let (boundary, payload) = prepared_state;
 
         match payload {
             PreparedScalarNumericPayload::Aggregate { strategy, prepared } => {
@@ -130,9 +134,7 @@ where
                         )
                     }
                     PreparedScalarNumericAggregateStrategy::Materialized => {
-                        let row_layout = prepared.authority.row_layout();
-                        let page = self.execute_scalar_materialized_page_stage(prepared)?;
-                        let (rows, _) = page.into_parts();
+                        let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
                         Self::aggregate_numeric_field_from_materialized(
                             rows,

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::ExecutablePlan,
+        executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::intent::Query,
         query::plan::{
@@ -1174,9 +1174,9 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
     let sql_executable =
-        ExecutablePlan::from(sql_query.plan().expect("grouped SQL executable plan"));
+        PreparedExecutionPlan::from(sql_query.plan().expect("grouped SQL executable plan"));
     let fluent_executable =
-        ExecutablePlan::from(fluent_query.plan().expect("fluent grouped executable plan"));
+        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent grouped executable plan"));
     assert_eq!(sql_executable.mode(), fluent_executable.mode());
     assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
     assert_eq!(sql_executable.access(), fluent_executable.access());
@@ -1186,12 +1186,12 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
     );
     assert_eq!(
         sql_executable
-            .execution_strategy()
-            .expect("grouped SQL execution strategy"),
+            .execution_family()
+            .expect("grouped SQL execution family"),
         fluent_executable
-            .execution_strategy()
-            .expect("fluent grouped execution strategy"),
-        "equivalent grouped SQL and fluent grouped queries must produce identical executable strategy",
+            .execution_family()
+            .expect("fluent grouped execution family"),
+        "equivalent grouped SQL and fluent grouped queries must produce identical executable family",
     );
     assert_eq!(
         sql_executable
@@ -1246,9 +1246,10 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
     );
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
-    let sql_executable = ExecutablePlan::from(sql_query.plan().expect("SQL executable plan"));
+    let sql_executable =
+        PreparedExecutionPlan::from(sql_query.plan().expect("SQL executable plan"));
     let fluent_executable =
-        ExecutablePlan::from(fluent_query.plan().expect("fluent executable plan"));
+        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent executable plan"));
     assert_eq!(sql_executable.mode(), fluent_executable.mode());
     assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
     assert_eq!(sql_executable.access(), fluent_executable.access());
@@ -1258,12 +1259,12 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
     );
     assert_eq!(
         sql_executable
-            .execution_strategy()
-            .expect("SQL execution strategy"),
+            .execution_family()
+            .expect("SQL execution family"),
         fluent_executable
-            .execution_strategy()
-            .expect("fluent execution strategy"),
-        "equivalent SQL and fluent field-list projections must produce identical executable strategy",
+            .execution_family()
+            .expect("fluent execution family"),
+        "equivalent SQL and fluent field-list projections must produce identical executable family",
     );
     assert_eq!(
         sql_executable
@@ -1646,14 +1647,14 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
     );
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
-    let sql_executable = ExecutablePlan::from(
+    let sql_executable = PreparedExecutionPlan::from(
         sql_command
             .query()
             .plan()
             .expect("global aggregate SQL base executable plan"),
     );
     let fluent_executable =
-        ExecutablePlan::from(fluent_query.plan().expect("fluent scalar executable plan"));
+        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent scalar executable plan"));
     assert_eq!(sql_executable.mode(), fluent_executable.mode());
     assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
     assert_eq!(sql_executable.access(), fluent_executable.access());
@@ -1663,12 +1664,12 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
     );
     assert_eq!(
         sql_executable
-            .execution_strategy()
-            .expect("global aggregate SQL base execution strategy"),
+            .execution_family()
+            .expect("global aggregate SQL base execution family"),
         fluent_executable
-            .execution_strategy()
-            .expect("fluent scalar execution strategy"),
-        "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable strategy",
+            .execution_family()
+            .expect("fluent scalar execution family"),
+        "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable family",
     );
     assert_eq!(
         sql_executable

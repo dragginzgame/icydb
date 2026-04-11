@@ -249,6 +249,7 @@ impl CursorPlanError {
 
     /// Construct one invariant error for cursor surfaces that require either
     /// explicit scalar ordering or canonical grouped ordering.
+    #[cfg(test)]
     pub(in crate::db) fn cursor_requires_explicit_or_grouped_ordering() -> Self {
         Self::continuation_cursor_invariant(
             Self::cursor_requires_explicit_or_grouped_ordering_message(),

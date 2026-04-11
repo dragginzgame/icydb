@@ -47,7 +47,6 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
 ) -> RouteFeasibilityStage {
     let continuation_policy = *planner_route_profile.continuation_policy();
     let route_continuation = continuation.route_continuation_plan(plan, continuation_policy);
-    let continuation_capabilities = route_continuation.capabilities();
     let derivation = derive_route_derivation_context_for_model(
         plan,
         intent_stage,
@@ -112,11 +111,11 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
         "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
     );
     debug_assert!(
-        continuation_capabilities.strict_advance_required_when_applied(),
+        route_continuation.strict_advance_required_when_applied(),
         "route invariant: continuation executions must require strict advancement",
     );
     debug_assert!(
-        !intent_stage.grouped || continuation_capabilities.grouped_safe_when_applied(),
+        !intent_stage.grouped || route_continuation.grouped_safe_when_applied(),
         "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
     );
 

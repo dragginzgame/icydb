@@ -7,7 +7,7 @@ use crate::{
     db::{
         PersistedRow,
         executor::{
-            ExecutablePlan,
+            PreparedExecutionPlan,
             pipeline::contracts::LoadExecutor,
             terminal::ranking::{RankedFieldBoundaryDirection, RankedFieldBoundaryProjection},
         },
@@ -28,7 +28,7 @@ where
     /// using one planner-resolved field slot.
     pub(in crate::db) fn top_k_by_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
@@ -46,7 +46,7 @@ where
     /// using one planner-resolved field slot.
     pub(in crate::db) fn bottom_k_by_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
@@ -64,7 +64,7 @@ where
     /// using one planner-resolved field slot.
     pub(in crate::db) fn top_k_by_values_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
@@ -82,7 +82,7 @@ where
     /// values using one planner-resolved field slot.
     pub(in crate::db) fn bottom_k_by_values_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
@@ -100,7 +100,7 @@ where
     /// rows using one planner-resolved field slot.
     pub(in crate::db) fn top_k_by_with_ids_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
@@ -118,7 +118,7 @@ where
     /// `(id, value)` rows using one planner-resolved field slot.
     pub(in crate::db) fn bottom_k_by_with_ids_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {

@@ -8,7 +8,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPathKind},
         executor::{
-            ExecutablePlan, ScalarTerminalBoundaryRequest,
+            PreparedExecutionPlan, ScalarTerminalBoundaryRequest,
             aggregate::{AggregateKind, ScalarNumericFieldBoundaryRequest},
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
@@ -102,7 +102,7 @@ where
 
 fn execute_rank_sum<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<Decimal>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -116,7 +116,7 @@ where
 
 fn execute_rank_avg<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<Decimal>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -130,7 +130,7 @@ where
 
 fn execute_count_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<u32, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -141,7 +141,7 @@ where
 
 fn execute_exists_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<bool, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -152,7 +152,7 @@ where
 
 fn execute_min_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -168,7 +168,7 @@ where
 
 fn execute_max_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -184,7 +184,7 @@ where
 
 fn execute_first_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -200,7 +200,7 @@ where
 
 fn execute_last_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>
 where
     E: EntityKind + EntityValue,
@@ -231,7 +231,7 @@ fn aggregate_numeric_constant_false_window_returns_terminal_zeros_without_scan_b
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter(Predicate::False)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("constant-false aggregate plan should build")
     };
 
@@ -311,7 +311,7 @@ fn aggregate_numeric_sum_and_avg_use_decimal_projection() {
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("numeric field aggregate plan should build")
     };
 
@@ -352,7 +352,7 @@ fn aggregate_numeric_predicate_page_window_keeps_filtered_sum_and_avg() {
             .offset(1)
             .limit(2)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("predicate paged numeric aggregate plan should build")
     };
 
@@ -378,7 +378,7 @@ fn aggregate_numeric_pk_page_window_keeps_effective_sum_and_avg() {
             .offset(1)
             .limit(2)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("pk-ordered paged numeric aggregate plan should build")
     };
 
@@ -404,7 +404,7 @@ fn aggregate_numeric_pk_page_window_scans_offset_plus_limit_rows() {
         .offset(1)
         .limit(2)
         .plan()
-        .map(ExecutablePlan::from)
+        .map(PreparedExecutionPlan::from)
         .expect("pk-ordered paged numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         execute_rank_sum(&load, plan).expect("sum_by(rank) should succeed")
@@ -429,7 +429,7 @@ fn aggregate_numeric_pk_desc_page_window_keeps_effective_sum_and_avg() {
             .offset(1)
             .limit(2)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("pk-desc ordered paged numeric aggregate plan should build")
     };
 
@@ -461,7 +461,7 @@ fn aggregate_numeric_by_ids_page_window_keeps_deduped_sum_and_avg() {
             .offset(1)
             .limit(2)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("ordered by-ids paged numeric aggregate plan should build")
     };
 
@@ -492,7 +492,7 @@ fn aggregate_numeric_by_ids_page_window_scans_offset_plus_limit_rows() {
         .offset(1)
         .limit(2)
         .plan()
-        .map(ExecutablePlan::from)
+        .map(PreparedExecutionPlan::from)
         .expect("ordered by-ids paged numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         execute_rank_sum(&load, plan).expect("sum_by(rank) should succeed")
@@ -520,7 +520,7 @@ fn aggregate_numeric_index_multi_lookup_keeps_shape_and_sum_avg_parity() {
             MissingRowPolicy::Ignore,
         );
 
-        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+        PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
     };
     let plan = build_plan();
     let access_strategy = plan.access().resolve_strategy();
@@ -545,7 +545,7 @@ fn aggregate_numeric_by_id_keeps_single_row_sum_and_avg() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .by_id(Ulid::from_u128(8_9702))
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("by-id numeric aggregate plan should build")
     };
 
@@ -567,7 +567,7 @@ fn aggregate_numeric_paged_by_id_keeps_single_row_sum_and_avg() {
             .offset(0)
             .limit(1)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("paged by-id numeric aggregate plan should build")
     };
 
@@ -588,7 +588,7 @@ fn aggregate_numeric_paged_by_id_scans_exactly_one_row() {
         .offset(0)
         .limit(1)
         .plan()
-        .map(ExecutablePlan::from)
+        .map(PreparedExecutionPlan::from)
         .expect("paged by-id numeric aggregate plan should build");
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         execute_rank_sum(&load, plan).expect("sum_by(rank) should succeed")

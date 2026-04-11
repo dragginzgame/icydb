@@ -1,3 +1,8 @@
+//! Schema node graph for validated canister/entity/type definitions.
+//!
+//! This module owns the typed node descriptors used by schema validation,
+//! derive code generation, and visitor traversal.
+
 mod arg;
 mod canister;
 mod def;
@@ -74,9 +79,9 @@ pub enum NodeError {
 ///
 /// MacroNode
 ///
-/// Shared trait implemented by every schema node emitted by macro/codegen
-/// surfaces.
-/// `as_any` keeps downcasting local to the schema-node boundary.
+/// Shared trait implemented by every concrete schema node descriptor.
+/// `as_any` keeps type erasure and downcasting local to the schema-node
+/// boundary instead of leaking it into callers.
 ///
 
 pub trait MacroNode: Any {
@@ -86,7 +91,8 @@ pub trait MacroNode: Any {
 ///
 /// TypeNode
 ///
-/// Shared trait for schema nodes that expose one canonical runtime `Type`.
+/// Shared trait for schema nodes that expose one canonical runtime `Type`
+/// descriptor to validators and code generators.
 ///
 
 pub trait TypeNode: MacroNode {
@@ -96,8 +102,8 @@ pub trait TypeNode: MacroNode {
 ///
 /// ValidateNode
 ///
-/// Trait implemented by schema nodes that can validate their own local
-/// invariants against the process-global schema graph.
+/// Trait implemented by schema nodes that validate local invariants against
+/// the surrounding schema graph.
 ///
 
 pub trait ValidateNode {
@@ -110,7 +116,7 @@ pub trait ValidateNode {
 /// VisitableNode
 ///
 /// Trait implemented by schema nodes that participate in recursive visitor
-/// traversal.
+/// traversal with canonical route-key ordering.
 ///
 
 pub trait VisitableNode: ValidateNode {

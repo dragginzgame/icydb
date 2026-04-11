@@ -13,8 +13,8 @@ use crate::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{DataKey, DataRow, PersistedRow, RawDataKey, RawRow, decode_raw_row_for_entity_key},
         executor::{
-            AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, OrderReadableRow, TraversalRuntime,
+            AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutionKernel,
+            ExecutionPreparation, OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
             mutation::{
                 commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
                 mutation_write_context, preflight_mutation_plan_for_authority,
@@ -85,7 +85,7 @@ impl DeleteExecutionAuthority {
 ///
 /// PreparedDeleteExecutionState
 ///
-/// Generic-free delete execution payload after typed `ExecutablePlan<E>` is
+/// Generic-free delete execution payload after typed `PreparedExecutionPlan<E>` is
 /// consumed into structural planner and compilation state.
 ///
 
@@ -105,7 +105,7 @@ impl PreparedDeleteExecutionState {
 }
 
 /// Validate the plan-shape invariants shared by all delete executor entrypoints.
-fn validate_delete_plan_shape<E>(plan: &ExecutablePlan<E>) -> Result<(), InternalError>
+fn validate_delete_plan_shape<E>(plan: &PreparedExecutionPlan<E>) -> Result<(), InternalError>
 where
     E: EntityKind,
 {
@@ -679,7 +679,7 @@ where
     /// Execute one delete plan and return deleted entities in response order.
     pub(in crate::db) fn execute(
         self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         validate_delete_plan_shape(&plan)?;
@@ -742,7 +742,7 @@ where
     #[cfg(feature = "sql")]
     pub(in crate::db) fn execute_sql_projection(
         self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
     ) -> Result<DeleteProjection, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         validate_delete_plan_shape(&plan)?;
@@ -791,7 +791,7 @@ where
     /// Execute one delete plan and return only the affected-row count.
     pub(in crate::db) fn execute_count(
         self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedExecutionPlan<E>,
     ) -> Result<u32, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         validate_delete_plan_shape(&plan)?;

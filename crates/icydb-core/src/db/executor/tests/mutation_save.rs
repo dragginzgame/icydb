@@ -2196,7 +2196,7 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
         .delete()
         .by_id(original)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("delete plan should build");
     let deleted = delete
         .execute(delete_plan)

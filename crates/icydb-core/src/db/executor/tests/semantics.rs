@@ -26,7 +26,7 @@ where
     let compiled = query
         .plan()
         .expect("execution pipeline snapshot should build compiled query");
-    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
 
     // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
     let descriptor_json = executable
@@ -68,7 +68,7 @@ where
         .plan()
         .expect("execution pipeline projection snapshot should build compiled query");
     let projection_columns = projection_columns_snapshot(&compiled.projection_spec());
-    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
 
     // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
     let descriptor_json = executable
@@ -95,7 +95,7 @@ where
     let compiled = query
         .plan()
         .expect("grouped execution pipeline snapshot should build compiled query");
-    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+    let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
     validate_executor_plan_for_authority(
         EntityAuthority::for_type::<E>(),
         executable.logical_plan(),
@@ -127,7 +127,7 @@ where
         format!("route_execution_mode={:?}", route_plan.execution_mode(),),
         format!(
             "route_continuation_mode={:?}",
-            route_plan.continuation().capabilities().mode()
+            route_plan.continuation().mode()
         ),
         format!("grouped_outcome={:?}", grouped_observability.outcome()),
         format!(

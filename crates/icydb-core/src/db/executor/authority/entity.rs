@@ -6,7 +6,7 @@ use crate::{
         executor::terminal::RowLayout,
         index::IndexKey,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, CoveringReadExecutionPlan,
+            AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
             covering_read_execution_plan_from_fields,
         },
         relation::model_has_strong_relation_targets,
@@ -136,7 +136,7 @@ impl EntityAuthority {
     /// Validate and decode one scalar continuation cursor through authority-owned contracts.
     pub(in crate::db::executor) fn prepare_scalar_cursor(
         self,
-        contract: &ContinuationContract,
+        contract: &PlannedContinuationContract,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
         contract.prepare_scalar_cursor(self.entity_path(), self.entity_tag, self.model, bytes)
@@ -145,7 +145,7 @@ impl EntityAuthority {
     /// Revalidate one scalar continuation cursor through authority-owned contracts.
     pub(in crate::db::executor) fn revalidate_scalar_cursor(
         self,
-        contract: &ContinuationContract,
+        contract: &PlannedContinuationContract,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
         contract.revalidate_scalar_cursor(self.entity_tag, self.model, cursor)

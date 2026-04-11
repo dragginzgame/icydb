@@ -20,14 +20,14 @@ use crate::{
 };
 use std::{collections::BTreeSet, fmt::Display};
 
-pub(in crate::db) use metadata::model_has_strong_relations_to_target;
-pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
+pub(in crate::db) use metadata::{
+    model_has_any_strong_relations as model_has_strong_relation_targets,
+    model_has_strong_relations_to_target,
+};
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
-pub(in crate::db) use save_validate::{
-    model_has_strong_relation_targets, validate_save_strong_relations,
-};
+pub(in crate::db) use save_validate::validate_save_strong_relations;
 pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 
 ///
@@ -125,7 +125,7 @@ impl InternalError {
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
-pub(super) fn build_relation_target_raw_key(
+pub(super) fn raw_relation_target_key_from_value(
     target_entity_tag: EntityTag,
     target_entity_name: &str,
     value: &Value,

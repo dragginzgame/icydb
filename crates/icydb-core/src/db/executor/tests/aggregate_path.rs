@@ -8,7 +8,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         data::{DataKey, PersistedRow},
-        executor::{ExecutablePlan, ScalarTerminalBoundaryRequest},
+        executor::{PreparedExecutionPlan, ScalarTerminalBoundaryRequest},
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             explain::ExplainExecutionNodeType,
@@ -175,7 +175,7 @@ where
 
 fn execute_count_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<u32, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -186,7 +186,7 @@ where
 
 fn execute_exists_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
 ) -> Result<bool, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -195,7 +195,7 @@ where
         .into_exists()
 }
 
-fn execution_root_node_type<E>(plan: &ExecutablePlan<E>) -> ExplainExecutionNodeType
+fn execution_root_node_type<E>(plan: &PreparedExecutionPlan<E>) -> ExplainExecutionNodeType
 where
     E: EntityKind + EntityValue,
 {
@@ -325,13 +325,13 @@ fn seed_stale_secondary_rows(rows: &[(u128, u32, u32)], stale_ids: &[u128]) {
     }
 }
 
-fn plan_from_query<E>(query: Query<E>, label: &str) -> ExecutablePlan<E>
+fn plan_from_query<E>(query: Query<E>, label: &str) -> PreparedExecutionPlan<E>
 where
     E: EntityKind + EntityValue,
 {
     query.plan().map_or_else(
         |err| panic!("{label} plan should build: {err}"),
-        ExecutablePlan::from,
+        PreparedExecutionPlan::from,
     )
 }
 
@@ -339,7 +339,7 @@ fn secondary_group_rank_order_plan(
     consistency: MissingRowPolicy,
     direction: OrderDirection,
     offset: u32,
-) -> ExecutablePlan<PushdownParityEntity> {
+) -> PreparedExecutionPlan<PushdownParityEntity> {
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
@@ -358,14 +358,14 @@ fn secondary_group_rank_order_plan(
         offset,
     });
 
-    ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
 }
 
 fn secondary_group_rank_index_range_count_plan(
     consistency: MissingRowPolicy,
     offset: u32,
     limit: u32,
-) -> ExecutablePlan<PushdownParityEntity> {
+) -> PreparedExecutionPlan<PushdownParityEntity> {
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::index_range(
             PUSHDOWN_PARITY_INDEX_MODELS[0],
@@ -386,7 +386,7 @@ fn secondary_group_rank_index_range_count_plan(
         offset,
     });
 
-    ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
 }
 
 fn execute_count_exists_window_parity<E>(
@@ -511,7 +511,7 @@ fn build_phase_composite_plan(
     order_field: &str,
     first: Vec<Ulid>,
     second: Vec<Ulid>,
-) -> ExecutablePlan<PhaseEntity> {
+) -> PreparedExecutionPlan<PhaseEntity> {
     let access = AccessPlan::Union(vec![
         AccessPlan::path(AccessPath::ByKeys(first)),
         AccessPlan::path(AccessPath::ByKeys(second)),
@@ -522,12 +522,12 @@ fn build_phase_composite_plan(
         fields: vec![(order_field.to_string(), OrderDirection::Asc)],
     });
 
-    ExecutablePlan::<PhaseEntity>::new(logical_plan)
+    PreparedExecutionPlan::<PhaseEntity>::new(logical_plan)
 }
 
 fn run_composite_terminal(
     load: &LoadExecutor<PhaseEntity>,
-    plan: ExecutablePlan<PhaseEntity>,
+    plan: PreparedExecutionPlan<PhaseEntity>,
     terminal: CompositeTerminal,
 ) -> Result<CompositeTerminalResult, InternalError> {
     match terminal {
@@ -816,7 +816,7 @@ fn aggregate_path_bytes_key_range_window_parity_desc() {
             offset: 1,
         });
 
-        ExecutablePlan::<SimpleEntity>::new(logical_plan)
+        PreparedExecutionPlan::<SimpleEntity>::new(logical_plan)
     };
 
     let expected_bytes = persisted_payload_bytes_for_simple_ids(
@@ -858,7 +858,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let index_plan = ExecutablePlan::<PushdownParityEntity>::new(index_logical);
+    let index_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(index_logical);
 
     let mut full_scan_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
@@ -869,7 +869,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let full_scan_plan = ExecutablePlan::<PushdownParityEntity>::new(full_scan_logical);
+    let full_scan_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(full_scan_logical);
 
     assert_eq!(
         execution_root_node_type(&index_plan),
@@ -900,7 +900,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("rank")
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("bytes expected-baseline plan should build"),
         )
         .expect("bytes expected-baseline execute should succeed")
@@ -934,7 +934,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let index_plan = ExecutablePlan::<PushdownParityEntity>::new(index_logical);
+    let index_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(index_logical);
 
     let mut full_scan_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
@@ -945,7 +945,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let full_scan_plan = ExecutablePlan::<PushdownParityEntity>::new(full_scan_logical);
+    let full_scan_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(full_scan_logical);
 
     assert_eq!(
         execution_root_node_type(&index_plan),
@@ -977,7 +977,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
                     .filter(u32_eq_predicate("group", 7))
                     .order_by("rank")
                     .plan()
-                    .map(ExecutablePlan::from)
+                    .map(PreparedExecutionPlan::from)
                     .expect("bytes_by expected-baseline plan should build"),
             )
             .expect("bytes_by expected-baseline execute should succeed"),
@@ -1057,8 +1057,11 @@ fn aggregate_path_count_key_range_window_scans_offset_plus_limit() {
     });
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        execute_count_terminal(&load, ExecutablePlan::<SimpleEntity>::new(logical_plan))
-            .expect("key-range COUNT should succeed")
+        execute_count_terminal(
+            &load,
+            PreparedExecutionPlan::<SimpleEntity>::new(logical_plan),
+        )
+        .expect("key-range COUNT should succeed")
     });
 
     assert_eq!(count, 2, "key-range COUNT should honor the page window");
@@ -1128,7 +1131,7 @@ fn aggregate_path_exists_index_range_window_scans_offset_plus_one() {
     let (exists, scanned) = capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
         execute_exists_terminal(
             &load,
-            ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan),
+            PreparedExecutionPlan::<UniqueIndexRangeEntity>::new(logical_plan),
         )
         .expect("index-range EXISTS should succeed")
     });
@@ -1218,7 +1221,7 @@ fn aggregate_path_by_id_windowed_count_scans_one_candidate_key() {
                 .offset(1)
                 .limit(1)
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("by-id windowed COUNT plan should build"),
         )
         .expect("by-id windowed COUNT should succeed")

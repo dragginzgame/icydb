@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::planning::continuation::scalar::ScalarContinuationContext,
-        executor::{PreparedLoadPlan, pipeline::orchestrator::LoadExecutionMode},
+        executor::{PreparedLoadPlan, pipeline::orchestrator::LoadSurfaceMode},
         query::plan::ExecutionOrdering,
     },
     error::InternalError,
@@ -25,17 +25,17 @@ use crate::{
 pub(in crate::db::executor) struct LoadCursorResolver;
 
 impl LoadCursorResolver {
-    /// Resolve load mode/order compatibility and cursor revalidation contracts.
+    /// Resolve load surface/order compatibility and cursor revalidation contracts.
     pub(in crate::db::executor) fn resolve_load_cursor_context(
         plan: &PreparedLoadPlan,
         cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
+        execution_mode: LoadSurfaceMode,
     ) -> Result<PreparedLoadCursor, InternalError> {
         let ordering = plan.execution_ordering()?;
         execution_mode
             .validate_grouped_ordering(matches!(ordering, ExecutionOrdering::Grouped(_)))?;
 
-        let cursor = match (execution_mode.scalar_page_mode(), cursor) {
+        let cursor = match (execution_mode.is_scalar_page(), cursor) {
             (true, LoadCursorInput::Scalar(cursor)) => {
                 let cursor = plan.revalidate_cursor(*cursor)?;
                 let continuation_signature = plan.continuation_signature_for_runtime()?;

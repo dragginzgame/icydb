@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            BytesByProjectionMode, ExecutablePlan,
+            BytesByProjectionMode, PreparedExecutionPlan,
             assemble_aggregate_terminal_execution_descriptor,
             assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics,
             planning::route::AggregateRouteShape,
@@ -596,8 +596,10 @@ impl<E: EntityKind> CompiledQuery<E> {
         self.inner.projection_spec()
     }
 
-    /// Convert one structural compiled query into an executor-ready typed plan.
-    pub(in crate::db) fn into_executable(self) -> crate::db::executor::ExecutablePlan<E> {
+    /// Convert one structural compiled query into one prepared executor plan.
+    pub(in crate::db) fn into_prepared_execution_plan(
+        self,
+    ) -> crate::db::executor::PreparedExecutionPlan<E> {
         assert!(
             self.inner.entity_path == E::PATH,
             "compiled query entity mismatch: compiled for '{}', requested '{}'",
@@ -605,7 +607,7 @@ impl<E: EntityKind> CompiledQuery<E> {
             E::PATH,
         );
 
-        crate::db::executor::ExecutablePlan::new(self.into_inner())
+        crate::db::executor::PreparedExecutionPlan::new(self.into_inner())
     }
 
     #[must_use]
@@ -1000,13 +1002,13 @@ impl<E: EntityKind> Query<E> {
     {
         let executable = self
             .plan_with_visible_indexes(visible_indexes)?
-            .into_executable();
+            .into_prepared_execution_plan();
         let mut descriptor = executable
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;
         let projection_mode = executable.bytes_by_projection_mode(target_field);
         let projection_mode_label =
-            ExecutablePlan::<E>::bytes_by_projection_mode_label(projection_mode);
+            PreparedExecutionPlan::<E>::bytes_by_projection_mode_label(projection_mode);
 
         descriptor
             .node_properties
@@ -1039,7 +1041,7 @@ impl<E: EntityKind> Query<E> {
     {
         let executable = self
             .plan_with_visible_indexes(visible_indexes)?
-            .into_executable();
+            .into_prepared_execution_plan();
         let mut descriptor = executable
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;

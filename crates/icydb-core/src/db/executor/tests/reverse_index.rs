@@ -42,7 +42,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let err = target_delete
         .execute(delete_plan)
@@ -124,7 +124,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         .delete()
         .by_id(source_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source delete plan should build");
     let deleted_sources = source_delete
         .execute(source_delete_plan)
@@ -136,7 +136,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let deleted_targets = target_delete
         .execute(target_delete_plan)
@@ -177,7 +177,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
@@ -187,7 +187,7 @@ fn delete_allows_target_with_weak_single_referrer() {
     let source_plan = Query::<WeakSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
     let remaining_source = LoadExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
@@ -233,7 +233,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
@@ -243,7 +243,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
     let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
     let remaining_source = LoadExecutor::<WeakOptionalRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
@@ -293,7 +293,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
@@ -303,7 +303,7 @@ fn delete_allows_target_with_weak_list_referrer() {
     let source_plan = Query::<WeakListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source load plan should build");
     let remaining_source = LoadExecutor::<WeakListRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
@@ -357,7 +357,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
         .delete()
         .by_id(source_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source delete plan should build");
     source_delete
         .execute(source_delete_plan)
@@ -422,7 +422,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .delete()
         .by_id(target_a)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target A delete plan should build");
     let deleted_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(old_target_delete_plan)
@@ -433,7 +433,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .delete()
         .by_id(target_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target B delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(protected_target_delete_plan)
@@ -517,7 +517,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let err = target_delete
         .execute(delete_plan)
@@ -625,7 +625,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .delete()
         .by_id(target_orphan)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("orphan target delete plan should build");
     let deleted_orphan_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_orphan_target)
@@ -640,7 +640,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .delete()
         .by_id(target_live)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("live target delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_live_target)
@@ -721,7 +721,7 @@ fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target)
@@ -847,7 +847,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
@@ -871,7 +871,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .delete()
         .by_id(source_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source B delete plan should build");
     DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(source_delete_plan)
@@ -881,7 +881,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .delete()
         .by_id(target_id)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("retry target delete plan should build");
     let deleted_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_target_delete_plan)
@@ -950,7 +950,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         .delete()
         .by_id(target_a)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target A delete plan should build");
     let removed_old_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
@@ -961,7 +961,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         .delete()
         .by_id(target_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target B delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
@@ -1098,7 +1098,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .delete()
         .by_id(target_a)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target A delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
@@ -1122,7 +1122,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .delete()
         .by_id(target_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target B delete plan should build");
     let removed_free_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
@@ -1246,7 +1246,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(target_a)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target A delete plan should build");
     let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
@@ -1272,7 +1272,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(target_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target B delete plan should build");
     let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
@@ -1299,7 +1299,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(source_2)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source 2 delete plan should build");
     DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(delete_source_2)
@@ -1309,7 +1309,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(target_a)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target A delete plan should build");
     DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_delete_plan)
@@ -1319,7 +1319,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(source_1)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("source 1 delete plan should build");
     DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(delete_source_1)
@@ -1329,7 +1329,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .delete()
         .by_id(target_b)
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("target B delete plan should build");
     DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_delete_plan)

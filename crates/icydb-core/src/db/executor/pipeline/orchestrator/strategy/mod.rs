@@ -14,7 +14,7 @@ use crate::{
             },
             grouped_runtime::resolve_grouped_route_for_plan,
             orchestrator::{
-                LoadExecutionMode,
+                LoadSurfaceMode,
                 state::{
                     LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadExecutionPayload,
                     LoadPayloadState,
@@ -113,7 +113,7 @@ where
         &self,
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
+        execution_mode: LoadSurfaceMode,
     ) -> Result<LoadAccessState, InternalError> {
         if !plan.mode().is_load() {
             return Err(InternalError::load_executor_load_plan_required());

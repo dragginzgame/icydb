@@ -165,7 +165,7 @@ pub(super) fn reverse_index_key_for_target_storage_key(
 /// This structural path exists for delete validation, where the runtime only
 /// needs the relation field payload and should not decode the full typed
 /// entity inside the hot blocked-delete proof loop.
-pub(super) fn relation_target_keys_for_source_row(
+pub(super) fn relation_target_raw_keys_for_source_row(
     raw_row: &RawRow,
     source_model: &'static EntityModel,
     source_info: ReverseRelationSourceInfo,
@@ -173,13 +173,13 @@ pub(super) fn relation_target_keys_for_source_row(
 ) -> Result<Vec<RawDataKey>, InternalError> {
     let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
 
-    relation_target_keys_for_source_slots(&row_fields, source_info, relation)
+    relation_target_raw_keys_for_source_slots(&row_fields, source_info, relation)
 }
 
 // Read relation-target raw keys directly from one already-decoded structural
 // source row so commit preflight can reuse slot readers it has already
 // validated for forward-index planning.
-fn relation_target_keys_for_source_slots(
+fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
@@ -283,7 +283,7 @@ where
 }
 
 /// Decode one raw relation target key and enforce reverse-index target invariants.
-pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
+pub(in crate::db::relation) fn decode_relation_target_data_key(
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
     target_raw_key: &RawDataKey,
@@ -634,7 +634,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
                     (None, None) => break,
                 };
 
-            let Some(target_data_key) = decode_relation_target_data_key_for_relation(
+            let Some(target_data_key) = decode_relation_target_data_key(
                 source,
                 relation,
                 &target_raw_key,
@@ -695,11 +695,14 @@ fn relation_target_keys_for_transition_side(
     relation: StrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
     match row_fields {
-        Some(row_fields) => relation_target_keys_for_source_slots(row_fields, source, relation),
+        Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),
         None => match row {
-            Some(row) => {
-                relation_target_keys_for_source_row(row, source_rows.source_model, source, relation)
-            }
+            Some(row) => relation_target_raw_keys_for_source_row(
+                row,
+                source_rows.source_model,
+                source,
+                relation,
+            ),
             None => Ok(Vec::new()),
         },
     }

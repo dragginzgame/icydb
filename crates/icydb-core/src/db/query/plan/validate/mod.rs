@@ -21,6 +21,8 @@ mod intent_policy;
 mod order;
 mod plan_shape;
 mod symbols;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use core::{validate_group_query_semantics, validate_query_semantics};
 pub(crate) use cursor_policy::validate_cursor_order_plan_shape;
@@ -44,3 +46,40 @@ pub(crate) use order::validate_order;
 pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(crate) use symbols::{resolve_aggregate_target_field_slot, resolve_group_field_slot};
+
+#[cfg(test)]
+pub(crate) fn validate_group_cursor_constraints_for_tests(
+    logical: &crate::db::query::plan::ScalarPlan,
+    group: &crate::db::query::plan::GroupSpec,
+) -> Result<(), PlanError> {
+    grouped::validate_group_cursor_constraints(logical, group)
+}
+
+#[cfg(test)]
+pub(crate) fn validate_group_policy_for_tests(
+    schema: &crate::db::schema::SchemaInfo,
+    logical: &crate::db::query::plan::ScalarPlan,
+    group: &crate::db::query::plan::GroupSpec,
+    having: Option<&crate::db::query::plan::GroupHavingSpec>,
+) -> Result<(), PlanError> {
+    grouped::validate_group_policy(schema, logical, group, having)
+}
+
+#[cfg(test)]
+pub(crate) fn validate_group_structure_for_tests(
+    schema: &crate::db::schema::SchemaInfo,
+    model: &crate::model::entity::EntityModel,
+    group: &crate::db::query::plan::GroupSpec,
+    projection: &crate::db::query::plan::expr::ProjectionSpec,
+    having: Option<&crate::db::query::plan::GroupHavingSpec>,
+) -> Result<(), PlanError> {
+    grouped::validate_group_structure(schema, model, group, projection, having)
+}
+
+#[cfg(test)]
+pub(crate) fn validate_projection_expr_types_for_tests(
+    schema: &crate::db::schema::SchemaInfo,
+    projection: &crate::db::query::plan::expr::ProjectionSpec,
+) -> Result<(), PlanError> {
+    grouped::validate_projection_expr_types(schema, projection)
+}

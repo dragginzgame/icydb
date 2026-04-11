@@ -14,9 +14,9 @@ use syn::{ItemStruct, Visibility, parse_macro_input};
 ///
 /// Prelude
 ///
-/// INTERNAL prelude for proc-macro and schema code generation.
-/// Pulls in crate helpers, core traits, schema types, and proc-macro essentials.
-/// Not exposed outside this crate.
+/// Internal proc-macro prelude shared by node parsing and generator code.
+/// Keeps proc-macro essentials and schema helpers in one crate-local bundle.
+/// This is not part of the external derive surface.
 ///
 
 mod prelude {

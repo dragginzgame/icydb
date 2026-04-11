@@ -90,7 +90,7 @@ impl GroupedAggregateState {
     #[cfg(test)]
     #[expect(
         dead_code,
-        reason = "grouped contract tests still exercise the compatibility constructor"
+        reason = "grouped contract tests still exercise the convenience constructor"
     )]
     pub(in crate::db::executor::aggregate) fn new(
         kind: AggregateKind,

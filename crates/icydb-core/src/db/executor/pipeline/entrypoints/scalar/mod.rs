@@ -10,6 +10,7 @@ use crate::{
         Db, PersistedRow,
         access::single_path_capabilities,
         cursor::PlannedCursor,
+        data::decode_data_rows_into_cursor_page,
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
@@ -22,9 +23,7 @@ use crate::{
                 MaterializedExecutionPayload, PreparedExecutionProjection,
                 ProjectionMaterializationMode, StructuralCursorPage,
             },
-            pipeline::entrypoints::{
-                LoadExecutionMode, LoadTracingMode, decode_structural_page_into_cursor_page,
-            },
+            pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -72,7 +71,7 @@ type ScalarPathExecution = (
 /// once the typed boundary resolves store authority, route planning, lowered
 /// specs, and continuation inputs.
 /// Kernel dispatch consumes this bundle directly so the scalar lane no longer
-/// carries `LoadExecutor<E>` or `ExecutablePlan<E>` behind a runtime adapter.
+/// carries `LoadExecutor<E>` or `PreparedExecutionPlan<E>` behind a runtime adapter.
 ///
 
 pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
@@ -98,7 +97,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
 /// non-aggregate scalar materialized terminal families.
 /// It owns structural runtime authority, logical plan state, and lowered specs
 /// needed to execute structural scalar materialization without reusing
-/// `ExecutablePlan<E>` as the internal working contract.
+/// `PreparedExecutionPlan<E>` as the internal working contract.
 ///
 
 pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<'ctx> {
@@ -150,7 +149,7 @@ where
         let surface = self.execute_load_surface(
             plan,
             cursor,
-            LoadExecutionMode::scalar_paged(LoadTracingMode::Enabled),
+            LoadSurfaceMode::scalar_paged(LoadTracingMode::Enabled),
         )?;
 
         Self::expect_scalar_traced_surface(surface)
@@ -162,7 +161,12 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         match surface {
             LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
-                Ok((decode_structural_page_into_cursor_page::<E>(page)?, trace))
+                let (data_rows, next_cursor) = page.into_parts();
+
+                Ok((
+                    decode_data_rows_into_cursor_page::<E>(data_rows, next_cursor)?,
+                    trace,
+                ))
             }
             LoadExecutionSurface::GroupedPageWithTrace(..) => {
                 Err(InternalError::query_executor_invariant(
@@ -220,8 +224,7 @@ fn execute_prepared_scalar_path_execution(
 
     // Phase 2: project continuation invariants and optional trace setup once.
     let continuation = route_plan.continuation();
-    let continuation_capabilities = continuation.capabilities();
-    let continuation_applied = continuation_capabilities.applied();
+    let continuation_applied = continuation.applied();
     resolved_continuation.debug_assert_route_continuation_invariants(&plan, continuation);
     let direction = route_plan.direction();
     let mut execution_trace =
@@ -443,7 +446,7 @@ where
     C: CanisterKind,
 {
     let continuation_contract = plan
-        .continuation_contract(authority.entity_path())
+        .planned_continuation_contract(authority.entity_path())
         .ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })?;
@@ -528,7 +531,7 @@ where
     C: CanisterKind,
 {
     let continuation_contract = plan
-        .continuation_contract(authority.entity_path())
+        .planned_continuation_contract(authority.entity_path())
         .ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })?;
@@ -661,7 +664,7 @@ where
     E: EntityKind + EntityValue,
 {
     let continuation_contract = logical_plan
-        .continuation_contract(authority.entity_path())
+        .planned_continuation_contract(authority.entity_path())
         .ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "scalar materialized rows path requires load-mode continuation contract",

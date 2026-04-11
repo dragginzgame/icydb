@@ -64,9 +64,7 @@ where
         field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<StorageKey>, InternalError> {
-        let row_layout = prepared.authority.row_layout();
-        let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_nth_field_from_materialized(
             rows,
@@ -86,9 +84,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<StorageKey>, InternalError> {
-        let row_layout = prepared.authority.row_layout();
-        let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_median_field_from_materialized(rows, &row_layout, target_field, field_slot)
     }
@@ -102,9 +98,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<(StorageKey, StorageKey)>, InternalError> {
-        let row_layout = prepared.authority.row_layout();
-        let page = self.execute_scalar_materialized_page_stage(prepared)?;
-        let (rows, _) = page.into_parts();
+        let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_min_max_field_from_materialized(rows, &row_layout, target_field, field_slot)
     }

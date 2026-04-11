@@ -37,7 +37,7 @@ pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
 };
 pub(in crate::db) use continuation::{
-    ContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
+    PlannedContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringProjectionContext, CoveringProjectionOrder,

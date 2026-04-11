@@ -18,7 +18,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 pub(in crate::db::executor) use contracts::{
-    LoadExecutionMode, LoadExecutionSurface, LoadTracingMode,
+    LoadExecutionSurface, LoadSurfaceMode, LoadTracingMode,
 };
 #[cfg(test)]
 pub(in crate::db::executor) use guards::{
@@ -28,7 +28,7 @@ pub(in crate::db::executor) use guards::{
 /// Apply paging contracts over generic-free payload artifacts.
 fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState, InternalError> {
     let execution_mode = state.context.mode;
-    let payload = if execution_mode.scalar_page_mode() {
+    let payload = if execution_mode.is_scalar_page() {
         match state.payload {
             state::LoadExecutionPayload::Scalar(payload) => {
                 state::LoadExecutionPayload::Scalar(payload)
@@ -39,7 +39,7 @@ fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState,
         }
     } else {
         debug_assert!(
-            execution_mode.grouped_page_mode(),
+            execution_mode.is_grouped_page(),
             "runtime payload paging expects grouped mode for non-scalar load surfaces",
         );
         match state.payload {
@@ -70,7 +70,7 @@ fn materialize_runtime_surface(
     state: LoadPayloadState,
 ) -> Result<LoadExecutionSurface, InternalError> {
     let execution_mode = state.context.mode;
-    if execution_mode.scalar_page_mode() {
+    if execution_mode.is_scalar_page() {
         let state::LoadExecutionPayload::Scalar(page) = state.payload else {
             return Err(InternalError::load_runtime_scalar_surface_payload_required());
         };
@@ -78,7 +78,7 @@ fn materialize_runtime_surface(
         Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
     } else {
         debug_assert!(
-            execution_mode.grouped_page_mode(),
+            execution_mode.is_grouped_page(),
             "runtime surface materialization expects grouped mode for non-scalar load surfaces",
         );
         let state::LoadExecutionPayload::Grouped(page) = state.payload else {
@@ -101,7 +101,7 @@ where
         &self,
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
+        execution_mode: LoadSurfaceMode,
     ) -> Result<LoadExecutionSurface, InternalError> {
         let access_state = self.build_execution_context(plan, cursor, execution_mode)?;
         let payload_state = Self::apply_grouping_projection(access_state)?;

@@ -7,7 +7,9 @@ use super::*;
 use crate::{
     db::{
         data::DataKey,
-        executor::{ExecutablePlan, ScalarTerminalBoundaryRequest, aggregate::AggregateKind},
+        executor::{
+            PreparedExecutionPlan, ScalarTerminalBoundaryRequest, aggregate::AggregateKind,
+        },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             explain::ExplainExecutionNodeType,
@@ -305,7 +307,7 @@ where
     }
 }
 
-fn execution_root_node_type<E>(plan: &ExecutablePlan<E>) -> ExplainExecutionNodeType
+fn execution_root_node_type<E>(plan: &PreparedExecutionPlan<E>) -> ExplainExecutionNodeType
 where
     E: EntityKind + EntityValue,
 {
@@ -316,7 +318,7 @@ where
 
 fn execute_count_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
 ) -> Result<u32, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -327,7 +329,7 @@ where
 
 fn execute_exists_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
 ) -> Result<bool, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -338,7 +340,7 @@ where
 
 fn execute_id_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
     kind: AggregateKind,
 ) -> Result<Option<crate::types::Id<E>>, InternalError>
 where
@@ -350,7 +352,7 @@ where
 
 fn execute_min_by_slot_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<Option<Id<E>>, InternalError>
 where
@@ -368,7 +370,7 @@ where
 
 fn execute_max_by_slot_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<Option<Id<E>>, InternalError>
 where
@@ -500,7 +502,7 @@ fn run_strict_prefilter_aggregate(
         StrictPrefilterAggregate::MaxBy => query
             .order_by_desc("rank")
             .plan()
-            .map(crate::db::executor::ExecutablePlan::from)
+            .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("strict prefilter DESC aggregate plan should build"),
         StrictPrefilterAggregate::Count
         | StrictPrefilterAggregate::Exists
@@ -509,7 +511,7 @@ fn run_strict_prefilter_aggregate(
         | StrictPrefilterAggregate::Last => query
             .order_by("rank")
             .plan()
-            .map(crate::db::executor::ExecutablePlan::from)
+            .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("strict prefilter ASC aggregate plan should build"),
     };
 
@@ -570,7 +572,7 @@ fn assert_strict_prefilter_scan_reduction(
 
 fn run_pushdown_rank_terminal(
     load: &LoadExecutor<PushdownParityEntity>,
-    plan: ExecutablePlan<PushdownParityEntity>,
+    plan: PreparedExecutionPlan<PushdownParityEntity>,
     terminal: RankOrderTerminal,
     k: u32,
 ) -> Result<EntityResponse<PushdownParityEntity>, InternalError> {
@@ -628,7 +630,7 @@ fn bounded_rank_window_cases() -> [BoundedRankWindowCase; 2] {
 
 fn run_simple_rank_terminal(
     load: &LoadExecutor<SimpleEntity>,
-    plan: ExecutablePlan<SimpleEntity>,
+    plan: PreparedExecutionPlan<SimpleEntity>,
     terminal: RankOrderTerminal,
     k: u32,
 ) -> Result<EntityResponse<SimpleEntity>, InternalError> {
@@ -642,7 +644,7 @@ fn run_simple_rank_terminal(
 
 fn run_unique_index_rank_terminal(
     load: &LoadExecutor<UniqueIndexRangeEntity>,
-    plan: ExecutablePlan<UniqueIndexRangeEntity>,
+    plan: PreparedExecutionPlan<UniqueIndexRangeEntity>,
     terminal: RankOrderTerminal,
     k: u32,
 ) -> Result<EntityResponse<UniqueIndexRangeEntity>, InternalError> {
@@ -714,7 +716,7 @@ fn forced_shape_rank_cases() -> [ForcedShapeRankCase; 2] {
 
 fn build_simple_terminal_probe_plan(
     case: SimpleTerminalProbeCase,
-) -> crate::db::executor::ExecutablePlan<SimpleEntity> {
+) -> crate::db::executor::PreparedExecutionPlan<SimpleEntity> {
     let mut query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore);
     query = match case.direction {
         OrderDirection::Asc => query.order_by("id"),
@@ -729,7 +731,7 @@ fn build_simple_terminal_probe_plan(
 
     query
         .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
+        .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("simple terminal probe plan should build")
 }
 
@@ -990,7 +992,7 @@ fn aggregate_tail_last_unbounded_desc_large_dataset_scans_full_stream() {
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .order_by_desc("id")
                     .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
+                    .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("last DESC large unbounded plan should build"),
                 AggregateKind::Last,
             )
@@ -1023,7 +1025,7 @@ fn aggregate_tail_last_secondary_index_desc_mixed_direction_falls_back_safely() 
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
                     .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
+                    .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("secondary last DESC unbounded plan should build"),
                 AggregateKind::Last,
             )
@@ -1047,7 +1049,7 @@ fn aggregate_tail_count_distinct_offset_window_stays_unbounded() {
                 .offset(2)
                 .limit(2)
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("count distinct+offset ASC plan should build"),
         )
         .expect("count distinct+offset ASC should succeed")
@@ -1061,7 +1063,7 @@ fn aggregate_tail_count_distinct_offset_window_stays_unbounded() {
                 .offset(2)
                 .limit(2)
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("count distinct+offset DESC plan should build"),
         )
         .expect("count distinct+offset DESC should succeed")
@@ -1106,7 +1108,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
                 .order_by("id")
                 .limit(3)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("bounded rank-window matrix plan should build")
         };
         let build_unbounded_plan = || {
@@ -1114,7 +1116,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("unbounded rank-window matrix plan should build")
         };
 
@@ -1169,7 +1171,7 @@ fn aggregate_tail_rank_terminals_forced_shape_execute_oracle_matrix() {
                 .offset(1)
                 .limit(4)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("forced-shape full-scan matrix plan should build")
         };
         let full_scan_plan = build_full_scan_plan();
@@ -1205,7 +1207,7 @@ fn aggregate_tail_rank_terminals_forced_shape_execute_oracle_matrix() {
                 .offset(1)
                 .limit(3)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("forced-shape index-range matrix plan should build")
         };
         let index_range_plan = build_index_range_plan();
@@ -1251,7 +1253,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
             .filter(group_seven.clone())
             .order_by("rank")
             .plan()
-            .map(crate::db::executor::ExecutablePlan::from)
+            .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("missing-ok stale-leading ASC plan should build")
     };
     let build_desc_plan = || {
@@ -1259,7 +1261,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
             .filter(group_seven.clone())
             .order_by_desc("rank")
             .plan()
-            .map(crate::db::executor::ExecutablePlan::from)
+            .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("missing-ok stale-leading DESC plan should build")
     };
 

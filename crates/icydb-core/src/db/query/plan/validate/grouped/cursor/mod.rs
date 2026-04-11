@@ -3,9 +3,6 @@
 //! Does not own: runtime grouped cursor continuation behavior or token decoding.
 //! Boundary: validates grouped order/paging alignment before plan admission.
 
-#[cfg(test)]
-mod tests;
-
 use crate::db::query::plan::{
     FieldSlot, GroupSpec, OrderSpec, ScalarPlan,
     validate::{GroupPlanError, PlanError},

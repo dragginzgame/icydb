@@ -9,7 +9,7 @@ use crate::{
         PersistedRow,
         access::AccessPath,
         executor::{
-            ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
+            LoadExecutor, PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
             ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
         },
         predicate::MissingRowPolicy,
@@ -30,14 +30,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-type ExecutablePlanNewFn<E> = fn(crate::db::query::plan::AccessPlannedQuery) -> ExecutablePlan<E>;
+type ExecutablePlanNewFn<E> =
+    fn(crate::db::query::plan::AccessPlannedQuery) -> PreparedExecutionPlan<E>;
 type LoadExecuteFn<E> = fn(
     &LoadExecutor<E>,
-    ExecutablePlan<E>,
+    PreparedExecutionPlan<E>,
 ) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
 type SlotTopKByFn<E> = fn(
     &LoadExecutor<E>,
-    ExecutablePlan<E>,
+    PreparedExecutionPlan<E>,
     FieldSlot,
     u32,
 ) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
@@ -63,7 +64,7 @@ fn assert_executor_entry_signatures<E>()
 where
     E: PersistedRow + EntityValue,
 {
-    let executable_new: ExecutablePlanNewFn<E> = ExecutablePlan::<E>::new;
+    let executable_new: ExecutablePlanNewFn<E> = PreparedExecutionPlan::<E>::new;
     let load_execute: LoadExecuteFn<E> = LoadExecutor::<E>::execute;
     let scalar_projection_boundary = LoadExecutor::<E>::execute_scalar_projection_boundary;
     let top_k_by_slot: SlotTopKByFn<E> = LoadExecutor::<E>::top_k_by_slot;

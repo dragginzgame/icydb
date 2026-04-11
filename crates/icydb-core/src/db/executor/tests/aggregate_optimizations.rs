@@ -118,7 +118,7 @@ fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
 
 fn execute_count_terminal<E>(
     load: &LoadExecutor<E>,
-    plan: crate::db::executor::ExecutablePlan<E>,
+    plan: crate::db::executor::PreparedExecutionPlan<E>,
 ) -> Result<u32, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -151,7 +151,7 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
                 .filter(u32_eq_predicate_strict("group", 7))
                 .order_by("rank")
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict bytes_by plan should build"),
             field_slot_for_test::<PushdownParityEntity>("rank"),
         )
@@ -187,7 +187,7 @@ fn aggregate_optimizations_by_ids_count_dedups_before_windowing() {
                 .offset(1)
                 .limit(1)
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("by_ids dedup COUNT plan should build"),
         )
         .expect("by_ids dedup COUNT should succeed")
@@ -219,7 +219,7 @@ fn aggregate_optimizations_by_ids_count_desc_window_preserves_scan_budget() {
                 .offset(1)
                 .limit(1)
                 .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
+                .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("ordered by_ids DESC COUNT plan should build"),
         )
         .expect("ordered by_ids DESC COUNT should succeed")
@@ -250,7 +250,7 @@ fn aggregate_optimizations_unordered_by_ids_count_preserves_canonical_dedup() {
                 Ulid::from_u128(8_701),
             ])
             .plan()
-            .map(crate::db::executor::ExecutablePlan::from)
+            .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("unordered by-ids COUNT plan should build"),
     )
     .expect("unordered by-ids COUNT should succeed");

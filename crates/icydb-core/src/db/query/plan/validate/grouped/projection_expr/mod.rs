@@ -3,9 +3,6 @@
 //! Does not own: runtime grouped projection evaluation or executor fallback behavior.
 //! Boundary: enforces grouped projection expression field/symbol compatibility rules.
 
-#[cfg(test)]
-mod tests;
-
 use crate::db::{
     query::plan::{
         FieldSlot, GroupSpec,

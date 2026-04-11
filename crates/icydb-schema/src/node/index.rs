@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn index_without_predicate_preserves_legacy_shape() {
+    fn index_without_predicate_preserves_unconditional_shape() {
         let index = Index::new(&["email"], true);
 
         assert_eq!(index.predicate(), None);

@@ -9,7 +9,7 @@ use crate::{
         access::AccessPath,
         data::DataKey,
         executor::{
-            ExecutablePlan,
+            PreparedExecutionPlan,
             aggregate::{AggregateKind, ScalarProjectionBoundaryRequest},
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
@@ -90,7 +90,7 @@ where
 
 fn execute_projection_count_distinct_boundary<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<u32, InternalError>
 where
@@ -106,7 +106,7 @@ where
 
 fn execute_projection_values_boundary<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<Vec<Value>, InternalError>
 where
@@ -122,7 +122,7 @@ where
 
 fn execute_projection_distinct_values_boundary<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<Vec<Value>, InternalError>
 where
@@ -138,7 +138,7 @@ where
 
 fn execute_projection_values_with_ids_boundary<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
 ) -> Result<Vec<(Id<E>, Value)>, InternalError>
 where
@@ -154,7 +154,7 @@ where
 
 fn execute_projection_terminal_value_boundary<E>(
     load: &LoadExecutor<E>,
-    plan: ExecutablePlan<E>,
+    plan: PreparedExecutionPlan<E>,
     target_field: PlannedFieldSlot,
     terminal_kind: AggregateKind,
 ) -> Result<Option<Value>, InternalError>
@@ -342,11 +342,11 @@ fn seed_optional_field_null_values_fixture() {
     ]);
 }
 
-fn optional_field_null_plan() -> ExecutablePlan<PhaseEntity> {
+fn optional_field_null_plan() -> PreparedExecutionPlan<PhaseEntity> {
     Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
-        .map(ExecutablePlan::from)
+        .map(PreparedExecutionPlan::from)
         .expect("optional-field null-semantics plan should build")
 }
 
@@ -461,11 +461,11 @@ fn seed_missing_field_parity_fixture() {
     seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
 }
 
-fn missing_field_parity_plan() -> ExecutablePlan<PushdownParityEntity> {
+fn missing_field_parity_plan() -> PreparedExecutionPlan<PushdownParityEntity> {
     Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
-        .map(ExecutablePlan::from)
+        .map(PreparedExecutionPlan::from)
         .expect("missing-field parity plan should build")
 }
 
@@ -581,7 +581,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
             .order_by_desc("id")
             .limit(5)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("field-target count-distinct plan should build")
     };
 
@@ -602,7 +602,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
             .offset(50)
             .limit(5)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("empty-window count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -629,7 +629,7 @@ fn aggregate_projection_count_distinct_supports_non_orderable_fields() {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("non-orderable count-distinct plan should build"),
         planned_slot::<PhaseEntity>("tags"),
     )
@@ -680,7 +680,7 @@ fn aggregate_projection_count_distinct_list_order_semantics_are_stable() {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("list-order count-distinct plan should build"),
         planned_slot::<PhaseEntity>("tags"),
     )
@@ -738,7 +738,7 @@ fn aggregate_projection_count_distinct_residual_retry_parity_and_scan_budget_mat
             offset: 0,
         });
 
-        ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        PreparedExecutionPlan::<IndexedMetricsEntity>::new(logical)
     };
 
     let (distinct_count, scanned_count_distinct) =
@@ -796,7 +796,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("direction-invariant ASC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -808,7 +808,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
             .order_by_desc("rank")
             .order_by_desc("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("direction-invariant DESC plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -849,7 +849,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
         .execute(
             build_query(false)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("non-distinct count-distinct baseline plan should build"),
         )
         .expect("non-distinct count-distinct baseline execute should succeed");
@@ -857,7 +857,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
         .execute(
             build_query(true)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("distinct count-distinct baseline plan should build"),
         )
         .expect("distinct count-distinct baseline execute should succeed");
@@ -866,7 +866,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
         &load,
         build_query(false)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("non-distinct count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -875,7 +875,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
         &load,
         build_query(true)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("distinct count-distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -909,7 +909,7 @@ fn aggregate_projection_values_by_distinct_remains_row_level() {
             .distinct()
             .order_by("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("values_by distinct plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -939,7 +939,7 @@ fn aggregate_projection_covering_constant_projection_terminals_match_effective_w
             .offset(1)
             .limit(3)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("covering-constant projection plan should build")
     };
 
@@ -1039,7 +1039,7 @@ fn aggregate_projection_covering_projection_matches_row_materialized_projection(
             .offset(1)
             .limit(3)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("covering-index projection plan should build")
     };
 
@@ -1123,7 +1123,7 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
             .order_by("rank")
             .order_by("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("covering non-leading distinct plan should build")
     };
 
@@ -1184,7 +1184,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
                 ("id".to_string(), OrderDirection::Asc),
             ],
         });
-        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+        PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
     };
     let covering_index_mode = covering_index_plan.bytes_by_projection_mode("rank");
     assert_eq!(
@@ -1193,13 +1193,15 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "bytes-by classifier should mark eligible ordered index-prefix shapes as covering-index",
     );
     assert_eq!(
-        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(covering_index_mode),
+        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(
+            covering_index_mode
+        ),
         "field_covering_index",
         "bytes-by classifier labels should remain stable for covering-index mode",
     );
 
     let constant_covering_plan =
-        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+        PreparedExecutionPlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: PUSHDOWN_PARITY_INDEX_MODELS[0],
                 values: vec![Value::Uint(7), Value::Uint(20)],
@@ -1213,12 +1215,14 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "bytes-by classifier should mark prefix-bound fields as covering-constant",
     );
     assert_eq!(
-        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(constant_mode),
+        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(
+            constant_mode
+        ),
         "field_covering_constant",
         "bytes-by classifier labels should remain stable for covering-constant mode",
     );
 
-    let strict_plan = ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+    let strict_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7), Value::Uint(20)],
@@ -1232,7 +1236,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         "strict bytes-by classifier should fail closed to materialized mode",
     );
     assert_eq!(
-        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(strict_mode),
+        PreparedExecutionPlan::<PushdownParityEntity>::bytes_by_projection_mode_label(strict_mode),
         "field_materialized",
         "bytes-by classifier labels should remain stable for strict materialized mode",
     );
@@ -1263,7 +1267,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -1285,7 +1289,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection with-ids plan should build"),
         planned_slot::<PushdownParityEntity>("rank"),
     )
@@ -1320,7 +1324,7 @@ fn aggregate_projection_distinct_values_by_matches_effective_window_projection()
             .offset(1)
             .limit(4)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("distinct_values_by plan should build")
     };
 
@@ -1359,7 +1363,7 @@ fn aggregate_projection_distinct_values_by_matches_values_by_first_observed_dedu
             .offset(1)
             .limit(4)
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("distinct-values invariant plan should build")
     };
 
@@ -1420,7 +1424,7 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics ASC plan should build")
     };
     let build_plan_desc = || {
@@ -1428,7 +1432,7 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
             .order_by_desc("rank")
             .order_by_desc("id")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics DESC plan should build")
     };
     let asc_err = execute_projection_count_distinct_boundary(
@@ -1578,7 +1582,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection plan should build"),
         planned_slot::<PushdownParityEntity>("group"),
     )
@@ -1600,7 +1604,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
-            .map(ExecutablePlan::from)
+            .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection with-ids plan should build"),
         planned_slot::<PushdownParityEntity>("group"),
     )
@@ -1670,7 +1674,7 @@ const PROJECTION_SCAN_BUDGET_VALUES_BY_WITH_IDS_ROWS: [(u128, u32, u32); 6] = [
 
 fn run_projection_scan_budget_terminal(
     load: &LoadExecutor<PushdownParityEntity>,
-    plan: ExecutablePlan<PushdownParityEntity>,
+    plan: PreparedExecutionPlan<PushdownParityEntity>,
     terminal: ProjectionScanBudgetTerminal,
 ) -> Result<(), InternalError> {
     match terminal {
@@ -1732,7 +1736,7 @@ fn aggregate_projection_terminals_preserve_scan_budget_parity_with_execute_matri
                 .offset(1)
                 .limit(4)
                 .plan()
-                .map(ExecutablePlan::from)
+                .map(PreparedExecutionPlan::from)
                 .expect("projection scan-budget matrix plan should build")
         };
 

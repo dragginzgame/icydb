@@ -3,9 +3,6 @@
 //! Does not own: grouped policy admissibility rules or runtime grouped execution checks.
 //! Boundary: validates grouped spec and HAVING symbol structure at planner boundary.
 
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::{
         query::plan::{
