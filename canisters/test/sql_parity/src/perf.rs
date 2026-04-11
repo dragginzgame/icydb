@@ -403,24 +403,22 @@ pub struct SqlPerfExecutorAttribution {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfProjectionTextExecutorAttribution {
-    pub prepare_projection_local_instructions: u64,
-    pub scalar_runtime_local_instructions: u64,
-    pub materialize_projection_local_instructions: u64,
-    pub result_rows_local_instructions: u64,
-    pub total_local_instructions: u64,
+    pub prepare_projection: u64,
+    pub scalar_runtime: u64,
+    pub materialize_projection: u64,
+    pub result_rows: u64,
+    pub total: u64,
 }
 
 #[cfg(feature = "perf-attribution")]
 impl From<SqlProjectionTextExecutorAttribution> for SqlPerfProjectionTextExecutorAttribution {
     fn from(attribution: SqlProjectionTextExecutorAttribution) -> Self {
         Self {
-            prepare_projection_local_instructions: attribution
-                .prepare_projection_local_instructions,
-            scalar_runtime_local_instructions: attribution.scalar_runtime_local_instructions,
-            materialize_projection_local_instructions: attribution
-                .materialize_projection_local_instructions,
-            result_rows_local_instructions: attribution.result_rows_local_instructions,
-            total_local_instructions: attribution.total_local_instructions,
+            prepare_projection: attribution.prepare_projection,
+            scalar_runtime: attribution.scalar_runtime,
+            materialize_projection: attribution.materialize_projection,
+            result_rows: attribution.result_rows,
+            total: attribution.total,
         }
     }
 }

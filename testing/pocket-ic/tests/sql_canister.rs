@@ -612,11 +612,11 @@ struct SqlPerfExecutorAttribution {
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfProjectionTextExecutorAttribution {
-    prepare_projection_local_instructions: u64,
-    scalar_runtime_local_instructions: u64,
-    materialize_projection_local_instructions: u64,
-    result_rows_local_instructions: u64,
-    total_local_instructions: u64,
+    prepare_projection: u64,
+    scalar_runtime: u64,
+    materialize_projection: u64,
+    result_rows: u64,
+    total: u64,
 }
 
 //

@@ -179,7 +179,7 @@ impl<C: CanisterKind> DbSession<C> {
             .saturating_add(visible_indexes_local_instructions)
             .saturating_add(build_plan_local_instructions)
             .saturating_add(projection_labels_local_instructions)
-            .saturating_add(projection_executor.total_local_instructions)
+            .saturating_add(projection_executor.total)
             .saturating_add(dispatch_result_local_instructions);
 
         Ok(LoweredSqlDispatchExecutorAttribution {

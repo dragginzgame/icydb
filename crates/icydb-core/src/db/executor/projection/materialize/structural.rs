@@ -111,24 +111,25 @@ impl SqlProjectionTextRows {
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SqlProjectionTextExecutorAttribution {
-    pub prepare_projection_local_instructions: u64,
-    pub scalar_runtime_local_instructions: u64,
-    pub materialize_projection_local_instructions: u64,
-    pub result_rows_local_instructions: u64,
-    pub total_local_instructions: u64,
+    pub prepare_projection: u64,
+    pub scalar_runtime: u64,
+    pub materialize_projection: u64,
+    pub result_rows: u64,
+    pub total: u64,
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "perf-attribution", target_arch = "wasm32"))]
 fn read_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
+    canic_cdk::api::performance_counter(1)
+}
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
+#[cfg(all(
+    feature = "sql",
+    feature = "perf-attribution",
+    not(target_arch = "wasm32")
+))]
+const fn read_local_instruction_counter() -> u64 {
+    0
 }
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
@@ -205,11 +206,11 @@ where
 
     Ok((
         SqlProjectionTextExecutorAttribution {
-            prepare_projection_local_instructions,
-            scalar_runtime_local_instructions,
-            materialize_projection_local_instructions,
-            result_rows_local_instructions,
-            total_local_instructions,
+            prepare_projection: prepare_projection_local_instructions,
+            scalar_runtime: scalar_runtime_local_instructions,
+            materialize_projection: materialize_projection_local_instructions,
+            result_rows: result_rows_local_instructions,
+            total: total_local_instructions,
         },
         projected,
     ))
