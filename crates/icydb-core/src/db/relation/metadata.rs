@@ -34,10 +34,10 @@ pub(super) struct StrongRelationInfo {
 
 #[derive(Clone, Copy)]
 struct StrongRelationTargetInfo {
-    target_path: &'static str,
-    target_entity_name: &'static str,
-    target_entity_tag: EntityTag,
-    target_store_path: &'static str,
+    path: &'static str,
+    entity_name: &'static str,
+    entity_tag: EntityTag,
+    store_path: &'static str,
 }
 
 /// Resolve a model field-kind into strong relation target metadata (if applicable).
@@ -67,10 +67,10 @@ const fn strong_relation_target_from_kind(kind: &FieldKind) -> Option<StrongRela
             strength: RelationStrength::Strong,
             ..
         }) => Some(StrongRelationTargetInfo {
-            target_path,
-            target_entity_name,
-            target_entity_tag: *target_entity_tag,
-            target_store_path,
+            path: target_path,
+            entity_name: target_entity_name,
+            entity_tag: *target_entity_tag,
+            store_path: target_store_path,
         }),
         _ => None,
     }
@@ -90,10 +90,10 @@ const fn strong_relation_from_field(
         field_index,
         field_name,
         field_kind: *kind,
-        target_path: target.target_path,
-        target_entity_name: target.target_entity_name,
-        target_entity_tag: target.target_entity_tag,
-        target_store_path: target.target_store_path,
+        target_path: target.path,
+        target_entity_name: target.entity_name,
+        target_entity_tag: target.entity_tag,
+        target_store_path: target.store_path,
     })
 }
 
