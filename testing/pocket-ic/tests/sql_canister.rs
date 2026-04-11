@@ -3560,7 +3560,7 @@ fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_rout
                 sql: "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
                 required_tokens: &[
                     "IndexRangeScan",
-                    "OrderByMaterializedSort",
+                    "OrderByAccessSatisfied",
                     "GroupedAggregateOrderedMaterialized",
                     "grouped_plan_fallback_reason=Text(\"none\")",
                     "grouped_execution_mode=Text(\"ordered_materialized\")",
@@ -3581,7 +3581,7 @@ fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_rout
                 sql: "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
                 required_tokens: &[
                     "IndexRangeScan",
-                    "OrderByMaterializedSort",
+                    "OrderByAccessSatisfied",
                     "GroupedAggregateOrderedMaterialized",
                     "grouped_plan_fallback_reason=Text(\"none\")",
                     "grouped_execution_mode=Text(\"ordered_materialized\")",
@@ -3602,7 +3602,7 @@ fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_rout
                 sql: "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
                 required_tokens: &[
                     "IndexRangeScan",
-                    "OrderByMaterializedSort",
+                    "OrderByAccessSatisfied",
                     "GroupedAggregateOrderedMaterialized",
                     "grouped_plan_fallback_reason=Text(\"none\")",
                     "grouped_execution_mode=Text(\"ordered_materialized\")",
@@ -3613,7 +3613,7 @@ fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_rout
                 sql: "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
                 required_tokens: &[
                     "IndexRangeScan",
-                    "OrderByMaterializedSort",
+                    "OrderByAccessSatisfied",
                     "GroupedAggregateOrderedMaterialized",
                     "grouped_plan_fallback_reason=Text(\"none\")",
                     "grouped_execution_mode=Text(\"ordered_materialized\")",
