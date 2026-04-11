@@ -10,7 +10,7 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate},
         query::plan::{
             AccessPlannedQuery, OrderDirection, OrderSpec,
-            expr::{BinaryOp, Expr, FieldId, ProjectionSelection},
+            expr::{FieldId, ProjectionSelection},
         },
     },
     model::{
@@ -567,22 +567,6 @@ fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_ord
     assert!(
         covering.is_none(),
         "expression-index covering must not claim the original source field is stored in the derived component",
-    );
-}
-
-#[test]
-fn covering_read_plan_rejects_non_field_expression_projection() {
-    let mut plan = covering_read_plan_with_group_prefix();
-    plan.projection_selection = ProjectionSelection::Expression(Expr::Binary {
-        op: BinaryOp::Add,
-        left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Uint(1))),
-    });
-
-    let covering = covering_read_plan(&plan, "id", true);
-    assert!(
-        covering.is_none(),
-        "computed scalar projections must remain outside the phase-1 covering-read contract",
     );
 }
 

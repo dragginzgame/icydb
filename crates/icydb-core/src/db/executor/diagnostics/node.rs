@@ -3,8 +3,6 @@
 //! Does not own: explain tree rendering or runtime metrics storage.
 //! Boundary: executor-owned node identity projection for explain/metrics correlation.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::db::query::explain::ExplainExecutionNodeDescriptor;
 
 ///

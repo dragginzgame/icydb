@@ -20,8 +20,8 @@ use crate::{
             aggregate::runtime::finalize_path_outcome_for_path,
             continuation::ScalarContinuationContext,
             pipeline::contracts::{
-                CoveringComponentScanState, ExecutionInputFlags, ExecutionInputs,
-                ExecutionOutcomeMetrics, ExecutionRuntimeAdapter, LoadExecutor,
+                CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
+                ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
                 MaterializedExecutionPayload, PreparedExecutionProjection,
                 ProjectionMaterializationMode, StructuralCursorPage,
             },
@@ -244,7 +244,7 @@ fn execute_scalar_execution_stage(
         execution_preparation,
         projection_runtime_mode,
         prepared_projection,
-        ExecutionInputFlags::new(
+        ExecutionOutputOptions::new(
             projection_runtime_mode.emit_cursor(),
             fuse_immediate_sql_terminal,
         ),

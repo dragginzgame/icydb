@@ -16,7 +16,6 @@ use crate::db::{executor::ContinuationMode, query::plan::ContinuationPolicy};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[expect(clippy::struct_excessive_bools)]
 pub(in crate::db::executor) struct ContinuationCapabilities {
-    #[cfg_attr(not(test), allow(dead_code))]
     mode: ContinuationMode,
     applied: bool,
     strict_advance_required_when_applied: bool,

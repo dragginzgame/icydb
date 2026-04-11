@@ -2183,7 +2183,7 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
     reset_store();
 
     let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
-    let delete = DeleteExecutor::<UniqueEmailEntity>::new(DB, false);
+    let delete = DeleteExecutor::<UniqueEmailEntity>::new(DB);
 
     let original = Ulid::from_u128(40);
     save.insert(UniqueEmailEntity {

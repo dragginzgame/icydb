@@ -482,13 +482,11 @@ impl ExecutionKernel {
             return Ok(Some(sql_page));
         }
 
-        let payload_mode = if retain_slot_rows && cursor_boundary.is_none() {
-            KernelRowPayloadMode::SlotsOnly
-        } else if retained_slot_layout.is_some() {
-            KernelRowPayloadMode::FullRowRetained
-        } else {
-            KernelRowPayloadMode::DataRowOnly
-        };
+        let payload_mode = select_cursorless_row_collector_payload_mode(
+            retain_slot_rows,
+            cursor_boundary,
+            retained_slot_layout,
+        );
         let row_keep_cap =
             cursorless_row_collector_keep_cap(plan, cursor_boundary, retain_slot_rows);
         let (mut rows, keys_scanned) = Self::run_row_collector_stream(RowCollectorStreamRequest {
@@ -503,25 +501,17 @@ impl ExecutionKernel {
             predicate_slots,
             retained_slot_layout,
         })?;
-        if retain_slot_rows && !cursorless_sql_page_window_is_redundant(plan, rows.len()) {
-            apply_cursorless_sql_page_window(plan, &mut rows);
-        }
-        if validate_projection {
-            let prepared_projection_validation =
-                required_prepared_projection_validation(prepared_projection_validation)?;
-            for row in &rows {
-                crate::db::executor::projection::validate_prepared_projection_row(
-                    prepared_projection_validation,
-                    &mut |slot| row.slot_ref(slot),
-                )?;
-            }
-        }
-        let post_access_rows = rows.len();
-        let payload = finalize_cursorless_row_collector_payload(
-            &sql_covering_context,
-            rows,
+        apply_cursorless_row_collector_post_access(
+            plan,
+            validate_projection,
+            prepared_projection_validation,
             retain_slot_rows,
+            &mut rows,
         )?;
+        let post_access_rows = rows.len();
+        let finalize_mode =
+            select_cursorless_row_collector_finalize_mode(&sql_covering_context, retain_slot_rows)?;
+        let payload = finalize_cursorless_row_collector_payload(rows, finalize_mode)?;
 
         Ok(Some((payload, keys_scanned, post_access_rows)))
     }
@@ -647,7 +637,8 @@ fn finalize_cursorless_sql_slot_row_page(
     }
 
     let post_access_rows = slot_rows.len();
-    let payload = finalize_cursorless_sql_slot_row_payload(context, slot_rows)?;
+    let finalize_mode = select_cursorless_row_collector_finalize_mode(context, true)?;
+    let payload = finalize_cursorless_slot_row_payload(slot_rows, finalize_mode)?;
 
     Ok((payload, keys_scanned, post_access_rows))
 }
@@ -708,97 +699,166 @@ fn cursorless_sql_page_window_is_redundant(plan: &AccessPlannedQuery, row_count:
         .is_none_or(|limit| row_count <= usize::try_from(limit).unwrap_or(usize::MAX))
 }
 
-// Finalize one cursorless structural page after short-path row collection.
-fn finalize_cursorless_row_collector_page(
-    rows: Vec<KernelRow>,
+// Select one row payload mode before cursorless row collection so the scan
+// loop does not branch on data-vs-slot materialization per row.
+const fn select_cursorless_row_collector_payload_mode(
     retain_slot_rows: bool,
-) -> Result<crate::db::executor::pipeline::contracts::StructuralCursorPage, InternalError> {
-    #[cfg(feature = "sql")]
-    {
-        if retain_slot_rows {
-            let slot_rows = rows
-                .into_iter()
-                .map(KernelRow::into_retained_slot_row)
-                .collect::<Result<Vec<_>, _>>()?;
-
-            return Ok(
-                crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
-                    slot_rows, None,
-                ),
-            );
-        }
+    cursor_boundary: Option<&CursorBoundary>,
+    retained_slot_layout: Option<&crate::db::executor::RetainedSlotLayout>,
+) -> KernelRowPayloadMode {
+    if retain_slot_rows && cursor_boundary.is_none() {
+        KernelRowPayloadMode::SlotsOnly
+    } else if retained_slot_layout.is_some() {
+        KernelRowPayloadMode::FullRowRetained
+    } else {
+        KernelRowPayloadMode::DataRowOnly
     }
-
-    let _ = retain_slot_rows;
-    let data_rows = rows
-        .into_iter()
-        .map(KernelRow::into_data_row)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None))
 }
 
-#[cfg(feature = "sql")]
-fn finalize_cursorless_row_collector_payload(
-    context: &SqlCoveringMaterializationContext<'_>,
-    rows: Vec<KernelRow>,
+// Apply the remaining cursorless SQL post-access work after the kernel scan:
+// optional page window and optional slot-row projection validation.
+fn apply_cursorless_row_collector_post_access(
+    plan: &AccessPlannedQuery,
+    validate_projection: bool,
+    prepared_projection_validation: Option<
+        &crate::db::executor::projection::PreparedSlotProjectionValidation,
+    >,
     retain_slot_rows: bool,
-) -> Result<MaterializedExecutionPayload, InternalError> {
-    if context.fuse_immediate_sql_terminal && retain_slot_rows {
-        let mut slot_rows = Vec::with_capacity(rows.len());
+    rows: &mut Vec<KernelRow>,
+) -> Result<(), InternalError> {
+    if retain_slot_rows && !cursorless_sql_page_window_is_redundant(plan, rows.len()) {
+        apply_cursorless_sql_page_window(plan, rows);
+    }
+
+    if validate_projection {
+        let prepared_projection_validation =
+            required_prepared_projection_validation(prepared_projection_validation)?;
         for row in rows {
-            slot_rows.push(row.into_retained_slot_row()?);
+            crate::db::executor::projection::validate_prepared_projection_row(
+                prepared_projection_validation,
+                &mut |slot| row.slot_ref(slot),
+            )?;
         }
-
-        return finalize_cursorless_sql_slot_row_payload(context, slot_rows);
     }
 
-    Ok(MaterializedExecutionPayload::StructuralPage(
-        finalize_cursorless_row_collector_page(rows, retain_slot_rows)?,
-    ))
+    Ok(())
+}
+
+// Cursorless row-collector finalization still has two families:
+// structural page output and fused immediate SQL terminal output.
+// Select that family once before converting kernel rows.
+#[cfg(feature = "sql")]
+enum CursorlessRowCollectorFinalizeMode<'a> {
+    StructuralDataRows,
+    StructuralSlotRows,
+    SqlProjected {
+        prepared_projection_shape: &'a PreparedProjectionShape,
+    },
+    SqlRendered {
+        prepared_projection_shape: &'a PreparedProjectionShape,
+    },
 }
 
 #[cfg(feature = "sql")]
-fn finalize_cursorless_sql_slot_row_payload(
-    context: &SqlCoveringMaterializationContext<'_>,
-    slot_rows: Vec<crate::db::executor::RetainedSlotRow>,
-) -> Result<MaterializedExecutionPayload, InternalError> {
-    if context.fuse_immediate_sql_terminal {
+fn select_cursorless_row_collector_finalize_mode<'a>(
+    context: &'a SqlCoveringMaterializationContext<'a>,
+    retain_slot_rows: bool,
+) -> Result<CursorlessRowCollectorFinalizeMode<'a>, InternalError> {
+    if context.fuse_immediate_sql_terminal && retain_slot_rows {
         let prepared_projection_shape =
             required_prepared_projection_shape(context.prepared_projection_shape)?;
 
         return match context.projection_materialization {
             ProjectionMaterializationMode::SqlImmediateMaterialization => {
-                Ok(MaterializedExecutionPayload::SqlProjectedRows(
-                    project_sql_projection_slot_rows_for_dispatch(
-                        prepared_projection_shape,
-                        slot_rows,
-                    )?,
-                ))
+                Ok(CursorlessRowCollectorFinalizeMode::SqlProjected {
+                    prepared_projection_shape,
+                })
             }
             ProjectionMaterializationMode::SqlImmediateRenderedDispatch => {
-                Ok(MaterializedExecutionPayload::SqlRenderedRows(
-                    render_sql_projection_slot_rows_for_dispatch(
-                        prepared_projection_shape,
-                        slot_rows,
-                    )?,
-                ))
+                Ok(CursorlessRowCollectorFinalizeMode::SqlRendered {
+                    prepared_projection_shape,
+                })
             }
-            ProjectionMaterializationMode::SharedValidation => Ok(
-                MaterializedExecutionPayload::StructuralPage(
-                    crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
-                        slot_rows, None,
-                    ),
-                ),
-            ),
+            ProjectionMaterializationMode::SharedValidation => {
+                Ok(CursorlessRowCollectorFinalizeMode::StructuralSlotRows)
+            }
         };
     }
 
-    Ok(MaterializedExecutionPayload::StructuralPage(
-        crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
-            slot_rows, None,
-        ),
-    ))
+    if retain_slot_rows {
+        return Ok(CursorlessRowCollectorFinalizeMode::StructuralSlotRows);
+    }
+
+    Ok(CursorlessRowCollectorFinalizeMode::StructuralDataRows)
+}
+
+#[cfg(feature = "sql")]
+fn finalize_cursorless_row_collector_payload(
+    rows: Vec<KernelRow>,
+    finalize_mode: CursorlessRowCollectorFinalizeMode<'_>,
+) -> Result<MaterializedExecutionPayload, InternalError> {
+    match finalize_mode {
+        CursorlessRowCollectorFinalizeMode::StructuralDataRows => {
+            Ok(MaterializedExecutionPayload::StructuralPage(
+                crate::db::executor::pipeline::contracts::StructuralCursorPage::new(
+                    collect_cursorless_data_rows(rows)?,
+                    None,
+                ),
+            ))
+        }
+        mode @ (CursorlessRowCollectorFinalizeMode::StructuralSlotRows
+        | CursorlessRowCollectorFinalizeMode::SqlProjected { .. }
+        | CursorlessRowCollectorFinalizeMode::SqlRendered { .. }) => {
+            finalize_cursorless_slot_row_payload(collect_cursorless_slot_rows(rows)?, mode)
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn finalize_cursorless_slot_row_payload(
+    slot_rows: Vec<crate::db::executor::RetainedSlotRow>,
+    finalize_mode: CursorlessRowCollectorFinalizeMode<'_>,
+) -> Result<MaterializedExecutionPayload, InternalError> {
+    match finalize_mode {
+        CursorlessRowCollectorFinalizeMode::StructuralSlotRows => {
+            Ok(MaterializedExecutionPayload::StructuralPage(
+                crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
+                    slot_rows, None,
+                ),
+            ))
+        }
+        CursorlessRowCollectorFinalizeMode::SqlProjected {
+            prepared_projection_shape,
+        } => Ok(MaterializedExecutionPayload::SqlProjectedRows(
+            project_sql_projection_slot_rows_for_dispatch(prepared_projection_shape, slot_rows)?,
+        )),
+        CursorlessRowCollectorFinalizeMode::SqlRendered {
+            prepared_projection_shape,
+        } => Ok(MaterializedExecutionPayload::SqlRenderedRows(
+            render_sql_projection_slot_rows_for_dispatch(prepared_projection_shape, slot_rows)?,
+        )),
+        CursorlessRowCollectorFinalizeMode::StructuralDataRows => {
+            Err(InternalError::query_executor_invariant(
+                "slot-row cursorless finalization requires one slot-row payload mode",
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn collect_cursorless_slot_rows(
+    rows: Vec<KernelRow>,
+) -> Result<Vec<crate::db::executor::RetainedSlotRow>, InternalError> {
+    rows.into_iter()
+        .map(KernelRow::into_retained_slot_row)
+        .collect()
+}
+
+#[cfg(feature = "sql")]
+fn collect_cursorless_data_rows(
+    rows: Vec<KernelRow>,
+) -> Result<Vec<crate::db::data::DataRow>, InternalError> {
+    rows.into_iter().map(KernelRow::into_data_row).collect()
 }
 
 #[cfg(feature = "sql")]
@@ -830,9 +890,20 @@ fn apply_cursorless_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec
             .min(total),
         None => total,
     };
+    if start == 0 {
+        rows.truncate(end);
+        return;
+    }
 
-    rows.drain(..start);
-    rows.truncate(end.saturating_sub(start));
+    let mut kept = 0usize;
+    for read_index in start..end {
+        if kept != read_index {
+            rows.swap(kept, read_index);
+        }
+        kept = kept.saturating_add(1);
+    }
+
+    rows.truncate(kept);
 }
 
 #[cfg(feature = "sql")]
@@ -1019,19 +1090,6 @@ const fn sql_route_covering_row_check_required(
     match sql_route_covering_contract(load_terminal_fast_path) {
         Some(covering) => covering.existing_row_mode.requires_row_presence_check(),
         None => false,
-    }
-}
-
-#[cfg(feature = "sql")]
-// Return whether a constant-plus-primary-key SQL short path may trust the
-// current covering route contract. These short paths only see the ordered key
-// stream itself, so they cannot honor membership-level storage witnesses.
-const fn sql_route_covering_allows_constant_short_path(
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
-) -> bool {
-    match sql_route_covering_contract(load_terminal_fast_path) {
-        Some(covering) => !covering.existing_row_mode.uses_storage_existence_witness(),
-        None => true,
     }
 }
 
@@ -1323,9 +1381,6 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     predicate_slots: Option<&PredicateProgram>,
 ) -> Option<SqlConstantCoveringSlotTemplate> {
     let covering = sql_route_covering_contract(load_terminal_fast_path)?;
-    if !sql_route_covering_allows_constant_short_path(load_terminal_fast_path) {
-        return None;
-    }
     let mut template = sql_constant_covering_slot_template_seed(row_layout);
 
     // Phase 1: project one canonical slot template directly from the route
@@ -1565,13 +1620,7 @@ fn sql_route_covering_retained_row(
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{
-        direction::Direction,
-        executor::route::LoadTerminalFastPathContract,
-        query::plan::{
-            CoveringExistingRowMode, CoveringProjectionOrder, CoveringReadExecutionPlan,
-        },
-    };
+    use crate::db::{direction::Direction, query::plan::CoveringProjectionOrder};
 
     #[test]
     fn covering_component_scan_budget_hint_disables_bounded_fetch_for_pk_reorder() {
@@ -1598,33 +1647,6 @@ mod tests {
             ),
             Some(5),
             "index-order covering scans may preserve their bounded fetch hint",
-        );
-    }
-
-    #[test]
-    fn constant_covering_short_paths_reject_storage_existence_witness() {
-        let row_check_covering =
-            LoadTerminalFastPathContract::CoveringRead(CoveringReadExecutionPlan {
-                fields: Vec::new(),
-                order_contract: CoveringProjectionOrder::IndexOrder(Direction::Asc),
-                prefix_len: 0,
-                existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
-            });
-        let storage_witness_covering =
-            LoadTerminalFastPathContract::CoveringRead(CoveringReadExecutionPlan {
-                fields: Vec::new(),
-                order_contract: CoveringProjectionOrder::IndexOrder(Direction::Asc),
-                prefix_len: 0,
-                existing_row_mode: CoveringExistingRowMode::StorageExistenceWitness,
-            });
-
-        assert!(
-            super::sql_route_covering_allows_constant_short_path(Some(&row_check_covering)),
-            "constant-plus-primary-key SQL short paths may still run under row_check_required because they perform their own authoritative row presence checks",
-        );
-        assert!(
-            !super::sql_route_covering_allows_constant_short_path(Some(&storage_witness_covering)),
-            "constant-plus-primary-key SQL short paths must fail closed under storage_existence_witness because the ordered key stream does not carry membership-level missing-row witnesses",
         );
     }
 }

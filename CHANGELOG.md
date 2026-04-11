@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.75.x] 🧭 - 2026-04-10 - Crosscutting Audit Refresh
+## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
 - `0.75.3` keeps the audit line structural by collapsing duplicated SQL projection and covering-read flows onto one shared executor path, deleting obsolete single-component scan wrappers, and moving deep perf attribution behind an opt-in feature so the default runtime is simpler before the next optimization pass.
 - `0.75.2` fixes the new sparse-versus-dense row reader split so full-row queries no longer pay the lazy slot-reader setup cost, while commit and projection boundaries go back to rejecting malformed unused fields immediately instead of deferring those corruption errors until first access.

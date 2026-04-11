@@ -225,7 +225,7 @@ fn eval_expr_for_row(
 fn eval_scalar_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
-) -> Result<Value, crate::db::executor::projection::ScalarProjectionEvalError> {
+) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
     let raw_row = RawRow::from_entity(row).expect("persisted row should encode");

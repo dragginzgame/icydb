@@ -3,14 +3,19 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+#[cfg(test)]
+use crate::db::{
+    executor::projection::eval::{eval_binary_expr, eval_unary_expr},
+    query::plan::expr::{BinaryOp, UnaryOp},
+};
 use crate::{
     db::{
-        executor::projection::eval::{ProjectionEvalError, eval_binary_expr, eval_unary_expr},
+        executor::projection::eval::ProjectionEvalError,
         query::{
             builder::AggregateExpr,
             plan::{
                 FieldSlot, GroupedAggregateExecutionSpec,
-                expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, UnaryOp},
+                expr::{Expr, ProjectionField, ProjectionSpec},
             },
         },
     },
@@ -70,11 +75,14 @@ impl<'a> GroupedRowView<'a> {
 pub(in crate::db::executor) enum GroupedProjectionExpr {
     Field(GroupedProjectionField),
     Aggregate(GroupedProjectionAggregate),
+    #[cfg(test)]
     Literal(Value),
+    #[cfg(test)]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
     },
+    #[cfg(test)]
     Binary {
         op: BinaryOp,
         left: Box<Self>,
@@ -175,11 +183,14 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
 
             Ok(value.clone())
         }
+        #[cfg(test)]
         GroupedProjectionExpr::Literal(value) => Ok(value.clone()),
+        #[cfg(test)]
         GroupedProjectionExpr::Unary { op, expr } => {
             let operand = eval_grouped_projection_expr(expr, grouped_row)?;
             eval_unary_expr(*op, &operand)
         }
+        #[cfg(test)]
         GroupedProjectionExpr::Binary { op, left, right } => {
             let left = eval_grouped_projection_expr(left, grouped_row)?;
             let right = eval_grouped_projection_expr(right, grouped_row)?;
@@ -249,7 +260,9 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 GroupedProjectionAggregate { index },
             ))
         }
+        #[cfg(test)]
         Expr::Literal(value) => Ok(GroupedProjectionExpr::Literal(value.clone())),
+        #[cfg(test)]
         Expr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
             op: *op,
             expr: Box::new(compile_grouped_projection_expr(
@@ -258,6 +271,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 aggregate_execution_specs,
             )?),
         }),
+        #[cfg(test)]
         Expr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
             op: *op,
             left: Box::new(compile_grouped_projection_expr(
@@ -271,6 +285,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 aggregate_execution_specs,
             )?),
         }),
+        #[cfg(test)]
         Expr::Alias { expr, .. } => {
             compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)
         }

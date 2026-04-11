@@ -419,6 +419,13 @@ fn project_static_planning_shape_for_model(
             None
         };
     let grouped_aggregate_execution_specs = if let Some(grouped) = plan.grouped_plan() {
+        #[cfg(not(test))]
+        let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
+            &projection_spec,
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+        );
+        #[cfg(test)]
         let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
             &projection_spec,
             grouped.group.group_fields.as_slice(),
@@ -510,10 +517,18 @@ fn mark_projection_expr_slots(
             })?;
             referenced[slot] = true;
         }
-        Expr::Literal(_) | Expr::Aggregate(_) => {}
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
+        Expr::Aggregate(_) => {}
+        #[cfg(test)]
+        Expr::Literal(_) => {}
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => {
             mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
         }
+        #[cfg(test)]
+        Expr::Unary { expr, .. } => {
+            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
+        }
+        #[cfg(test)]
         Expr::Binary { left, right, .. } => {
             mark_projection_expr_slots(model, left.as_ref(), referenced)?;
             mark_projection_expr_slots(model, right.as_ref(), referenced)?;

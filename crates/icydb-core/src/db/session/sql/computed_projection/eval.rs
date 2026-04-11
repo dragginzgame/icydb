@@ -1,7 +1,9 @@
 //! Module: db::session::sql::computed_projection::eval
-//! Responsibility: module-local ownership and contracts for db::session::sql::computed_projection::eval.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: apply one validated computed SQL projection plan to an
+//! already materialized SQL projection payload.
+//! Does not own: SQL parsing, computed-projection planning, or payload routing.
+//! Boundary: transforms row values only after session SQL planning has fixed the
+//! computed column contract.
 
 use crate::{
     db::{

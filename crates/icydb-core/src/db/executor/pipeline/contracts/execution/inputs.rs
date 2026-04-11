@@ -671,20 +671,20 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
 }
 
 ///
-/// ExecutionInputFlags
+/// ExecutionOutputOptions
 ///
-/// ExecutionInputFlags carries the two remaining scalar execution toggles that
+/// ExecutionOutputOptions carries the two remaining scalar execution toggles that
 /// are chosen before shared runtime dispatch.
 /// This keeps the prepared execution-input constructor under the clippy
 /// argument-count threshold without widening the execution contract itself.
 ///
 
-pub(in crate::db::executor) struct ExecutionInputFlags {
+pub(in crate::db::executor) struct ExecutionOutputOptions {
     emit_cursor: bool,
     fuse_immediate_sql_terminal: bool,
 }
 
-impl ExecutionInputFlags {
+impl ExecutionOutputOptions {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         emit_cursor: bool,
@@ -707,7 +707,7 @@ impl<'a> ExecutionInputs<'a> {
         execution_preparation: &'a ExecutionPreparation,
         projection_materialization: ProjectionMaterializationMode,
         prepared_projection: PreparedExecutionProjection,
-        flags: ExecutionInputFlags,
+        flags: ExecutionOutputOptions,
     ) -> Self {
         Self {
             runtime,

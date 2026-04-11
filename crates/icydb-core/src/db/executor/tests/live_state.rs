@@ -286,7 +286,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("delete plan should build");
-    let delete = DeleteExecutor::<PhaseEntity>::new(DB, false);
+    let delete = DeleteExecutor::<PhaseEntity>::new(DB);
     let deleted = delete.execute(delete_plan).expect("delete should succeed");
     assert_eq!(deleted.len(), 1, "one row should be removed");
     assert_eq!(

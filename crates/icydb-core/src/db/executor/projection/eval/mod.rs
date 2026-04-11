@@ -6,22 +6,25 @@
 mod operators;
 mod scalar;
 
-use crate::{error::InternalError, value::Value};
+use crate::error::InternalError;
+#[cfg(test)]
+use crate::value::Value;
 use thiserror::Error as ThisError;
 
 pub(in crate::db::executor) use crate::db::query::plan::expr::ScalarProjectionExpr;
 #[cfg(test)]
 pub(in crate::db::executor) use crate::db::query::plan::expr::compile_scalar_projection_expr;
+#[cfg(test)]
 pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
 #[cfg(test)]
+pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
+#[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
-#[cfg(test)]
-pub(in crate::db::executor) use scalar::{ScalarProjectionEvalError, eval_scalar_projection_expr};
 
 ///
 /// ProjectionEvalError
@@ -41,9 +44,11 @@ pub(in crate::db::executor) enum ProjectionEvalError {
     #[error("projection expression cannot evaluate aggregate '{kind}' in scalar row context")]
     AggregateNotEvaluable { kind: String },
 
+    #[cfg(test)]
     #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
     InvalidUnaryOperand { op: String, found: Box<Value> },
 
+    #[cfg(test)]
     #[error(
         "projection binary operator '{op}' is incompatible with operand values ({left:?}, {right:?})"
     )]

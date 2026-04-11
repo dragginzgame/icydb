@@ -1,7 +1,9 @@
 //! Module: db::session::sql::computed_projection::plan
-//! Responsibility: module-local ownership and contracts for db::session::sql::computed_projection::plan.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: validate parser output and build the narrow computed SQL
+//! projection plan used by session-owned text transforms.
+//! Does not own: SQL parsing, row evaluation, or payload rendering.
+//! Boundary: accepts parser statements and emits only validated computed
+//! projection metadata.
 
 use crate::{
     db::{

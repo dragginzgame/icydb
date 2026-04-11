@@ -37,7 +37,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
         })
         .expect("source save should succeed");
 
-    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB);
     let delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
@@ -119,7 +119,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         })
         .expect("source save should succeed");
 
-    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB);
     let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_id)
@@ -131,7 +131,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         .expect("source delete should succeed");
     assert_eq!(deleted_sources.len(), 1, "source row should be removed");
 
-    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB);
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
@@ -179,7 +179,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
@@ -235,7 +235,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak optional referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
@@ -295,7 +295,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target delete plan should build");
-    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak list referrer");
     assert_eq!(deleted_targets.len(), 1, "target row should be removed");
@@ -352,7 +352,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
         "target index store should contain one reverse-relation entry after source insert",
     );
 
-    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB);
     let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_id)
@@ -424,7 +424,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target A delete plan should build");
-    let deleted_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(old_target_delete_plan)
         .expect("old target should be deletable after relation retarget");
     assert_eq!(deleted_a.len(), 1, "old target should delete cleanly");
@@ -435,7 +435,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target B delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(protected_target_delete_plan)
         .expect_err("new target should remain protected by strong relation");
     assert_eq!(
@@ -512,7 +512,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         "recovery replay should materialize reverse relation index entries",
     );
 
-    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB);
     let delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
@@ -627,7 +627,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("orphan target delete plan should build");
-    let deleted_orphan_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_orphan_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_orphan_target)
         .expect("orphan target should be deletable after startup rebuild");
     assert_eq!(
@@ -642,7 +642,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("live target delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_live_target)
         .expect_err("live target should remain protected by surviving relation");
     assert_eq!(
@@ -723,7 +723,7 @@ fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target)
         .expect_err("restored reverse entry should block target delete");
     assert_eq!(
@@ -849,7 +849,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(target_delete_plan)
         .expect_err("target delete should remain blocked by surviving source row");
     assert_eq!(
@@ -873,7 +873,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("source B delete plan should build");
-    DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+    DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(source_delete_plan)
         .expect("source B delete should succeed");
 
@@ -883,7 +883,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("retry target delete plan should build");
-    let deleted_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let deleted_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_target_delete_plan)
         .expect("target should delete once all referrers are removed");
     assert_eq!(deleted_target.len(), 1, "target row should be removed");
@@ -952,7 +952,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target A delete plan should build");
-    let removed_old_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let removed_old_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
         .expect("old target should be deletable after replayed retarget");
     assert_eq!(removed_old_target.len(), 1, "old target should be removed");
@@ -963,7 +963,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target B delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
         .expect_err("new target should remain blocked by relation referrer");
     assert_eq!(
@@ -1100,7 +1100,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target A delete plan should build");
-    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
         .expect_err("target A should remain protected after rollback");
     assert_eq!(
@@ -1124,7 +1124,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target B delete plan should build");
-    let removed_free_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let removed_free_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
         .expect("target B should remain deletable after rollback");
     assert_eq!(removed_free_target.len(), 1, "target B should be removed");
@@ -1248,7 +1248,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target A delete plan should build");
-    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_a)
         .expect_err("target A should remain blocked by source 2");
     assert_eq!(
@@ -1274,7 +1274,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target B delete plan should build");
-    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(delete_target_b)
         .expect_err("target B should be blocked by moved source 1");
     assert_eq!(
@@ -1301,7 +1301,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("source 2 delete plan should build");
-    DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+    DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(delete_source_2)
         .expect("source 2 delete should succeed");
 
@@ -1311,7 +1311,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target A delete plan should build");
-    DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_delete_plan)
         .expect("target A should delete once source 2 is gone");
 
@@ -1321,7 +1321,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("source 1 delete plan should build");
-    DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+    DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
         .execute(delete_source_1)
         .expect("source 1 delete should succeed");
 
@@ -1331,7 +1331,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("target B delete plan should build");
-    DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+    DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
         .execute(retry_delete_plan)
         .expect("target B should delete once source 1 is gone");
 

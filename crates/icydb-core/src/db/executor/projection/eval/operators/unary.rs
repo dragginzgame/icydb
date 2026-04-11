@@ -4,12 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        executor::projection::eval::ProjectionEvalError,
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
-        query::plan::expr::UnaryOp,
-    },
-    types::Decimal,
+    db::{executor::projection::eval::ProjectionEvalError, query::plan::expr::UnaryOp},
     value::Value,
 };
 
@@ -22,20 +17,6 @@ pub(in crate::db::executor) fn eval_unary_expr(
     }
 
     match op {
-        UnaryOp::Neg => {
-            let Some(result) = apply_numeric_arithmetic(
-                NumericArithmeticOp::Sub,
-                &Value::Decimal(Decimal::ZERO),
-                value,
-            ) else {
-                return Err(ProjectionEvalError::InvalidUnaryOperand {
-                    op: unary_op_name(op).to_string(),
-                    found: Box::new(value.clone()),
-                });
-            };
-
-            Ok(Value::Decimal(result))
-        }
         UnaryOp::Not => {
             let Value::Bool(v) = value else {
                 return Err(ProjectionEvalError::InvalidUnaryOperand {
@@ -51,7 +32,6 @@ pub(in crate::db::executor) fn eval_unary_expr(
 
 const fn unary_op_name(op: UnaryOp) -> &'static str {
     match op {
-        UnaryOp::Neg => "neg",
         UnaryOp::Not => "not",
     }
 }

@@ -10,7 +10,7 @@ use crate::{
             FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                collect_unique_direct_projection_slots, direct_projection_expr_field_name,
+                collect_unique_direct_projection_slots,
             },
         },
     },
@@ -48,10 +48,6 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
                 alias: None,
             })
             .collect(),
-        ProjectionSelection::Expression(expr) => vec![ProjectionField::Scalar {
-            expr: expr.clone(),
-            alias: None,
-        }],
     };
 
     ProjectionSpec::new(fields)
@@ -82,10 +78,6 @@ fn lower_scalar_direct_projection_slots(
         ProjectionSelection::Fields(field_ids) => {
             collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
         }
-        ProjectionSelection::Expression(expr) => collect_unique_direct_projection_slots(
-            model,
-            [direct_projection_expr_field_name(expr)?],
-        ),
     }
 }
 

@@ -65,7 +65,6 @@ pub(in crate::db) struct CoveringProjectionContext {
 /// index components, primary-key output, and prefix-bound constants only.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringReadFieldSource {
     IndexComponent { component_index: usize },
@@ -81,7 +80,6 @@ pub(in crate::db) enum CoveringReadFieldSource {
 /// runtime can satisfy the value without row-materialized reads.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CoveringReadField {
     pub(in crate::db) field_slot: FieldSlot,
@@ -96,7 +94,6 @@ pub(in crate::db) struct CoveringReadField {
 /// projections over index-backed scalar reads can produce this plan.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CoveringReadPlan {
     pub(in crate::db) fields: Vec<CoveringReadField>,
@@ -113,12 +110,9 @@ pub(in crate::db) struct CoveringReadPlan {
 /// exists in row storage before it can emit output.
 ///
 
-#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringExistingRowMode {
     ProvenByPlanner,
-    WitnessValidated,
-    StorageExistenceWitness,
     RequiresRowPresenceCheck,
 }
 
@@ -128,13 +122,6 @@ impl CoveringExistingRowMode {
     #[must_use]
     pub(in crate::db) const fn requires_row_presence_check(self) -> bool {
         matches!(self, Self::RequiresRowPresenceCheck)
-    }
-
-    /// Return whether execution consumes one explicit storage-owned existence
-    /// witness instead of probing the row store directly.
-    #[must_use]
-    pub(in crate::db) const fn uses_storage_existence_witness(self) -> bool {
-        matches!(self, Self::StorageExistenceWitness)
     }
 }
 
@@ -572,7 +559,6 @@ fn primary_store_covering_order_supported<K>(
 
 // Derive one canonical covering-read field list from one direct-field
 // projection under one immutable covering access shape.
-#[cfg_attr(not(test), allow(dead_code))]
 fn covering_read_fields_from_projection(
     fields: &[FieldModel],
     projection: &ProjectionSpec,
@@ -614,7 +600,6 @@ fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Optio
 }
 
 // Resolve one covering-read field source for one direct projected field.
-#[cfg_attr(not(test), allow(dead_code))]
 fn covering_read_field_source(
     field_name: &str,
     coverable_component_fields: &[Option<&'static str>],

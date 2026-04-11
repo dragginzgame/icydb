@@ -14,7 +14,6 @@ use crate::{
 /// Planner-owned projection selection contract for scalar query shapes.
 /// `All` projects the full entity model field list.
 /// `Fields` projects one explicit field subset in declaration order.
-/// `Expression` projects one computed expression.
 /// Invariant: projection order is planner-authoritative and must remain stable
 /// through executor/materialization boundaries.
 ///
@@ -23,7 +22,6 @@ use crate::{
 pub(crate) enum ProjectionSelection {
     All,
     Fields(Vec<FieldId>),
-    Expression(Expr),
 }
 
 ///
@@ -66,12 +64,6 @@ impl ProjectionSpec {
         Self::new(fields)
     }
 
-    /// Return true when projection has no declared output fields.
-    #[must_use]
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.fields.is_empty()
-    }
-
     /// Return the declared output field count.
     #[must_use]
     pub(crate) const fn len(&self) -> usize {
@@ -87,6 +79,19 @@ impl ProjectionSpec {
 /// Return one direct projected field name when the output stays on one field
 /// leaf under optional alias wrappers.
 #[must_use]
+#[cfg(not(test))]
+pub(in crate::db) const fn projection_field_direct_field_name(
+    field: &ProjectionField,
+) -> Option<&str> {
+    match field {
+        ProjectionField::Scalar { expr, .. } => direct_projection_expr_field_name(expr),
+    }
+}
+
+/// Return one direct projected field name when the output stays on one field
+/// leaf under optional alias wrappers.
+#[must_use]
+#[cfg(test)]
 pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField) -> Option<&str> {
     match field {
         ProjectionField::Scalar { expr, .. } => direct_projection_expr_field_name(expr),
@@ -96,11 +101,21 @@ pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField)
 /// Return one direct field name when the expression is only a field leaf plus
 /// optional alias wrappers.
 #[must_use]
+#[cfg(not(test))]
+pub(in crate::db) const fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Field(field) => Some(field.as_str()),
+        Expr::Aggregate(_) => None,
+    }
+}
+
+#[must_use]
+#[cfg(test)]
 pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Field(field) => Some(field.as_str()),
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
-        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
+        Expr::Aggregate(_) | Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => None,
     }
 }
 
@@ -129,23 +144,6 @@ pub(crate) fn collect_unique_direct_projection_slots<'a>(
     Some(field_slots)
 }
 
-/// Return true when every projection expression references only fields in one
-/// allowed set.
-///
-/// Semantic contract:
-/// - every output expression must stay within `allowed`
-/// - aliases do not widen field reachability
-/// - aggregate/literal leaves are admitted by the underlying expression helper
-#[must_use]
-pub(crate) fn projection_references_only_fields(
-    projection: &ProjectionSpec,
-    allowed: &[&str],
-) -> bool {
-    projection.fields().all(|field| match field {
-        ProjectionField::Scalar { expr, .. } => expr_references_only_fields(expr, allowed),
-    })
-}
-
 /// Return true when one expression references only fields in one allowed set.
 ///
 /// Semantic contract:
@@ -157,10 +155,14 @@ pub(crate) fn projection_references_only_fields(
 pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool {
     match expr {
         Expr::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
-        Expr::Literal(_) | Expr::Aggregate(_) => true,
-        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
-            expr_references_only_fields(expr.as_ref(), allowed)
-        }
+        Expr::Aggregate(_) => true,
+        #[cfg(test)]
+        Expr::Literal(_) => true,
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
+        #[cfg(test)]
+        Expr::Unary { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
+        #[cfg(test)]
         Expr::Binary { left, right, .. } => {
             expr_references_only_fields(left.as_ref(), allowed)
                 && expr_references_only_fields(right.as_ref(), allowed)

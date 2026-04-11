@@ -45,7 +45,7 @@ fn executor_save_then_delete_round_trip() {
     reset_store();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
-    let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
+    let delete = DeleteExecutor::<SimpleEntity>::new(DB);
 
     let entity = SimpleEntity {
         id: Ulid::generate(),
@@ -83,7 +83,7 @@ fn delete_replays_incomplete_commit_marker() {
     reset_store();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
-    let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
+    let delete = DeleteExecutor::<SimpleEntity>::new(DB);
 
     let entity = SimpleEntity {
         id: Ulid::generate(),

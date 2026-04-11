@@ -33,6 +33,16 @@ fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
 }
 
 // Render one projection expression into a canonical output label.
+#[cfg(not(test))]
+fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
+    match expr {
+        Expr::Field(field) => field.as_str().to_string(),
+        Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
+    }
+}
+
+// Render one projection expression into a canonical output label.
+#[cfg(test)]
 fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),

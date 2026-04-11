@@ -427,11 +427,9 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
 }
 
 // Read only row presence under one consistency contract from structural store
-// authority. Covering-read paths use this when they still need stale-row
-// filtering but do not need to clone the raw row payload itself.
-// Metrics tests still exercise this generic selector directly even though
-// production hot paths now prefer pre-selected helper variants.
-#[cfg_attr(not(test), allow(dead_code))]
+// authority. Tests keep this generic selector so they can verify the metrics
+// split between store-handle and borrowed-data-store probing.
+#[cfg(test)]
 pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
     store: StoreHandle,
     key: &DataKey,

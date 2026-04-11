@@ -17,7 +17,7 @@ use crate::{
         },
         executor::{
             AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, TraversalRuntime,
+            ExecutionKernel, ExecutionPreparation, OrderReadableRow, TraversalRuntime,
             mutation::{
                 commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
                 mutation_write_context, preflight_mutation_plan_for_authority,
@@ -105,6 +105,22 @@ impl PreparedDeleteExecutionState {
     const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(&self.logical_plan)
     }
+}
+
+/// Validate the plan-shape invariants shared by all delete executor entrypoints.
+fn validate_delete_plan_shape<E>(plan: &ExecutablePlan<E>) -> Result<(), InternalError>
+where
+    E: EntityKind,
+{
+    if plan.is_grouped() {
+        return Err(InternalError::delete_executor_grouped_unsupported());
+    }
+
+    if !plan.mode().is_delete() {
+        return Err(InternalError::delete_executor_delete_plan_required());
+    }
+
+    Ok(())
 }
 
 ///
@@ -289,34 +305,86 @@ where
     Ok(rows)
 }
 
-// Decode, filter, and format typed delete rows while returning structural rollback data.
-fn prepare_typed_delete_rows<E>(
+// Apply the shared delete-only post-access contract once after the caller has
+// chosen its row representation.
+fn apply_delete_post_access_rows<R>(
+    prepared: &PreparedDeleteExecutionState,
+    rows: &mut Vec<R>,
+) -> Result<(), InternalError>
+where
+    R: OrderReadableRow,
+{
+    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
+        &prepared.logical_plan,
+        rows,
+        prepared.execution_preparation.compiled_predicate(),
+    )?;
+    let _ = stats.delete_was_limited;
+    let _ = stats.rows_after_cursor;
+
+    Ok(())
+}
+
+// Decode typed delete candidates, apply the shared delete post-access flow,
+// and then let the caller package the surviving rows.
+fn prepare_typed_delete_leaf<E, T>(
     prepared: &PreparedDeleteExecutionState,
     data_rows: Vec<DataRow>,
-) -> Result<TypedDeletePreparation<E>, InternalError>
+    package_rows: impl FnOnce(Vec<DeleteRow<E>>) -> Result<T, InternalError>,
+) -> Result<T, InternalError>
 where
     E: PersistedRow + EntityValue,
 {
     // Phase 1: decode structural access rows into typed delete candidates.
     let mut rows = decode_rows::<E>(data_rows)?;
 
-    // Phase 2: apply typed delete post-access filtering and ordering.
-    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        &prepared.logical_plan,
-        &mut rows,
-        prepared.execution_preparation.compiled_predicate(),
-    )?;
-    let _ = stats.delete_was_limited;
-    let _ = stats.rows_after_cursor;
+    // Phase 2: apply typed delete post-access filtering and ordering once.
+    apply_delete_post_access_rows(prepared, &mut rows)?;
 
-    // Phase 3: package typed responses and structural rollback rows separately.
+    // Phase 3: package the already-filtered typed delete rows for the caller.
+    package_rows(rows)
+}
+
+// Decode structural delete rows, apply the shared delete post-access flow,
+// and then let the caller package the surviving kernel rows.
+#[cfg(feature = "sql")]
+fn prepare_structural_delete_leaf<T>(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+    package_rows: impl FnOnce(Vec<KernelRow>) -> Result<T, InternalError>,
+) -> Result<T, InternalError> {
+    // Phase 1: decode structural access rows directly into slot-indexed kernel rows.
+    let row_layout = prepared.authority.entity.row_layout();
+    let row_decoder = RowDecoder::structural();
+    let mut rows = data_rows
+        .into_iter()
+        .map(|data_row| row_decoder.decode(&row_layout, data_row))
+        .collect::<Result<Vec<KernelRow>, InternalError>>()?;
+
+    // Phase 2: apply delete-only post-access semantics on the structural row shape.
+    apply_delete_post_access_rows(prepared, &mut rows)?;
+
+    // Phase 3: package the already-filtered structural delete rows for the caller.
+    package_rows(rows)
+}
+
+// Package surviving typed delete rows into outward response rows plus
+// rollback rows for commit preparation.
+fn package_typed_delete_rows<E>(
+    rows: Vec<DeleteRow<E>>,
+) -> Result<TypedDeletePreparation<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
     let mut response_rows = Vec::with_capacity(rows.len());
     let mut rollback_rows = Vec::with_capacity(rows.len());
+
     for mut row in rows {
         let response_id = Id::from_key(row.key.try_key::<E>()?);
-        let rollback_row = row.raw.take().ok_or_else(|| {
-            InternalError::store_internal("missing raw row for delete rollback".to_string())
-        })?;
+        let rollback_row = row
+            .raw
+            .take()
+            .ok_or_else(InternalError::delete_rollback_row_required)?;
         let rollback_key = row.key.to_raw()?;
 
         response_rows.push(Row::new(response_id, row.entity));
@@ -329,34 +397,22 @@ where
     })
 }
 
-// Decode, filter, and package only rollback rows when the caller needs delete
-// mutation effects without typed response-row materialization.
-fn prepare_typed_delete_count<E>(
-    prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
+// Package surviving typed delete rows into rollback rows only when the caller
+// needs the affected-row count without response-row materialization.
+fn package_typed_delete_count<E>(
+    rows: Vec<DeleteRow<E>>,
 ) -> Result<DeleteCountPreparation, InternalError>
 where
     E: PersistedRow + EntityValue,
 {
-    // Phase 1: decode structural access rows into typed delete candidates.
-    let mut rows = decode_rows::<E>(data_rows)?;
-
-    // Phase 2: apply typed delete post-access filtering and ordering.
-    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        &prepared.logical_plan,
-        &mut rows,
-        prepared.execution_preparation.compiled_predicate(),
-    )?;
-    let _ = stats.delete_was_limited;
-    let _ = stats.rows_after_cursor;
-
-    // Phase 3: retain only rollback rows and the final affected-row count.
     let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
     let mut rollback_rows = Vec::with_capacity(rows.len());
+
     for mut row in rows {
-        let rollback_row = row.raw.take().ok_or_else(|| {
-            InternalError::store_internal("missing raw row for delete rollback".to_string())
-        })?;
+        let rollback_row = row
+            .raw
+            .take()
+            .ok_or_else(InternalError::delete_rollback_row_required)?;
         let rollback_key = row.key.to_raw()?;
 
         rollback_rows.push((rollback_key, rollback_row));
@@ -368,32 +424,15 @@ where
     })
 }
 
-// Decode, filter, and package structural delete rows for SQL projection payloads.
+// Package surviving structural delete kernel rows into SQL response rows plus
+// rollback rows for commit preparation.
 #[cfg(feature = "sql")]
-fn prepare_structural_delete_rows(
-    prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
+fn package_structural_delete_rows(
+    rows: Vec<KernelRow>,
 ) -> Result<DeletePreparation, InternalError> {
-    // Phase 1: decode structural access rows directly into slot-indexed kernel rows.
-    let row_layout = prepared.authority.entity.row_layout();
-    let row_decoder = RowDecoder::structural();
-    let mut rows = data_rows
-        .into_iter()
-        .map(|data_row| row_decoder.decode(&row_layout, data_row))
-        .collect::<Result<Vec<KernelRow>, InternalError>>()?;
-
-    // Phase 2: apply delete-only post-access semantics on the structural row shape.
-    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
-        &prepared.logical_plan,
-        &mut rows,
-        prepared.execution_preparation.compiled_predicate(),
-    )?;
-    let _ = stats.delete_was_limited;
-    let _ = stats.rows_after_cursor;
-
-    // Phase 3: package kernel rows and rollback rows from the same payload.
     let mut response_rows = Vec::with_capacity(rows.len());
     let mut rollback_rows = Vec::with_capacity(rows.len());
+
     for row in rows {
         let (data_row, slots) = row.into_parts()?;
         let (key, raw) = PersistedEntityRow::from_data_row(data_row).into_parts();
@@ -407,6 +446,38 @@ fn prepare_structural_delete_rows(
         response_rows,
         rollback_rows,
     })
+}
+
+// Decode, filter, and format typed delete rows while returning structural rollback data.
+fn prepare_typed_delete_rows<E>(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<TypedDeletePreparation<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    prepare_typed_delete_leaf(prepared, data_rows, package_typed_delete_rows::<E>)
+}
+
+// Decode, filter, and package only rollback rows when the caller needs delete
+// mutation effects without typed response-row materialization.
+fn prepare_typed_delete_count<E>(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<DeleteCountPreparation, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    prepare_typed_delete_leaf(prepared, data_rows, package_typed_delete_count::<E>)
+}
+
+// Decode, filter, and package structural delete rows for SQL projection payloads.
+#[cfg(feature = "sql")]
+fn prepare_structural_delete_rows(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<DeletePreparation, InternalError> {
+    prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)
 }
 
 // Prepare the nongeneric delete commit payload from structural rollback rows.
@@ -638,7 +709,7 @@ where
 {
     /// Construct one delete executor bound to a database handle.
     #[must_use]
-    pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
+    pub(in crate::db) const fn new(db: Db<E::Canister>) -> Self {
         Self { db }
     }
 
@@ -652,13 +723,7 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
-        if plan.is_grouped() {
-            return Err(InternalError::delete_executor_grouped_unsupported());
-        }
-
-        if !plan.mode().is_delete() {
-            return Err(InternalError::delete_executor_delete_plan_required());
-        }
+        validate_delete_plan_shape(&plan)?;
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.
             let authority = DeleteExecutionAuthority::for_type::<E>();
@@ -720,13 +785,7 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<DeleteProjection, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
-        if plan.is_grouped() {
-            return Err(InternalError::delete_executor_grouped_unsupported());
-        }
-
-        if !plan.mode().is_delete() {
-            return Err(InternalError::delete_executor_delete_plan_required());
-        }
+        validate_delete_plan_shape(&plan)?;
 
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.
@@ -775,13 +834,7 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
-        if plan.is_grouped() {
-            return Err(InternalError::delete_executor_grouped_unsupported());
-        }
-
-        if !plan.mode().is_delete() {
-            return Err(InternalError::delete_executor_delete_plan_required());
-        }
+        validate_delete_plan_shape(&plan)?;
 
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.

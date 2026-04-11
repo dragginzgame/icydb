@@ -9,7 +9,6 @@ mod access_planner;
 mod constant_predicate;
 mod continuation;
 mod covering;
-#[expect(dead_code)]
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;

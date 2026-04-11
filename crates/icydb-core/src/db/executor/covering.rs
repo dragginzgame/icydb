@@ -169,14 +169,8 @@ where
 {
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        for (data_key, existence_witness, components) in raw_pairs {
-            if existing_row_mode.uses_storage_existence_witness() {
-                record_row_check_covering_candidate_seen();
-
-                if existence_witness == IndexEntryExistenceWitness::Missing {
-                    continue;
-                }
-            } else if existing_row_mode.requires_row_presence_check() {
+        for (data_key, _existence_witness, components) in raw_pairs {
+            if existing_row_mode.requires_row_presence_check() {
                 record_row_check_covering_candidate_seen();
 
                 if !read_row_presence_with_consistency_from_data_store(
@@ -192,9 +186,7 @@ where
                 return Ok(None);
             };
             projected_pairs.push((data_key, projected));
-            if existing_row_mode.requires_row_presence_check()
-                || existing_row_mode.uses_storage_existence_witness()
-            {
+            if existing_row_mode.requires_row_presence_check() {
                 record_row_check_row_emitted();
             }
         }

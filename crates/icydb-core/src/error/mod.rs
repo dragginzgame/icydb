@@ -669,6 +669,11 @@ impl InternalError {
         ))
     }
 
+    /// Construct the canonical missing rollback-row invariant for delete execution.
+    pub(crate) fn delete_rollback_row_required() -> Self {
+        Self::store_internal("missing raw row for delete rollback")
+    }
+
     /// Construct the canonical memory-registry initialization failure for commit memory.
     pub(crate) fn commit_memory_registry_init_failed(err: impl fmt::Display) -> Self {
         Self::store_internal(format!("memory registry init failed: {err}"))

@@ -3,6 +3,10 @@
 //! Does not own: runtime projection evaluation or expression execution behavior.
 //! Boundary: returns planner-domain type information and typed plan errors.
 
+#[cfg(test)]
+use crate::db::query::plan::expr::ast::{BinaryOp, UnaryOp};
+#[cfg(test)]
+use crate::value::Value;
 use crate::{
     db::{
         numeric::field_kind_supports_expr_numeric,
@@ -10,14 +14,13 @@ use crate::{
             builder::aggregate::AggregateExpr,
             plan::{
                 AggregateKind, PlanError,
-                expr::ast::{BinaryOp, Expr, FieldId, UnaryOp},
+                expr::ast::{Expr, FieldId},
                 validate::ExprPlanError,
             },
         },
         schema::SchemaInfo,
     },
     model::field::FieldKind,
-    value::Value,
 };
 
 ///
@@ -32,6 +35,7 @@ pub(crate) enum ExprType {
     Bool,
     Numeric(NumericSubtype),
     Text,
+    #[cfg(test)]
     Null,
     Collection,
     Structured,
@@ -44,16 +48,19 @@ pub(crate) enum NumericSubtype {
     Integer,
     Float,
     Decimal,
+    #[cfg(test)]
     Unknown,
 }
 
 impl ExprType {
     // Eligibility answers "can this participate in numeric-only operators?".
     // Subtype answers "which numeric family?" and may remain unresolved.
+    #[cfg(test)]
     const fn is_numeric_eligible(&self) -> bool {
         matches!(self, Self::Numeric(_))
     }
 
+    #[cfg(test)]
     const fn numeric_subtype(&self) -> Option<NumericSubtype> {
         match self {
             Self::Numeric(subtype) => Some(*subtype),
@@ -66,10 +73,14 @@ impl ExprType {
 pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     match expr {
         Expr::Field(field) => infer_field_expr_type(field, schema),
+        #[cfg(test)]
         Expr::Literal(value) => Ok(infer_literal_type(value)),
         Expr::Aggregate(aggregate) => infer_aggregate_expr_type(aggregate, schema),
+        #[cfg(test)]
         Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
+        #[cfg(test)]
         Expr::Unary { op, expr } => infer_unary_expr_type(*op, expr.as_ref(), schema),
+        #[cfg(test)]
         Expr::Binary { op, left, right } => {
             infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
@@ -148,6 +159,7 @@ fn infer_target_field_aggregate_type(
     Ok(expr_type_from_field_kind(field_kind))
 }
 
+#[cfg(test)]
 fn infer_unary_expr_type(
     op: UnaryOp,
     expr: &Expr,
@@ -156,18 +168,6 @@ fn infer_unary_expr_type(
     let inner = infer_expr_type(expr, schema)?;
 
     match op {
-        UnaryOp::Neg => {
-            if !inner.is_numeric_eligible() {
-                return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
-                    "neg",
-                    format!("{inner:?}"),
-                )));
-            }
-
-            Ok(ExprType::Numeric(
-                inner.numeric_subtype().unwrap_or(NumericSubtype::Unknown),
-            ))
-        }
         UnaryOp::Not => {
             if !matches!(inner, ExprType::Bool) {
                 return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
@@ -181,6 +181,7 @@ fn infer_unary_expr_type(
     }
 }
 
+#[cfg(test)]
 fn infer_binary_expr_type(
     op: BinaryOp,
     left: &Expr,
@@ -191,7 +192,7 @@ fn infer_binary_expr_type(
     let right_ty = infer_expr_type(right, schema)?;
 
     match op {
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+        BinaryOp::Add | BinaryOp::Mul => {
             if !binary_numeric_compatible(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
                     binary_op_name(op),
@@ -204,7 +205,7 @@ fn infer_binary_expr_type(
                 op, &left_ty, &right_ty,
             )))
         }
-        BinaryOp::And | BinaryOp::Or => {
+        BinaryOp::And => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
                     binary_op_name(op),
@@ -215,19 +216,8 @@ fn infer_binary_expr_type(
 
             Ok(ExprType::Bool)
         }
-        BinaryOp::Eq | BinaryOp::Ne => {
+        BinaryOp::Eq => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
-                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
-                    binary_op_name(op),
-                    format!("{left_ty:?}"),
-                    format!("{right_ty:?}"),
-                )));
-            }
-
-            Ok(ExprType::Bool)
-        }
-        BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
-            if !binary_order_comparable(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
                     binary_op_name(op),
                     format!("{left_ty:?}"),
@@ -240,10 +230,12 @@ fn infer_binary_expr_type(
     }
 }
 
+#[cfg(test)]
 const fn binary_numeric_compatible(left: &ExprType, right: &ExprType) -> bool {
     left.is_numeric_eligible() && right.is_numeric_eligible()
 }
 
+#[cfg(test)]
 const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
     if left.is_numeric_eligible() && right.is_numeric_eligible() {
         return true;
@@ -260,36 +252,32 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
     )
 }
 
-const fn binary_order_comparable(left: &ExprType, right: &ExprType) -> bool {
-    if left.is_numeric_eligible() && right.is_numeric_eligible() {
-        return true;
-    }
-
-    matches!(
-        (left, right),
-        (ExprType::Bool, ExprType::Bool) | (ExprType::Text, ExprType::Text)
-    )
-}
-
+#[cfg(test)]
 const fn infer_numeric_result_subtype(
     _op: BinaryOp,
     left: &ExprType,
     right: &ExprType,
 ) -> NumericSubtype {
-    let (Some(left_subtype), Some(right_subtype)) =
-        (left.numeric_subtype(), right.numeric_subtype())
-    else {
-        return NumericSubtype::Unknown;
+    let left_subtype = left.numeric_subtype();
+    let right_subtype = right.numeric_subtype();
+    let (Some(left_subtype), Some(right_subtype)) = (left_subtype, right_subtype) else {
+        return if let Some(left_subtype) = left_subtype {
+            left_subtype
+        } else if let Some(right_subtype) = right_subtype {
+            right_subtype
+        } else {
+            NumericSubtype::Integer
+        };
     };
 
     match (left_subtype, right_subtype) {
         (NumericSubtype::Integer, NumericSubtype::Integer) => NumericSubtype::Integer,
         (NumericSubtype::Float, NumericSubtype::Float) => NumericSubtype::Float,
-        (NumericSubtype::Decimal, NumericSubtype::Decimal) => NumericSubtype::Decimal,
-        _ => NumericSubtype::Unknown,
+        _ => NumericSubtype::Decimal,
     }
 }
 
+#[cfg(test)]
 const fn infer_literal_type(value: &Value) -> ExprType {
     match value {
         Value::Bool(_) => ExprType::Bool,
@@ -343,20 +331,13 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
     }
 }
 
+#[cfg(test)]
 const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "add",
-        BinaryOp::Sub => "sub",
         BinaryOp::Mul => "mul",
-        BinaryOp::Div => "div",
         BinaryOp::And => "and",
-        BinaryOp::Or => "or",
         BinaryOp::Eq => "eq",
-        BinaryOp::Ne => "ne",
-        BinaryOp::Lt => "lt",
-        BinaryOp::Lte => "lte",
-        BinaryOp::Gt => "gt",
-        BinaryOp::Gte => "gte",
     }
 }
 

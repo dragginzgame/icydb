@@ -265,8 +265,8 @@ impl RetainedSlotRow {
         }
     }
 
-    /// Expand this retained row back into one dense slot vector only when a
-    /// caller still requires the legacy field-count-sized slot image.
+    /// Expand this retained row back into one dense slot vector for callers
+    /// that still require slot-indexed access across the full row width.
     #[must_use]
     pub(in crate::db::executor) fn into_dense_slots(self) -> Vec<Option<Value>> {
         match self.storage {
@@ -737,7 +737,6 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
 }
 
 /// Materialize one ordered key stream into one execution payload.
-#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
@@ -762,13 +761,8 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         consistency,
         continuation,
     } = request;
-    let payload_mode = if retain_slot_rows && !cursor_emission.enabled() {
-        KernelRowPayloadMode::SlotsOnly
-    } else if retained_slot_layout.is_some() {
-        KernelRowPayloadMode::FullRowRetained
-    } else {
-        KernelRowPayloadMode::DataRowOnly
-    };
+    let payload_mode =
+        select_kernel_row_payload_mode(retain_slot_rows, cursor_emission, retained_slot_layout);
     let predicate_preapplied = plan.has_residual_predicate();
 
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
@@ -801,100 +795,192 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
 
     // Phase 3: assemble the structural cursor boundary before typed page emission.
     let post_access_rows = rows.len();
-    let next_cursor = if cursor_emission.enabled() {
-        let last_cursor_row = resolve_last_cursor_row(authority, plan, rows.as_slice())?;
+    let next_cursor = build_scalar_page_cursor(
+        authority,
+        plan,
+        rows.as_slice(),
+        cursor_emission,
+        post_access_rows,
+        rows_after_cursor,
+        continuation,
+    )?;
 
-        next_cursor_for_materialized_rows(
-            &plan.access,
-            plan.scalar_plan().order.as_ref(),
-            plan.scalar_plan().page.as_ref(),
-            post_access_rows,
-            last_cursor_row,
-            rows_after_cursor,
-            continuation.post_access_cursor_boundary(),
-            continuation.previous_index_range_anchor(),
-            continuation.direction(),
-            continuation.continuation_signature(),
-        )?
-        .map(PageCursor::Scalar)
+    // Phase 4: select the final payload shape once, then build it in one
+    // explicit kernel-row shaping pass.
+    let finalize_mode = select_kernel_row_finalize_mode(
+        prepared_projection_shape,
+        projection_materialization,
+        fuse_immediate_sql_terminal,
+        retain_slot_rows,
+        cursor_emission,
+        next_cursor,
+    )?;
+    let payload = finalize_kernel_rows_payload(rows, finalize_mode)?;
+
+    Ok((payload, rows_scanned, post_access_rows))
+}
+
+// Select one kernel payload mode before scanning so the row loop does not
+// branch on retained/data-row shape per key.
+const fn select_kernel_row_payload_mode(
+    retain_slot_rows: bool,
+    cursor_emission: CursorEmissionMode,
+    retained_slot_layout: Option<&RetainedSlotLayout>,
+) -> KernelRowPayloadMode {
+    if retain_slot_rows && !cursor_emission.enabled() {
+        KernelRowPayloadMode::SlotsOnly
+    } else if retained_slot_layout.is_some() {
+        KernelRowPayloadMode::FullRowRetained
     } else {
-        None
-    };
+        KernelRowPayloadMode::DataRowOnly
+    }
+}
 
-    // Phase 4: immediate SQL projection terminals may bypass the structural
-    // page envelope once the lane already proved retained-slot ownership,
-    // fixed projection shape, and no outward cursor emission.
-    #[cfg(feature = "sql")]
-    if fuse_immediate_sql_terminal
-        && !cursor_emission.enabled()
-        && retain_slot_rows
-        && matches!(
-            projection_materialization,
-            ProjectionMaterializationMode::SqlImmediateMaterialization
-                | ProjectionMaterializationMode::SqlImmediateRenderedDispatch
-        )
-    {
-        let prepared_projection_shape =
-            required_prepared_projection_shape(prepared_projection_shape)?;
-        let mut slot_rows = Vec::with_capacity(rows.len());
-        for row in rows {
-            slot_rows.push(row.into_retained_slot_row()?);
-        }
-        let post_access_rows = slot_rows.len();
-        let payload = match projection_materialization {
-            ProjectionMaterializationMode::SqlImmediateMaterialization => {
-                MaterializedExecutionPayload::SqlProjectedRows(
-                    project_sql_projection_slot_rows_for_dispatch(
-                        prepared_projection_shape,
-                        slot_rows,
-                    )?,
-                )
-            }
-            ProjectionMaterializationMode::SqlImmediateRenderedDispatch => {
-                MaterializedExecutionPayload::SqlRenderedRows(
-                    render_sql_projection_slot_rows_for_dispatch(
-                        prepared_projection_shape,
-                        slot_rows,
-                    )?,
-                )
-            }
-            ProjectionMaterializationMode::SharedValidation => unreachable!(),
-        };
-
-        return Ok((payload, rows_scanned, post_access_rows));
+// Resolve the optional scalar page cursor once from the post-access rows.
+fn build_scalar_page_cursor(
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+    rows: &[KernelRow],
+    cursor_emission: CursorEmissionMode,
+    post_access_rows: usize,
+    rows_after_cursor: usize,
+    continuation: ScalarContinuationBindings<'_>,
+) -> Result<Option<PageCursor>, InternalError> {
+    if !cursor_emission.enabled() {
+        return Ok(None);
     }
 
-    // Phase 5: finalize one structural page payload for outer typed decode.
+    let last_cursor_row = resolve_last_cursor_row(authority, plan, rows)?;
+
+    Ok(next_cursor_for_materialized_rows(
+        &plan.access,
+        plan.scalar_plan().order.as_ref(),
+        plan.scalar_plan().page.as_ref(),
+        post_access_rows,
+        last_cursor_row,
+        rows_after_cursor,
+        continuation.post_access_cursor_boundary(),
+        continuation.previous_index_range_anchor(),
+        continuation.direction(),
+        continuation.continuation_signature(),
+    )?
+    .map(PageCursor::Scalar))
+}
+
+// Kernel-row payload finalization still has two families:
+// structural page output and fused immediate SQL terminal output.
+// Select that family once before the final row-shaping pass.
+enum KernelRowFinalizeMode<'a> {
+    StructuralDataRows {
+        next_cursor: Option<PageCursor>,
+    },
     #[cfg(feature = "sql")]
-    let page = if retain_slot_rows {
-        let mut slot_rows = Vec::with_capacity(rows.len());
-        for row in rows {
-            slot_rows.push(row.into_retained_slot_row()?);
-        }
-        StructuralCursorPage::new_with_slot_rows(slot_rows, next_cursor)
-    } else {
-        let mut data_rows = Vec::with_capacity(rows.len());
-        for row in rows {
-            data_rows.push(row.into_data_row()?);
-        }
-        StructuralCursorPage::new(data_rows, next_cursor)
-    };
+    StructuralSlotRows {
+        next_cursor: Option<PageCursor>,
+    },
+    #[cfg(feature = "sql")]
+    SqlProjected {
+        prepared_projection_shape: &'a PreparedProjectionShape,
+    },
+    #[cfg(feature = "sql")]
+    SqlRendered {
+        prepared_projection_shape: &'a PreparedProjectionShape,
+    },
+}
+
+// Select one final payload shape before converting kernel rows into their
+// outward structural or immediate SQL boundary.
+fn select_kernel_row_finalize_mode(
+    prepared_projection_shape: Option<&PreparedProjectionShape>,
+    projection_materialization: ProjectionMaterializationMode,
+    fuse_immediate_sql_terminal: bool,
+    retain_slot_rows: bool,
+    cursor_emission: CursorEmissionMode,
+    next_cursor: Option<PageCursor>,
+) -> Result<KernelRowFinalizeMode<'_>, InternalError> {
+    #[cfg(feature = "sql")]
+    if fuse_immediate_sql_terminal && !cursor_emission.enabled() && retain_slot_rows {
+        let prepared_projection_shape =
+            required_prepared_projection_shape(prepared_projection_shape)?;
+
+        return match projection_materialization {
+            ProjectionMaterializationMode::SqlImmediateMaterialization => {
+                Ok(KernelRowFinalizeMode::SqlProjected {
+                    prepared_projection_shape,
+                })
+            }
+            ProjectionMaterializationMode::SqlImmediateRenderedDispatch => {
+                Ok(KernelRowFinalizeMode::SqlRendered {
+                    prepared_projection_shape,
+                })
+            }
+            ProjectionMaterializationMode::SharedValidation => {
+                Ok(KernelRowFinalizeMode::StructuralSlotRows { next_cursor })
+            }
+        };
+    }
+
+    #[cfg(feature = "sql")]
+    if retain_slot_rows {
+        return Ok(KernelRowFinalizeMode::StructuralSlotRows { next_cursor });
+    }
 
     #[cfg(not(feature = "sql"))]
-    let page = {
-        let _ = retain_slot_rows;
-        let mut data_rows = Vec::with_capacity(rows.len());
-        for row in rows {
-            data_rows.push(row.into_data_row()?);
-        }
-        StructuralCursorPage::new(data_rows, next_cursor)
-    };
+    let _ = retain_slot_rows;
 
-    Ok((
-        MaterializedExecutionPayload::StructuralPage(page),
-        rows_scanned,
-        post_access_rows,
-    ))
+    Ok(KernelRowFinalizeMode::StructuralDataRows { next_cursor })
+}
+
+// Finalize one already-materialized kernel row set without re-branching on
+// output mode inside the per-row shaping loop.
+fn finalize_kernel_rows_payload(
+    rows: Vec<KernelRow>,
+    finalize_mode: KernelRowFinalizeMode<'_>,
+) -> Result<MaterializedExecutionPayload, InternalError> {
+    match finalize_mode {
+        KernelRowFinalizeMode::StructuralDataRows { next_cursor } => {
+            Ok(MaterializedExecutionPayload::StructuralPage(
+                StructuralCursorPage::new(collect_kernel_data_rows(rows)?, next_cursor),
+            ))
+        }
+        #[cfg(feature = "sql")]
+        KernelRowFinalizeMode::StructuralSlotRows { next_cursor } => Ok(
+            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new_with_slot_rows(
+                collect_kernel_slot_rows(rows)?,
+                next_cursor,
+            )),
+        ),
+        #[cfg(feature = "sql")]
+        KernelRowFinalizeMode::SqlProjected {
+            prepared_projection_shape,
+        } => Ok(MaterializedExecutionPayload::SqlProjectedRows(
+            project_sql_projection_slot_rows_for_dispatch(
+                prepared_projection_shape,
+                collect_kernel_slot_rows(rows)?,
+            )?,
+        )),
+        #[cfg(feature = "sql")]
+        KernelRowFinalizeMode::SqlRendered {
+            prepared_projection_shape,
+        } => Ok(MaterializedExecutionPayload::SqlRenderedRows(
+            render_sql_projection_slot_rows_for_dispatch(
+                prepared_projection_shape,
+                collect_kernel_slot_rows(rows)?,
+            )?,
+        )),
+    }
+}
+
+// Convert kernel rows into retained slot rows in one straight-line pass.
+fn collect_kernel_slot_rows(rows: Vec<KernelRow>) -> Result<Vec<RetainedSlotRow>, InternalError> {
+    rows.into_iter()
+        .map(KernelRow::into_retained_slot_row)
+        .collect()
+}
+
+// Convert kernel rows into data rows in one straight-line pass.
+fn collect_kernel_data_rows(rows: Vec<KernelRow>) -> Result<Vec<DataRow>, InternalError> {
+    rows.into_iter().map(KernelRow::into_data_row).collect()
 }
 
 // Run the shared slot-row projection validator from already-prepared

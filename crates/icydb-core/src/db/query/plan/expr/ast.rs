@@ -3,7 +3,9 @@
 //! Does not own: expression type inference policy or runtime expression evaluation.
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
-use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
+use crate::db::query::builder::aggregate::AggregateExpr;
+#[cfg(test)]
+use crate::value::Value;
 
 ///
 /// FieldId
@@ -83,9 +85,9 @@ impl From<String> for Alias {
 /// Canonical unary expression operator taxonomy.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UnaryOp {
-    Neg,
     Not,
 }
 
@@ -95,20 +97,13 @@ pub(crate) enum UnaryOp {
 /// Canonical binary expression operator taxonomy.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryOp {
     Add,
-    Sub,
     Mul,
-    Div,
     And,
-    Or,
     Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
 }
 
 ///
@@ -121,17 +116,21 @@ pub(crate) enum BinaryOp {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Expr {
     Field(FieldId),
+    #[cfg(test)]
     Literal(Value),
+    #[cfg(test)]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
     },
+    #[cfg(test)]
     Binary {
         op: BinaryOp,
         left: Box<Self>,
         right: Box<Self>,
     },
     Aggregate(AggregateExpr),
+    #[cfg(test)]
     Alias {
         expr: Box<Self>,
         name: Alias,

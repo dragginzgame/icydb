@@ -236,7 +236,7 @@ fn delete_emits_remove_from_prepared_row_deltas() {
     reset_store();
 
     let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let delete = DeleteExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let delete = DeleteExecutor::<IndexedMetricsEntity>::new(DB);
     let id = Ulid::generate();
     save.insert(IndexedMetricsEntity {
         id,
@@ -320,7 +320,7 @@ fn delete_relation_emits_reverse_index_remove_delta() {
             .plan()
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("source delete plan should build");
-        DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+        DeleteExecutor::<RelationSourceEntity>::new(REL_DB)
             .execute(plan)
             .expect("source delete should succeed");
     });
@@ -358,7 +358,7 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
             .plan()
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("target delete plan should build");
-        DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
             .execute(plan)
             .expect_err("target delete should be blocked");
     });
@@ -400,7 +400,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
             .plan()
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("target delete plan should build");
-        DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        DeleteExecutor::<RelationTargetEntity>::new(REL_DB)
             .execute(plan)
             .expect("target delete should succeed");
     });

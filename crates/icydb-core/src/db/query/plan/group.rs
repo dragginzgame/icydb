@@ -413,6 +413,14 @@ pub(in crate::db) fn grouped_executor_handoff(
         ));
     };
     let projection_spec = plan.projection_spec_for_identity();
+    #[cfg(not(test))]
+    let (projection_layout, aggregate_projection_specs, projection_is_identity) =
+        planned_projection_layout_and_aggregate_projection_specs_from_spec(
+            &projection_spec,
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+        );
+    #[cfg(test)]
     let (projection_layout, aggregate_projection_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_projection_specs_from_spec(
             &projection_spec,
@@ -487,6 +495,25 @@ pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
 
 /// Lower grouped aggregate projection specs directly from canonical grouped
 /// projection semantics without requiring a frozen grouped executor handoff.
+#[cfg(not(test))]
+pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
+    projection_spec: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> Vec<GroupedAggregateProjectionSpec> {
+    let (_, aggregate_projection_specs, _) =
+        planned_projection_layout_and_aggregate_projection_specs_from_spec(
+            projection_spec,
+            group_fields,
+            aggregates,
+        );
+
+    aggregate_projection_specs
+}
+
+/// Lower grouped aggregate projection specs directly from canonical grouped
+/// projection semantics without requiring a frozen grouped executor handoff.
+#[cfg(test)]
 pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
@@ -647,6 +674,87 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
 
 // Derive grouped field/aggregate projection slots and grouped aggregate
 // projection specs from canonical projection semantics.
+#[cfg(not(test))]
+fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
+    projection_spec: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> (
+    PlannedProjectionLayout,
+    Vec<GroupedAggregateProjectionSpec>,
+    bool,
+) {
+    let mut group_field_positions = Vec::new();
+    let mut aggregate_positions = Vec::new();
+    let mut aggregate_projection_specs = Vec::new();
+    let mut projection_is_identity =
+        projection_spec.len() == group_fields.len().saturating_add(aggregates.len());
+    let mut next_group_field_index = 0usize;
+    let mut next_aggregate_index = 0usize;
+
+    for (index, field) in projection_spec.fields().enumerate() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                let root_expr = expression_without_alias(expr);
+                match root_expr {
+                    Expr::Field(field_id) => {
+                        group_field_positions.push(index);
+                        projection_is_identity &= next_aggregate_index == 0
+                            && group_fields.get(next_group_field_index).is_some_and(
+                                |group_field| field_id.as_str() == group_field.field.as_str(),
+                            );
+                        next_group_field_index = next_group_field_index.saturating_add(1);
+                    }
+                    Expr::Aggregate(aggregate_expr) => {
+                        aggregate_positions.push(index);
+                        let aggregate_projection_spec =
+                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
+                        projection_is_identity &= next_group_field_index == group_fields.len()
+                            && aggregates
+                                .get(next_aggregate_index)
+                                .is_some_and(|aggregate| {
+                                    aggregate_projection_spec.matches_semantic_aggregate(aggregate)
+                                });
+                        aggregate_projection_specs.push(aggregate_projection_spec);
+                        next_aggregate_index = next_aggregate_index.saturating_add(1);
+                    }
+                    #[cfg(test)]
+                    Expr::Literal(_) => {
+                        return Err(InternalError::planner_executor_invariant(format!(
+                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
+                        )));
+                    }
+                    #[cfg(test)]
+                    Expr::Unary { .. } | Expr::Binary { .. } => {
+                        return Err(InternalError::planner_executor_invariant(format!(
+                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
+                        )));
+                    }
+                    #[cfg(test)]
+                    Expr::Alias { .. } => {
+                        return Err(InternalError::planner_executor_invariant(
+                            "grouped projection layout alias normalization must remove alias wrappers",
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    projection_is_identity &=
+        next_group_field_index == group_fields.len() && next_aggregate_index == aggregates.len();
+
+    (
+        PlannedProjectionLayout {
+            group_field_positions,
+            aggregate_positions,
+        },
+        aggregate_projection_specs,
+        projection_is_identity,
+    )
+}
+
+// Strip alias wrappers so layout classification uses semantic expression roots.
+#[cfg(test)]
 fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
@@ -721,6 +829,13 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
 }
 
 // Strip alias wrappers so layout classification uses semantic expression roots.
+#[cfg(not(test))]
+const fn expression_without_alias(expr: &Expr) -> &Expr {
+    expr
+}
+
+// Strip alias wrappers so layout classification uses semantic expression roots.
+#[cfg(test)]
 fn expression_without_alias(mut expr: &Expr) -> &Expr {
     while let Expr::Alias { expr: inner, .. } = expr {
         expr = inner.as_ref();

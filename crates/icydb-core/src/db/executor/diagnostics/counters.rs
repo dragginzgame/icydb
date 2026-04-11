@@ -3,8 +3,6 @@
 //! Does not own: metrics sink emission or plan-selection behavior.
 //! Boundary: additive diagnostics counters for explain/runtime correlation.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::db::diagnostics::ExecutionTrace;
 
 ///

@@ -343,7 +343,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        DeleteExecutor::new(self.db, self.debug)
+        DeleteExecutor::new(self.db)
     }
 
     #[must_use]

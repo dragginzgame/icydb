@@ -246,7 +246,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
         Value::Uint(100),
         CoercionId::NumericWiden,
     ));
-    let delete = DeleteExecutor::<PhaseEntity>::new(DB, false);
+    let delete = DeleteExecutor::<PhaseEntity>::new(DB);
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .filter(predicate)

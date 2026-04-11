@@ -18,7 +18,7 @@ fn delete_applies_order_and_delete_limit() {
         .expect("save should succeed");
     }
 
-    let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
+    let delete = DeleteExecutor::<SimpleEntity>::new(DB);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .order_by("id")

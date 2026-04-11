@@ -24,7 +24,7 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             PreparedAggregatePlan,
             pipeline::contracts::{
-                ExecutionInputFlags, ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
+                ExecutionInputs, ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
@@ -278,7 +278,7 @@ impl ExecutionKernel {
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
-            ExecutionInputFlags::new(false, false),
+            ExecutionOutputOptions::new(false, false),
         );
 
         // Resolve the ordered key stream using canonical routing logic.

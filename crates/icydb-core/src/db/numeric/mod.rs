@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum NumericArithmeticOp {
     Add,
-    Sub,
+    #[cfg(test)]
     Mul,
     Div,
 }
@@ -39,7 +39,7 @@ pub(in crate::db) fn apply_decimal_arithmetic(
 ) -> Decimal {
     match op {
         NumericArithmeticOp::Add => left + right,
-        NumericArithmeticOp::Sub => left - right,
+        #[cfg(test)]
         NumericArithmeticOp::Mul => left * right,
         NumericArithmeticOp::Div => left / right,
     }
@@ -135,6 +135,7 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
     value.to_numeric_decimal()
 }
 
+#[cfg(test)]
 /// Apply one numeric arithmetic operation under the shared numeric runtime contract.
 ///
 /// Promotion and boundary rules:
@@ -145,7 +146,7 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
 ///   rejected at runtime arithmetic boundaries when decimal coercion fails
 ///
 /// Decimal operation semantics are inherited from `types::Decimal`:
-/// - add/sub/mul saturate on overflow
+/// - add/mul saturate on overflow
 /// - div rounds half-away-from-zero at runtime division precision
 /// - div by zero returns `Decimal::ZERO`
 /// - div overflow saturates with division-scale output

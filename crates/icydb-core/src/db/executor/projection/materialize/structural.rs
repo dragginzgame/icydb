@@ -270,28 +270,13 @@ fn project_structural_sql_projection_page(
     prepared_projection: &PreparedProjectionShape,
     page: StructuralCursorPage,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    let payload = page.into_payload();
-
-    // Phase 1: project from retained slot rows when they are already
-    // available, and fall back to persisted structural row reads last.
-    match payload {
-        StructuralCursorPagePayload::SlotRows(slot_rows) => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_slot_rows_path_hit();
-
-            project_slot_rows_from_projection_structural(prepared_projection, slot_rows)
-        }
-        StructuralCursorPagePayload::DataRows(data_rows) => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
-            record_sql_projection_data_rows_path_hit();
-
-            project_data_rows_from_projection_structural(
-                row_layout,
-                prepared_projection,
-                data_rows.as_slice(),
-            )
-        }
-    }
+    shape_structural_sql_projection_page(
+        row_layout,
+        prepared_projection,
+        page,
+        project_slot_rows_from_projection_structural,
+        project_data_rows_from_projection_structural,
+    )
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -300,26 +285,46 @@ fn render_structural_sql_projection_page(
     prepared_projection: &PreparedProjectionShape,
     page: StructuralCursorPage,
 ) -> Result<Vec<Vec<String>>, InternalError> {
+    shape_structural_sql_projection_page(
+        row_layout,
+        prepared_projection,
+        page,
+        render_slot_rows_from_projection_structural,
+        render_data_rows_from_projection_structural,
+    )
+}
+
+#[cfg(any(test, feature = "perf-attribution"))]
+fn shape_structural_sql_projection_page<T>(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    page: StructuralCursorPage,
+    shape_slot_rows: impl FnOnce(
+        &PreparedProjectionShape,
+        Vec<RetainedSlotRow>,
+    ) -> Result<Vec<Vec<T>>, InternalError>,
+    shape_data_rows: impl FnOnce(
+        RowLayout,
+        &PreparedProjectionShape,
+        &[DataRow],
+    ) -> Result<Vec<Vec<T>>, InternalError>,
+) -> Result<Vec<Vec<T>>, InternalError> {
     let payload = page.into_payload();
 
-    // Phase 1: render from retained slot rows when they are already
-    // available, and fall back to persisted structural row reads last.
+    // Phase 1: choose the structural payload once, then keep the row loop
+    // inside the selected shaping path.
     match payload {
         StructuralCursorPagePayload::SlotRows(slot_rows) => {
             #[cfg(any(test, feature = "structural-read-metrics"))]
             record_sql_projection_slot_rows_path_hit();
 
-            render_slot_rows_from_projection_structural(prepared_projection, slot_rows)
+            shape_slot_rows(prepared_projection, slot_rows)
         }
         StructuralCursorPagePayload::DataRows(data_rows) => {
             #[cfg(any(test, feature = "structural-read-metrics"))]
             record_sql_projection_data_rows_path_hit();
 
-            render_data_rows_from_projection_structural(
-                row_layout,
-                prepared_projection,
-                data_rows.as_slice(),
-            )
+            shape_data_rows(row_layout, prepared_projection, data_rows.as_slice())
         }
     }
 }
@@ -439,11 +444,8 @@ fn project_slot_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.direct_projection_field_slots() {
-        return project_slot_rows_from_direct_field_slots(rows, field_slots);
-    }
-
-    project_dense_slot_rows_from_projection_structural(prepared_projection, rows)
+    let mut emit_value = std::convert::identity;
+    shape_slot_rows_from_projection_structural(prepared_projection, rows, &mut emit_value)
 }
 
 #[cfg(feature = "sql")]
@@ -460,11 +462,8 @@ fn render_slot_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<String>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.direct_projection_field_slots() {
-        return render_slot_rows_from_direct_field_slots(rows, field_slots);
-    }
-
-    render_dense_slot_rows_from_projection_structural(prepared_projection, rows)
+    let mut render_value = |value| render_sql_projection_value_text(&value);
+    shape_slot_rows_from_projection_structural(prepared_projection, rows, &mut render_value)
 }
 
 #[cfg(feature = "sql")]
@@ -477,17 +476,35 @@ pub(in crate::db::executor) fn render_sql_projection_slot_rows_for_dispatch(
 }
 
 #[cfg(feature = "sql")]
-// Render one dense retained slot-row page through the prepared compiled
-// structural projection evaluator without staging intermediate `Value` rows.
-fn render_dense_slot_rows_from_projection_structural(
+// Shape one retained slot-row page through either direct field-slot copies or
+// the compiled projection evaluator while keeping one row loop.
+fn shape_slot_rows_from_projection_structural<T>(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<Vec<String>>, InternalError> {
-    let projection = prepared_projection.projection();
-    let mut rendered_rows = Vec::with_capacity(rows.len());
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    if let Some(field_slots) = prepared_projection.direct_projection_field_slots() {
+        return shape_slot_rows_from_direct_field_slots(rows, field_slots, emit_value);
+    }
 
+    shape_dense_slot_rows_from_projection_structural(prepared_projection, rows, emit_value)
+}
+
+#[cfg(feature = "sql")]
+// Shape one dense retained slot-row page through the prepared compiled
+// structural projection evaluator without staging another row representation.
+fn shape_dense_slot_rows_from_projection_structural<T>(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let projection = prepared_projection.projection();
+    let mut shaped_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: evaluate each retained row once and emit final row elements
+    // directly into the selected output representation.
     for row in &rows {
-        let mut rendered = Vec::with_capacity(projection.len());
+        let mut shaped = Vec::with_capacity(projection.len());
         let mut read_slot = |slot: usize| {
             row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
                 ProjectionEvalError::MissingFieldValue {
@@ -501,57 +518,27 @@ fn render_dense_slot_rows_from_projection_structural(
             prepared_projection.prepared(),
             projection,
             &mut read_slot,
-            &mut |value| rendered.push(render_sql_projection_value_text(&value)),
+            &mut |value| shaped.push(emit_value(value)),
         )?;
-        rendered_rows.push(rendered);
+        shaped_rows.push(shaped);
     }
 
-    Ok(rendered_rows)
+    Ok(shaped_rows)
 }
 
 #[cfg(feature = "sql")]
-// Project one dense retained slot-row page through the prepared compiled
-// structural projection evaluator without reopening persisted rows.
-fn project_dense_slot_rows_from_projection_structural(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    let projection = prepared_projection.projection();
-    let mut projected_rows = Vec::with_capacity(rows.len());
-
-    for row in &rows {
-        let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot: usize| {
-            row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
-                ProjectionEvalError::MissingFieldValue {
-                    field: format!("slot[{slot}]"),
-                    index: slot,
-                }
-                .into_invalid_logical_plan_internal_error()
-            })
-        };
-        visit_prepared_projection_values_with_required_value_reader_cow(
-            prepared_projection.prepared(),
-            projection,
-            &mut read_slot,
-            &mut |value| values.push(value),
-        )?;
-        projected_rows.push(values);
-    }
-
-    Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-// Project one retained dense slot-row page through direct field-slot copies only.
-fn project_slot_rows_from_direct_field_slots(
+// Shape one retained dense slot-row page through direct field-slot copies only.
+fn shape_slot_rows_from_direct_field_slots<T>(
     rows: Vec<RetainedSlotRow>,
     field_slots: &[(String, usize)],
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    let mut projected_rows = Vec::with_capacity(rows.len());
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
 
+    // Phase 1: move direct slots into their final output representation
+    // without staging intermediate row values.
     for mut row in rows {
-        let mut values = Vec::with_capacity(field_slots.len());
+        let mut shaped = Vec::with_capacity(field_slots.len());
         for (field_name, slot) in field_slots {
             let value = row
                 .take_slot(*slot)
@@ -560,40 +547,13 @@ fn project_slot_rows_from_direct_field_slots(
                     index: *slot,
                 })
                 .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
-            values.push(value);
+            shaped.push(emit_value(value));
         }
 
-        projected_rows.push(values);
+        shaped_rows.push(shaped);
     }
 
-    Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-// Render one retained dense slot-row page through direct field-slot copies only.
-fn render_slot_rows_from_direct_field_slots(
-    rows: Vec<RetainedSlotRow>,
-    field_slots: &[(String, usize)],
-) -> Result<Vec<Vec<String>>, InternalError> {
-    let mut rendered_rows = Vec::with_capacity(rows.len());
-
-    for mut row in rows {
-        let mut rendered = Vec::with_capacity(field_slots.len());
-        for (field_name, slot) in field_slots {
-            let value = row
-                .take_slot(*slot)
-                .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-                    field: field_name.clone(),
-                    index: *slot,
-                })
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
-            rendered.push(render_sql_projection_value_text(&value));
-        }
-
-        rendered_rows.push(rendered);
-    }
-
-    Ok(rendered_rows)
+    Ok(shaped_rows)
 }
 
 #[cfg(test)]
@@ -606,11 +566,13 @@ fn project_data_rows_from_projection_structural(
 
     #[cfg(any(test, feature = "structural-read-metrics"))]
     record_sql_projection_data_rows_scalar_fallback_hit();
-    project_scalar_data_rows_from_projection_structural(
+    let mut emit_value = std::convert::identity;
+    shape_scalar_data_rows_from_projection_structural(
         compiled_fields.as_slice(),
         rows,
         row_layout,
         prepared_projection.projected_slot_mask(),
+        &mut emit_value,
     )
 }
 
@@ -624,33 +586,36 @@ fn render_data_rows_from_projection_structural(
 
     #[cfg(any(test, feature = "structural-read-metrics"))]
     record_sql_projection_data_rows_scalar_fallback_hit();
-    render_scalar_data_rows_from_projection_structural(
+    let mut render_value = |value| render_sql_projection_value_text(&value);
+    shape_scalar_data_rows_from_projection_structural(
         compiled_fields.as_slice(),
         rows,
         row_layout,
         prepared_projection.projected_slot_mask(),
+        &mut render_value,
     )
 }
 
-#[cfg(test)]
-fn project_scalar_data_rows_from_projection_structural(
+#[cfg(any(test, feature = "perf-attribution"))]
+fn shape_scalar_data_rows_from_projection_structural<T>(
     compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
     rows: &[DataRow],
     row_layout: RowLayout,
     projected_slot_mask: &[bool],
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    let mut projected_rows = Vec::with_capacity(rows.len());
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
 
     #[cfg(not(any(test, feature = "structural-read-metrics")))]
     let _ = projected_slot_mask;
 
     // Phase 1: evaluate fully scalar projections through the compiled scalar
-    // expression path only.
+    // expression path once and emit final row elements immediately.
     for (data_key, raw_row) in rows {
         let row_fields = row_layout.open_raw_row(raw_row)?;
         row_fields.validate_storage_key(data_key)?;
 
-        let mut values = Vec::with_capacity(compiled_fields.len());
+        let mut shaped = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
             let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
                 compiled,
@@ -663,51 +628,12 @@ fn project_scalar_data_rows_from_projection_structural(
                     row_fields.required_value_by_contract_cow(slot)
                 },
             )?;
-            values.push(value.into_owned());
+            shaped.push(emit_value(value.into_owned()));
         }
-        projected_rows.push(values);
+        shaped_rows.push(shaped);
     }
 
-    Ok(projected_rows)
-}
-
-#[cfg(feature = "perf-attribution")]
-fn render_scalar_data_rows_from_projection_structural(
-    compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
-    rows: &[DataRow],
-    row_layout: RowLayout,
-    projected_slot_mask: &[bool],
-) -> Result<Vec<Vec<String>>, InternalError> {
-    let mut rendered_rows = Vec::with_capacity(rows.len());
-
-    #[cfg(not(any(test, feature = "structural-read-metrics")))]
-    let _ = projected_slot_mask;
-
-    // Phase 1: evaluate fully scalar projections through the compiled scalar
-    // expression path and render each emitted value immediately.
-    for (data_key, raw_row) in rows {
-        let row_fields = row_layout.open_raw_row(raw_row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        let mut rendered = Vec::with_capacity(compiled_fields.len());
-        for compiled in compiled_fields {
-            let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
-                compiled,
-                &mut |slot| {
-                    #[cfg(any(test, feature = "structural-read-metrics"))]
-                    record_sql_projection_data_rows_slot_access(
-                        projected_slot_mask.get(slot).copied().unwrap_or(false),
-                    );
-
-                    row_fields.required_value_by_contract_cow(slot)
-                },
-            )?;
-            rendered.push(render_sql_projection_value_text(&value));
-        }
-        rendered_rows.push(rendered);
-    }
-
-    Ok(rendered_rows)
+    Ok(shaped_rows)
 }
 
 ///
@@ -828,12 +754,27 @@ pub(in crate::db::executor) fn record_sql_projection_full_row_decode_materializa
 /// snapshot.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(dead_code, unreachable_pub)
-)]
+#[cfg(feature = "structural-read-metrics")]
 pub fn with_sql_projection_materialization_metrics<T>(
+    f: impl FnOnce() -> T,
+) -> (T, SqlProjectionMaterializationMetrics) {
+    SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {
+        debug_assert!(
+            metrics.borrow().is_none(),
+            "sql projection metrics captures should not nest"
+        );
+        *metrics.borrow_mut() = Some(SqlProjectionMaterializationMetrics::default());
+    });
+
+    let result = f();
+    let metrics = SQL_PROJECTION_MATERIALIZATION_METRICS
+        .with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
+
+    (result, metrics)
+}
+
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+pub(in crate::db::executor) fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {
     SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {

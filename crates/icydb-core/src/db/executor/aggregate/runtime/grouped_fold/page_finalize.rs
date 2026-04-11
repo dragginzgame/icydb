@@ -217,6 +217,39 @@ pub(super) fn finalize_grouped_page(
     Ok((page_rows, next_cursor))
 }
 
+// Build one finalized grouped candidate iterator from the grouped bundle
+// without changing the single-aggregate versus multi-aggregate execution
+// contract.
+fn into_grouped_page_candidates(
+    grouped_bundle: GroupedAggregateBundle,
+    sorted: bool,
+) -> Vec<GroupedPageCandidate> {
+    if grouped_bundle.has_single_aggregate() {
+        let groups = if sorted {
+            grouped_bundle.into_sorted_groups()
+        } else {
+            grouped_bundle.into_groups().collect()
+        };
+
+        return groups
+            .into_iter()
+            .map(GroupedPageCandidate::from_single)
+            .collect();
+    }
+
+    let aggregate_count = grouped_bundle.aggregate_count();
+    let groups = if sorted {
+        grouped_bundle.into_sorted_groups()
+    } else {
+        grouped_bundle.into_groups().collect()
+    };
+
+    groups
+        .into_iter()
+        .map(|finalized_group| GroupedPageCandidate::from_many(finalized_group, aggregate_count))
+        .collect()
+}
+
 // Apply grouped candidate selection, filtering, offset, and limit over one
 // bounded grouped page window without sorting every finalized group first.
 fn finalize_bounded_grouped_page_rows(
@@ -228,34 +261,19 @@ fn finalize_bounded_grouped_page_rows(
     selection_bound: usize,
     compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
-    let selected_candidates = if grouped_bundle.has_single_aggregate() {
-        retain_smallest_grouped_page_candidates(
-            grouped_bundle
-                .into_groups()
-                .map(GroupedPageCandidate::from_single),
-            grouped_having,
-            group_fields,
-            resume_boundary,
-            selection_bound,
-        )?
-    } else {
-        let aggregate_count = grouped_bundle.aggregate_count();
+    let selected_candidates = retain_smallest_grouped_page_candidates(
+        into_grouped_page_candidates(grouped_bundle, false).into_iter(),
+        grouped_having,
+        group_fields,
+        resume_boundary,
+        selection_bound,
+    )?;
 
-        retain_smallest_grouped_page_candidates(
-            grouped_bundle.into_groups().map(|finalized_group| {
-                GroupedPageCandidate::from_many(finalized_group, aggregate_count)
-            }),
-            grouped_having,
-            group_fields,
-            resume_boundary,
-            selection_bound,
-        )?
-    };
-
-    page_rows_from_candidates(
+    finalize_grouped_page_rows_from_candidates(
         selected_candidates.into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
+        |_| Ok(true),
         compiled_projection,
     )
 }
@@ -270,40 +288,11 @@ fn finalize_unbounded_grouped_page_rows(
     resume_boundary: Option<&Value>,
     compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
-    let finalized_candidates = if grouped_bundle.has_single_aggregate() {
-        grouped_bundle
-            .into_sorted_groups()
-            .into_iter()
-            .map(GroupedPageCandidate::from_single)
-            .collect::<Vec<_>>()
-    } else {
-        let aggregate_count = grouped_bundle.aggregate_count();
-
-        grouped_bundle
-            .into_sorted_groups()
-            .into_iter()
-            .map(|finalized_group| {
-                GroupedPageCandidate::from_many(finalized_group, aggregate_count)
-            })
-            .collect::<Vec<_>>()
-    };
-
-    let filtered_candidates = finalized_candidates
-        .into_iter()
-        .filter_map(|candidate| {
-            let keep = candidate.matches_window(grouped_having, group_fields, resume_boundary);
-            match keep {
-                Ok(true) => Some(Ok(candidate)),
-                Ok(false) => None,
-                Err(err) => Some(Err(err)),
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    page_rows_from_candidates(
-        filtered_candidates.into_iter(),
+    finalize_grouped_page_rows_from_candidates(
+        into_grouped_page_candidates(grouped_bundle, true).into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
+        |candidate| candidate.matches_window(grouped_having, group_fields, resume_boundary),
         compiled_projection,
     )
 }
@@ -350,24 +339,70 @@ where
     Ok(out)
 }
 
-// Apply grouped page offset/limit semantics over already-selected grouped
-// candidates and materialize the public grouped row DTOs only for emitted rows.
-fn page_rows_from_candidates<I>(
+// Apply grouped filtering, offset/limit, and final row shaping over one
+// ordered grouped-candidate stream in a single pass.
+fn finalize_grouped_page_rows_from_candidates<I, FilterFn>(
     selected_candidates: I,
     limit: Option<usize>,
     initial_offset_for_page: usize,
+    mut filter_candidate: FilterFn,
     compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
 where
     I: Iterator<Item = GroupedPageCandidate>,
+    FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
+{
+    if let Some(compiled_projection) = compiled_projection {
+        return finalize_grouped_page_rows_with_shaper(
+            selected_candidates,
+            limit,
+            initial_offset_for_page,
+            &mut filter_candidate,
+            |candidate| {
+                project_grouped_values_from_projection(
+                    compiled_projection.compiled_projection,
+                    compiled_projection.projection_layout,
+                    compiled_projection.group_fields,
+                    compiled_projection.aggregate_execution_specs,
+                    candidate.group_key_values()?,
+                    candidate.aggregate_values.as_slice(),
+                )
+            },
+        );
+    }
+
+    finalize_grouped_page_rows_with_shaper(
+        selected_candidates,
+        limit,
+        initial_offset_for_page,
+        filter_candidate,
+        GroupedPageCandidate::into_row,
+    )
+}
+
+// Accumulate one grouped page directly from one ordered candidate stream using
+// a caller-selected row shaper so the loop body stays single-purpose.
+fn finalize_grouped_page_rows_with_shaper<I, FilterFn, ShapeFn>(
+    selected_candidates: I,
+    limit: Option<usize>,
+    initial_offset_for_page: usize,
+    mut filter_candidate: FilterFn,
+    mut shape_row: ShapeFn,
+) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
+where
+    I: Iterator<Item = GroupedPageCandidate>,
+    FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
+    ShapeFn: FnMut(GroupedPageCandidate) -> Result<GroupedRow, InternalError>,
 {
     let mut page_rows = Vec::<GroupedRow>::new();
     let mut has_more = false;
     let mut groups_skipped_for_offset = 0usize;
 
-    // Phase 1: apply offset and limit only after the candidate set is already
-    // filtered into ascending canonical grouped-key order.
+    // Phase 1: filter, offset, limit, and shape rows in one ordered pass.
     for candidate in selected_candidates {
+        if !filter_candidate(&candidate)? {
+            continue;
+        }
         if groups_skipped_for_offset < initial_offset_for_page {
             groups_skipped_for_offset = groups_skipped_for_offset.saturating_add(1);
             continue;
@@ -379,19 +414,7 @@ where
             break;
         }
 
-        let row = if let Some(compiled_projection) = compiled_projection {
-            project_grouped_values_from_projection(
-                compiled_projection.compiled_projection,
-                compiled_projection.projection_layout,
-                compiled_projection.group_fields,
-                compiled_projection.aggregate_execution_specs,
-                candidate.group_key_values()?,
-                candidate.aggregate_values.as_slice(),
-            )?
-        } else {
-            candidate.into_row()?
-        };
-        page_rows.push(row);
+        page_rows.push(shape_row(candidate)?);
     }
 
     let next_cursor_boundary = if has_more {
@@ -409,7 +432,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{CompiledGroupedProjectionPlan, GroupedPageCandidate, page_rows_from_candidates};
+    use super::{
+        CompiledGroupedProjectionPlan, GroupedPageCandidate,
+        finalize_grouped_page_rows_from_candidates,
+    };
     use crate::{
         db::{
             GroupedRow,
@@ -427,7 +453,7 @@ mod tests {
     };
 
     #[test]
-    fn page_rows_from_candidates_projects_directly_from_candidates() {
+    fn finalize_grouped_page_rows_from_candidates_projects_directly_from_candidates() {
         let projection = ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
                 expr: Expr::Field(FieldId::new("age")),
@@ -479,9 +505,14 @@ mod tests {
             aggregate_values: vec![Value::Uint(2), Value::Uint(90)],
         }];
 
-        let (rows, next_cursor_boundary) =
-            page_rows_from_candidates(candidates.into_iter(), None, 0, Some(grouped_projection))
-                .expect("candidate projection should succeed");
+        let (rows, next_cursor_boundary) = finalize_grouped_page_rows_from_candidates(
+            candidates.into_iter(),
+            None,
+            0,
+            |_| Ok(true),
+            Some(grouped_projection),
+        )
+        .expect("candidate projection should succeed");
 
         assert_eq!(
             rows,

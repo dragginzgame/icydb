@@ -14,7 +14,7 @@ use crate::{
             execute_sql_projection_text_rows_for_canister,
         },
         identifiers_tail_match,
-        query::intent::StructuralQuery,
+        query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         session::sql::{
             SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
             aggregate::parsed_requires_dedicated_sql_aggregate_lane,
@@ -240,6 +240,23 @@ fn unsupported_generated_sql_entity_error(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Build the shared structural SQL projection execution inputs once so
+    // value-row and rendered-row dispatch surfaces only differ in final packaging.
+    fn prepare_structural_sql_projection_execution(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<(Vec<String>, AccessPlannedQuery), QueryError> {
+        // Phase 1: build the structural access plan once and freeze its outward
+        // column contract for all projection materialization surfaces.
+        let (_, plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
+        let projection = plan.projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+
+        Ok((columns, plan))
+    }
+
     // Execute one structural SQL load query and return only row-oriented SQL
     // projection values, keeping typed projection rows out of the shared SQL
     // query-lane path.
@@ -248,12 +265,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
-        // Phase 1: build the structural access plan once and reuse its
-        // projection contract for both labels and row materialization.
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
-        let projection = plan.projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
+        // Phase 1: build the shared structural plan and outward column contract once.
+        let (columns, plan) = self.prepare_structural_sql_projection_execution(query, authority)?;
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics.
@@ -273,12 +286,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
-        // Phase 1: build the structural access plan once and reuse its
-        // projection contract for both labels and text-row materialization.
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
-        let projection = plan.projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
+        // Phase 1: build the shared structural plan and outward column contract once.
+        let (columns, plan) = self.prepare_structural_sql_projection_execution(query, authority)?;
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics while preferring rendered SQL rows.
