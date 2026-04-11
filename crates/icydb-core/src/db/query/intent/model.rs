@@ -258,10 +258,10 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self
     }
 
-    /// Apply an offset to a load intent.
+    /// Apply an offset to the current mode.
     ///
-    /// When the intent is already in delete mode, this is recorded so
-    /// intent validation can reject the invalid modifier combination.
+    /// Load mode uses this as a pagination offset. Delete mode uses this as an
+    /// ordered delete window offset.
     #[must_use]
     pub(crate) fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.apply_offset(offset);

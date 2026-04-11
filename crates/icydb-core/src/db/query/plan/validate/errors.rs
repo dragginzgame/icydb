@@ -154,10 +154,6 @@ pub enum PolicyPlanError {
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
 
-    /// Delete plans must not carry offsets.
-    #[error("delete plans must not include OFFSET")]
-    DeletePlanWithOffset,
-
     /// Delete plans must not carry grouped query wrappers.
     #[error("delete plans must not include GROUP BY or HAVING")]
     DeletePlanWithGrouping,
@@ -170,9 +166,9 @@ pub enum PolicyPlanError {
     #[error("load plans must not include delete limits")]
     LoadPlanWithDeleteLimit,
 
-    /// Delete limits require an explicit ordering.
-    #[error("delete limit requires an explicit ordering")]
-    DeleteLimitRequiresOrder,
+    /// Ordered delete windows require an explicit ordering.
+    #[error("delete LIMIT/OFFSET requires an explicit ordering")]
+    DeleteWindowRequiresOrder,
 
     /// Pagination requires an explicit ordering.
     #[error(
@@ -191,11 +187,6 @@ impl PolicyPlanError {
         Self::EmptyOrderSpec
     }
 
-    /// Construct one delete-plan-with-offset policy error.
-    pub(crate) const fn delete_plan_with_offset() -> Self {
-        Self::DeletePlanWithOffset
-    }
-
     /// Construct one delete-plan-with-grouping policy error.
     pub(crate) const fn delete_plan_with_grouping() -> Self {
         Self::DeletePlanWithGrouping
@@ -211,9 +202,9 @@ impl PolicyPlanError {
         Self::LoadPlanWithDeleteLimit
     }
 
-    /// Construct one delete-limit-requires-order policy error.
-    pub(crate) const fn delete_limit_requires_order() -> Self {
-        Self::DeleteLimitRequiresOrder
+    /// Construct one ordered-delete-window-requires-order policy error.
+    pub(crate) const fn delete_window_requires_order() -> Self {
+        Self::DeleteWindowRequiresOrder
     }
 
     /// Construct one unordered-pagination policy error.

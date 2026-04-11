@@ -123,7 +123,7 @@ fn lower_prepared_statement(
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     match statement {
         SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Select(lower_select_shape(statement, primary_key_field)?),
+            LoweredSqlQuery::Select(lower_select_shape(statement)?),
         ))),
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
             LoweredSqlQuery::Delete(lower_delete_shape(statement)),
@@ -164,9 +164,9 @@ fn lower_explain_prepared(
 fn lower_explain_select_prepared(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
-    primary_key_field: &str,
+    _primary_key_field: &str,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    match lower_select_shape(statement.clone(), primary_key_field) {
+    match lower_select_shape(statement.clone()) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             query: LoweredSqlQuery::Select(query),

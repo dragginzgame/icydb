@@ -119,7 +119,11 @@ impl GroupedAggregateState {
         if target_field.is_some()
             && !matches!(
                 kind,
-                AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                AggregateKind::Count
+                    | AggregateKind::Sum
+                    | AggregateKind::Avg
+                    | AggregateKind::Min
+                    | AggregateKind::Max
             )
         {
             return Err(Self::unsupported_field_target_aggregate(kind));

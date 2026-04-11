@@ -41,13 +41,14 @@ fn from_group_plan_error(err: PlanError) -> InternalError {
 fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
     let reason = match err {
         PolicyPlanError::EmptyOrderSpec => "order specification must include at least one field",
-        PolicyPlanError::DeletePlanWithOffset => "delete plans must not include OFFSET",
         PolicyPlanError::DeletePlanWithGrouping => {
             "delete plans must not include GROUP BY or HAVING"
         }
         PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
         PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
-        PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
+        PolicyPlanError::DeleteWindowRequiresOrder => {
+            "delete limit or offset requires explicit ordering"
+        }
         PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
         PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess => {
             "expression ORDER BY requires matching index-backed access ordering"
@@ -155,12 +156,12 @@ fn executor_access_plan_error_mapping_stays_invariant_violation() {
 
 #[test]
 fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
-    let err = plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
+    let err = plan_invariant_violation(PolicyPlanError::DeleteWindowRequiresOrder);
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
     assert_eq!(
         err.message,
-        "executor invariant violated: delete limit requires explicit ordering",
+        "executor invariant violated: delete limit or offset requires explicit ordering",
     );
 }
 

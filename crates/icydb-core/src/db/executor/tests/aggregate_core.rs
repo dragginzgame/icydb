@@ -2130,7 +2130,7 @@ fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
                 .expect("group field should resolve for bypass fixture"),
             ],
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                kind: crate::db::query::plan::AggregateKind::Min,
+                kind: crate::db::query::plan::AggregateKind::First,
                 target_field: Some("rank".to_string()),
                 distinct: false,
             }],

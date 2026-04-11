@@ -4043,6 +4043,72 @@ fn execute_sql_delete_honors_predicate_order_and_limit() {
 }
 
 #[test]
+fn execute_sql_delete_honors_ordered_offset_then_limit() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "first-minor".to_string(),
+            age: 16,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "second-minor".to_string(),
+            age: 17,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "third-minor".to_string(),
+            age: 18,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "adult".to_string(),
+            age: 42,
+        })
+        .expect("seed insert should succeed");
+
+    let deleted = session
+        .execute_sql::<SessionSqlEntity>(
+            "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1 OFFSET 1",
+        )
+        .expect("DELETE with OFFSET should execute");
+
+    assert_eq!(deleted.count(), 1, "delete window should remove one row");
+    assert_eq!(
+        deleted
+            .iter()
+            .next()
+            .expect("deleted row should exist")
+            .entity_ref()
+            .age,
+        17,
+        "ordered delete offset should skip the first matching row before applying LIMIT",
+    );
+
+    let remaining =
+        execute_sql_name_age_rows(&session, "SELECT * FROM SessionSqlEntity ORDER BY age ASC");
+
+    assert_eq!(
+        remaining,
+        vec![
+            ("first-minor".to_string(), 16),
+            ("third-minor".to_string(), 18),
+            ("adult".to_string(), 42),
+        ],
+        "ordered delete offset should preserve skipped and non-matching rows",
+    );
+}
+
+#[test]
 fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
     // Phase 1: define one shared seed dataset and table-driven DELETE cases.
     let seed_rows = [
@@ -4074,6 +4140,17 @@ fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
             vec![
                 ("delete-matrix-a".to_string(), 10_u64),
                 ("delete-matrix-b".to_string(), 20_u64),
+            ],
+        ),
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE age >= 20 \
+             ORDER BY age ASC LIMIT 1 OFFSET 1",
+            vec![("delete-matrix-c".to_string(), 30_u64)],
+            vec![
+                ("delete-matrix-a".to_string(), 10_u64),
+                ("delete-matrix-b".to_string(), 20_u64),
+                ("delete-matrix-d".to_string(), 40_u64),
             ],
         ),
         (
@@ -9777,23 +9854,82 @@ fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
 }
 
 #[test]
-fn execute_sql_rejects_distinct_without_pk_projection_in_current_slice() {
+fn execute_sql_projection_select_distinct_without_pk_projection_executes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT DISTINCT age FROM SessionSqlEntity")
-        .expect_err("SELECT DISTINCT without PK in projection should remain lowering-gated");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-no-pk-a".to_string(),
+            age: 25,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-no-pk-b".to_string(),
+            age: 25,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-no-pk-c".to_string(),
+            age: 30,
+        })
+        .expect("seed insert should succeed");
 
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "distinct SQL gating should map to unsupported execution error boundary",
-    );
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC",
+    )
+    .expect("SELECT DISTINCT without PK in projection should execute");
+
+    assert_eq!(response, vec![vec![Value::Uint(25)], vec![Value::Uint(30)]]);
+}
+
+#[test]
+fn execute_sql_projection_select_distinct_without_pk_projection_applies_page_after_dedup() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-window-a".to_string(),
+            age: 25,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-window-b".to_string(),
+            age: 25,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-window-c".to_string(),
+            age: 30,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "distinct-window-d".to_string(),
+            age: 35,
+        })
+        .expect("seed insert should succeed");
+
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
+    )
+    .expect("SELECT DISTINCT without PK projection should page after dedup");
+
+    assert_eq!(response, vec![vec![Value::Uint(30)]]);
 }
 
 #[test]

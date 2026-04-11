@@ -111,9 +111,25 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         match strategy.projected_field() {
+            Some(field) if strategy.is_distinct() => format!("{kind}(DISTINCT {field})"),
             Some(field) => format!("{kind}({field})"),
             None => format!("{kind}(*)"),
         }
+    }
+
+    // Deduplicate one projected aggregate input stream while preserving the
+    // first-observed value order used by SQL aggregate reduction.
+    fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
+        let mut deduped = Vec::with_capacity(values.len());
+
+        for value in values {
+            if deduped.iter().any(|current| current == &value) {
+                continue;
+            }
+            deduped.push(value);
+        }
+
+        deduped
     }
 
     // Reduce one structural aggregate field projection into canonical aggregate
@@ -122,6 +138,12 @@ impl<C: CanisterKind> DbSession<C> {
         values: Vec<Value>,
         strategy: &PreparedSqlScalarAggregateStrategy,
     ) -> Result<Value, QueryError> {
+        let values = if strategy.is_distinct() {
+            Self::dedup_structural_sql_aggregate_input_values(values)
+        } else {
+            values
+        };
+
         match strategy.runtime_descriptor() {
             PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => Err(QueryError::invariant(
                 "COUNT(*) structural reduction does not consume projected field values",
@@ -495,12 +517,45 @@ impl<C: CanisterKind> DbSession<C> {
         // First lower the SQL surface onto the existing single-terminal
         // aggregate command authority so execution never has to rediscover the
         // accepted aggregate shape family.
+        let prepared = prepare_sql_statement(statement, E::MODEL.name())
+            .map_err(QueryError::from_sql_lowering_error)?;
         let command = compile_sql_global_aggregate_command_from_prepared::<E>(
-            prepare_sql_statement(statement, E::MODEL.name())
-                .map_err(QueryError::from_sql_lowering_error)?,
+            prepared.clone(),
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
+        let strategy = command.prepared_scalar_strategy();
+
+        // DISTINCT field aggregates reuse the existing structural projection +
+        // reduction lane so SQL deduplicates aggregate inputs before folding.
+        if strategy.is_distinct() {
+            let dispatch = compile_sql_global_aggregate_command_core_from_prepared(
+                prepared,
+                E::MODEL,
+                MissingRowPolicy::Ignore,
+            )
+            .map_err(QueryError::from_sql_lowering_error)?;
+            let authority = crate::db::executor::EntityAuthority::for_type::<E>();
+            let SqlDispatchResult::Projection { rows, .. } =
+                self.execute_sql_aggregate_dispatch_for_authority(dispatch, authority)?
+            else {
+                return Err(QueryError::invariant(
+                    "DISTINCT SQL aggregate dispatch must finalize as one projection row",
+                ));
+            };
+            let Some(mut row) = rows.into_iter().next() else {
+                return Err(QueryError::invariant(
+                    "DISTINCT SQL aggregate dispatch must emit one projection row",
+                ));
+            };
+            let [value] = row.drain(..).collect::<Vec<_>>().try_into().map_err(|_| {
+                QueryError::invariant(
+                    "DISTINCT SQL aggregate dispatch must emit exactly one projected value",
+                )
+            })?;
+
+            return Ok(value);
+        }
 
         // Then dispatch through one prepared typed-scalar aggregate strategy so
         // SQL aggregate execution and SQL aggregate explain consume the same

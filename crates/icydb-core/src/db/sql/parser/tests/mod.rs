@@ -31,6 +31,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     field: None,
+                    distinct: false,
                 }),
             ]),
             predicate: Some(Predicate::And(vec![
@@ -350,6 +351,32 @@ fn parse_delete_statement_with_limit() {
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_delete_statement_with_limit_and_offset() {
+    let statement = parse_sql("DELETE FROM users WHERE age < 18 ORDER BY age LIMIT 3 OFFSET 1")
+        .expect("delete statement with offset should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Delete(SqlDeleteStatement {
+            entity: "users".to_string(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Lt,
+                Value::Int(18),
+                CoercionId::NumericWiden,
+            ))),
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(3),
+            offset: Some(1),
         }),
     );
 }
@@ -392,6 +419,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
                     direction: SqlOrderDirection::Asc,
                 }],
                 limit: Some(1),
+                offset: None,
             }),
         );
     }
@@ -462,6 +490,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                         direction: SqlOrderDirection::Asc,
                     }],
                     limit: Some(1),
+                    offset: None,
                 }),
             }),
         );
@@ -831,6 +860,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     field: None,
+                    distinct: false,
                 }),
             ]),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
@@ -909,6 +939,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     field: None,
+                    distinct: false,
                 }),
             ]),
             predicate: None,
@@ -924,6 +955,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                     symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         field: None,
+                        distinct: false,
                     }),
                     op: CompareOp::Gt,
                     value: Value::Int(1),
@@ -959,6 +991,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     field: None,
+                    distinct: false,
                 }),
             ]),
             predicate: None,
@@ -974,6 +1007,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                     symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         field: None,
+                        distinct: false,
                     }),
                     op: CompareOp::Eq,
                     value: Value::Null,
@@ -1092,7 +1126,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "column/expression aliases",
         ),
         ("SELECT name alias FROM users", "column/expression aliases"),
-        ("DELETE FROM users OFFSET 1", "DELETE ... OFFSET"),
         (
             "SELECT * FROM users; SELECT * FROM users",
             "multi-statement SQL input",
@@ -1101,10 +1134,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         (
             "SELECT len(name) FROM users",
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
-        ),
-        (
-            "SELECT COUNT(DISTINCT age) FROM users",
-            "DISTINCT aggregate qualifiers",
         ),
         ("SELECT * FROM public.users AS u", "table aliases"),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
@@ -1177,15 +1206,27 @@ fn parse_sql_rejects_unknown_function_namespace() {
 }
 
 #[test]
-fn parse_sql_rejects_distinct_aggregate_qualifier() {
-    let err = parse_sql("SELECT COUNT(DISTINCT age) FROM users")
-        .expect_err("aggregate DISTINCT qualifier should be rejected");
+fn parse_sql_accepts_distinct_aggregate_qualifier() {
+    let statement = parse_sql("SELECT COUNT(DISTINCT age) FROM users")
+        .expect("aggregate DISTINCT qualifier should parse");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "DISTINCT aggregate qualifiers"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
+                kind: SqlAggregateKind::Count,
+                field: Some("age".to_string()),
+                distinct: true,
+            })]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
     );
 }
 
@@ -1237,19 +1278,6 @@ fn parse_sql_rejects_quoted_identifier_syntax() {
         err,
         super::SqlParseError::UnsupportedFeature {
             feature: "quoted identifiers"
-        }
-    );
-}
-
-#[test]
-fn parse_sql_rejects_delete_offset() {
-    let err = parse_sql("DELETE FROM users ORDER BY age LIMIT 1 OFFSET 1")
-        .expect_err("delete with offset should be rejected");
-
-    assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "DELETE ... OFFSET"
         }
     );
 }

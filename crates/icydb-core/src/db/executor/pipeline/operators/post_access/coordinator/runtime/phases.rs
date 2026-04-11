@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::executor::pipeline::operators::post_access::terminal::{
-    apply_delete_limit_phase as apply_post_access_delete_limit_phase,
+    apply_delete_window_phase as apply_post_access_delete_window_phase,
     apply_order_phase as apply_post_access_order_phase,
 };
 use crate::{
@@ -57,8 +57,8 @@ impl<K> PostAccessPlan<'_, K> {
             filtered,
         )?;
 
-        // Phase 3: apply delete limiting directly against the same row buffer.
-        let (delete_was_limited, _) = apply_post_access_delete_limit_phase(
+        // Phase 3: apply the ordered delete window directly against the same row buffer.
+        let (delete_was_limited, _) = apply_post_access_delete_window_phase(
             self.contract.mode(),
             self.contract.order_spec(),
             self.contract.delete_limit_spec(),

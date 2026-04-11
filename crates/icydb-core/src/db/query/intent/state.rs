@@ -116,12 +116,11 @@ impl<K> LoadIntentState<K> {
 /// DeletePolicyState
 ///
 /// Delete policy flags preserved for stable intent-policy errors.
-/// These flags keep invalid modifier requests visible to validation.
+/// These flags keep delete-only grouping validation separate from load mode.
 ///
 
 #[derive(Clone, Copy, Debug)]
 struct DeletePolicyState {
-    offset_requested: bool,
     grouping_requested: bool,
 }
 
@@ -191,14 +190,6 @@ impl<K> QueryIntent<K> {
     }
 
     #[must_use]
-    pub(in crate::db::query::intent) const fn has_delete_offset_violation(&self) -> bool {
-        match self {
-            Self::Delete(delete) => delete.policy.offset_requested,
-            Self::Load(_) => false,
-        }
-    }
-
-    #[must_use]
     pub(in crate::db::query::intent) fn set_delete_mode(self) -> Self {
         match self {
             Self::Delete(delete) => Self::Delete(delete),
@@ -207,10 +198,7 @@ impl<K> QueryIntent<K> {
                     QueryShape::Scalar(scalar) => (scalar, false),
                     QueryShape::Grouped(grouped) => (grouped.scalar, true),
                 };
-                let policy = DeletePolicyState {
-                    offset_requested: load.offset_requested,
-                    grouping_requested,
-                };
+                let policy = DeletePolicyState { grouping_requested };
 
                 Self::Delete(DeleteIntentState::new(scalar, policy))
             }
@@ -239,7 +227,7 @@ impl<K> QueryIntent<K> {
                 load.spec.offset = offset;
             }
             Self::Delete(delete) => {
-                delete.policy.offset_requested = true;
+                delete.spec.offset = offset;
             }
         }
 
@@ -397,20 +385,19 @@ mod tests {
             !intent.is_grouped(),
             "new intent must start in scalar shape without grouped policy flags"
         );
-        assert!(
-            !intent.has_delete_offset_violation(),
-            "new intent must not start with delete-offset policy violation"
-        );
+        assert!(matches!(intent.mode(), QueryMode::Load(_)));
     }
 
     #[test]
-    fn delete_mode_tracks_offset_policy_violation() {
+    fn delete_mode_tracks_offset_in_mode_spec() {
         let intent = QueryIntent::<u64>::new().set_delete_mode().apply_offset(5);
 
-        assert!(matches!(intent.mode(), QueryMode::Delete(_)));
         assert!(
-            intent.has_delete_offset_violation(),
-            "offset requested in delete mode must remain visible for policy validation"
+            matches!(
+                intent.mode(),
+                QueryMode::Delete(DeleteSpec { offset: 5, .. })
+            ),
+            "offset requested in delete mode must remain visible on the delete spec"
         );
         assert!(
             matches!(intent.mode(), QueryMode::Delete(_)),

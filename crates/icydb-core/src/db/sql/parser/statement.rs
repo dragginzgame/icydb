@@ -219,15 +219,18 @@ impl Parser {
             None
         };
 
-        if self.eat_keyword(Keyword::Offset) {
-            return Err(SqlParseError::unsupported_feature("DELETE ... OFFSET"));
-        }
+        let offset = if self.eat_keyword(Keyword::Offset) {
+            Some(self.parse_u32_literal("OFFSET")?)
+        } else {
+            None
+        };
 
         Ok(SqlDeleteStatement {
             entity,
             predicate,
             order_by,
             limit,
+            offset,
         })
     }
 

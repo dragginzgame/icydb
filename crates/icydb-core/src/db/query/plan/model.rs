@@ -67,6 +67,7 @@ impl LoadSpec {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DeleteSpec {
     pub(crate) limit: Option<u32>,
+    pub(crate) offset: u32,
 }
 
 impl DeleteSpec {
@@ -74,6 +75,12 @@ impl DeleteSpec {
     #[must_use]
     pub const fn limit(&self) -> Option<u32> {
         self.limit
+    }
+
+    /// Return zero-based ordered delete offset for this delete-mode spec.
+    #[must_use]
+    pub const fn offset(&self) -> u32 {
+        self.offset
     }
 }
 
@@ -99,12 +106,13 @@ pub(crate) struct OrderSpec {
 
 ///
 /// DeleteLimitSpec
-/// Executor-facing delete bound with no offsets.
+/// Executor-facing ordered delete window.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DeleteLimitSpec {
-    pub(crate) max_rows: u32,
+    pub(crate) limit: Option<u32>,
+    pub(crate) offset: u32,
 }
 
 ///
@@ -577,7 +585,7 @@ pub(crate) struct ScalarPlan {
     /// Optional distinct semantics over ordered rows.
     pub(crate) distinct: bool,
 
-    /// Optional delete bound (delete intents only).
+    /// Optional ordered delete window (delete intents only).
     pub(crate) delete_limit: Option<DeleteLimitSpec>,
 
     /// Optional pagination specification.

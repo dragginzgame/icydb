@@ -9,7 +9,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::intent::Query,
         query::plan::{
-            AggregateKind, QueryMode,
+            AggregateKind, DeleteSpec, QueryMode,
             expr::{Expr, ProjectionField},
         },
         sql::{
@@ -226,14 +226,24 @@ fn compile_sql_command_select_distinct_with_pk_field_list_lowers_to_distinct_que
 }
 
 #[test]
-fn compile_sql_command_rejects_select_distinct_without_pk_projection() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_select_distinct_without_pk_projection_lowers_to_distinct_query() {
+    let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT DISTINCT age FROM SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("SELECT DISTINCT without PK in projection should remain lowering-gated");
+    .expect("SELECT DISTINCT without PK in projection should lower");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectDistinct));
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    assert!(
+        query
+            .explain()
+            .expect("distinct explain should build")
+            .distinct(),
+        "SELECT DISTINCT field-list without PK should preserve scalar distinct intent",
+    );
 }
 
 #[test]
@@ -249,6 +259,27 @@ fn compile_sql_command_delete_lowers_to_delete_query() {
     };
 
     assert!(matches!(query.mode(), QueryMode::Delete(_)));
+}
+
+#[test]
+fn compile_sql_command_delete_with_offset_lowers_to_delete_query() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3 OFFSET 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("DELETE with OFFSET should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    assert!(matches!(
+        query.mode(),
+        QueryMode::Delete(DeleteSpec {
+            limit: Some(3),
+            offset: 1,
+        })
+    ));
 }
 
 #[test]
@@ -486,14 +517,24 @@ fn compile_sql_command_explain_select_distinct_star_lowers_to_distinct_query() {
 }
 
 #[test]
-fn compile_sql_command_explain_select_distinct_without_pk_projection_rejects() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_explain_select_distinct_without_pk_projection_lowers() {
+    let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN SELECT DISTINCT age FROM SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("EXPLAIN SELECT DISTINCT without PK projection should fail closed");
+    .expect("EXPLAIN SELECT DISTINCT without PK projection should lower");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectDistinct));
+    let SqlCommand::Explain { mode, query } = command else {
+        panic!("expected lowered explain command");
+    };
+    assert_eq!(mode, SqlExplainMode::Plan);
+    assert!(
+        query
+            .explain()
+            .expect("distinct explain should build")
+            .distinct(),
+        "EXPLAIN SELECT DISTINCT field-list without PK should preserve scalar distinct intent",
+    );
 }
 
 #[test]
@@ -1340,21 +1381,30 @@ fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
     assert!(
         matches!(
             count_by_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::CountField(field) if field.field() == "age"
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
         ),
         "COUNT(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             sum_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
         ),
         "SUM(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             avg_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::AvgField(field) if field.field() == "age"
+            TypedSqlGlobalAggregateTerminal::AvgField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
         ),
         "AVG(field) should resolve the target field slot in the typed lowered terminal",
     );
@@ -1385,7 +1435,10 @@ fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_te
     assert!(
         matches!(
             command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
         ),
         "qualified aggregate target fields should normalize to canonical unqualified target slots",
     );
@@ -1479,6 +1532,35 @@ fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count
 }
 
 #[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_distinct_field() {
+    let count_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT COUNT(DISTINCT age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        count_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::ProjectionField,
+        "COUNT(DISTINCT field) should still prepare through the projection-field domain",
+    );
+    assert!(
+        count_field_strategy.is_distinct(),
+        "COUNT(DISTINCT field) should preserve distinct-input semantics on the prepared strategy",
+    );
+    assert_eq!(
+        count_field_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+        "COUNT(DISTINCT field) should keep the count-field runtime descriptor",
+    );
+    assert_eq!(
+        count_field_strategy
+            .target_slot()
+            .expect("COUNT(DISTINCT field) should keep target slot")
+            .field(),
+        "age",
+        "COUNT(DISTINCT field) should preserve the canonical target slot",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_field() {
     let sum_field_strategy =
         compile_prepared_sql_scalar_strategy("SELECT SUM(age) FROM SqlLowerEntity");
@@ -1509,6 +1591,29 @@ fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_f
             kind: AggregateKind::Sum,
         },
         "SUM(field) should project the numeric SUM runtime descriptor",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_distinct_field() {
+    let sum_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT SUM(DISTINCT age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        sum_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::NumericField,
+        "SUM(DISTINCT field) should prepare through the numeric domain",
+    );
+    assert!(
+        sum_field_strategy.is_distinct(),
+        "SUM(DISTINCT field) should preserve distinct-input semantics on the prepared strategy",
+    );
+    assert_eq!(
+        sum_field_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            kind: AggregateKind::Sum,
+        },
+        "SUM(DISTINCT field) should keep the numeric SUM runtime descriptor",
     );
 }
 
@@ -1548,6 +1653,28 @@ fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_min_f
             kind: AggregateKind::Min,
         },
         "MIN(field) should project the extrema runtime descriptor",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_min_distinct_field() {
+    let min_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT MIN(DISTINCT age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        min_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+        "MIN(DISTINCT field) should keep the scalar-extrema-value domain",
+    );
+    assert_eq!(
+        min_field_strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::MinField,
+        "MIN(DISTINCT field) should lower to the existing MIN(field) descriptor shape",
+    );
+    assert_eq!(
+        min_field_strategy.row_source(),
+        PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+        "MIN(DISTINCT field) should preserve extremal-winner row sourcing",
     );
 }
 
@@ -1619,7 +1746,10 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
     assert!(
         matches!(
             sql_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
         ),
         "global aggregate SQL SUM terminal should preserve the canonical target slot",
     );

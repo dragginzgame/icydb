@@ -269,7 +269,9 @@ use crate::{
                 RowCollectorMaterializationRequest,
             },
             projection::{
-                PreparedProjectionShape, project_sql_projection_slot_rows_for_dispatch,
+                PreparedProjectionShape, project_sql_distinct_projection_slot_rows_for_dispatch,
+                project_sql_projection_slot_rows_for_dispatch,
+                render_sql_distinct_projection_slot_rows_for_dispatch,
                 render_sql_projection_slot_rows_for_dispatch,
             },
             read_row_presence_ignoring_missing_from_store,
@@ -622,9 +624,7 @@ fn finalize_cursorless_sql_slot_row_page(
     mut slot_rows: Vec<crate::db::executor::RetainedSlotRow>,
     keys_scanned: usize,
 ) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
-    if !cursorless_sql_page_window_is_redundant(plan, slot_rows.len()) {
-        apply_cursorless_sql_page_window(plan, &mut slot_rows);
-    }
+    let finalize_mode = select_cursorless_row_collector_finalize_mode(context, true)?;
 
     if validate_projection {
         let prepared_projection_validation =
@@ -637,8 +637,22 @@ fn finalize_cursorless_sql_slot_row_page(
         }
     }
 
+    // DISTINCT over SQL projected rows must deduplicate after projection, so
+    // delay the cursorless LIMIT/OFFSET window until the final projected row
+    // payload exists.
+    if plan.scalar_plan().distinct {
+        let post_access_rows = slot_rows.len();
+        let payload =
+            finalize_cursorless_distinct_sql_slot_row_payload(plan, slot_rows, finalize_mode)?;
+
+        return Ok((payload, keys_scanned, post_access_rows));
+    }
+
+    if !cursorless_sql_page_window_is_redundant(plan, slot_rows.len()) {
+        apply_cursorless_sql_page_window(plan, &mut slot_rows);
+    }
+
     let post_access_rows = slot_rows.len();
-    let finalize_mode = select_cursorless_row_collector_finalize_mode(context, true)?;
     let payload = finalize_cursorless_slot_row_payload(slot_rows, finalize_mode)?;
 
     Ok((payload, keys_scanned, post_access_rows))
@@ -841,6 +855,50 @@ fn finalize_cursorless_slot_row_payload(
         CursorlessRowCollectorFinalizeMode::StructuralDataRows => {
             Err(InternalError::query_executor_invariant(
                 "slot-row cursorless finalization requires one slot-row payload mode",
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn finalize_cursorless_distinct_sql_slot_row_payload(
+    plan: &AccessPlannedQuery,
+    slot_rows: Vec<crate::db::executor::RetainedSlotRow>,
+    finalize_mode: CursorlessRowCollectorFinalizeMode<'_>,
+) -> Result<MaterializedExecutionPayload, InternalError> {
+    match finalize_mode {
+        CursorlessRowCollectorFinalizeMode::SqlProjected {
+            prepared_projection_shape,
+        } => {
+            let mut rows = project_sql_distinct_projection_slot_rows_for_dispatch(
+                prepared_projection_shape,
+                slot_rows,
+            )?;
+            apply_cursorless_sql_page_window(plan, &mut rows);
+
+            Ok(MaterializedExecutionPayload::SqlProjectedRows(rows))
+        }
+        CursorlessRowCollectorFinalizeMode::SqlRendered {
+            prepared_projection_shape,
+        } => {
+            let mut rows = render_sql_distinct_projection_slot_rows_for_dispatch(
+                prepared_projection_shape,
+                slot_rows,
+            )?;
+            apply_cursorless_sql_page_window(plan, &mut rows);
+
+            Ok(MaterializedExecutionPayload::SqlRenderedRows(rows))
+        }
+        CursorlessRowCollectorFinalizeMode::StructuralSlotRows => {
+            Ok(MaterializedExecutionPayload::StructuralPage(
+                crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
+                    slot_rows, None,
+                ),
+            ))
+        }
+        CursorlessRowCollectorFinalizeMode::StructuralDataRows => {
+            Err(InternalError::query_executor_invariant(
+                "distinct SQL cursorless finalization requires one slot-row payload mode",
             ))
         }
     }

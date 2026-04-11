@@ -110,6 +110,9 @@ mod tests {
             limit: Some(1),
             offset: 0,
         });
-        let _ = QueryMode::Delete(DeleteSpec { limit: Some(1) });
+        let _ = QueryMode::Delete(DeleteSpec {
+            limit: Some(1),
+            offset: 0,
+        });
     }
 }

@@ -19,7 +19,7 @@ struct PlanShapePolicyContext {
     grouped: bool,
     has_order: bool,
     has_page: bool,
-    has_delete_limit: bool,
+    has_delete_window: bool,
 }
 
 impl PlanShapePolicyContext {
@@ -30,14 +30,14 @@ impl PlanShapePolicyContext {
         grouped: bool,
         has_order: bool,
         has_page: bool,
-        has_delete_limit: bool,
+        has_delete_window: bool,
     ) -> Self {
         Self {
             is_delete_mode,
             grouped,
             has_order,
             has_page,
-            has_delete_limit,
+            has_delete_window,
         }
     }
 }
@@ -68,8 +68,8 @@ const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
         plan_shape_delete_with_grouping_violated,
     ),
     PlanShapePolicyRule::new(
-        PolicyPlanError::delete_limit_requires_order(),
-        plan_shape_delete_limit_requires_order_violated,
+        PolicyPlanError::delete_window_requires_order(),
+        plan_shape_delete_window_requires_order_violated,
     ),
     PlanShapePolicyRule::new(
         PolicyPlanError::delete_plan_with_pagination(),
@@ -85,8 +85,8 @@ const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
     ),
 ];
 
-const fn plan_shape_delete_limit_requires_order_violated(ctx: PlanShapePolicyContext) -> bool {
-    ctx.has_delete_limit && !ctx.has_order
+const fn plan_shape_delete_window_requires_order_violated(ctx: PlanShapePolicyContext) -> bool {
+    ctx.has_delete_window && !ctx.has_order
 }
 
 const fn plan_shape_delete_with_grouping_violated(ctx: PlanShapePolicyContext) -> bool {
@@ -98,7 +98,7 @@ const fn plan_shape_delete_with_pagination_violated(ctx: PlanShapePolicyContext)
 }
 
 const fn plan_shape_load_with_delete_limit_violated(ctx: PlanShapePolicyContext) -> bool {
-    !ctx.is_delete_mode && ctx.has_delete_limit
+    !ctx.is_delete_mode && ctx.has_delete_window
 }
 
 // GROUP BY v1 uses canonical grouped key ordering when ORDER BY is omitted,

@@ -53,14 +53,10 @@ impl GroupAggregateSpec {
     pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
         match self.kind {
             AggregateKind::Count => !self.distinct,
-            AggregateKind::Sum | AggregateKind::Avg => {
+            AggregateKind::Sum | AggregateKind::Avg | AggregateKind::Min | AggregateKind::Max => {
                 !self.distinct && self.target_field.is_some()
             }
-            AggregateKind::Exists
-            | AggregateKind::Min
-            | AggregateKind::Max
-            | AggregateKind::First
-            | AggregateKind::Last => {
+            AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => {
                 self.target_field.is_none()
                     && (!self.distinct || self.kind.supports_grouped_distinct_v1())
             }

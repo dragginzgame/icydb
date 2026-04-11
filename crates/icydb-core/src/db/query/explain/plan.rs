@@ -480,6 +480,7 @@ pub enum ExplainPagination {
 pub enum ExplainDeleteLimit {
     None,
     Limit { max_rows: u32 },
+    Window { limit: Option<u32>, offset: u32 },
 }
 
 impl AccessPlannedQuery {
@@ -727,8 +728,16 @@ const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
 
 const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteLimit {
     match limit {
-        Some(limit) => ExplainDeleteLimit::Limit {
-            max_rows: limit.max_rows,
+        Some(limit) if limit.offset == 0 => match limit.limit {
+            Some(max_rows) => ExplainDeleteLimit::Limit { max_rows },
+            None => ExplainDeleteLimit::Window {
+                limit: None,
+                offset: 0,
+            },
+        },
+        Some(limit) => ExplainDeleteLimit::Window {
+            limit: limit.limit,
+            offset: limit.offset,
         },
         None => ExplainDeleteLimit::None,
     }
@@ -800,6 +809,14 @@ fn write_delete_limit_json(limit: &ExplainDeleteLimit, out: &mut String) {
         ExplainDeleteLimit::Limit { max_rows } => {
             object.field_str("type", "Limit");
             object.field_u64("max_rows", u64::from(*max_rows));
+        }
+        ExplainDeleteLimit::Window { limit, offset } => {
+            object.field_str("type", "Window");
+            object.field_with("limit", |out| match limit {
+                Some(limit) => out.push_str(&limit.to_string()),
+                None => out.push_str("null"),
+            });
+            object.field_u64("offset", u64::from(*offset));
         }
     }
     object.finish();

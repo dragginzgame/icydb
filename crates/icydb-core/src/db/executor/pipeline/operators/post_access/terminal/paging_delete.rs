@@ -11,25 +11,25 @@ use crate::{
     error::InternalError,
 };
 
-// Apply delete row cap after ordering for delete-mode plans.
-pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_limit_phase<R>(
+// Apply ordered delete window after ordering for delete-mode plans.
+pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_window_phase<R>(
     mode: QueryMode,
     order_spec: Option<&OrderSpec>,
-    delete_limit_spec: Option<&DeleteLimitSpec>,
+    delete_window_spec: Option<&DeleteLimitSpec>,
     rows: &mut Vec<R>,
     ordered: bool,
 ) -> Result<(bool, usize), InternalError> {
-    let delete_was_limited = if mode.is_delete()
-        && let Some(limit) = delete_limit_spec
+    let delete_window_applied = if mode.is_delete()
+        && let Some(window_spec) = delete_window_spec
     {
         if order_spec.is_some() && !ordered {
             return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
         }
-        window::apply_delete_limit(rows, limit.max_rows);
+        window::apply_delete_window(rows, window_spec.offset, window_spec.limit);
         true
     } else {
         false
     };
 
-    Ok((delete_was_limited, rows.len()))
+    Ok((delete_window_applied, rows.len()))
 }

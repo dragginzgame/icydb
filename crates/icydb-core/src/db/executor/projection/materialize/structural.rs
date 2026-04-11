@@ -19,6 +19,7 @@ use crate::{
         Db,
         executor::{
             EntityAuthority,
+            group::{GroupKey, KeyCanonicalError},
             pipeline::entrypoints::{
                 execute_initial_scalar_sql_projection_rows_for_canister,
                 execute_initial_scalar_sql_projection_text_rows_for_canister,
@@ -458,6 +459,18 @@ pub(in crate::db::executor) fn project_sql_projection_slot_rows_for_dispatch(
 }
 
 #[cfg(feature = "sql")]
+/// Project retained slot rows into final SQL value rows and deduplicate them
+/// by canonical projected-row identity while preserving first-observed order.
+pub(in crate::db::executor) fn project_sql_distinct_projection_slot_rows_for_dispatch(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let shaped_rows = project_slot_rows_from_projection_structural(prepared_projection, rows)?;
+
+    dedup_projected_value_rows_preserving_first(shaped_rows)
+}
+
+#[cfg(feature = "sql")]
 fn render_slot_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
@@ -473,6 +486,30 @@ pub(in crate::db::executor) fn render_sql_projection_slot_rows_for_dispatch(
     rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<String>>, InternalError> {
     render_slot_rows_from_projection_structural(prepared_projection, rows)
+}
+
+#[cfg(feature = "sql")]
+/// Render retained slot rows into final SQL text rows after canonical
+/// projected-row DISTINCT deduplication at the value boundary.
+pub(in crate::db::executor) fn render_sql_distinct_projection_slot_rows_for_dispatch(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+) -> Result<Vec<Vec<String>>, InternalError> {
+    let distinct_rows =
+        project_sql_distinct_projection_slot_rows_for_dispatch(prepared_projection, rows)?;
+    let mut rendered_rows = Vec::with_capacity(distinct_rows.len());
+
+    // Phase 1: render the already-deduplicated SQL value rows directly into
+    // their final text payload shape.
+    for row in distinct_rows {
+        let mut rendered = Vec::with_capacity(row.len());
+        for value in row {
+            rendered.push(render_sql_projection_value_text(&value));
+        }
+        rendered_rows.push(rendered);
+    }
+
+    Ok(rendered_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -554,6 +591,29 @@ fn shape_slot_rows_from_direct_field_slots<T>(
     }
 
     Ok(shaped_rows)
+}
+
+#[cfg(feature = "sql")]
+fn dedup_projected_value_rows_preserving_first(
+    rows: Vec<Vec<Value>>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut seen = crate::db::executor::group::GroupKeySet::new();
+    let mut distinct_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: canonicalize each projected row as one grouped-key list so SQL
+    // DISTINCT follows the same value equality rules as existing distinct
+    // aggregate helpers while preserving first-observed row order.
+    for row in rows {
+        let key = GroupKey::from_group_values(row.clone())
+            .map_err(KeyCanonicalError::into_internal_error)?;
+        if !seen.insert_key(key) {
+            continue;
+        }
+
+        distinct_rows.push(row);
+    }
+
+    Ok(distinct_rows)
 }
 
 #[cfg(test)]

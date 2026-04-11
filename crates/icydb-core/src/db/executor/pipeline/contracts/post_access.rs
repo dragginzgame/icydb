@@ -42,7 +42,7 @@ impl<'a, K> PostAccessContract<'a, K> {
         self.plan.scalar_plan().order.as_ref()
     }
 
-    /// Project delete-limit contract for post-access delete limiting.
+    /// Project ordered delete-window contract for post-access delete limiting.
     #[must_use]
     pub(in crate::db::executor) const fn delete_limit_spec(&self) -> Option<&DeleteLimitSpec> {
         self.plan.scalar_plan().delete_limit.as_ref()

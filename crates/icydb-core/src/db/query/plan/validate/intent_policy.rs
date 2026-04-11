@@ -26,8 +26,7 @@ struct IntentPlanShapePolicyContext {
     is_delete_mode: bool,
     grouped: bool,
     has_order: bool,
-    has_delete_offset: bool,
-    has_delete_limit: bool,
+    has_delete_window: bool,
 }
 
 impl IntentPlanShapePolicyContext {
@@ -37,15 +36,13 @@ impl IntentPlanShapePolicyContext {
         is_delete_mode: bool,
         grouped: bool,
         has_order: bool,
-        has_delete_offset: bool,
-        has_delete_limit: bool,
+        has_delete_window: bool,
     ) -> Self {
         Self {
             is_delete_mode,
             grouped,
             has_order,
-            has_delete_offset,
-            has_delete_limit,
+            has_delete_window,
         }
     }
 }
@@ -53,25 +50,19 @@ impl IntentPlanShapePolicyContext {
 type IntentPlanShapePolicyRule = fn(IntentPlanShapePolicyContext) -> Option<PolicyPlanError>;
 
 const INTENT_PLAN_SHAPE_POLICY_RULES: &[IntentPlanShapePolicyRule] = &[
-    intent_delete_offset_violation,
     intent_delete_grouping_violation,
-    intent_delete_limit_requires_order_violation,
+    intent_delete_window_requires_order_violation,
 ];
-
-fn intent_delete_offset_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
-    (ctx.is_delete_mode && ctx.has_delete_offset)
-        .then_some(PolicyPlanError::delete_plan_with_offset())
-}
 
 fn intent_delete_grouping_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
     (ctx.is_delete_mode && ctx.grouped).then_some(PolicyPlanError::delete_plan_with_grouping())
 }
 
-fn intent_delete_limit_requires_order_violation(
+fn intent_delete_window_requires_order_violation(
     ctx: IntentPlanShapePolicyContext,
 ) -> Option<PolicyPlanError> {
-    (ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order)
-        .then_some(PolicyPlanError::delete_limit_requires_order())
+    (ctx.is_delete_mode && ctx.has_delete_window && !ctx.has_order)
+        .then_some(PolicyPlanError::delete_window_requires_order())
 }
 
 ///
@@ -141,7 +132,6 @@ pub(crate) fn validate_intent_plan_shape(
     mode: QueryMode,
     order: Option<&OrderSpec>,
     grouped: bool,
-    delete_has_offset: bool,
 ) -> Result<(), PolicyPlanError> {
     validate_order_shape(order)?;
 
@@ -149,8 +139,7 @@ pub(crate) fn validate_intent_plan_shape(
         mode.is_delete(),
         grouped,
         has_explicit_order(order),
-        delete_has_offset,
-        matches!(&mode, QueryMode::Delete(spec) if spec.limit.is_some()),
+        matches!(&mode, QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0),
     );
     first_violated_rule(INTENT_PLAN_SHAPE_POLICY_RULES, context).map_or(Ok(()), Err)
 }
@@ -181,38 +170,78 @@ mod tests {
 
     #[test]
     fn delete_limit_without_order_fails_during_planning_policy_validation() {
-        let mode = QueryMode::Delete(DeleteSpec { limit: Some(10) });
+        let mode = QueryMode::Delete(DeleteSpec {
+            limit: Some(10),
+            offset: 0,
+        });
 
         assert_eq!(
-            validate_intent_plan_shape(mode, None, false, false),
-            Err(PolicyPlanError::DeleteLimitRequiresOrder),
+            validate_intent_plan_shape(mode, None, false),
+            Err(PolicyPlanError::DeleteWindowRequiresOrder),
             "delete LIMIT without ORDER BY must fail in intent/planning validation",
         );
     }
 
     #[test]
-    fn delete_offset_fails_during_planning_policy_validation() {
-        let mode = QueryMode::Delete(DeleteSpec { limit: None });
+    fn delete_offset_without_order_fails_during_planning_policy_validation() {
+        let mode = QueryMode::Delete(DeleteSpec {
+            limit: None,
+            offset: 1,
+        });
         let order = OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         };
 
         assert_eq!(
-            validate_intent_plan_shape(mode, Some(&order), false, true),
-            Err(PolicyPlanError::DeletePlanWithOffset),
-            "delete OFFSET must fail in intent/planning validation",
+            validate_intent_plan_shape(mode, None, false),
+            Err(PolicyPlanError::DeleteWindowRequiresOrder),
+            "delete OFFSET without ORDER BY must fail in intent/planning validation",
         );
+
+        validate_intent_plan_shape(mode, Some(&order), false)
+            .expect("ordered delete OFFSET should pass intent/planning validation");
+    }
+
+    #[test]
+    fn delete_limit_and_offset_with_order_passes_planning_policy_validation() {
+        let mode = QueryMode::Delete(DeleteSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+        let order = OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        };
+
+        validate_intent_plan_shape(mode, Some(&order), false)
+            .expect("ordered delete LIMIT/OFFSET should pass intent/planning validation");
+    }
+
+    #[test]
+    fn delete_offset_with_order_does_not_fail_planning_policy_validation() {
+        let mode = QueryMode::Delete(DeleteSpec {
+            limit: None,
+            offset: 1,
+        });
+        let order = OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        };
+
+        validate_intent_plan_shape(mode, Some(&order), false)
+            .expect("ordered delete OFFSET should pass intent/planning validation");
     }
 
     #[test]
     fn delete_grouping_shape_fails_during_planning_policy_validation() {
-        let mode = QueryMode::Delete(DeleteSpec { limit: None });
+        let mode = QueryMode::Delete(DeleteSpec {
+            limit: None,
+            offset: 0,
+        });
         let order = OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         };
 
         assert_eq!(
-            validate_intent_plan_shape(mode, Some(&order), true, false),
+            validate_intent_plan_shape(mode, Some(&order), true),
             Err(PolicyPlanError::DeletePlanWithGrouping),
             "delete GROUP BY/HAVING shape must fail in intent/planning validation",
         );
@@ -228,7 +257,7 @@ mod tests {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         };
 
-        validate_intent_plan_shape(mode, Some(&order), false, false)
+        validate_intent_plan_shape(mode, Some(&order), false)
             .expect("ordered load shape should pass intent/planning policy validation");
     }
 

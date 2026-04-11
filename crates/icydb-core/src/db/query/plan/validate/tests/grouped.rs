@@ -263,7 +263,10 @@ fn grouped_having_contains_operator_fails_in_planner_policy() {
 fn grouped_policy_tests_track_planner_logical_mode_contract() {
     // Keep grouped-policy tests compile-time linked to logical mode contracts.
     let _ = LogicalPlan::Scalar(ScalarPlan {
-        mode: QueryMode::Delete(DeleteSpec { limit: Some(1) }),
+        mode: QueryMode::Delete(DeleteSpec {
+            limit: Some(1),
+            offset: 0,
+        }),
         predicate: None,
         order: None,
         distinct: false,

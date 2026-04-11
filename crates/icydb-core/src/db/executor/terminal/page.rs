@@ -21,7 +21,9 @@ use crate::{
             pipeline::operators::PreparedSqlExecutionProjection,
             projection::{
                 PreparedProjectionShape, PreparedSlotProjectionValidation,
+                project_sql_distinct_projection_slot_rows_for_dispatch,
                 project_sql_projection_slot_rows_for_dispatch,
+                render_sql_distinct_projection_slot_rows_for_dispatch,
                 render_sql_projection_slot_rows_for_dispatch, validate_prepared_projection_row,
             },
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
@@ -767,6 +769,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     let payload_mode =
         select_kernel_row_payload_mode(retain_slot_rows, cursor_emission, retained_slot_layout);
     let predicate_preapplied = plan.has_residual_predicate();
+    let defer_sql_distinct_window = plan.scalar_plan().distinct
+        && fuse_immediate_sql_terminal
+        && !cursor_emission.enabled()
+        && retain_slot_rows;
 
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
     let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(ScalarPageKernelRequest {
@@ -791,6 +797,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         continuation.post_access_cursor_boundary(),
         predicate_slots,
         predicate_preapplied,
+        defer_sql_distinct_window,
     )?;
     if validate_projection {
         validate_prepared_projection_rows(prepared_projection_validation, rows.as_slice())?;
@@ -818,7 +825,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         cursor_emission,
         next_cursor,
     )?;
-    let payload = finalize_kernel_rows_payload(rows, finalize_mode)?;
+    let payload = finalize_kernel_rows_payload(plan, rows, finalize_mode)?;
 
     Ok((payload, rows_scanned, post_access_rows))
 }
@@ -938,6 +945,7 @@ fn select_kernel_row_finalize_mode(
 // Finalize one already-materialized kernel row set without re-branching on
 // output mode inside the per-row shaping loop.
 fn finalize_kernel_rows_payload(
+    plan: &AccessPlannedQuery,
     rows: Vec<KernelRow>,
     finalize_mode: KernelRowFinalizeMode<'_>,
 ) -> Result<MaterializedExecutionPayload, InternalError> {
@@ -958,7 +966,8 @@ fn finalize_kernel_rows_payload(
         KernelRowFinalizeMode::SqlProjected {
             prepared_projection_shape,
         } => Ok(MaterializedExecutionPayload::SqlProjectedRows(
-            project_sql_projection_slot_rows_for_dispatch(
+            finalize_immediate_projected_sql_rows(
+                plan,
                 prepared_projection_shape,
                 collect_kernel_slot_rows(rows)?,
             )?,
@@ -967,12 +976,54 @@ fn finalize_kernel_rows_payload(
         KernelRowFinalizeMode::SqlRendered {
             prepared_projection_shape,
         } => Ok(MaterializedExecutionPayload::SqlRenderedRows(
-            render_sql_projection_slot_rows_for_dispatch(
+            finalize_immediate_rendered_sql_rows(
+                plan,
                 prepared_projection_shape,
                 collect_kernel_slot_rows(rows)?,
             )?,
         )),
     }
+}
+
+#[cfg(feature = "sql")]
+fn finalize_immediate_projected_sql_rows(
+    plan: &AccessPlannedQuery,
+    prepared_projection_shape: &PreparedProjectionShape,
+    slot_rows: Vec<RetainedSlotRow>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut rows = if plan.scalar_plan().distinct {
+        project_sql_distinct_projection_slot_rows_for_dispatch(
+            prepared_projection_shape,
+            slot_rows,
+        )?
+    } else {
+        project_sql_projection_slot_rows_for_dispatch(prepared_projection_shape, slot_rows)?
+    };
+
+    if plan.scalar_plan().distinct {
+        apply_immediate_sql_page_window(plan, &mut rows);
+    }
+
+    Ok(rows)
+}
+
+#[cfg(feature = "sql")]
+fn finalize_immediate_rendered_sql_rows(
+    plan: &AccessPlannedQuery,
+    prepared_projection_shape: &PreparedProjectionShape,
+    slot_rows: Vec<RetainedSlotRow>,
+) -> Result<Vec<Vec<String>>, InternalError> {
+    let mut rows = if plan.scalar_plan().distinct {
+        render_sql_distinct_projection_slot_rows_for_dispatch(prepared_projection_shape, slot_rows)?
+    } else {
+        render_sql_projection_slot_rows_for_dispatch(prepared_projection_shape, slot_rows)?
+    };
+
+    if plan.scalar_plan().distinct {
+        apply_immediate_sql_page_window(plan, &mut rows);
+    }
+
+    Ok(rows)
 }
 
 // Convert kernel rows into retained slot rows in one straight-line pass.
@@ -1065,6 +1116,7 @@ fn apply_post_access_to_kernel_rows_dyn(
     cursor: Option<&CursorBoundary>,
     predicate_slots: Option<&PredicateProgram>,
     predicate_preapplied: bool,
+    defer_sql_distinct_window: bool,
 ) -> Result<usize, InternalError> {
     let logical = plan.scalar_plan();
     let has_residual_predicate = plan.has_residual_predicate();
@@ -1130,28 +1182,32 @@ fn apply_post_access_to_kernel_rows_dyn(
         {
             return Err(InternalError::scalar_page_pagination_after_ordering_required());
         }
-        let resolved_order = cursor.map(|_| resolved_order_required(plan)).transpose()?;
+        if defer_sql_distinct_window {
+            rows_after_order
+        } else {
+            let resolved_order = cursor.map(|_| resolved_order_required(plan)).transpose()?;
 
-        apply_load_cursor_and_pagination_window(
-            rows,
-            cursor
-                .zip(resolved_order)
-                .map(|(boundary, resolved_order)| (resolved_order, boundary)),
-            ExecutionKernel::effective_page_offset(plan, cursor),
-            logical.page.as_ref().and_then(|page| page.limit),
-        )
+            apply_load_cursor_and_pagination_window(
+                rows,
+                cursor
+                    .zip(resolved_order)
+                    .map(|(boundary, resolved_order)| (resolved_order, boundary)),
+                ExecutionKernel::effective_page_offset(plan, cursor),
+                logical.page.as_ref().and_then(|page| page.limit),
+            )
+        }
     } else {
         rows_after_order
     };
 
-    // Phase 5: delete limiting.
+    // Phase 5: apply the ordered delete window.
     if logical.mode.is_delete()
-        && let Some(delete_limit) = logical.delete_limit.as_ref()
+        && let Some(delete_window) = logical.delete_limit.as_ref()
     {
         if logical.order.is_some() && !ordered {
             return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
         }
-        apply_delete_limit_window(rows, delete_limit.max_rows);
+        apply_delete_window(rows, delete_window.offset, delete_window.limit);
     }
 
     Ok(rows_after_cursor)
@@ -1457,9 +1513,16 @@ fn scan_slot_rows_into_kernel_with_predicate(
     })
 }
 
-fn apply_delete_limit_window<T>(rows: &mut Vec<T>, max_rows: u32) {
-    let limit = usize::min(rows.len(), max_rows as usize);
-    rows.truncate(limit);
+fn apply_delete_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
+    let offset = usize::min(rows.len(), offset as usize);
+    if offset > 0 {
+        rows.drain(..offset);
+    }
+
+    if let Some(limit) = limit {
+        let limit = usize::min(rows.len(), limit as usize);
+        rows.truncate(limit);
+    }
 }
 
 // Compact kernel rows in place under one keep predicate so row filtering stays
@@ -1533,6 +1596,38 @@ fn apply_load_cursor_and_pagination_window(
     rows.truncate(kept_after_page);
 
     kept_after_cursor
+}
+
+#[cfg(feature = "sql")]
+fn apply_immediate_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec<T>) {
+    let Some(page) = plan.scalar_plan().page.as_ref() else {
+        return;
+    };
+
+    let total = rows.len();
+    let start = usize::try_from(page.offset)
+        .unwrap_or(usize::MAX)
+        .min(total);
+    let end = match page.limit {
+        Some(limit) => start
+            .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+            .min(total),
+        None => total,
+    };
+    if start == 0 {
+        rows.truncate(end);
+        return;
+    }
+
+    let mut kept = 0usize;
+    for read_index in start..end {
+        if kept != read_index {
+            rows.swap(kept, read_index);
+        }
+        kept = kept.saturating_add(1);
+    }
+
+    rows.truncate(kept);
 }
 
 ///

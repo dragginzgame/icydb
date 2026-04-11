@@ -5,13 +5,19 @@
 
 use crate::{
     db::{
+        contracts::canonical_value_compare,
         data::DataKey,
         direction::Direction,
         executor::{
-            aggregate::contracts::{
-                error::GroupError,
-                grouped::ExecutionContext,
-                spec::{AggregateKind, ScalarAggregateOutput},
+            aggregate::{
+                contracts::{
+                    error::GroupError,
+                    grouped::ExecutionContext,
+                    spec::{AggregateKind, ScalarAggregateOutput},
+                },
+                field::{
+                    FieldSlot as AggregateFieldSlot, compare_orderable_field_values_with_slot,
+                },
             },
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::RowView,
@@ -204,9 +210,9 @@ impl ScalarAggregateReducerState {
 ///
 /// GroupedAggregateReducerState
 ///
-/// GroupedAggregateReducerState stores grouped terminal reducer payloads using
-/// structural `StorageKey` values so grouped execution no longer depends on an
-/// entity-typed identity wrapper.
+/// GroupedAggregateReducerState stores grouped terminal reducer payloads as
+/// structural values so grouped execution can return either row identities or
+/// resolved field-target extrema without reopening typed decode.
 ///
 
 enum GroupedAggregateReducerState {
@@ -214,10 +220,10 @@ enum GroupedAggregateReducerState {
     Sum(Option<Decimal>),
     Avg { sum: Decimal, row_count: u64 },
     Exists(bool),
-    Min(Option<StorageKey>),
-    Max(Option<StorageKey>),
-    First(Option<StorageKey>),
-    Last(Option<StorageKey>),
+    Min(Option<Value>),
+    Max(Option<Value>),
+    First(Option<Value>),
+    Last(Option<Value>),
 }
 
 impl GroupedAggregateReducerState {
@@ -292,15 +298,15 @@ impl GroupedAggregateReducerState {
     }
 
     // Apply one MIN reducer update.
-    fn update_min_value(&mut self, key: StorageKey) -> Result<(), InternalError> {
+    fn update_min_value(&mut self, value: Value) -> Result<(), InternalError> {
         match self {
-            Self::Min(min_key) => {
-                let replace = match min_key.as_ref() {
-                    Some(current) => key < *current,
+            Self::Min(min_value) => {
+                let replace = match min_value.as_ref() {
+                    Some(current) => canonical_value_compare(&value, current).is_lt(),
                     None => true,
                 };
                 if replace {
-                    *min_key = Some(key);
+                    *min_value = Some(value);
                 }
 
                 Ok(())
@@ -310,15 +316,15 @@ impl GroupedAggregateReducerState {
     }
 
     // Apply one MAX reducer update.
-    fn update_max_value(&mut self, key: StorageKey) -> Result<(), InternalError> {
+    fn update_max_value(&mut self, value: Value) -> Result<(), InternalError> {
         match self {
-            Self::Max(max_key) => {
-                let replace = match max_key.as_ref() {
-                    Some(current) => key > *current,
+            Self::Max(max_value) => {
+                let replace = match max_value.as_ref() {
+                    Some(current) => canonical_value_compare(&value, current).is_gt(),
                     None => true,
                 };
                 if replace {
-                    *max_key = Some(key);
+                    *max_value = Some(value);
                 }
 
                 Ok(())
@@ -331,7 +337,7 @@ impl GroupedAggregateReducerState {
     fn set_first(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
             Self::First(first_key) => {
-                *first_key = Some(key);
+                *first_key = Some(key.as_value());
                 Ok(())
             }
             _ => Err(Self::state_mismatch("FIRST")),
@@ -342,7 +348,7 @@ impl GroupedAggregateReducerState {
     fn set_last(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
             Self::Last(last_key) => {
-                *last_key = Some(key);
+                *last_key = Some(key.as_value());
                 Ok(())
             }
             _ => Err(Self::state_mismatch("LAST")),
@@ -360,7 +366,7 @@ impl GroupedAggregateReducerState {
             }
             Self::Exists(value) => Value::Bool(value),
             Self::Min(value) | Self::Max(value) | Self::First(value) | Self::Last(value) => {
-                value.map_or(Value::Null, |key| key.as_value())
+                value.unwrap_or(Value::Null)
             }
         }
     }
@@ -590,12 +596,46 @@ impl GroupedTerminalAggregateState {
     fn apply_max(
         &mut self,
         key: Option<StorageKey>,
-        _row_view: Option<&RowView>,
+        row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        let Some(key) = key else {
-            return Err(Self::storage_key_required("MAX"));
-        };
-        self.reducer.update_max_value(key)?;
+        if let Some(target_field) = self.target_field.as_ref() {
+            let Some(target_kind) = target_field.kind() else {
+                return Err(Self::field_target_execution_required("MAX(field)"));
+            };
+            let Some(row_view) = row_view else {
+                return Err(Self::field_target_execution_required("MAX(field)"));
+            };
+            let value = row_view.require_slot_ref(target_field.index())?;
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+            let aggregate_field_slot = AggregateFieldSlot {
+                index: target_field.index(),
+                kind: target_kind,
+            };
+            let replace = match &self.reducer {
+                GroupedAggregateReducerState::Max(Some(current)) => {
+                    compare_orderable_field_values_with_slot(
+                        target_field.field(),
+                        aggregate_field_slot,
+                        value,
+                        current,
+                    )
+                    .map_err(|err| err.into_internal_error())?
+                    .is_gt()
+                }
+                GroupedAggregateReducerState::Max(None) => true,
+                _ => return Err(GroupedAggregateReducerState::state_mismatch("MAX")),
+            };
+            if replace {
+                self.reducer.update_max_value(value.clone())?;
+            }
+        } else {
+            let Some(key) = key else {
+                return Err(Self::storage_key_required("MAX"));
+            };
+            self.reducer.update_max_value(key.as_value())?;
+        }
 
         Ok(if self.direction == Direction::Desc {
             FoldControl::Break
@@ -636,12 +676,46 @@ impl GroupedTerminalAggregateState {
     fn apply_min(
         &mut self,
         key: Option<StorageKey>,
-        _row_view: Option<&RowView>,
+        row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        let Some(key) = key else {
-            return Err(Self::storage_key_required("MIN"));
-        };
-        self.reducer.update_min_value(key)?;
+        if let Some(target_field) = self.target_field.as_ref() {
+            let Some(target_kind) = target_field.kind() else {
+                return Err(Self::field_target_execution_required("MIN(field)"));
+            };
+            let Some(row_view) = row_view else {
+                return Err(Self::field_target_execution_required("MIN(field)"));
+            };
+            let value = row_view.require_slot_ref(target_field.index())?;
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+            let aggregate_field_slot = AggregateFieldSlot {
+                index: target_field.index(),
+                kind: target_kind,
+            };
+            let replace = match &self.reducer {
+                GroupedAggregateReducerState::Min(Some(current)) => {
+                    compare_orderable_field_values_with_slot(
+                        target_field.field(),
+                        aggregate_field_slot,
+                        value,
+                        current,
+                    )
+                    .map_err(|err| err.into_internal_error())?
+                    .is_lt()
+                }
+                GroupedAggregateReducerState::Min(None) => true,
+                _ => return Err(GroupedAggregateReducerState::state_mismatch("MIN")),
+            };
+            if replace {
+                self.reducer.update_min_value(value.clone())?;
+            }
+        } else {
+            let Some(key) = key else {
+                return Err(Self::storage_key_required("MIN"));
+            };
+            self.reducer.update_min_value(key.as_value())?;
+        }
 
         Ok(if self.direction == Direction::Asc {
             FoldControl::Break

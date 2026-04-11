@@ -101,6 +101,7 @@ pub(crate) enum SqlAggregateKind {
 pub(crate) struct SqlAggregateCall {
     pub(crate) kind: SqlAggregateKind,
     pub(crate) field: Option<String>,
+    pub(crate) distinct: bool,
 }
 
 ///
@@ -236,6 +237,7 @@ pub(crate) struct SqlDeleteStatement {
     pub(crate) predicate: Option<Predicate>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
+    pub(crate) offset: Option<u32>,
 }
 
 ///

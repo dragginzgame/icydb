@@ -20,7 +20,10 @@ impl DeleteSpec {
     /// Create an empty delete spec.
     #[must_use]
     pub const fn new() -> Self {
-        Self { limit: None }
+        Self {
+            limit: None,
+            offset: 0,
+        }
     }
 }
 

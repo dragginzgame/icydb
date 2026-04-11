@@ -67,6 +67,7 @@ fn normalize_aggregate_call_identifiers(
         field: aggregate
             .field
             .map(|field| normalize_identifier_to_scope(field, entity_scope)),
+        distinct: aggregate.distinct,
     }
 }
 
@@ -109,6 +110,7 @@ fn normalize_projection_identifiers(
                             field: aggregate
                                 .field
                                 .map(|field| normalize_identifier(field, entity_scope)),
+                            distinct: aggregate.distinct,
                         })
                     }
                     SqlSelectItem::TextFunction(SqlTextFunctionCall {

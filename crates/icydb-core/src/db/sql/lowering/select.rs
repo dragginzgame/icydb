@@ -84,7 +84,6 @@ pub(crate) struct LoweredBaseQueryShape {
 #[inline(never)]
 pub(in crate::db::sql::lowering) fn lower_select_shape(
     statement: SqlSelectStatement,
-    primary_key_field: &str,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
@@ -101,8 +100,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     // Phase 1: resolve scalar/grouped projection shape.
     let (scalar_projection_fields, grouped_projection_aggregates) = if group_by.is_empty() {
-        let scalar_projection_fields =
-            lower_scalar_projection_fields(projection, distinct, primary_key_field)?;
+        let scalar_projection_fields = lower_scalar_projection_fields(projection, distinct)?;
         (scalar_projection_fields, Vec::new())
     } else {
         if distinct {
@@ -137,7 +135,6 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 fn lower_scalar_projection_fields(
     projection: SqlProjection,
     distinct: bool,
-    primary_key_field: &str,
 ) -> Result<Option<Vec<String>>, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         if distinct {
@@ -164,32 +161,11 @@ fn lower_scalar_projection_fields(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    validate_scalar_distinct_projection(distinct, fields.as_slice(), primary_key_field)?;
+    if distinct && fields.is_empty() {
+        return Ok(Some(fields));
+    }
 
     Ok(Some(fields))
-}
-
-fn validate_scalar_distinct_projection(
-    distinct: bool,
-    projection_fields: &[String],
-    primary_key_field: &str,
-) -> Result<(), SqlLoweringError> {
-    if !distinct {
-        return Ok(());
-    }
-
-    if projection_fields.is_empty() {
-        return Ok(());
-    }
-
-    let has_primary_key_field = projection_fields
-        .iter()
-        .any(|field| field == primary_key_field);
-    if !has_primary_key_field {
-        return Err(SqlLoweringError::unsupported_select_distinct());
-    }
-
-    Ok(())
 }
 
 fn lower_having_clauses(
@@ -518,6 +494,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         predicate,
         order_by,
         limit,
+        offset,
         entity: _,
     } = statement;
 
@@ -525,7 +502,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         predicate,
         order_by,
         limit,
-        offset: None,
+        offset,
     }
 }
 

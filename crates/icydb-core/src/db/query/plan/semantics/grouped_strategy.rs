@@ -253,7 +253,11 @@ pub(in crate::db) fn grouped_plan_aggregate_family(
         aggregate.target_field().is_some()
             && matches!(
                 aggregate.kind(),
-                AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                AggregateKind::Count
+                    | AggregateKind::Sum
+                    | AggregateKind::Avg
+                    | AggregateKind::Min
+                    | AggregateKind::Max
             )
     }) {
         return GroupedPlanAggregateFamily::FieldTargetRows;

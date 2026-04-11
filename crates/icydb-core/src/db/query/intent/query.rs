@@ -853,11 +853,11 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
-    /// Apply an offset to a load intent.
+    /// Apply an offset to the current mode.
     ///
-    /// Scalar pagination requires an explicit `order_by(...)`.
+    /// Scalar load pagination requires an explicit `order_by(...)`.
     /// GROUP BY queries use canonical grouped-key order by default.
-    /// Delete intents reject `offset(...)` during planning.
+    /// Delete mode applies this after ordering and predicate filtering.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.inner = self.inner.offset(offset);

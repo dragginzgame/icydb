@@ -33,5 +33,8 @@ pub(in crate::db) use materialize::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use materialize::{
-    project_sql_projection_slot_rows_for_dispatch, render_sql_projection_slot_rows_for_dispatch,
+    project_sql_distinct_projection_slot_rows_for_dispatch,
+    project_sql_projection_slot_rows_for_dispatch,
+    render_sql_distinct_projection_slot_rows_for_dispatch,
+    render_sql_projection_slot_rows_for_dispatch,
 };

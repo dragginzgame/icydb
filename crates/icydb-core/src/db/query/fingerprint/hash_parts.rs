@@ -426,6 +426,23 @@ pub(in crate::db::query::fingerprint) fn write_u32(hasher: &mut Sha256, value: u
 }
 
 ///
+/// Encode one optional `u32` into the plan hash stream.
+///
+
+pub(in crate::db::query::fingerprint) fn write_optional_u32(
+    hasher: &mut Sha256,
+    value: Option<u32>,
+) {
+    match value {
+        Some(value) => {
+            write_tag(hasher, 1);
+            write_u32(hasher, value);
+        }
+        None => write_tag(hasher, 0),
+    }
+}
+
+///
 /// Encode one tag byte into the plan hash stream.
 ///
 
@@ -741,6 +758,11 @@ fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
             write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
             write_u32(hasher, *max_rows);
         }
+        ExplainDeleteLimit::Window { limit, offset } => {
+            write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
+            write_u32(hasher, *offset);
+            write_optional_u32(hasher, *limit);
+        }
     }
 }
 
@@ -751,7 +773,8 @@ fn hash_delete_limit_spec(hasher: &mut Sha256, limit: Option<&DeleteLimitSpec>) 
     };
 
     write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
-    write_u32(hasher, limit.max_rows);
+    write_u32(hasher, limit.offset);
+    write_optional_u32(hasher, limit.limit);
 }
 
 fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {

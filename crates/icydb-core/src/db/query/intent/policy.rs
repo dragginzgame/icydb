@@ -15,13 +15,8 @@ impl<K> QueryIntent<K> {
     /// Validate intent policy shape before planning.
     pub(in crate::db::query::intent) fn validate_policy_shape(&self) -> Result<(), IntentError> {
         let scalar_intent = self.scalar();
-        validate_intent_plan_shape(
-            self.mode(),
-            scalar_intent.order.as_ref(),
-            self.is_grouped(),
-            self.has_delete_offset_violation(),
-        )
-        .map_err(IntentError::from)?;
+        validate_intent_plan_shape(self.mode(), scalar_intent.order.as_ref(), self.is_grouped())
+            .map_err(IntentError::from)?;
 
         let key_access_kind = scalar_intent
             .key_access

@@ -770,7 +770,7 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
 }
 
 #[test]
-fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
+fn grouped_plan_accepts_min_field_aggregate_terminal_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
@@ -783,13 +783,26 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
         }],
     );
 
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("field-target grouped terminal must fail while grouped v1 lacks support");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
-            if *index == 0 && kind == "Min" && field == "rank"
-    )));
+    validate_group_query_semantics(schema, model, &grouped)
+        .expect("grouped MIN(field) should be accepted in grouped v1");
+}
+
+#[test]
+fn grouped_plan_accepts_max_field_aggregate_terminal_in_grouped_v1() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Max,
+            target_field: Some("rank".to_string()),
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .expect("grouped MAX(field) should be accepted in grouped v1");
 }
 
 #[test]
@@ -1490,7 +1503,10 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
     base.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    base.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec { max_rows: 1 });
+    base.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec {
+        limit: Some(1),
+        offset: 0,
+    });
     let grouped = grouped_plan(
         base.clone(),
         vec!["rank"],

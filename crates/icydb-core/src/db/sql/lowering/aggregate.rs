@@ -28,9 +28,9 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlGlobalAggregateTerminal {
     CountRows,
-    CountField(String),
-    SumField(String),
-    AvgField(String),
+    CountField { field: String, distinct: bool },
+    SumField { field: String, distinct: bool },
+    AvgField { field: String, distinct: bool },
     MinField(String),
     MaxField(String),
 }
@@ -46,9 +46,18 @@ pub(crate) enum SqlGlobalAggregateTerminal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TypedSqlGlobalAggregateTerminal {
     CountRows,
-    CountField(FieldSlot),
-    SumField(FieldSlot),
-    AvgField(FieldSlot),
+    CountField {
+        target_slot: FieldSlot,
+        distinct: bool,
+    },
+    SumField {
+        target_slot: FieldSlot,
+        distinct: bool,
+    },
+    AvgField {
+        target_slot: FieldSlot,
+        distinct: bool,
+    },
     MinField(FieldSlot),
     MaxField(FieldSlot),
 }
@@ -143,6 +152,7 @@ pub(crate) enum PreparedSqlScalarAggregateRuntimeDescriptor {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedSqlScalarAggregateStrategy {
     target_slot: Option<FieldSlot>,
+    distinct_input: bool,
     domain: PreparedSqlScalarAggregateDomain,
     ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
     row_source: PreparedSqlScalarAggregateRowSource,
@@ -153,6 +163,7 @@ pub(crate) struct PreparedSqlScalarAggregateStrategy {
 impl PreparedSqlScalarAggregateStrategy {
     const fn new(
         target_slot: Option<FieldSlot>,
+        distinct_input: bool,
         domain: PreparedSqlScalarAggregateDomain,
         ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
         row_source: PreparedSqlScalarAggregateRowSource,
@@ -161,6 +172,7 @@ impl PreparedSqlScalarAggregateStrategy {
     ) -> Self {
         Self {
             target_slot,
+            distinct_input,
             domain,
             ordering_requirement,
             row_source,
@@ -175,30 +187,43 @@ impl PreparedSqlScalarAggregateStrategy {
         match terminal {
             TypedSqlGlobalAggregateTerminal::CountRows => Self::new(
                 None,
+                false,
                 PreparedSqlScalarAggregateDomain::ExistingRows,
                 PreparedSqlScalarAggregateOrderingRequirement::None,
                 PreparedSqlScalarAggregateRowSource::ExistingRows,
                 PreparedSqlScalarAggregateEmptySetBehavior::Zero,
                 PreparedSqlScalarAggregateDescriptorShape::CountRows,
             ),
-            TypedSqlGlobalAggregateTerminal::CountField(target_slot) => Self::new(
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct,
+            } => Self::new(
                 Some(target_slot.clone()),
+                *distinct,
                 PreparedSqlScalarAggregateDomain::ProjectionField,
                 PreparedSqlScalarAggregateOrderingRequirement::None,
                 PreparedSqlScalarAggregateRowSource::ProjectedField,
                 PreparedSqlScalarAggregateEmptySetBehavior::Zero,
                 PreparedSqlScalarAggregateDescriptorShape::CountField,
             ),
-            TypedSqlGlobalAggregateTerminal::SumField(target_slot) => Self::new(
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct,
+            } => Self::new(
                 Some(target_slot.clone()),
+                *distinct,
                 PreparedSqlScalarAggregateDomain::NumericField,
                 PreparedSqlScalarAggregateOrderingRequirement::None,
                 PreparedSqlScalarAggregateRowSource::NumericField,
                 PreparedSqlScalarAggregateEmptySetBehavior::Null,
                 PreparedSqlScalarAggregateDescriptorShape::SumField,
             ),
-            TypedSqlGlobalAggregateTerminal::AvgField(target_slot) => Self::new(
+            TypedSqlGlobalAggregateTerminal::AvgField {
+                target_slot,
+                distinct,
+            } => Self::new(
                 Some(target_slot.clone()),
+                *distinct,
                 PreparedSqlScalarAggregateDomain::NumericField,
                 PreparedSqlScalarAggregateOrderingRequirement::None,
                 PreparedSqlScalarAggregateRowSource::NumericField,
@@ -207,6 +232,7 @@ impl PreparedSqlScalarAggregateStrategy {
             ),
             TypedSqlGlobalAggregateTerminal::MinField(target_slot) => Self::new(
                 Some(target_slot.clone()),
+                false,
                 PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
                 PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
                 PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
@@ -215,6 +241,7 @@ impl PreparedSqlScalarAggregateStrategy {
             ),
             TypedSqlGlobalAggregateTerminal::MaxField(target_slot) => Self::new(
                 Some(target_slot.clone()),
+                false,
                 PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
                 PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
                 PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
@@ -235,17 +262,19 @@ impl PreparedSqlScalarAggregateStrategy {
         match terminal {
             SqlGlobalAggregateTerminal::CountRows => Ok(Self::new(
                 None,
+                false,
                 PreparedSqlScalarAggregateDomain::ExistingRows,
                 PreparedSqlScalarAggregateOrderingRequirement::None,
                 PreparedSqlScalarAggregateRowSource::ExistingRows,
                 PreparedSqlScalarAggregateEmptySetBehavior::Zero,
                 PreparedSqlScalarAggregateDescriptorShape::CountRows,
             )),
-            SqlGlobalAggregateTerminal::CountField(field) => {
+            SqlGlobalAggregateTerminal::CountField { field, distinct } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::new(
                     Some(target_slot),
+                    *distinct,
                     PreparedSqlScalarAggregateDomain::ProjectionField,
                     PreparedSqlScalarAggregateOrderingRequirement::None,
                     PreparedSqlScalarAggregateRowSource::ProjectedField,
@@ -253,11 +282,12 @@ impl PreparedSqlScalarAggregateStrategy {
                     PreparedSqlScalarAggregateDescriptorShape::CountField,
                 ))
             }
-            SqlGlobalAggregateTerminal::SumField(field) => {
+            SqlGlobalAggregateTerminal::SumField { field, distinct } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::new(
                     Some(target_slot),
+                    *distinct,
                     PreparedSqlScalarAggregateDomain::NumericField,
                     PreparedSqlScalarAggregateOrderingRequirement::None,
                     PreparedSqlScalarAggregateRowSource::NumericField,
@@ -265,11 +295,12 @@ impl PreparedSqlScalarAggregateStrategy {
                     PreparedSqlScalarAggregateDescriptorShape::SumField,
                 ))
             }
-            SqlGlobalAggregateTerminal::AvgField(field) => {
+            SqlGlobalAggregateTerminal::AvgField { field, distinct } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::new(
                     Some(target_slot),
+                    *distinct,
                     PreparedSqlScalarAggregateDomain::NumericField,
                     PreparedSqlScalarAggregateOrderingRequirement::None,
                     PreparedSqlScalarAggregateRowSource::NumericField,
@@ -282,6 +313,7 @@ impl PreparedSqlScalarAggregateStrategy {
 
                 Ok(Self::new(
                     Some(target_slot),
+                    false,
                     PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
                     PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
                     PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
@@ -294,6 +326,7 @@ impl PreparedSqlScalarAggregateStrategy {
 
                 Ok(Self::new(
                     Some(target_slot),
+                    false,
                     PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
                     PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
                     PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
@@ -308,6 +341,12 @@ impl PreparedSqlScalarAggregateStrategy {
     #[must_use]
     pub(crate) const fn target_slot(&self) -> Option<&FieldSlot> {
         self.target_slot.as_ref()
+    }
+
+    /// Return whether this prepared SQL scalar aggregate deduplicates field inputs.
+    #[must_use]
+    pub(crate) const fn is_distinct(&self) -> bool {
+        self.distinct_input
     }
 
     /// Return the canonical typed SQL scalar aggregate domain.
@@ -424,10 +463,14 @@ pub(crate) struct LoweredSqlGlobalAggregateCommand {
 ///
 enum LoweredSqlAggregateShape {
     CountRows,
-    CountField(String),
+    CountField {
+        field: String,
+        distinct: bool,
+    },
     FieldTarget {
         kind: SqlAggregateKind,
         field: String,
+        distinct: bool,
     },
 }
 
@@ -587,15 +630,24 @@ fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
 
     match terminal {
         SqlGlobalAggregateTerminal::CountRows => Ok(TypedSqlGlobalAggregateTerminal::CountRows),
-        SqlGlobalAggregateTerminal::CountField(field) => Ok(
-            TypedSqlGlobalAggregateTerminal::CountField(resolve_target_slot(field.as_str())?),
-        ),
-        SqlGlobalAggregateTerminal::SumField(field) => Ok(
-            TypedSqlGlobalAggregateTerminal::SumField(resolve_target_slot(field.as_str())?),
-        ),
-        SqlGlobalAggregateTerminal::AvgField(field) => Ok(
-            TypedSqlGlobalAggregateTerminal::AvgField(resolve_target_slot(field.as_str())?),
-        ),
+        SqlGlobalAggregateTerminal::CountField { field, distinct } => {
+            Ok(TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot: resolve_target_slot(field.as_str())?,
+                distinct,
+            })
+        }
+        SqlGlobalAggregateTerminal::SumField { field, distinct } => {
+            Ok(TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot: resolve_target_slot(field.as_str())?,
+                distinct,
+            })
+        }
+        SqlGlobalAggregateTerminal::AvgField { field, distinct } => {
+            Ok(TypedSqlGlobalAggregateTerminal::AvgField {
+                target_slot: resolve_target_slot(field.as_str())?,
+                distinct,
+            })
+        }
         SqlGlobalAggregateTerminal::MinField(field) => Ok(
             TypedSqlGlobalAggregateTerminal::MinField(resolve_target_slot(field.as_str())?),
         ),
@@ -688,24 +740,28 @@ fn lower_global_aggregate_terminal(
 
     match lower_sql_aggregate_shape(aggregate)? {
         LoweredSqlAggregateShape::CountRows => Ok(SqlGlobalAggregateTerminal::CountRows),
-        LoweredSqlAggregateShape::CountField(field) => {
-            Ok(SqlGlobalAggregateTerminal::CountField(field))
+        LoweredSqlAggregateShape::CountField { field, distinct } => {
+            Ok(SqlGlobalAggregateTerminal::CountField { field, distinct })
         }
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Sum,
             field,
-        } => Ok(SqlGlobalAggregateTerminal::SumField(field)),
+            distinct,
+        } => Ok(SqlGlobalAggregateTerminal::SumField { field, distinct }),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Avg,
             field,
-        } => Ok(SqlGlobalAggregateTerminal::AvgField(field)),
+            distinct,
+        } => Ok(SqlGlobalAggregateTerminal::AvgField { field, distinct }),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Min,
             field,
+            ..
         } => Ok(SqlGlobalAggregateTerminal::MinField(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Max,
             field,
+            ..
         } => Ok(SqlGlobalAggregateTerminal::MaxField(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Count,
@@ -717,16 +773,23 @@ fn lower_global_aggregate_terminal(
 fn lower_sql_aggregate_shape(
     call: SqlAggregateCall,
 ) -> Result<LoweredSqlAggregateShape, SqlLoweringError> {
-    match (call.kind, call.field) {
-        (SqlAggregateKind::Count, None) => Ok(LoweredSqlAggregateShape::CountRows),
-        (SqlAggregateKind::Count, Some(field)) => Ok(LoweredSqlAggregateShape::CountField(field)),
+    match (call.kind, call.field, call.distinct) {
+        (SqlAggregateKind::Count, None, false) => Ok(LoweredSqlAggregateShape::CountRows),
+        (SqlAggregateKind::Count, Some(field), distinct) => {
+            Ok(LoweredSqlAggregateShape::CountField { field, distinct })
+        }
         (
             kind @ (SqlAggregateKind::Sum
             | SqlAggregateKind::Avg
             | SqlAggregateKind::Min
             | SqlAggregateKind::Max),
             Some(field),
-        ) => Ok(LoweredSqlAggregateShape::FieldTarget { kind, field }),
+            distinct,
+        ) => Ok(LoweredSqlAggregateShape::FieldTarget {
+            kind,
+            field,
+            distinct,
+        }),
         _ => Err(SqlLoweringError::unsupported_select_projection()),
     }
 }
@@ -779,23 +842,36 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
 ) -> Result<crate::db::query::builder::AggregateExpr, SqlLoweringError> {
     match lower_sql_aggregate_shape(call)? {
         LoweredSqlAggregateShape::CountRows => Ok(count()),
-        LoweredSqlAggregateShape::CountField(field) => Ok(count_by(field)),
+        LoweredSqlAggregateShape::CountField {
+            field,
+            distinct: false,
+        } => Ok(count_by(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Sum,
             field,
+            distinct: false,
         } => Ok(sum(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Avg,
             field,
+            distinct: false,
         } => Ok(avg(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Min,
             field,
+            ..
         } => Ok(min_by(field)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Max,
             field,
+            ..
         } => Ok(max_by(field)),
+        LoweredSqlAggregateShape::CountField { distinct: true, .. }
+        | LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Sum | SqlAggregateKind::Avg,
+            distinct: true,
+            ..
+        } => Err(SqlLoweringError::unsupported_select_group_by()),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Count,
             ..

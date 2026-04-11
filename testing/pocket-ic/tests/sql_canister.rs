@@ -1216,6 +1216,14 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         2,
     ),
     (
+        "customer_order_distinct_priority_limit2_asc",
+        FixtureCanister::SqlParity,
+        "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
+        "CustomerOrder",
+        2,
+    ),
+    (
         "customer_account_filtered_order_only_name_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
@@ -1319,6 +1327,14 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCustomerOrder,
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "customer_order_distinct_priority_limit2.asc",
+        FixtureCanister::SqlParity,
+        "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2",
         SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
@@ -3759,6 +3775,67 @@ fn sql_canister_perf_typed_execute_sql_aggregate_customer_numeric_surfaces_expec
 }
 
 #[test]
+fn sql_canister_perf_typed_execute_sql_aggregate_customer_distinct_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        for (sql, expected_rendered_value) in [
+            ("SELECT COUNT(DISTINCT age) FROM Customer", "Uint(3)"),
+            (
+                "SELECT SUM(DISTINCT age) FROM Customer",
+                "Decimal(Decimal { mantissa: 98, scale: 0 })",
+            ),
+            (
+                "SELECT AVG(DISTINCT age) FROM Customer",
+                "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
+            ),
+            ("SELECT MIN(DISTINCT age) FROM Customer", "Int(24)"),
+            ("SELECT MAX(DISTINCT age) FROM Customer", "Int(43)"),
+        ] {
+            let sample = sql_perf_sample(
+                pic,
+                canister_id,
+                &SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            );
+
+            assert_positive_perf_sample(
+                &format!("typed.execute_sql_aggregate.customer.distinct::{sql}"),
+                &sample,
+            );
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate DISTINCT perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind, "aggregate_value",
+                "typed execute_sql_aggregate DISTINCT perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate DISTINCT perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate DISTINCT perf sample should render the expected scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count, None,
+                "typed execute_sql_aggregate DISTINCT perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor, None,
+                "typed execute_sql_aggregate DISTINCT perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    });
+}
+
+#[test]
 fn sql_canister_perf_typed_execute_sql_aggregate_customer_filtered_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         for (sql, expected_rendered_value) in [
@@ -4003,6 +4080,135 @@ fn sql_canister_perf_typed_execute_sql_aggregate_customer_offset_beyond_window_s
             assert_eq!(
                 sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_customer_order_distinct_priority_stays_aligned() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_matching_perf_outcomes(
+            "customer_order_distinct_priority_limit2",
+            &generated,
+            &typed,
+            "CustomerOrder",
+            2,
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_delete_offset_attribution_reports_positive_stages() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "DELETE FROM Customer ORDER BY id LIMIT 1 OFFSET 1".to_string(),
+                cursor_token: None,
+            },
+        );
+
+        assert!(
+            sample.outcome.success,
+            "generated delete OFFSET attribution must keep the representative DELETE successful: {sample:?}",
+        );
+        assert!(
+            sample.parse_local_instructions > 0,
+            "generated delete OFFSET attribution parse phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.route_local_instructions > 0,
+            "generated delete OFFSET attribution route phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.lower_local_instructions > 0,
+            "generated delete OFFSET attribution lower phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.dispatch_local_instructions > 0,
+            "generated delete OFFSET attribution dispatch phase must be positive: {sample:?}",
+        );
+        assert!(
+            sample.execute_local_instructions > 0,
+            "generated delete OFFSET attribution execute phase must be positive: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "generated delete OFFSET attribution should stay on the Customer route",
+        );
+        assert!(
+            sample.outcome.row_count.is_some(),
+            "generated delete OFFSET attribution should still report a concrete write outcome: {sample:?}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_min_max_field_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        for sql in [
+            "SELECT name, MIN(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, MAX(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, MIN(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        ] {
+            let sample = sql_perf_sample(
+                pic,
+                canister_id,
+                &SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            );
+
+            assert_positive_perf_sample(
+                &format!("typed.execute_sql_grouped.customer.extrema::{sql}"),
+                &sample,
+            );
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_grouped extrema perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind, "grouped_response",
+                "typed execute_sql_grouped extrema perf sample should stay on the grouped response lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_grouped extrema perf sample should stay on the Customer grouped lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                Some(3),
+                "typed execute_sql_grouped extrema perf sample should emit the expected grouped row count for `{sql}`",
             );
         }
     });
@@ -7863,6 +8069,37 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_min_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql: "SELECT name, MIN(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_max_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql: "SELECT name, MAX(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_min_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, MIN(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_count",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
@@ -7912,6 +8149,51 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT AVG(age) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_count_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: "SELECT COUNT(DISTINCT age) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_sum_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: "SELECT SUM(DISTINCT age) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_avg_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: "SELECT AVG(DISTINCT age) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_min_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: "SELECT MIN(DISTINCT age) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_max_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+                    sql: "SELECT MAX(DISTINCT age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },
@@ -7993,6 +8275,15 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::FluentDeleteCustomerByIdLimit1Count,
                     sql: "DELETE FROM Customer ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.delete.user_order_id_limit1_offset1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "DELETE FROM Customer ORDER BY id LIMIT 1 OFFSET 1".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
                 },
@@ -8763,6 +9054,16 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.customer_order_distinct_priority_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.customer_order_order_only_composite.priority_status_id_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCustomerOrder,
@@ -8821,6 +9122,16 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.customer_order_distinct_priority_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                    sql: "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,

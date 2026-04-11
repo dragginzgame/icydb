@@ -1,4 +1,4 @@
-use super::*;
+use super::support::*;
 
 #[test]
 fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {

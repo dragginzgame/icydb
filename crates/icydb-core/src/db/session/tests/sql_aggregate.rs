@@ -60,25 +60,55 @@ fn execute_sql_aggregate_sum_with_table_qualified_field_executes() {
 }
 
 #[test]
-fn execute_sql_aggregate_rejects_distinct_aggregate_qualifier() {
+fn execute_sql_aggregate_distinct_field_qualifiers_return_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-distinct-a".to_string(),
+            age: 20,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-distinct-b".to_string(),
+            age: 20,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "aggregate-distinct-c".to_string(),
+            age: 32,
+        })
+        .expect("seed insert should succeed");
+
+    let count = session
         .execute_sql_aggregate::<SessionSqlEntity>(
             "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
         )
-        .expect_err("aggregate DISTINCT qualifier should remain unsupported");
+        .expect("COUNT(DISTINCT field) SQL aggregate should execute");
+    let sum = session
+        .execute_sql_aggregate::<SessionSqlEntity>("SELECT SUM(DISTINCT age) FROM SessionSqlEntity")
+        .expect("SUM(DISTINCT field) SQL aggregate should execute");
+    let avg = session
+        .execute_sql_aggregate::<SessionSqlEntity>("SELECT AVG(DISTINCT age) FROM SessionSqlEntity")
+        .expect("AVG(DISTINCT field) SQL aggregate should execute");
+    let min = session
+        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MIN(DISTINCT age) FROM SessionSqlEntity")
+        .expect("MIN(DISTINCT field) SQL aggregate should execute");
+    let max = session
+        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MAX(DISTINCT age) FROM SessionSqlEntity")
+        .expect("MAX(DISTINCT field) SQL aggregate should execute");
 
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "aggregate DISTINCT qualifier should fail closed through unsupported SQL boundary",
-    );
+    assert_eq!(count, Value::Uint(2));
+    assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
+    assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(26u64)));
+    assert_eq!(min, Value::Uint(20));
+    assert_eq!(max, Value::Uint(32));
 }
 
 #[test]

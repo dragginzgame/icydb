@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
+
+- `next patch` starts the `0.76` line by fixing scalar `SELECT DISTINCT` without primary-key projection, adding global aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
+
+See detailed breakdown:
+[docs/changelog/0.76.md](docs/changelog/0.76.md)
+
+---
+
 ## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
 - `0.75.8` keeps the cleanup line moving by simplifying relation validation around one shared strong-relation model, renaming the prepared execution-plan boundary to match its actual role, flattening a few more grouped aggregate/runtime helper layers, and trimming stale hidden exports and tiny helper modules across the build, schema, and facade crates without changing query behavior.

@@ -1,4 +1,4 @@
-use super::*;
+use super::support::*;
 
 #[test]
 fn plan_hash_snapshot_is_stable_across_explain_surfaces() {

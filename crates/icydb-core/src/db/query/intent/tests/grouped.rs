@@ -1,4 +1,4 @@
-use super::*;
+use super::support::*;
 
 #[test]
 fn grouped_load_limit_without_order_is_allowed() {
@@ -585,4 +585,75 @@ fn grouped_having_with_distinct_is_rejected_for_ordered_eligible_shape() {
             crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
         )
     }));
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
+    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group by should resolve")
+        .aggregate(count())
+        .plan()
+        .expect("grouped plan should build");
+    let projection = compiled.projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+    assert_eq!(
+        fields.len(),
+        2,
+        "grouped projection should include key + aggregate"
+    );
+
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr: Expr::Field(field),
+            alias: None,
+        } => assert_eq!(field.as_str(), "name"),
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("first grouped projection field should be grouped key expr: {other:?}")
+        }
+    }
+    match fields[1] {
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            alias: None,
+        } => {
+            assert_eq!(aggregate.kind(), AggregateKind::Count);
+            assert_eq!(aggregate.target_field(), None);
+            assert!(!aggregate.is_distinct());
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("second grouped projection field should be grouped aggregate expr: {other:?}")
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn compiled_query_projection_spec_preserves_global_distinct_aggregate_semantics() {
+    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(count_by("name").distinct())
+        .plan()
+        .expect("global distinct grouped plan should build");
+    let projection = compiled.projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+    assert_eq!(
+        fields.len(),
+        1,
+        "global distinct grouped projection should only include one aggregate"
+    );
+
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            alias: None,
+        } => {
+            assert_eq!(aggregate.kind(), AggregateKind::Count);
+            assert_eq!(aggregate.target_field(), Some("name"));
+            assert!(aggregate.is_distinct());
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("global distinct projection should lower to aggregate expr: {other:?}")
+        }
+    }
 }

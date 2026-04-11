@@ -320,7 +320,10 @@ fn delete_limit_requires_order() {
             predicate: None,
             order: None,
             distinct: false,
-            delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
+            delete_limit: Some(DeleteLimitSpec {
+                limit: Some(10),
+                offset: 0,
+            }),
             page: None,
             consistency: MissingRowPolicy::Ignore,
         }),
@@ -338,7 +341,7 @@ fn delete_limit_requires_order() {
     assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PlanPolicyError::Policy(inner)
-            if matches!(inner.as_ref(), PolicyPlanError::DeleteLimitRequiresOrder)
+            if matches!(inner.as_ref(), PolicyPlanError::DeleteWindowRequiresOrder)
     )));
 }
 
@@ -454,7 +457,10 @@ fn load_plan_rejects_delete_limit() {
                 fields: vec![("id".to_string(), OrderDirection::Asc)],
             }),
             distinct: false,
-            delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
+            delete_limit: Some(DeleteLimitSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
             page: None,
             consistency: MissingRowPolicy::Ignore,
         }),

@@ -84,12 +84,7 @@ impl Parser {
     ) -> Result<SqlAggregateCall, crate::db::reduced_sql::SqlParseError> {
         let _ = self.cursor.advance();
         self.expect_lparen()?;
-
-        if self.eat_keyword(Keyword::Distinct) {
-            return Err(crate::db::reduced_sql::SqlParseError::unsupported_feature(
-                "DISTINCT aggregate qualifiers",
-            ));
-        }
+        let distinct = self.eat_keyword(Keyword::Distinct);
 
         let field = if kind == SqlAggregateKind::Count && self.eat_star() {
             None
@@ -99,7 +94,11 @@ impl Parser {
 
         self.expect_rparen()?;
 
-        Ok(SqlAggregateCall { kind, field })
+        Ok(SqlAggregateCall {
+            kind,
+            field,
+            distinct,
+        })
     }
 
     fn parse_text_function_call(

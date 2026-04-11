@@ -152,7 +152,11 @@ fn grouped_aggregate_field_target_unsupported_rule(
             !ctx.aggregate.distinct()
                 && !matches!(
                     ctx.aggregate.kind(),
-                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                    AggregateKind::Count
+                        | AggregateKind::Sum
+                        | AggregateKind::Avg
+                        | AggregateKind::Min
+                        | AggregateKind::Max
                 )
         })
         .map(|target_field| {
