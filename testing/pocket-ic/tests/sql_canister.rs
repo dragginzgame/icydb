@@ -2921,6 +2921,12 @@ fn sql_canister_query_lane_supports_computed_projection() {
 }
 
 #[test]
+// This matrix intentionally keeps the covering projection/explain cohort in
+// one contiguous test body so the route family stays auditable as one table.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven covering-route matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_user_expression_covering_matrix_preserves_projection_and_explain_routes()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -3111,6 +3117,12 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_primary_key_covering_
 }
 
 #[test]
+// This matrix intentionally keeps the CustomerOrder covering projection/explain
+// cohort in one contiguous test body so the route family stays auditable.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven covering-route matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_customer_order_covering_matrix_preserves_projection_and_explain_routes()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -3471,6 +3483,12 @@ fn sql_canister_query_lane_supports_grouped_explain() {
 }
 
 #[test]
+// This grouped explain matrix is intentionally table-driven in one place so
+// ordered grouped route tokens stay locked across the whole admitted cohort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven grouped explain matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_route_tokens() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: lock the ordered grouped Customer explain family into one
@@ -4918,6 +4936,12 @@ fn sql_canister_query_lane_customer_order_strict_prefix_projection_matrix_preser
 }
 
 #[test]
+// This filtered-composite covering matrix is intentionally kept in one test so
+// its projection and explain routes remain auditable as one cohort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven covering-route matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_customer_account_filtered_composite_covering_matrix_preserves_projection_and_explain_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -5113,6 +5137,12 @@ fn sql_canister_query_lane_customer_account_filtered_composite_prefix_parity_mat
 }
 
 #[test]
+// This filtered-expression covering matrix is intentionally kept in one test
+// so its projection and explain routes remain auditable as one cohort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven covering-route matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_customer_account_filtered_expression_covering_matrix_preserves_projection_and_explain_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -5285,6 +5315,12 @@ fn sql_canister_query_lane_customer_account_filtered_expression_prefix_parity_ma
 }
 
 #[test]
+// This filtered composite-expression route matrix is intentionally table-driven
+// in one place because it locks the largest shared projection/explain cohort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven composite-expression route matrix is intentionally kept together"
+)]
 fn sql_canister_query_lane_customer_account_filtered_composite_expression_route_matrix_preserves_projection_and_explain_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
