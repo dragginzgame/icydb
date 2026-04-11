@@ -125,8 +125,7 @@ pub(in crate::db::query) fn build_logical_plan(
                     offset: spec.offset(),
                 })
             }
-            QueryMode::Load(_) => None,
-            QueryMode::Delete(_) => None,
+            QueryMode::Load(_) | QueryMode::Delete(_) => None,
         },
         page: match mode {
             QueryMode::Load(spec) => {

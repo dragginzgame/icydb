@@ -621,7 +621,7 @@ impl GroupedTerminalAggregateState {
                         value,
                         current,
                     )
-                    .map_err(|err| err.into_internal_error())?
+                    .map_err(super::super::field::AggregateFieldValueError::into_internal_error)?
                     .is_gt()
                 }
                 GroupedAggregateReducerState::Max(None) => true,
@@ -701,7 +701,7 @@ impl GroupedTerminalAggregateState {
                         value,
                         current,
                     )
-                    .map_err(|err| err.into_internal_error())?
+                    .map_err(super::super::field::AggregateFieldValueError::into_internal_error)?
                     .is_lt()
                 }
                 GroupedAggregateReducerState::Min(None) => true,

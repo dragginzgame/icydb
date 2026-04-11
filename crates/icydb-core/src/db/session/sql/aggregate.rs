@@ -548,7 +548,12 @@ impl<C: CanisterKind> DbSession<C> {
                     "DISTINCT SQL aggregate dispatch must emit one projection row",
                 ));
             };
-            let [value] = row.drain(..).collect::<Vec<_>>().try_into().map_err(|_| {
+            if row.len() != 1 {
+                return Err(QueryError::invariant(
+                    "DISTINCT SQL aggregate dispatch must emit exactly one projected value",
+                ));
+            }
+            let value = row.pop().ok_or_else(|| {
                 QueryError::invariant(
                     "DISTINCT SQL aggregate dispatch must emit exactly one projected value",
                 )
