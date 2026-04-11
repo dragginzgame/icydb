@@ -219,7 +219,7 @@ impl ScalarContinuationContext {
 
     /// Borrow continuation signature for this runtime continuation context.
     #[must_use]
-    pub(in crate::db::executor) fn continuation_signature(&self) -> ContinuationSignature {
+    pub(in crate::db::executor) const fn continuation_signature(&self) -> ContinuationSignature {
         self.continuation_signature
             .expect("runtime scalar continuation context requires signature")
     }

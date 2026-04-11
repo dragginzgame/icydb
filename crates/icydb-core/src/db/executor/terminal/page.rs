@@ -803,7 +803,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         plan,
         rows.as_slice(),
         cursor_emission,
-        post_access_rows,
         rows_after_cursor,
         continuation,
         direction,
@@ -846,7 +845,6 @@ fn build_scalar_page_cursor(
     plan: &AccessPlannedQuery,
     rows: &[KernelRow],
     cursor_emission: CursorEmissionMode,
-    post_access_rows: usize,
     rows_after_cursor: usize,
     continuation: &ScalarContinuationContext,
     direction: Direction,
@@ -855,6 +853,7 @@ fn build_scalar_page_cursor(
         return Ok(None);
     }
 
+    let post_access_rows = rows.len();
     let last_cursor_row = resolve_last_cursor_row(authority, plan, rows)?;
 
     Ok(next_cursor_for_materialized_rows(
