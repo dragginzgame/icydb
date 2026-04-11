@@ -11,6 +11,7 @@ use crate::{
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
+    error::InternalError,
     model::field::FieldModel,
     value::Value,
 };
@@ -79,13 +80,14 @@ pub(in crate::db::session::sql) fn projection_labels_from_fields(
 // session boundary instead of inside executor delete paths.
 pub(in crate::db::session::sql) fn sql_projection_rows_from_kernel_rows(
     rows: Vec<KernelRow>,
-) -> Vec<Vec<Value>> {
+) -> Result<Vec<Vec<Value>>, InternalError> {
     rows.into_iter()
         .map(|row| {
-            row.into_slots()
+            Ok(row
+                .into_slots()?
                 .into_iter()
                 .map(|value| value.unwrap_or(Value::Null))
-                .collect()
+                .collect::<Vec<_>>())
         })
         .collect()
 }

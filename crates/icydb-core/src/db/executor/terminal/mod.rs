@@ -19,6 +19,7 @@ use crate::{
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use page::KernelRow;
+pub(in crate::db::executor) use page::RetainedSlotLayout;
 pub(in crate::db::executor) use page::RetainedSlotRow;
 pub(in crate::db::executor) use row_decode::{RowDecoder, RowLayout};
 

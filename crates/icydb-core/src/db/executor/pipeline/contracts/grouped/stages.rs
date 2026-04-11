@@ -13,7 +13,7 @@ use crate::{
                 extract_orderable_field_value_with_slot_ref_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
-            terminal::{RowDecoder, RowLayout},
+            terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::FieldSlot as PlannedFieldSlot,
@@ -32,20 +32,60 @@ use crate::{
 ///
 
 pub(in crate::db::executor) struct RowView {
-    slots: Vec<Option<Value>>,
+    storage: RowViewStorage,
+}
+
+// Grouped row views either keep one dense field-width slot image for tests and
+// compatibility helpers or reuse one shared retained-slot layout plus compact
+// retained values for production grouped ingest.
+enum RowViewStorage {
+    #[cfg(test)]
+    Dense(Vec<Option<Value>>),
+    Indexed {
+        layout: RetainedSlotLayout,
+        values: Vec<Option<Value>>,
+    },
 }
 
 impl RowView {
     /// Build one structural row view from slot-indexed values.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db::executor) const fn new(slots: Vec<Option<Value>>) -> Self {
-        Self { slots }
+        Self {
+            storage: RowViewStorage::Dense(slots),
+        }
+    }
+
+    /// Build one compact grouped row view from one shared retained-slot layout
+    /// plus caller-declared retained values.
+    #[must_use]
+    pub(in crate::db::executor) fn from_indexed_values(
+        layout: &RetainedSlotLayout,
+        values: Vec<Option<Value>>,
+    ) -> Self {
+        debug_assert_eq!(values.len(), layout.retained_value_count());
+
+        Self {
+            storage: RowViewStorage::Indexed {
+                layout: layout.clone(),
+                values,
+            },
+        }
     }
 
     /// Borrow one slot by index without cloning the underlying value.
     #[must_use]
     pub(in crate::db::executor) fn borrow_slot(&self, index: usize) -> Option<&Value> {
-        self.slots.get(index).and_then(Option::as_ref)
+        match &self.storage {
+            #[cfg(test)]
+            RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
+            RowViewStorage::Indexed { layout, values } => {
+                let value_index = layout.value_index_for_slot(index)?;
+
+                values.get(value_index).and_then(Option::as_ref)
+            }
+        }
     }
 
     /// Borrow one required slot and fail closed when it is missing.
@@ -58,14 +98,6 @@ impl RowView {
                 "grouped row view missing required slot value: index={index}",
             ))
         })
-    }
-
-    /// Read one required slot and fail closed when it is missing.
-    pub(in crate::db::executor) fn require_slot(
-        &self,
-        index: usize,
-    ) -> Result<Value, InternalError> {
-        self.require_slot_ref(index).cloned()
     }
 
     /// Evaluate one compiled predicate program against this structural row.
@@ -94,28 +126,15 @@ impl RowView {
         &self,
         group_fields: &[PlannedFieldSlot],
     ) -> Result<Vec<Value>, InternalError> {
-        group_fields
-            .iter()
-            .map(|field| self.require_slot_ref(field.index()).cloned())
-            .collect()
+        let mut values = Vec::with_capacity(group_fields.len());
+
+        for field in group_fields {
+            let value = self.require_slot_ref(field.index())?.clone();
+            values.push(value);
+        }
+
+        Ok(values)
     }
-}
-
-///
-/// GroupedRowRuntime
-///
-/// GroupedRowRuntime owns typed row decode at the grouped execution boundary.
-/// Shared grouped fold logic consumes only structural `RowView` payloads after
-/// this adapter has decoded one row for one entity type.
-///
-
-pub(in crate::db::executor) trait GroupedRowRuntime {
-    /// Read one data row and project it into one structural grouped row view.
-    fn read_row_view(
-        &self,
-        consistency: MissingRowPolicy,
-        key: &DataKey,
-    ) -> Result<Option<RowView>, InternalError>;
 }
 
 ///
@@ -130,29 +149,39 @@ pub(in crate::db::executor) trait GroupedRowRuntime {
 pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
     store: StoreHandle,
     row_layout: RowLayout,
-    row_decoder: RowDecoder,
+    grouped_slot_layout: RetainedSlotLayout,
 }
 
 impl StructuralGroupedRowRuntime {
     /// Build one grouped row runtime from structural store authority and one
     /// precomputed row-decode layout.
     #[must_use]
-    pub(in crate::db::executor) const fn new(store: StoreHandle, row_layout: RowLayout) -> Self {
+    pub(in crate::db::executor) const fn new(
+        store: StoreHandle,
+        row_layout: RowLayout,
+        grouped_slot_layout: RetainedSlotLayout,
+    ) -> Self {
         Self {
             store,
             row_layout,
-            row_decoder: RowDecoder::structural(),
+            grouped_slot_layout,
         }
     }
 
     // Decode one persisted data row straight into the structural slot view
     // consumed by grouped fold/runtime stages without building a full kernel row.
     fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
-        let slots =
-            self.row_decoder
-                .decode_slots(&self.row_layout, key.storage_key(), &row, None)?;
+        let values = RowDecoder::decode_indexed_slot_values(
+            &self.row_layout,
+            key.storage_key(),
+            &row,
+            &self.grouped_slot_layout,
+        )?;
 
-        Ok(RowView::new(slots))
+        Ok(RowView::from_indexed_values(
+            &self.grouped_slot_layout,
+            values,
+        ))
     }
 
     // Read one persisted row under the grouped consistency contract while
@@ -173,10 +202,9 @@ impl StructuralGroupedRowRuntime {
             }
         }
     }
-}
 
-impl GroupedRowRuntime for StructuralGroupedRowRuntime {
-    fn read_row_view(
+    /// Read one data row and project it into one structural grouped row view.
+    pub(in crate::db::executor) fn read_row_view(
         &self,
         consistency: MissingRowPolicy,
         key: &DataKey,
@@ -195,17 +223,17 @@ impl GroupedRowRuntime for StructuralGroupedRowRuntime {
 /// stream for fold-phase consumption.
 ///
 
-pub(in crate::db::executor) struct GroupedStreamStage<'a> {
-    row_runtime: Box<dyn GroupedRowRuntime + 'a>,
+pub(in crate::db::executor) struct GroupedStreamStage {
+    row_runtime: StructuralGroupedRowRuntime,
     execution_preparation: ExecutionPreparation,
     resolved: ResolvedExecutionKeyStream,
 }
 
-impl<'a> GroupedStreamStage<'a> {
+impl GroupedStreamStage {
     // Build one grouped stream stage from recovered context, execution preparation,
     // and resolved grouped key stream payload.
-    pub(in crate::db::executor) fn new(
-        row_runtime: Box<dyn GroupedRowRuntime + 'a>,
+    pub(in crate::db::executor) const fn new(
+        row_runtime: StructuralGroupedRowRuntime,
         execution_preparation: ExecutionPreparation,
         resolved: ResolvedExecutionKeyStream,
     ) -> Self {
@@ -218,15 +246,15 @@ impl<'a> GroupedStreamStage<'a> {
 
     // Borrow grouped runtime context, execution preparation, and mutable resolved
     // key stream together so callers can combine immutable/mutable borrows safely.
-    pub(in crate::db::executor) fn parts_mut(
+    pub(in crate::db::executor) const fn parts_mut(
         &mut self,
     ) -> (
-        &dyn GroupedRowRuntime,
+        &StructuralGroupedRowRuntime,
         &ExecutionPreparation,
         &mut ResolvedExecutionKeyStream,
     ) {
         (
-            self.row_runtime.as_ref(),
+            &self.row_runtime,
             &self.execution_preparation,
             &mut self.resolved,
         )
@@ -259,7 +287,7 @@ impl GroupedFoldStage {
         page: GroupedCursorPage,
         filtered_rows: usize,
         check_filtered_rows_upper_bound: bool,
-        stream: &GroupedStreamStage<'_>,
+        stream: &GroupedStreamStage,
         scanned_rows_fallback: usize,
     ) -> Self {
         Self {
@@ -320,5 +348,32 @@ impl GroupedFoldStage {
     // Consume folded stage and return final grouped page payload.
     pub(in crate::db::executor) fn into_page(self) -> GroupedCursorPage {
         self.page
+    }
+}
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::executor::{RetainedSlotLayout, pipeline::contracts::RowView},
+        value::Value,
+    };
+
+    #[test]
+    fn indexed_row_view_resolves_sparse_slots_through_shared_layout() {
+        let layout = RetainedSlotLayout::compile(6, vec![1, 4]);
+        let row_view = RowView::from_indexed_values(
+            &layout,
+            vec![Some(Value::Uint(7)), Some(Value::Text("group".to_string()))],
+        );
+
+        assert_eq!(row_view.borrow_slot(1), Some(&Value::Uint(7)));
+        assert_eq!(
+            row_view.borrow_slot(4),
+            Some(&Value::Text("group".to_string()))
+        );
+        assert_eq!(row_view.borrow_slot(0), None);
     }
 }

@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        data::DataKey,
         direction::Direction,
         executor::{
             ExecutionKernel, OrderedKeyStream,
@@ -45,14 +44,17 @@ impl ExecutionKernel {
 
     // Kernel-owned reducer runner for scalar aggregate terminals over one
     // canonical key stream. Field-target reducers stay in dedicated paths.
-    pub(in crate::db::executor) fn run_streaming_aggregate_reducer(
+    pub(in crate::db::executor) fn run_streaming_aggregate_reducer<S>(
         store: StoreHandle,
         plan: &AccessPlannedQuery,
         kind: AggregateKind,
         direction: Direction,
         mode: AggregateFoldMode,
-        key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
+        key_stream: &mut S,
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
+    where
+        S: OrderedKeyStream + ?Sized,
+    {
         if !Self::aggregate_fold_mode_matches_terminal(kind, mode) {
             return Err(InternalError::aggregate_fold_mode_terminal_contract_required());
         }
@@ -61,15 +63,15 @@ impl ExecutionKernel {
         // through one adapter-owned ingest authority.
         let engine = ScalarAggregateEngine::new_scalar(kind, direction);
         let mut keys_scanned = 0usize;
-        let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
-            let mut on_key =
-                |key: &DataKey| -> Result<FoldControl, InternalError> { engine.ingest(key) };
-            keys_scanned =
-                Self::run_aggregate_key_fold(store, plan, mode, key_stream, &mut on_key)?;
+        let aggregate_output = execute_scalar_aggregate(engine, |engine| {
+            keys_scanned = Self::run_aggregate_key_fold(store, plan, mode, key_stream, |key| {
+                let fold_control: FoldControl = engine.ingest(key)?;
+
+                Ok(fold_control)
+            })?;
 
             Ok(())
-        };
-        let aggregate_output = execute_scalar_aggregate(engine, &mut ingest_all)?;
+        })?;
 
         Ok((aggregate_output, keys_scanned))
     }

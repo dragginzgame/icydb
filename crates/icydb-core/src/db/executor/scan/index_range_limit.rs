@@ -45,8 +45,8 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     );
 
     // Phase 2: bind range/anchor inputs and execute through the shared fast-stream helper.
-    let access = ExecutableAccess::from_executable_plan(
-        access_strategy.into_executable(),
+    let access = ExecutableAccess::new(
+        &plan.access,
         AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
         Some(effective_fetch),
         index_predicate_execution,

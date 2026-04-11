@@ -85,9 +85,8 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let (_visible_indexes, mut plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
         let explain = plan.explain_with_model(authority.model());
         let rendered = match mode {
@@ -120,9 +119,8 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let (visible_indexes, mut plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
         let descriptor = assemble_load_execution_node_descriptor_with_visible_indexes(
             authority.fields(),

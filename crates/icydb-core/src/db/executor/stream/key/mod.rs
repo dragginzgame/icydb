@@ -13,8 +13,8 @@ pub(in crate::db::executor) use composite::{IntersectOrderedKeyStream, MergeOrde
 pub(in crate::db::executor) use contracts::VecOrderedKeyStream;
 pub(in crate::db::executor) use contracts::{
     BudgetedOrderedKeyStream, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
-    drive_key_stream_with_control_flow, exact_output_key_count_hint,
-    key_stream_budget_is_redundant, ordered_key_stream_from_materialized_keys,
+    exact_output_key_count_hint, key_stream_budget_is_redundant,
+    ordered_key_stream_from_materialized_keys,
 };
 pub(in crate::db::executor) use distinct::DistinctOrderedKeyStream;
 pub(in crate::db::executor) use order::KeyOrderComparator;

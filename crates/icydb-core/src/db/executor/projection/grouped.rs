@@ -178,13 +178,13 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
         GroupedProjectionExpr::Literal(value) => Ok(value.clone()),
         GroupedProjectionExpr::Unary { op, expr } => {
             let operand = eval_grouped_projection_expr(expr, grouped_row)?;
-            eval_unary_expr(*op, operand)
+            eval_unary_expr(*op, &operand)
         }
         GroupedProjectionExpr::Binary { op, left, right } => {
             let left = eval_grouped_projection_expr(left, grouped_row)?;
             let right = eval_grouped_projection_expr(right, grouped_row)?;
 
-            eval_binary_expr(*op, left, right)
+            eval_binary_expr(*op, &left, &right)
         }
     }
 }

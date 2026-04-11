@@ -40,7 +40,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
             .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
     let mut projected_rows = Vec::with_capacity(rows.len());
     for row in rows {
-        projected_rows.push(project_grouped_row_from_projection(
+        projected_rows.push(project_grouped_values_from_projection(
             compiled_projection.as_slice(),
             projection_layout,
             group_fields,
@@ -53,9 +53,9 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     Ok(projected_rows)
 }
 
-// Evaluate one grouped projection expression row and convert it into grouped
-// `(group_key, aggregate_values)` payload vectors.
-fn project_grouped_row_from_projection(
+// Evaluate one grouped projection expression row and convert grouped key +
+// aggregate slices directly into grouped output vectors.
+pub(in crate::db::executor) fn project_grouped_values_from_projection(
     compiled_projection: &[GroupedProjectionExpr],
     projection_layout: &PlannedProjectionLayout,
     group_fields: &[FieldSlot],

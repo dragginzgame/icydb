@@ -13,12 +13,18 @@ use crate::{
             GroupedPaginationWindow,
             aggregate::runtime::{
                 grouped_fold::bundle::GroupedAggregateBundle, grouped_having::group_matches_having,
-                grouped_output::project_grouped_rows_from_projection,
+                grouped_output::project_grouped_values_from_projection,
             },
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
+            projection::{
+                GroupedProjectionExpr, ProjectionEvalError, compile_grouped_projection_plan,
+            },
         },
-        query::plan::{GroupHavingSpec, expr::ProjectionSpec},
+        query::plan::{
+            FieldSlot, GroupHavingSpec, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
+            expr::ProjectionSpec,
+        },
     },
     error::InternalError,
     value::Value,
@@ -79,6 +85,18 @@ impl GroupedPageCandidate {
         }
     }
 
+    // Borrow the grouped key payload in grouped-row declaration order without
+    // first materializing the public grouped DTO.
+    fn group_key_values(&self) -> Result<&[Value], InternalError> {
+        let Value::List(values) = self.group_key.canonical_value() else {
+            return Err(GroupedRouteStage::canonical_group_key_must_be_list(
+                self.group_key.canonical_value(),
+            ));
+        };
+
+        Ok(values.as_slice())
+    }
+
     // Return true when this finalized grouped row survives grouped HAVING and
     // continuation resume-boundary filtering.
     fn matches_window(
@@ -108,15 +126,28 @@ impl GroupedPageCandidate {
 
     // Consume this finalized grouped payload into the public grouped row DTO.
     fn into_row(self) -> Result<GroupedRow, InternalError> {
-        let emitted_group_key = match self.group_key.into_canonical_value() {
-            Value::List(values) => values,
-            value => {
-                return Err(GroupedRouteStage::canonical_group_key_must_be_list(&value));
-            }
-        };
+        let emitted_group_key = Self::into_group_key_values(self.group_key)?;
 
         Ok(GroupedRow::new(emitted_group_key, self.aggregate_values))
     }
+
+    // Consume one canonical group key into the grouped response key vector.
+    fn into_group_key_values(group_key: GroupKey) -> Result<Vec<Value>, InternalError> {
+        match group_key.into_canonical_value() {
+            Value::List(values) => Ok(values),
+            value => Err(GroupedRouteStage::canonical_group_key_must_be_list(&value)),
+        }
+    }
+}
+
+// Shared grouped projection contract compiled once before grouped page
+// finalization starts emitting rows.
+#[derive(Clone, Copy)]
+struct CompiledGroupedProjectionPlan<'a> {
+    compiled_projection: &'a [GroupedProjectionExpr],
+    projection_layout: &'a PlannedProjectionLayout,
+    group_fields: &'a [FieldSlot],
+    aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
 }
 
 // Apply grouped finalize, filtering, paging, and projection over the shared
@@ -130,6 +161,27 @@ pub(super) fn finalize_grouped_page(
     let grouped_having = route.grouped_having();
     let continuation_capabilities = route.grouped_continuation_capabilities();
     let group_fields = route.group_fields();
+    let compiled_projection = if route.projection_is_identity() {
+        None
+    } else {
+        Some(
+            compile_grouped_projection_plan(
+                grouped_projection_spec,
+                route.group_fields(),
+                route.grouped_aggregate_execution_specs(),
+            )
+            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?,
+        )
+    };
+    let compiled_projection =
+        compiled_projection
+            .as_deref()
+            .map(|compiled_projection| CompiledGroupedProjectionPlan {
+                compiled_projection,
+                projection_layout: route.projection_layout(),
+                group_fields: route.group_fields(),
+                aggregate_execution_specs: route.grouped_aggregate_execution_specs(),
+            });
     let selection_bound = continuation_capabilities
         .selection_bound_applied()
         .then(|| pagination_window.selection_bound())
@@ -146,6 +198,7 @@ pub(super) fn finalize_grouped_page(
             pagination_window,
             resume_boundary,
             selection_bound,
+            compiled_projection,
         )?
     } else {
         finalize_unbounded_grouped_page_rows(
@@ -154,16 +207,9 @@ pub(super) fn finalize_grouped_page(
             group_fields,
             pagination_window,
             resume_boundary,
+            compiled_projection,
         )?
     };
-    let page_rows = project_grouped_rows_from_projection(
-        grouped_projection_spec,
-        route.projection_is_identity(),
-        route.projection_layout(),
-        route.group_fields(),
-        route.grouped_aggregate_execution_specs(),
-        page_rows,
-    )?;
     let next_cursor = next_cursor_boundary
         .map(|last_group_key| route.grouped_next_cursor(last_group_key))
         .transpose()?;
@@ -180,6 +226,7 @@ fn finalize_bounded_grouped_page_rows(
     pagination_window: &GroupedPaginationWindow,
     resume_boundary: Option<&Value>,
     selection_bound: usize,
+    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
     let selected_candidates = if grouped_bundle.has_single_aggregate() {
         retain_smallest_grouped_page_candidates(
@@ -209,6 +256,7 @@ fn finalize_bounded_grouped_page_rows(
         selected_candidates.into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
+        compiled_projection,
     )
 }
 
@@ -220,6 +268,7 @@ fn finalize_unbounded_grouped_page_rows(
     group_fields: &[crate::db::query::plan::FieldSlot],
     pagination_window: &GroupedPaginationWindow,
     resume_boundary: Option<&Value>,
+    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
     let finalized_candidates = if grouped_bundle.has_single_aggregate() {
         grouped_bundle
@@ -255,6 +304,7 @@ fn finalize_unbounded_grouped_page_rows(
         filtered_candidates.into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
+        compiled_projection,
     )
 }
 
@@ -306,6 +356,7 @@ fn page_rows_from_candidates<I>(
     selected_candidates: I,
     limit: Option<usize>,
     initial_offset_for_page: usize,
+    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
 where
     I: Iterator<Item = GroupedPageCandidate>,
@@ -328,7 +379,19 @@ where
             break;
         }
 
-        page_rows.push(candidate.into_row()?);
+        let row = if let Some(compiled_projection) = compiled_projection {
+            project_grouped_values_from_projection(
+                compiled_projection.compiled_projection,
+                compiled_projection.projection_layout,
+                compiled_projection.group_fields,
+                compiled_projection.aggregate_execution_specs,
+                candidate.group_key_values()?,
+                candidate.aggregate_values.as_slice(),
+            )?
+        } else {
+            candidate.into_row()?
+        };
+        page_rows.push(row);
     }
 
     let next_cursor_boundary = if has_more {
@@ -338,4 +401,95 @@ where
     };
 
     Ok((page_rows, next_cursor_boundary))
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{CompiledGroupedProjectionPlan, GroupedPageCandidate, page_rows_from_candidates};
+    use crate::{
+        db::{
+            GroupedRow,
+            executor::{group::GroupKey, projection::compile_grouped_projection_plan},
+            query::{
+                builder::aggregate::{count, max_by},
+                plan::{
+                    AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
+                    PlannedProjectionLayout,
+                    expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+                },
+            },
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn page_rows_from_candidates_projects_directly_from_candidates() {
+        let projection = ProjectionSpec::from_fields_for_test(vec![
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("age")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Aggregate(max_by("score")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Aggregate(count()),
+                alias: None,
+            },
+        ]);
+        let projection_layout = PlannedProjectionLayout {
+            group_field_positions: vec![0],
+            aggregate_positions: vec![1, 2],
+        };
+        let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
+        let aggregate_execution_specs = [
+            GroupedAggregateExecutionSpec::from_parts_for_test(
+                AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+            GroupedAggregateExecutionSpec::from_parts_for_test(
+                AggregateKind::Max,
+                Some(FieldSlot::from_parts_for_test(1, "score")),
+                Some("score"),
+                false,
+            ),
+        ];
+        let compiled_projection = compile_grouped_projection_plan(
+            &projection,
+            group_fields.as_slice(),
+            aggregate_execution_specs.as_slice(),
+        )
+        .expect("grouped projection should compile");
+        let grouped_projection = CompiledGroupedProjectionPlan {
+            compiled_projection: compiled_projection.as_slice(),
+            projection_layout: &projection_layout,
+            group_fields: group_fields.as_slice(),
+            aggregate_execution_specs: aggregate_execution_specs.as_slice(),
+        };
+        let candidates = vec![GroupedPageCandidate {
+            group_key: GroupKey::from_group_values(vec![Value::Uint(21)])
+                .expect("candidate group key"),
+            aggregate_values: vec![Value::Uint(2), Value::Uint(90)],
+        }];
+
+        let (rows, next_cursor_boundary) =
+            page_rows_from_candidates(candidates.into_iter(), None, 0, Some(grouped_projection))
+                .expect("candidate projection should succeed");
+
+        assert_eq!(
+            rows,
+            vec![GroupedRow::new(
+                vec![Value::Uint(21)],
+                vec![Value::Uint(90), Value::Uint(2)],
+            )]
+        );
+        assert_eq!(next_cursor_boundary, None);
+    }
 }

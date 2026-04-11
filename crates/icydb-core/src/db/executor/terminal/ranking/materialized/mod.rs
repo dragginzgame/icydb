@@ -115,10 +115,12 @@ fn rank_k_rows_from_materialized_structural(
     )
     .map_err(AggregateFieldValueError::into_internal_error)?;
 
-    Ok(ranked_rows
-        .into_iter()
-        .map(|((_, row_index), value)| (row_index, value))
-        .collect())
+    let mut output_rows = Vec::with_capacity(ranked_rows.len());
+    for ((_, row_index), value) in ranked_rows {
+        output_rows.push((row_index, value));
+    }
+
+    Ok(output_rows)
 }
 
 // Decode the ranked target field directly from the borrowed persisted row so

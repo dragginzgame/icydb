@@ -6,9 +6,7 @@
 use crate::{
     db::{
         GroupedRow,
-        data::DataKey,
         executor::{
-            KeyStreamLoopControl,
             aggregate::{
                 ExecutionContext, GroupError,
                 field::{
@@ -17,9 +15,10 @@ use crate::{
                     resolve_numeric_aggregate_target_slot_from_planner_slot,
                 },
             },
-            drive_key_stream_with_control_flow,
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
-            pipeline::contracts::{GroupedRowRuntime, ResolvedExecutionKeyStream, RowView},
+            pipeline::contracts::{
+                ResolvedExecutionKeyStream, RowView, StructuralGroupedRowRuntime,
+            },
         },
         numeric::coerce_numeric_decimal,
         predicate::{MissingRowPolicy, PredicateProgram},
@@ -295,7 +294,7 @@ impl GlobalDistinctFieldAccumulator {
 // stream and emit the singleton grouped row expected by grouped DISTINCT routing.
 pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     consistency: MissingRowPolicy,
-    row_runtime: &dyn GroupedRowRuntime,
+    row_runtime: &StructuralGroupedRowRuntime,
     resolved: &mut ResolvedExecutionKeyStream,
     compiled_predicate: Option<&PredicateProgram>,
     grouped_execution_context: &mut ExecutionContext,
@@ -309,16 +308,17 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     let mut accumulator = GlobalDistinctFieldAccumulator::new(reducer_spec);
     let (scanned_rows, filtered_rows) = row_counters;
 
-    // Phase 2: walk the resolved key stream, admit distinct values, and update reducer state.
-    let mut on_key = |data_key: DataKey| -> Result<KeyStreamLoopControl, InternalError> {
+    // Phase 2: walk the resolved key stream, admit distinct values, and update
+    // reducer state in one straight-line loop.
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-            return Ok(KeyStreamLoopControl::Emit);
+            continue;
         };
         *scanned_rows = (*scanned_rows).saturating_add(1);
         if let Some(compiled_predicate) = compiled_predicate
             && !row_view.eval_predicate(compiled_predicate)
         {
-            return Ok(KeyStreamLoopControl::Emit);
+            continue;
         }
         *filtered_rows = (*filtered_rows).saturating_add(1);
 
@@ -338,18 +338,11 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
             )
             .map_err(GroupError::into_internal_error)?;
         if !admitted {
-            return Ok(KeyStreamLoopControl::Emit);
+            continue;
         }
 
         accumulator.apply_distinct_value(numeric_value)?;
-
-        Ok(KeyStreamLoopControl::Emit)
-    };
-    drive_key_stream_with_control_flow(
-        resolved.key_stream_mut(),
-        &mut || KeyStreamLoopControl::Emit,
-        &mut on_key,
-    )?;
+    }
 
     // Phase 3: emit the singleton grouped row owned by grouped global DISTINCT execution.
     Ok(GroupedRow::new(Vec::new(), vec![accumulator.finalize()?]))

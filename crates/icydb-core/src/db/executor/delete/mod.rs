@@ -17,8 +17,7 @@ use crate::{
         },
         executor::{
             AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, TraversalRuntime,
-            drive_key_stream_with_control_flow,
+            ExecutionKernel, ExecutionPreparation, TraversalRuntime,
             mutation::{
                 commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
                 mutation_write_context, preflight_mutation_plan_for_authority,
@@ -267,29 +266,25 @@ fn resolve_delete_candidate_rows(
     let mut key_stream = runtime.ordered_key_stream_from_runtime_access(executable_access)?;
 
     // Phase 2: materialize rows through the structural consistency boundary.
-    collect_delete_rows_from_key_stream(store, key_stream.as_mut(), prepared.consistency())
+    collect_delete_rows_from_key_stream(store, &mut key_stream, prepared.consistency())
 }
 
 // Materialize ordered delete rows from one structural key stream.
-fn collect_delete_rows_from_key_stream(
+fn collect_delete_rows_from_key_stream<S>(
     store: StoreHandle,
-    key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
+    key_stream: &mut S,
     consistency: MissingRowPolicy,
-) -> Result<Vec<DataRow>, InternalError> {
+) -> Result<Vec<DataRow>, InternalError>
+where
+    S: crate::db::executor::OrderedKeyStream + ?Sized,
+{
     let mut rows = Vec::with_capacity(key_stream.exact_key_count_hint().unwrap_or(0));
 
-    drive_key_stream_with_control_flow(
-        key_stream,
-        &mut || KeyStreamLoopControl::Emit,
-        &mut |key| {
-            if let Some(row) = read_data_row_with_consistency_from_store(store, &key, consistency)?
-            {
-                rows.push(row);
-            }
-
-            Ok(KeyStreamLoopControl::Emit)
-        },
-    )?;
+    while let Some(key) = key_stream.next_key()? {
+        if let Some(row) = read_data_row_with_consistency_from_store(store, &key, consistency)? {
+            rows.push(row);
+        }
+    }
 
     Ok(rows)
 }

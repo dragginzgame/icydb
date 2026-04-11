@@ -3,35 +3,13 @@
 //! Does not own: index persistence layout or predicate compilation.
 //! Boundary: executor/query range reads go through this layer above `index::store`.
 
-mod covering;
 mod decode;
 mod raw;
 
-use crate::{
-    db::{data::DataKey, index::IndexEntryExistenceWitness},
-    value::StorageKey,
-};
+use crate::db::{data::DataKey, index::IndexEntryExistenceWitness};
 
 type IndexComponentValues = Vec<Vec<u8>>;
-type DataKeyWitnessRows = Vec<(DataKey, IndexEntryExistenceWitness)>;
 type DataKeyComponentRows = Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
-
-///
-/// SingleComponentCoveringCollector
-///
-/// Narrow collector contract for the single-component covering fast path.
-/// The index layer streams decoded membership entries through this boundary
-/// without owning projection semantics beyond "emit storage key + component".
-///
-pub(in crate::db) trait SingleComponentCoveringCollector<T> {
-    fn push(
-        &mut self,
-        storage_key: StorageKey,
-        existence_witness: IndexEntryExistenceWitness,
-        component: &[u8],
-        out: &mut Vec<T>,
-    ) -> Result<(), crate::error::InternalError>;
-}
 
 ///
 /// TESTS

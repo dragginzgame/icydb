@@ -325,7 +325,7 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
         kind,
         direction,
         AggregateFoldMode::ExistingRows,
-        key_stream.as_mut(),
+        &mut key_stream,
     )?;
 
     Ok((aggregate_output, rows_scanned))

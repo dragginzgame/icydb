@@ -35,6 +35,9 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 
+#[cfg(feature = "perf-attribution")]
+pub use lowered::LoweredSqlDispatchExecutorAttribution;
+
 ///
 /// GeneratedSqlDispatchAttempt
 ///
@@ -247,9 +250,8 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlProjectionPayload, QueryError> {
         // Phase 1: build the structural access plan once and reuse its
         // projection contract for both labels and row materialization.
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
+        let (_, plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
         let projection = plan.projection_spec(authority.model());
         let columns = projection_labels_from_projection_spec(&projection);
 
@@ -273,9 +275,8 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlDispatchResult, QueryError> {
         // Phase 1: build the structural access plan once and reuse its
         // projection contract for both labels and text-row materialization.
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
+        let (_, plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
         let projection = plan.projection_spec(authority.model());
         let columns = projection_labels_from_projection_spec(&projection);
 
@@ -307,7 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
             .with_metrics(|| self.delete_executor::<E>().execute_sql_projection(plan))
             .map_err(QueryError::execute)?;
         let (rows, row_count) = deleted.into_parts();
-        let rows = sql_projection_rows_from_kernel_rows(rows);
+        let rows = sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
 
         Ok(SqlProjectionPayload::new(
             projection_labels_from_fields(E::MODEL.fields()),
@@ -389,10 +390,12 @@ impl<C: CanisterKind> DbSession<C> {
                             EntityAuthority::for_type::<E>(),
                             columns,
                         ),
-                        None => self.execute_lowered_sql_dispatch_select_core(
-                            select,
-                            EntityAuthority::for_type::<E>(),
-                        ),
+                        None => self
+                            .execute_lowered_sql_projection_core(
+                                select,
+                                EntityAuthority::for_type::<E>(),
+                            )
+                            .map(SqlProjectionPayload::into_dispatch_result),
                     },
                     Some(LoweredSqlQuery::Delete(delete)) => {
                         let typed_query = bind_lowered_sql_query::<E>(

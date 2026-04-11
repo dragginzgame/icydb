@@ -20,9 +20,7 @@ use crate::{
 };
 use std::cell::Cell;
 
-use crate::db::executor::pipeline::runtime::fast_path::strategy::{
-    FastPathDecision, FastPathResolutionStrategy,
-};
+use crate::db::executor::pipeline::runtime::fast_path::strategy::FastPathResolutionStrategy;
 
 impl ExecutionKernel {
     /// Resolve one canonical execution key stream in fast-path precedence order.
@@ -98,7 +96,7 @@ impl ExecutionKernel {
 
     // Resolve one canonical key stream from fast-path decision output.
     fn resolve_execution_key_stream_from_decision(
-        fast_path_decision: FastPathDecision,
+        fast_path_decision: Option<crate::db::executor::pipeline::contracts::FastPathKeyResult>,
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -106,7 +104,7 @@ impl ExecutionKernel {
         index_predicate_rejected_counter: &Cell<u64>,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         match fast_path_decision {
-            FastPathDecision::Hit(fast) => Ok(ResolvedExecutionKeyStream::new(
+            Some(fast) => Ok(ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
                 Some(Self::decorate_fast_path_optimization_for_route(
                     fast.optimization,
@@ -117,7 +115,7 @@ impl ExecutionKernel {
                 index_predicate_rejected_counter.get(),
                 None,
             )),
-            FastPathDecision::None => Self::resolve_fallback_execution_key_stream(
+            None => Self::resolve_fallback_execution_key_stream(
                 inputs,
                 route_plan,
                 index_predicate_execution,

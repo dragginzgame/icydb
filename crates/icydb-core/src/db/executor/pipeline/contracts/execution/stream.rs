@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::{ExecutionOptimization, OrderedKeyStream, OrderedKeyStreamBox};
+use crate::db::executor::{ExecutionOptimization, OrderedKeyStreamBox};
 use std::{cell::Cell, rc::Rc};
 
 ///
@@ -25,7 +25,7 @@ pub(in crate::db::executor) struct ResolvedExecutionKeyStream {
 impl ResolvedExecutionKeyStream {
     /// Construct one resolved key-stream payload.
     #[must_use]
-    pub(in crate::db::executor) fn new(
+    pub(in crate::db::executor) const fn new(
         key_stream: OrderedKeyStreamBox,
         optimization: Option<ExecutionOptimization>,
         rows_scanned_override: Option<usize>,
@@ -66,9 +66,9 @@ impl ResolvedExecutionKeyStream {
         )
     }
 
-    /// Borrow mutable ordered key stream.
-    pub(in crate::db::executor) fn key_stream_mut(&mut self) -> &mut dyn OrderedKeyStream {
-        self.key_stream.as_mut()
+    /// Borrow the concrete owned ordered key stream.
+    pub(in crate::db::executor) const fn key_stream_mut(&mut self) -> &mut OrderedKeyStreamBox {
+        &mut self.key_stream
     }
 
     /// Return optional rows-scanned override.

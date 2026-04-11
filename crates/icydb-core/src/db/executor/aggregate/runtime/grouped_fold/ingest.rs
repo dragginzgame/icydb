@@ -4,15 +4,11 @@
 //! Boundary: folds grouped source rows into the shared grouped bundle state.
 
 use crate::{
-    db::{
-        data::DataKey,
-        executor::{
-            KeyStreamLoopControl,
-            aggregate::{
-                ExecutionContext, GroupError, runtime::grouped_fold::bundle::GroupedAggregateBundle,
-            },
-            pipeline::contracts::{GroupedRouteStage, GroupedStreamStage},
+    db::executor::{
+        aggregate::{
+            ExecutionContext, GroupError, runtime::grouped_fold::bundle::GroupedAggregateBundle,
         },
+        pipeline::contracts::{GroupedRouteStage, GroupedStreamStage},
     },
     error::InternalError,
 };
@@ -21,7 +17,7 @@ use crate::{
 // grouped budget contracts and borrowed grouped-key fast paths.
 pub(super) fn fold_group_rows_into_bundle(
     route: &GroupedRouteStage,
-    stream: &mut GroupedStreamStage<'_>,
+    stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_bundle: &mut GroupedAggregateBundle,
 ) -> Result<(usize, usize), InternalError> {
@@ -30,15 +26,15 @@ pub(super) fn fold_group_rows_into_bundle(
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let consistency = route.consistency();
-    let mut on_key = |data_key: DataKey| -> Result<KeyStreamLoopControl, InternalError> {
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-            return Ok(KeyStreamLoopControl::Emit);
+            continue;
         };
         scanned_rows = scanned_rows.saturating_add(1);
         if let Some(compiled_predicate) = compiled_predicate
             && !row_view.eval_predicate(compiled_predicate)
         {
-            return Ok(KeyStreamLoopControl::Emit);
+            continue;
         }
         filtered_rows = filtered_rows.saturating_add(1);
 
@@ -67,14 +63,7 @@ pub(super) fn fold_group_rows_into_bundle(
                 &mut owned_group_key,
             )
             .map_err(GroupError::into_internal_error)?;
-
-        Ok(KeyStreamLoopControl::Emit)
-    };
-    crate::db::executor::drive_key_stream_with_control_flow(
-        resolved.key_stream_mut(),
-        &mut || KeyStreamLoopControl::Emit,
-        &mut on_key,
-    )?;
+    }
 
     Ok((scanned_rows, filtered_rows))
 }

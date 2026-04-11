@@ -14,6 +14,7 @@ doctest = false
 [features]
 default = ["sql"]
 sql = []
+perf-attribution = []
 structural-read-metrics = []
 
 [dependencies]

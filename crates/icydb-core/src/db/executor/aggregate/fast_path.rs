@@ -59,7 +59,7 @@ impl ExecutionKernel {
             kind,
             direction,
             fold_mode,
-            key_stream.as_mut(),
+            &mut key_stream,
         )
     }
 
@@ -229,7 +229,7 @@ impl ExecutionKernel {
             kind,
             direction,
             fold_mode,
-            fast.ordered_key_stream.as_mut(),
+            &mut fast.ordered_key_stream,
         )?;
 
         Ok((aggregate_output, rows_scanned))
@@ -262,8 +262,8 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let access = ExecutableAccess::from_executable_plan(
-            access_strategy.into_executable(),
+        let access = ExecutableAccess::new(
+            &plan.access,
             AccessStreamBindings::no_index(direction),
             None,
             None,
@@ -352,8 +352,8 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            ExecutableAccess::from_executable_plan(
-                access_strategy.into_executable(),
+            ExecutableAccess::new(
+                &plan.access,
                 AccessStreamBindings::no_index(direction),
                 physical_fetch_hint,
                 None,
@@ -405,12 +405,8 @@ impl ExecutionKernel {
     fn try_execute_composite_aggregate(
         inputs: &AggregateFastPathInputs<'_>,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let access = ExecutableAccess::from_executable_plan(
-            inputs
-                .logical_plan
-                .access
-                .resolve_strategy()
-                .into_executable(),
+        let access = ExecutableAccess::new(
+            &inputs.logical_plan.access,
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
                 inputs.index_range_specs,

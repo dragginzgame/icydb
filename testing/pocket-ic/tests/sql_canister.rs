@@ -586,6 +586,40 @@ struct SqlPerfSample {
 }
 
 //
+// SqlPerfExecutorAttribution
+//
+// Nested execute-phase attribution mirror returned by the sql_parity
+// canister perf harness.
+//
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfExecutorAttribution {
+    bind_local_instructions: u64,
+    visible_indexes_local_instructions: u64,
+    build_plan_local_instructions: u64,
+    projection_labels_local_instructions: u64,
+    projection_executor: SqlPerfProjectionTextExecutorAttribution,
+    dispatch_result_local_instructions: u64,
+    total_local_instructions: u64,
+}
+
+//
+// SqlPerfProjectionTextExecutorAttribution
+//
+// Nested rendered-row executor attribution mirror returned by the sql_parity
+// canister perf harness.
+//
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfProjectionTextExecutorAttribution {
+    prepare_projection_local_instructions: u64,
+    scalar_runtime_local_instructions: u64,
+    materialize_projection_local_instructions: u64,
+    result_rows_local_instructions: u64,
+    total_local_instructions: u64,
+}
+
+//
 // SqlPerfAttributionSample
 //
 // One fixed-cost SQL query attribution sample returned by the sql_parity
@@ -601,6 +635,7 @@ struct SqlPerfAttributionSample {
     lower_local_instructions: u64,
     dispatch_local_instructions: u64,
     execute_local_instructions: u64,
+    executor_breakdown: Option<SqlPerfExecutorAttribution>,
     wrapper_local_instructions: u64,
     total_local_instructions: u64,
     outcome: SqlPerfOutcome,

@@ -10,5 +10,5 @@ pub(in crate::db::executor) use route_stage::{
     GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
 };
 pub(in crate::db::executor) use stages::{
-    GroupedFoldStage, GroupedRowRuntime, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
+    GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
 };

@@ -17,7 +17,6 @@ use crate::{
     },
     error::InternalError,
 };
-use std::cell::RefCell;
 
 impl<K> PostAccessPlan<'_, K> {
     /// Apply delete post-access phases (predicate, order, delete-limit) without
@@ -45,61 +44,31 @@ impl<K> PostAccessPlan<'_, K> {
     {
         let cursor = None;
         self.validate_cursor_mode(cursor)?;
-        let rows = RefCell::new(rows);
 
-        // Phase 1: bind delete row operators once and delegate execution order
-        // to the shared delete-only post-access control-flow helper.
-        let mut apply_filter_phase = || {
-            let rows = &mut **rows.borrow_mut();
-            self.apply_filter_phase::<R>(rows, compiled_predicate, false)
-        };
-        let mut apply_order_phase = |filtered| {
-            let rows = &mut **rows.borrow_mut();
-            apply_post_access_order_phase(
-                self.contract.plan(),
-                self.contract.has_predicate(),
-                rows,
-                cursor,
-                filtered,
-            )
-        };
-        let mut apply_delete_limit_phase = |ordered| {
-            let rows = &mut **rows.borrow_mut();
-            apply_post_access_delete_limit_phase(
-                self.contract.mode(),
-                self.contract.order_spec(),
-                self.contract.delete_limit_spec(),
-                rows,
-                ordered,
-            )
-        };
+        // Phase 1: apply predicate filtering directly against the owned row buffer.
+        let (filtered, _) = self.apply_filter_phase::<R>(rows, compiled_predicate, false)?;
 
-        apply_delete_post_access_kernel_dyn(
-            &mut apply_filter_phase,
-            &mut apply_order_phase,
-            &mut apply_delete_limit_phase,
-        )
+        // Phase 2: apply ordering directly against the same row buffer.
+        let (ordered, rows_after_order) = apply_post_access_order_phase(
+            self.contract.plan(),
+            self.contract.has_predicate(),
+            rows,
+            cursor,
+            filtered,
+        )?;
+
+        // Phase 3: apply delete limiting directly against the same row buffer.
+        let (delete_was_limited, _) = apply_post_access_delete_limit_phase(
+            self.contract.mode(),
+            self.contract.order_spec(),
+            self.contract.delete_limit_spec(),
+            rows,
+            ordered,
+        )?;
+
+        Ok(PostAccessStats {
+            delete_was_limited,
+            rows_after_cursor: rows_after_order,
+        })
     }
-}
-
-// Shared delete-only post-access phase control flow. Keeps delete execution off
-// load-only cursor/page phase wiring.
-fn apply_delete_post_access_kernel_dyn(
-    apply_filter_phase: &mut dyn FnMut() -> Result<(bool, usize), InternalError>,
-    apply_order_phase: &mut dyn FnMut(bool) -> Result<(bool, usize), InternalError>,
-    apply_delete_limit_phase: &mut dyn FnMut(bool) -> Result<(bool, usize), InternalError>,
-) -> Result<PostAccessStats, InternalError> {
-    // Phase 1: predicate filtering.
-    let (filtered, _) = apply_filter_phase()?;
-
-    // Phase 2: ordering.
-    let (ordered, rows_after_order) = apply_order_phase(filtered)?;
-
-    // Phase 3: delete limiting.
-    let (delete_was_limited, _) = apply_delete_limit_phase(ordered)?;
-
-    Ok(PostAccessStats {
-        delete_was_limited,
-        rows_after_cursor: rows_after_order,
-    })
 }

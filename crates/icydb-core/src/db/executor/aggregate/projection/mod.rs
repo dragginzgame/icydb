@@ -43,7 +43,7 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
             reorder_covering_projection_pairs,
-            resolve_covering_projection_component_from_lowered_specs,
+            resolve_covering_projection_components_from_lowered_specs,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -57,7 +57,6 @@ use crate::{
     types::Id,
     value::Value,
 };
-use std::cell::RefCell;
 
 type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
@@ -376,11 +375,12 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    let count = covering_projection
-                        .values
-                        .into_iter()
-                        .filter(|value| !matches!(value, Value::Null))
-                        .count();
+                    let mut count = 0usize;
+                    for value in covering_projection.values {
+                        if !matches!(value, Value::Null) {
+                            count = count.saturating_add(1);
+                        }
+                    }
 
                     return Ok(ScalarProjectionBoundaryOutput::Count(
                         u32::try_from(count).unwrap_or(u32::MAX),
@@ -593,9 +593,9 @@ where
             index_range_specs,
             ..
         } = prepared;
-        let continuation = RefCell::new(ContinuationRuntime::from_window(
+        let mut continuation = ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
-        ));
+        );
 
         // Phase 2: resolve the canonical ordered key stream from access descriptors.
         let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
@@ -616,45 +616,52 @@ where
         );
         let runtime = TraversalRuntime::new(store, authority.entity_tag());
         let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
+        let row_decoder = RowDecoder::structural();
 
         // Phase 3: decode only the target field and count non-null rows.
         let mut rows_scanned = 0usize;
         let mut count = 0u32;
-        let mut pre_key = || {
-            Self::loop_control_from_projection_continuation(continuation.borrow_mut().pre_fetch())
-        };
-        let mut on_key = |_data_key,
-                          row: Option<crate::db::executor::terminal::page::KernelRow>|
-         -> Result<KeyStreamLoopControl, InternalError> {
-            let Some(row) = row else {
-                return Ok(KeyStreamLoopControl::Emit);
+
+        loop {
+            match Self::loop_control_from_projection_continuation(continuation.pre_fetch()) {
+                KeyStreamLoopControl::Skip => continue,
+                KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
+
+            let Some(data_key) = key_stream.next_key()? else {
+                break;
+            };
+            let Some(row) = Self::read_kernel_row_for_field_aggregate(
+                store,
+                row_layout,
+                row_decoder,
+                consistency,
+                &data_key,
+            )?
+            else {
+                continue;
             };
             rows_scanned = rows_scanned.saturating_add(1);
-            match continuation.borrow_mut().accept_row() {
-                LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
                 LoopAction::Emit => {}
-                LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+                LoopAction::Stop => break,
             }
+
+            let mut read_slot = |index: usize| row.slot_ref(index);
             let value = extract_orderable_field_value_with_slot_ref_reader(
                 &boundary.target_field_name,
                 boundary.field_slot,
-                &mut |index| row.slot_ref(index),
+                &mut read_slot,
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             if !matches!(value, Value::Null) {
                 count = count.saturating_add(1);
             }
+        }
 
-            Ok(KeyStreamLoopControl::Emit)
-        };
-        Self::drive_field_row_stream(
-            store,
-            row_layout,
-            consistency,
-            key_stream.as_mut(),
-            &mut pre_key,
-            &mut on_key,
-        )?;
         record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
 
         Ok(ScalarProjectionBoundaryOutput::Count(count))
@@ -877,13 +884,13 @@ where
         component_index: usize,
         direction: crate::db::direction::Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        resolve_covering_projection_component_from_lowered_specs(
+        resolve_covering_projection_components_from_lowered_specs(
             prepared.authority.entity_tag(),
             prepared.index_prefix_specs.as_slice(),
             prepared.index_range_specs.as_slice(),
             direction,
             usize::MAX,
-            component_index,
+            &[component_index],
             |index| prepared.store_resolver.try_get_store(index.store()),
         )
     }

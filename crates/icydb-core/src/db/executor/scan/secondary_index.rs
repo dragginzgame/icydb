@@ -46,8 +46,8 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     );
 
     // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-    let access = ExecutableAccess::from_executable_plan(
-        access_strategy.into_executable(),
+    let access = ExecutableAccess::new(
+        &plan.access,
         AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
         probe_fetch_hint,
         index_predicate_execution,

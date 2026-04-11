@@ -17,7 +17,7 @@ use crate::{
 };
 use std::ops::Bound;
 
-use crate::db::index::scan::{DataKeyComponentRows, DataKeyWitnessRows};
+use crate::db::index::scan::DataKeyComponentRows;
 
 impl IndexStore {
     // Keep bounded scan preallocation modest so common page-limited reads
@@ -36,29 +36,6 @@ impl IndexStore {
     ) -> Result<Vec<DataKey>, InternalError> {
         self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
             Self::decode_index_entry_and_push(
-                entity,
-                index,
-                raw_key,
-                value,
-                out,
-                Some(limit),
-                "range resolve",
-                index_predicate_execution,
-            )
-        })
-    }
-
-    pub(in crate::db) fn resolve_data_values_with_witness_in_raw_range_limited(
-        &self,
-        entity: EntityTag,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        continuation: IndexScanContinuationInput<'_>,
-        limit: usize,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<DataKeyWitnessRows, InternalError> {
-        self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
-            Self::decode_index_entry_and_push_with_witness(
                 entity,
                 index,
                 raw_key,

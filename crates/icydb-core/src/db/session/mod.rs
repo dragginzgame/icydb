@@ -35,6 +35,8 @@ use crate::{
 };
 use std::thread::LocalKey;
 
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use sql::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
 #[cfg(feature = "sql")]
 pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
 

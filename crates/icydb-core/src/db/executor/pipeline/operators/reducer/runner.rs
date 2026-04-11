@@ -10,7 +10,6 @@ use crate::{
         executor::{
             ExecutionKernel, KeyStreamLoopControl, OrderedKeyStream,
             aggregate::{AggregateFoldMode, FoldControl},
-            drive_key_stream_with_control_flow,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -19,7 +18,6 @@ use crate::{
     },
     error::InternalError,
 };
-use std::cell::RefCell;
 
 impl ExecutionKernel {
     const fn loop_control_from_continuation_action(action: LoopAction) -> KeyStreamLoopControl {
@@ -70,44 +68,49 @@ impl ExecutionKernel {
 
     // Run one scalar aggregate key fold under canonical aggregate window and
     // read-consistency eligibility contracts.
-    pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold(
+    pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold<S, F>(
         store: StoreHandle,
         plan: &AccessPlannedQuery,
         mode: AggregateFoldMode,
-        key_stream: &mut dyn OrderedKeyStream,
-        on_key: &mut dyn FnMut(&DataKey) -> Result<FoldControl, InternalError>,
-    ) -> Result<usize, InternalError> {
-        let continuation = RefCell::new(ContinuationRuntime::from_window(
-            Self::window_cursor_contract(plan, None),
-        ));
+        key_stream: &mut S,
+        mut on_key: F,
+    ) -> Result<usize, InternalError>
+    where
+        S: OrderedKeyStream + ?Sized,
+        F: FnMut(&DataKey) -> Result<FoldControl, InternalError>,
+    {
+        let mut continuation =
+            ContinuationRuntime::from_window(Self::window_cursor_contract(plan, None));
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
-        drive_key_stream_with_control_flow(
-            key_stream,
-            &mut || {
-                let action = continuation.borrow_mut().pre_fetch();
+        loop {
+            let pre_fetch = continuation.pre_fetch();
+            match Self::loop_control_from_continuation_action(pre_fetch) {
+                KeyStreamLoopControl::Skip => continue,
+                KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
 
-                Self::loop_control_from_continuation_action(action)
-            },
-            &mut |key| {
-                keys_scanned = keys_scanned.saturating_add(1);
-                if !Self::key_qualifies_for_fold(store, consistency, mode, &key)? {
-                    return Ok(KeyStreamLoopControl::Skip);
-                }
-                match continuation.borrow_mut().accept_row() {
-                    LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
-                    LoopAction::Emit => {}
-                    LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
-                }
+            let Some(key) = key_stream.next_key()? else {
+                break;
+            };
+            keys_scanned = keys_scanned.saturating_add(1);
+            if !Self::key_qualifies_for_fold(store, consistency, mode, &key)? {
+                continue;
+            }
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
+            }
 
-                Ok(match on_key(&key)? {
-                    FoldControl::Continue => KeyStreamLoopControl::Emit,
-                    FoldControl::Break => KeyStreamLoopControl::Stop,
-                })
-            },
-        )?;
+            match on_key(&key)? {
+                FoldControl::Continue => {}
+                FoldControl::Break => break,
+            }
+        }
 
         Ok(keys_scanned)
     }

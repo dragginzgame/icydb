@@ -19,6 +19,7 @@ use crate::{
             CanonicalSlotReader, RawRow, SlotReader, StructuralSlotReader,
             encode_persisted_scalar_slot_payload,
         },
+        executor::terminal::RowLayout,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
@@ -104,6 +105,11 @@ fn row(
     (entity.id(), entity)
 }
 
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
+    RowLayout::from_model(ProjectionEvalEntity::MODEL)
+}
+
 fn resolve_field_slot_from_fields(fields: &[FieldModel], field_name: &str) -> Option<usize> {
     fields.iter().position(|field| field.name() == field_name)
 }
@@ -134,13 +140,13 @@ fn eval_expr_with_slot_reader(
         Expr::Literal(value) => Ok(value.clone()),
         Expr::Unary { op, expr } => {
             let operand = eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot)?;
-            super::eval_unary_expr(*op, operand)
+            super::eval_unary_expr(*op, &operand)
         }
         Expr::Binary { op, left, right } => {
             let left_value = eval_expr_with_slot_reader(left.as_ref(), fields, read_slot)?;
             let right_value = eval_expr_with_slot_reader(right.as_ref(), fields, read_slot)?;
 
-            super::eval_binary_expr(*op, left_value, right_value)
+            super::eval_binary_expr(*op, &left_value, &right_value)
         }
         Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
             kind: format!("{:?}", aggregate.kind()),
@@ -171,7 +177,7 @@ fn eval_expr_with_required_value_reader(
         Expr::Literal(value) => Ok(value.clone()),
         Expr::Unary { op, expr } => {
             let operand = eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)?;
-            super::eval_unary_expr(*op, operand)
+            super::eval_unary_expr(*op, &operand)
                 .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
         }
         Expr::Binary { op, left, right } => {
@@ -180,7 +186,7 @@ fn eval_expr_with_required_value_reader(
             let right_value =
                 eval_expr_with_required_value_reader(right.as_ref(), fields, read_slot)?;
 
-            super::eval_binary_expr(*op, left_value, right_value)
+            super::eval_binary_expr(*op, &left_value, &right_value)
                 .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
         }
         Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {

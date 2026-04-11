@@ -16,9 +16,9 @@ use crate::{
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
-    types::EntityTag,
-    value::StorageKey,
 };
+#[cfg(test)]
+use crate::{types::EntityTag, value::StorageKey};
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use std::cell::RefCell;
 use std::ops::Bound;
@@ -159,6 +159,7 @@ enum RowPresenceProbeSource {
 /// consistency handling into one explicit boundary.
 ///
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct FusedSecondaryCoveringAuthority<'a> {
     data: &'a DataStore,
@@ -166,6 +167,7 @@ pub(in crate::db::executor) struct FusedSecondaryCoveringAuthority<'a> {
     consistency: MissingRowPolicy,
 }
 
+#[cfg(test)]
 impl<'a> FusedSecondaryCoveringAuthority<'a> {
     /// Construct one fused stale-row authority over one borrowed data-store
     /// boundary and one fixed entity identity.
@@ -427,6 +429,9 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
 // Read only row presence under one consistency contract from structural store
 // authority. Covering-read paths use this when they still need stale-row
 // filtering but do not need to clone the raw row payload itself.
+// Metrics tests still exercise this generic selector directly even though
+// production hot paths now prefer pre-selected helper variants.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
     store: StoreHandle,
     key: &DataKey,
@@ -439,6 +444,28 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
             consistency,
             RowPresenceProbeSource::StoreHandle,
         )
+    })
+}
+
+// Read only row presence from structural store authority while treating
+// missing rows as a normal filtered-out outcome.
+pub(in crate::db::executor) fn read_row_presence_ignoring_missing_from_store(
+    store: StoreHandle,
+    key: &DataKey,
+) -> Result<bool, InternalError> {
+    store.with_data(|data| {
+        read_row_presence_ignoring_missing(data, key, RowPresenceProbeSource::StoreHandle)
+    })
+}
+
+// Read only row presence from structural store authority while preserving the
+// fail-closed missing-row contract.
+pub(in crate::db::executor) fn read_row_presence_requiring_existing_from_store(
+    store: StoreHandle,
+    key: &DataKey,
+) -> Result<bool, InternalError> {
+    store.with_data(|data| {
+        read_row_presence_requiring_existing(data, key, RowPresenceProbeSource::StoreHandle)
     })
 }
 
@@ -465,11 +492,7 @@ fn read_row_presence_with_consistency(
     consistency: MissingRowPolicy,
     source: RowPresenceProbeSource,
 ) -> Result<bool, InternalError> {
-    record_row_presence_probe_source(source);
-    record_row_presence_key_to_raw_encode();
-    let raw = key.to_raw()?;
-    let row_exists = data.contains(&raw);
-    record_row_presence_probe_result(row_exists);
+    let row_exists = probe_row_presence(data, key, source)?;
 
     match consistency {
         MissingRowPolicy::Error => {
@@ -481,6 +504,42 @@ fn read_row_presence_with_consistency(
         }
         MissingRowPolicy::Ignore => Ok(row_exists),
     }
+}
+
+fn read_row_presence_ignoring_missing(
+    data: &DataStore,
+    key: &DataKey,
+    source: RowPresenceProbeSource,
+) -> Result<bool, InternalError> {
+    probe_row_presence(data, key, source)
+}
+
+fn read_row_presence_requiring_existing(
+    data: &DataStore,
+    key: &DataKey,
+    source: RowPresenceProbeSource,
+) -> Result<bool, InternalError> {
+    let row_exists = probe_row_presence(data, key, source)?;
+
+    if row_exists {
+        Ok(true)
+    } else {
+        Err(ExecutorError::missing_row(key).into())
+    }
+}
+
+fn probe_row_presence(
+    data: &DataStore,
+    key: &DataKey,
+    source: RowPresenceProbeSource,
+) -> Result<bool, InternalError> {
+    record_row_presence_probe_source(source);
+    record_row_presence_key_to_raw_encode();
+    let raw = key.to_raw()?;
+    let row_exists = data.contains(&raw);
+    record_row_presence_probe_result(row_exists);
+
+    Ok(row_exists)
 }
 
 // Read one persisted row under one consistency contract and preserve the source data key.
@@ -550,13 +609,16 @@ pub(in crate::db::executor) fn sum_row_payload_bytes_key_range_window_with_store
 }
 
 /// Fold persisted row payload bytes over one ordered key stream page window through structural store authority.
-pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream_with_store(
+pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream_with_store<S>(
     store: StoreHandle,
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut S,
     consistency: MissingRowPolicy,
     offset: usize,
     limit: Option<usize>,
-) -> Result<u64, InternalError> {
+) -> Result<u64, InternalError>
+where
+    S: OrderedKeyStream + ?Sized,
+{
     sum_row_payload_bytes_from_ordered_key_stream_shared(
         key_stream,
         &mut |key| read_row_with_consistency_from_store(store, key, consistency),
@@ -613,12 +675,16 @@ fn sum_payload_bytes_from_row_lengths(
 
 // Shared ordered key-stream scan loop used by payload-byte aggregation.
 // Entity wrappers provide consistency-aware row reads via callback injection.
-fn sum_row_payload_bytes_from_ordered_key_stream_shared(
-    key_stream: &mut dyn OrderedKeyStream,
-    read_row: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+fn sum_row_payload_bytes_from_ordered_key_stream_shared<S, F>(
+    key_stream: &mut S,
+    read_row: &mut F,
     offset: usize,
     limit: Option<usize>,
-) -> Result<u64, InternalError> {
+) -> Result<u64, InternalError>
+where
+    S: OrderedKeyStream + ?Sized,
+    F: FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+{
     let mut total = 0u64;
     let mut offset_remaining = offset;
     let mut limit_remaining = limit;

@@ -9,9 +9,9 @@ use crate::{
             ExecutionOptimization, ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
                 DirectCoveringScanMaterializationRequest, ExecutionInputs,
-                MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
-                RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
-                StructuralCursorPage,
+                MaterializedExecutionAttempt, MaterializedExecutionPayload,
+                ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
+                RuntimePageMaterializationRequest,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
             route::{IndexRangeLimitSpec, widened_residual_predicate_pushdown_fetch},
@@ -151,16 +151,17 @@ impl ExecutionKernel {
 
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
-        let (page, keys_scanned, post_access_rows) = Self::materialize_resolved_execution_stream(
-            inputs,
-            route_plan,
-            continuation,
-            &mut resolved,
-        )?;
+        let (payload, keys_scanned, post_access_rows) =
+            Self::materialize_resolved_execution_stream(
+                inputs,
+                route_plan,
+                continuation,
+                &mut resolved,
+            )?;
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
 
         Ok(MaterializedExecutionAttempt {
-            page,
+            payload,
             rows_scanned,
             post_access_rows,
             optimization: resolved.optimization(),
@@ -178,7 +179,7 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
     ) -> Result<Option<MaterializedExecutionAttempt>, InternalError> {
-        let Some((page, keys_scanned, post_access_rows)) = inputs
+        let Some((payload, keys_scanned, post_access_rows)) = inputs
             .runtime()
             .try_materialize_load_via_direct_covering_scan(
                 DirectCoveringScanMaterializationRequest {
@@ -189,10 +190,12 @@ impl ExecutionKernel {
                     predicate_slots: inputs.execution_preparation().compiled_predicate(),
                     validate_projection: inputs.validate_projection(),
                     retain_slot_rows: inputs.retain_slot_rows(),
+                    prepared_projection_shape: inputs.prepared_projection_shape(),
                     prepared_projection_validation: inputs.prepared_projection_validation(),
                     #[cfg(feature = "sql")]
                     prepared_sql_projection: inputs.prepared_sql_projection(),
-                    prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
+                    projection_materialization: inputs.projection_materialization(),
+                    fuse_immediate_sql_terminal: inputs.fuse_immediate_sql_terminal(),
                 },
             )?
         else {
@@ -200,7 +203,7 @@ impl ExecutionKernel {
         };
 
         Ok(Some(MaterializedExecutionAttempt {
-            page,
+            payload,
             rows_scanned: keys_scanned,
             post_access_rows,
             optimization: Self::direct_covering_route_optimization(route_plan),
@@ -255,7 +258,7 @@ impl ExecutionKernel {
         accumulated_attempt.distinct_keys_deduped = accumulated_attempt
             .distinct_keys_deduped
             .saturating_add(latest_attempt.distinct_keys_deduped);
-        accumulated_attempt.page = latest_attempt.page;
+        accumulated_attempt.payload = latest_attempt.payload;
         accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
 
         accumulated_attempt
@@ -268,8 +271,8 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
-    ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
-        if let Some((page, keys_scanned, post_access_rows)) = inputs
+    ) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
+        if let Some((payload, keys_scanned, post_access_rows)) = inputs
             .runtime()
             .try_materialize_load_via_row_collector(RowCollectorMaterializationRequest {
                 plan: inputs.plan(),
@@ -281,18 +284,20 @@ impl ExecutionKernel {
                 predicate_slots: inputs.execution_preparation().compiled_predicate(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
-                slot_only_required_slots: inputs.slot_only_required_slots(),
+                retained_slot_layout: inputs.retained_slot_layout(),
+                prepared_projection_shape: inputs.prepared_projection_shape(),
                 prepared_projection_validation: inputs.prepared_projection_validation(),
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: inputs.prepared_sql_projection(),
-                prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
+                projection_materialization: inputs.projection_materialization(),
+                fuse_immediate_sql_terminal: inputs.fuse_immediate_sql_terminal(),
                 key_stream: resolved.key_stream_mut(),
             })?
         {
-            return Ok((page, keys_scanned, post_access_rows));
+            return Ok((payload, keys_scanned, post_access_rows));
         }
 
-        let (page, keys_scanned, post_access_rows) = inputs
+        let (payload, keys_scanned, post_access_rows) = inputs
             .runtime()
             .materialize_key_stream_into_structural_page(RuntimePageMaterializationRequest {
                 plan: inputs.plan(),
@@ -302,10 +307,13 @@ impl ExecutionKernel {
                 load_order_route_contract: route_plan.load_order_route_contract(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
-                slot_only_required_slots: inputs.slot_only_required_slots(),
+                retained_slot_layout: inputs.retained_slot_layout(),
+                prepared_projection_shape: inputs.prepared_projection_shape(),
                 prepared_projection_validation: inputs.prepared_projection_validation(),
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: inputs.prepared_sql_projection(),
+                projection_materialization: inputs.projection_materialization(),
+                fuse_immediate_sql_terminal: inputs.fuse_immediate_sql_terminal(),
                 cursor_emission: if inputs.emit_cursor() {
                     crate::db::executor::pipeline::contracts::CursorEmissionMode::Emit
                 } else {
@@ -315,7 +323,7 @@ impl ExecutionKernel {
                 continuation,
             })?;
 
-        Ok((page, keys_scanned, post_access_rows))
+        Ok((payload, keys_scanned, post_access_rows))
     }
 
     // Decide whether residual underfill should stop, widen the bounded fetch,

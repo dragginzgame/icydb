@@ -10,4 +10,6 @@ pub(in crate::db::executor) use finalize::{
     GroupedOutputRuntimeObserverBindings, finalize_grouped_output_with_observer,
     finalize_path_outcome_for_path,
 };
-pub(in crate::db::executor) use projection::project_grouped_rows_from_projection;
+pub(in crate::db::executor) use projection::{
+    project_grouped_rows_from_projection, project_grouped_values_from_projection,
+};

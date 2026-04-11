@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [features]
 default = ["sql"]
 sql = ["icydb/sql", "icydb/structural-read-metrics"]
+perf-attribution = ["icydb/perf-attribution"]
 
 [dependencies]
 candid = { workspace = true }

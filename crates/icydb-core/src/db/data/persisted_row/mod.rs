@@ -35,7 +35,11 @@ pub(in crate::db::data::persisted_row) use reader::CachedSlotValue;
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 pub(crate) use reader::{StructuralReadMetrics, with_structural_read_metrics};
-pub(in crate::db) use reader::{StructuralSlotReader, decode_dense_raw_row_with_contract};
+pub(in crate::db) use reader::{
+    StructuralSlotReader, decode_dense_raw_row_with_contract,
+    decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
+    decode_sparse_required_slot_with_contract,
+};
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use types::FieldSlot;
 pub(in crate::db) use types::{CanonicalSlotReader, SerializedUpdatePatch};

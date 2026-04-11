@@ -14,7 +14,9 @@ use crate::{
     },
     value::Value,
 };
-use std::{borrow::Cow, cmp::Ordering};
+use std::{array, borrow::Cow, cmp::Ordering};
+
+const INLINE_ORDER_VALUE_CAPACITY: usize = 4;
 
 ///
 /// OrderReadableRow
@@ -34,6 +36,68 @@ pub(in crate::db::executor) trait OrderReadableRow {
     /// leave the borrowed structural-ordering boundary.
     fn read_order_slot(&self, slot: usize) -> Option<Value> {
         self.read_order_slot_cow(slot).map(Cow::into_owned)
+    }
+}
+
+// Cache a small ORDER BY tuple inline so common single-field and short
+// multi-field sorts do not heap-allocate one key vector per retained row.
+enum CachedOrderValues {
+    Inline {
+        len: usize,
+        values: [Option<Value>; INLINE_ORDER_VALUE_CAPACITY],
+    },
+    Heap(Vec<Option<Value>>),
+}
+
+impl CachedOrderValues {
+    fn with_capacity(field_count: usize) -> Self {
+        if field_count <= INLINE_ORDER_VALUE_CAPACITY {
+            Self::Inline {
+                len: 0,
+                values: array::from_fn(|_| None),
+            }
+        } else {
+            Self::Heap(Vec::with_capacity(field_count))
+        }
+    }
+
+    fn push(&mut self, value: Option<Value>) {
+        match self {
+            Self::Inline { len, values } => {
+                debug_assert!(
+                    *len < INLINE_ORDER_VALUE_CAPACITY,
+                    "inline order-value buffer overflowed declared capacity",
+                );
+                values[*len] = value;
+                *len += 1;
+            }
+            Self::Heap(values) => values.push(value),
+        }
+    }
+
+    fn into_boundary_slots(self) -> Vec<CursorBoundarySlot> {
+        match self {
+            Self::Inline { len, values } => {
+                let mut slots = Vec::with_capacity(len);
+                for value in values.into_iter().take(len) {
+                    slots.push(match value {
+                        Some(value) => CursorBoundarySlot::Present(value),
+                        None => CursorBoundarySlot::Missing,
+                    });
+                }
+                slots
+            }
+            Self::Heap(values) => {
+                let mut slots = Vec::with_capacity(values.len());
+                for value in values {
+                    slots.push(match value {
+                        Some(value) => CursorBoundarySlot::Present(value),
+                        None => CursorBoundarySlot::Missing,
+                    });
+                }
+                slots
+            }
+        }
     }
 }
 
@@ -59,14 +123,13 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
     // Phase 1: cache resolved order values once per row so bounded selection
     // and final sort do not re-read sparse slots or re-run expression-order
     // derivation inside comparator hot loops.
-    let mut cached_rows = std::mem::take(rows)
-        .into_iter()
-        .map(|row| {
-            let cached_values = cache_order_values_from_row(&row, resolved_order);
+    let mut source_rows = std::mem::take(rows);
+    let mut cached_rows = Vec::with_capacity(source_rows.len());
+    for row in source_rows.drain(..) {
+        let cached_values = cache_order_values_from_row(&row, resolved_order);
 
-            (row, cached_values)
-        })
-        .collect::<Vec<_>>();
+        cached_rows.push((row, cached_values));
+    }
 
     // Phase 2: retain only the bounded canonical window when pagination
     // exposes one, using the cached order keys instead of live row reads.
@@ -74,16 +137,15 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
         && cached_rows.len() > keep_count
     {
         cached_rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_cached_orderable_rows(left.1.as_slice(), right.1.as_slice(), resolved_order)
+            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
         });
         cached_rows.truncate(keep_count);
     }
 
     // Phase 3: sort the retained rows into final canonical order using the
     // precomputed key values.
-    cached_rows.sort_by(|left, right| {
-        compare_cached_orderable_rows(left.1.as_slice(), right.1.as_slice(), resolved_order)
-    });
+    cached_rows
+        .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
     rows.extend(cached_rows.into_iter().map(|(row, _)| row));
 }
 
@@ -120,50 +182,73 @@ pub(in crate::db::executor) fn cursor_boundary_from_orderable_row<R>(
 where
     R: OrderReadableRow,
 {
+    let cached_values = cache_order_values_from_row(row, resolved_order);
     CursorBoundary {
-        slots: cache_order_values_from_row(row, resolved_order)
-            .into_iter()
-            .map(|value| match value {
-                Some(value) => CursorBoundarySlot::Present(value),
-                None => CursorBoundarySlot::Missing,
-            })
-            .collect(),
+        slots: cached_values.into_boundary_slots(),
     }
 }
 
 // Compare two cached structural ordering tuples according to the resolved
 // canonical order without re-reading row slots inside the comparator.
 fn compare_cached_orderable_rows(
-    left: &[Option<Value>],
-    right: &[Option<Value>],
+    left: &CachedOrderValues,
+    right: &CachedOrderValues,
     resolved_order: &ResolvedOrder,
 ) -> Ordering {
-    compare_structural_order_slots(resolved_order, |slot_index, _field_index, direction| {
-        let left_slot = left.get(slot_index).and_then(Option::as_ref);
-        let right_slot = right.get(slot_index).and_then(Option::as_ref);
-
-        debug_assert!(
-            left.get(slot_index).is_some() && right.get(slot_index).is_some(),
-            "cached order values must align with resolved order fields",
-        );
-        apply_order_direction(
-            compare_cached_order_values(left_slot, right_slot),
-            direction,
-        )
-    })
+    match (left, right) {
+        (
+            CachedOrderValues::Inline {
+                len: left_len,
+                values: left_values,
+            },
+            CachedOrderValues::Inline {
+                len: right_len,
+                values: right_values,
+            },
+        ) => compare_cached_order_value_lists(
+            &left_values[..*left_len],
+            &right_values[..*right_len],
+            resolved_order,
+        ),
+        (CachedOrderValues::Heap(left_values), CachedOrderValues::Heap(right_values)) => {
+            compare_cached_order_value_lists(left_values, right_values, resolved_order)
+        }
+        (
+            CachedOrderValues::Inline {
+                len: left_len,
+                values: left_values,
+            },
+            CachedOrderValues::Heap(right_values),
+        ) => compare_cached_order_value_lists(
+            &left_values[..*left_len],
+            right_values,
+            resolved_order,
+        ),
+        (
+            CachedOrderValues::Heap(left_values),
+            CachedOrderValues::Inline {
+                len: right_len,
+                values: right_values,
+            },
+        ) => compare_cached_order_value_lists(
+            left_values,
+            &right_values[..*right_len],
+            resolved_order,
+        ),
+    }
 }
 
 // Cache one row's order values once so sort/select hot loops can compare
 // cheap owned key tuples instead of re-deriving them repeatedly.
-fn cache_order_values_from_row<R>(row: &R, resolved_order: &ResolvedOrder) -> Vec<Option<Value>>
+fn cache_order_values_from_row<R>(row: &R, resolved_order: &ResolvedOrder) -> CachedOrderValues
 where
     R: OrderReadableRow,
 {
-    resolved_order
-        .fields()
-        .iter()
-        .copied()
-        .map(|field| match field.source() {
+    let fields = resolved_order.fields();
+    let mut cached_values = CachedOrderValues::with_capacity(fields.len());
+
+    for field in fields.iter().copied() {
+        let value = match field.source() {
             ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot(slot),
             ResolvedOrderValueSource::ExpressionLower(slot) => {
                 derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
@@ -171,8 +256,46 @@ where
             ResolvedOrderValueSource::ExpressionUpper(slot) => {
                 derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Upper(""))
             }
-        })
-        .collect()
+        };
+        cached_values.push(value);
+    }
+
+    cached_values
+}
+
+// Compare two already-materialized ordering tuples by walking their cached
+// value lists directly instead of re-entering indexed slot lookups.
+fn compare_cached_order_value_lists(
+    left: &[Option<Value>],
+    right: &[Option<Value>],
+    resolved_order: &ResolvedOrder,
+) -> Ordering {
+    debug_assert_eq!(
+        left.len(),
+        resolved_order.fields().len(),
+        "cached left order values must align with resolved order fields",
+    );
+    debug_assert_eq!(
+        right.len(),
+        resolved_order.fields().len(),
+        "cached right order values must align with resolved order fields",
+    );
+
+    for ((left_slot, right_slot), field) in left
+        .iter()
+        .zip(right.iter())
+        .zip(resolved_order.fields().iter().copied())
+    {
+        let ordering = apply_order_direction(
+            compare_cached_order_values(left_slot.as_ref(), right_slot.as_ref()),
+            field.direction(),
+        );
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+
+    Ordering::Equal
 }
 
 // Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
@@ -194,10 +317,10 @@ where
 }
 
 // Borrow one slot-reader value through the shared ordering seam.
-fn order_value_from_row(
-    row: &dyn OrderReadableRow,
-    source: ResolvedOrderValueSource,
-) -> Option<Cow<'_, Value>> {
+fn order_value_from_row<R>(row: &R, source: ResolvedOrderValueSource) -> Option<Cow<'_, Value>>
+where
+    R: OrderReadableRow + ?Sized,
+{
     match source {
         ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(slot),
         ResolvedOrderValueSource::ExpressionLower(slot) => {
@@ -212,11 +335,14 @@ fn order_value_from_row(
 }
 
 // Derive one owned expression-order value from one structural row slot.
-fn derive_expression_order_row_value(
-    row: &dyn OrderReadableRow,
+fn derive_expression_order_row_value<R>(
+    row: &R,
     slot: usize,
     term: ExpressionOrderTerm<'_>,
-) -> Option<Value> {
+) -> Option<Value>
+where
+    R: OrderReadableRow + ?Sized,
+{
     let value = row.read_order_slot_cow(slot)?;
 
     derive_expression_order_value(term, value.as_ref())
@@ -398,5 +524,37 @@ mod tests {
         assert_eq!(left_reads.get(), 1);
         assert_eq!(middle_reads.get(), 1);
         assert_eq!(right_reads.get(), 1);
+    }
+
+    #[test]
+    fn cursor_boundary_from_orderable_row_handles_heap_cached_values() {
+        let row = TestRow::new(vec![
+            Some(Value::Uint(1)),
+            Some(Value::Uint(2)),
+            Some(Value::Uint(3)),
+            Some(Value::Uint(4)),
+            Some(Value::Uint(5)),
+        ]);
+        let boundary = cursor_boundary_from_orderable_row(
+            &row,
+            &resolved_order(&[
+                (0, OrderDirection::Asc),
+                (1, OrderDirection::Asc),
+                (2, OrderDirection::Asc),
+                (3, OrderDirection::Asc),
+                (4, OrderDirection::Asc),
+            ]),
+        );
+
+        assert_eq!(
+            boundary.slots,
+            vec![
+                CursorBoundarySlot::Present(Value::Uint(1)),
+                CursorBoundarySlot::Present(Value::Uint(2)),
+                CursorBoundarySlot::Present(Value::Uint(3)),
+                CursorBoundarySlot::Present(Value::Uint(4)),
+                CursorBoundarySlot::Present(Value::Uint(5)),
+            ]
+        );
     }
 }

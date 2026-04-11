@@ -3,7 +3,17 @@
 //! Does not own: physical stream resolution or planner semantics.
 //! Boundary: foundational key-stream interfaces used by executor stream modules.
 
-use crate::{db::data::DataKey, error::InternalError};
+use crate::{
+    db::{
+        data::DataKey,
+        executor::stream::key::{
+            DistinctOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
+            MergeOrderedKeyStream,
+        },
+    },
+    error::InternalError,
+};
+use std::{cell::Cell, rc::Rc};
 
 ///
 /// OrderedKeyStream
@@ -37,56 +47,155 @@ pub(in crate::db::executor) enum KeyStreamLoopControl {
     Stop,
 }
 
-// Shared key-stream driver used by scalar and grouped aggregate runners.
-// Callers inject pre-fetch and per-key callbacks so stream control flow is
-// centralized without coupling to lane-specific semantics.
-pub(in crate::db::executor) fn drive_key_stream_with_control_flow(
-    key_stream: &mut dyn OrderedKeyStream,
-    pre_fetch: &mut dyn FnMut() -> KeyStreamLoopControl,
-    on_key: &mut dyn FnMut(DataKey) -> Result<KeyStreamLoopControl, InternalError>,
-) -> Result<(), InternalError> {
-    loop {
-        match pre_fetch() {
-            KeyStreamLoopControl::Skip => continue,
-            KeyStreamLoopControl::Emit => {}
-            KeyStreamLoopControl::Stop => break,
-        }
+///
+/// OrderedKeyStreamBox
+///
+/// Concrete owned ordered-key stream envelope used across executor access and
+/// terminal paths.
+/// This preserves one shared `OrderedKeyStream` polling contract while
+/// replacing the previous boxed trait object with an enum-backed stream shape
+/// that keeps common stream polling on direct matches instead of vtable calls.
+///
 
-        let Some(key) = key_stream.next_key()? else {
-            break;
-        };
+pub(in crate::db::executor) enum OrderedKeyStreamBox {
+    Empty(EmptyOrderedKeyStream),
+    Single(SingleOrderedKeyStream),
+    Materialized(VecOrderedKeyStream),
+    Distinct(DistinctOrderedKeyStream<Box<Self>>),
+    Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
+    Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
+}
 
-        match on_key(key)? {
-            KeyStreamLoopControl::Skip | KeyStreamLoopControl::Emit => {}
-            KeyStreamLoopControl::Stop => break,
+impl OrderedKeyStreamBox {
+    fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+
+    /// Poll the next key from this owned ordered stream.
+    pub(in crate::db::executor) fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        OrderedKeyStream::next_key(self)
+    }
+
+    /// Return the exact emitted-key count hint when this stream can prove one.
+    #[must_use]
+    pub(in crate::db::executor) fn exact_key_count_hint(&self) -> Option<usize> {
+        OrderedKeyStream::exact_key_count_hint(self)
+    }
+
+    /// Construct one owned empty ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) const fn empty() -> Self {
+        Self::Empty(EmptyOrderedKeyStream)
+    }
+
+    /// Construct one owned singleton ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) const fn single(key: DataKey) -> Self {
+        Self::Single(SingleOrderedKeyStream::new(key))
+    }
+
+    /// Construct one owned materialized ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn materialized(keys: Vec<DataKey>) -> Self {
+        Self::Materialized(VecOrderedKeyStream::new(keys))
+    }
+
+    /// Construct one owned distinct ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn distinct(inner: Self, comparator: KeyOrderComparator) -> Self {
+        Self::Distinct(DistinctOrderedKeyStream::new(inner.boxed(), comparator))
+    }
+
+    /// Construct one owned distinct ordered key stream with dedup observability.
+    #[must_use]
+    pub(in crate::db::executor) fn distinct_with_dedup_counter(
+        inner: Self,
+        comparator: KeyOrderComparator,
+        deduped_keys_counter: Rc<Cell<u64>>,
+    ) -> Self {
+        Self::Distinct(DistinctOrderedKeyStream::new_with_dedup_counter(
+            inner.boxed(),
+            comparator,
+            deduped_keys_counter,
+        ))
+    }
+
+    /// Construct one owned merge ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn merge(
+        left: Self,
+        right: Self,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self::Merge(MergeOrderedKeyStream::new_with_comparator(
+            left.boxed(),
+            right.boxed(),
+            comparator,
+        ))
+    }
+
+    /// Construct one owned intersection ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn intersect(
+        left: Self,
+        right: Self,
+        comparator: KeyOrderComparator,
+    ) -> Self {
+        Self::Intersect(IntersectOrderedKeyStream::new_with_comparator(
+            left.boxed(),
+            right.boxed(),
+            comparator,
+        ))
+    }
+}
+
+impl OrderedKeyStream for OrderedKeyStreamBox {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        match self {
+            Self::Empty(stream) => stream.next_key(),
+            Self::Single(stream) => stream.next_key(),
+            Self::Materialized(stream) => stream.next_key(),
+            Self::Distinct(stream) => stream.next_key(),
+            Self::Merge(stream) => stream.next_key(),
+            Self::Intersect(stream) => stream.next_key(),
         }
     }
 
-    Ok(())
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        match self {
+            Self::Empty(stream) => stream.exact_key_count_hint(),
+            Self::Single(stream) => stream.exact_key_count_hint(),
+            Self::Materialized(stream) => stream.exact_key_count_hint(),
+            Self::Distinct(stream) => stream.exact_key_count_hint(),
+            Self::Merge(stream) => stream.exact_key_count_hint(),
+            Self::Intersect(stream) => stream.exact_key_count_hint(),
+        }
+    }
 }
-
-pub(in crate::db::executor) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
 
 /// Return one canonical ordered key stream for already-materialized keys.
 pub(in crate::db::executor) fn ordered_key_stream_from_materialized_keys(
     mut keys: Vec<DataKey>,
 ) -> OrderedKeyStreamBox {
     match keys.len() {
-        0 => Box::new(EmptyOrderedKeyStream),
-        1 => Box::new(SingleOrderedKeyStream::new(
+        0 => OrderedKeyStreamBox::empty(),
+        1 => OrderedKeyStreamBox::single(
             keys.pop()
                 .expect("single-element key stream must contain one key"),
-        )),
-        _ => Box::new(VecOrderedKeyStream::new(keys)),
+        ),
+        _ => OrderedKeyStreamBox::materialized(keys),
     }
 }
 
 /// Return the exact emitted key count after applying one optional scan budget.
 #[must_use]
-pub(in crate::db::executor) fn exact_output_key_count_hint(
-    key_stream: &dyn OrderedKeyStream,
+pub(in crate::db::executor) fn exact_output_key_count_hint<S>(
+    key_stream: &S,
     budget: Option<usize>,
-) -> Option<usize> {
+) -> Option<usize>
+where
+    S: OrderedKeyStream + ?Sized,
+{
     let exact = key_stream.exact_key_count_hint()?;
 
     Some(match budget {
@@ -97,10 +206,13 @@ pub(in crate::db::executor) fn exact_output_key_count_hint(
 
 /// Return whether one explicit scan budget is already implied by the stream.
 #[must_use]
-pub(in crate::db::executor) fn key_stream_budget_is_redundant(
-    key_stream: &dyn OrderedKeyStream,
+pub(in crate::db::executor) fn key_stream_budget_is_redundant<S>(
+    key_stream: &S,
     budget: usize,
-) -> bool {
+) -> bool
+where
+    S: OrderedKeyStream + ?Sized,
+{
     key_stream
         .exact_key_count_hint()
         .is_some_and(|exact| exact <= budget)

@@ -215,91 +215,6 @@ impl<'a> StructuralSlotReader<'a> {
         })
     }
 
-    // Consume the structural slot reader into one slot-indexed decoded-value
-    // vector once the caller has decided it really needs the full slot image.
-    // This still validates and materializes each slot exactly once, but only
-    // for the full-image callers that actually consume every field.
-    pub(in crate::db) fn into_decoded_values(
-        mut self,
-    ) -> Result<Vec<Option<Value>>, InternalError> {
-        let contract = self.contract;
-        let cached_values = std::mem::take(&mut self.cached_values);
-        let mut values = Vec::with_capacity(cached_values.len());
-
-        for (slot, cached) in cached_values.into_iter().enumerate() {
-            match cached {
-                CachedSlotValue::Scalar {
-                    validated,
-                    materialized,
-                } => {
-                    let value = if let Some(value) = materialized.into_inner() {
-                        value
-                    } else {
-                        let validated = if let Some(validated) = validated.into_inner() {
-                            validated
-                        } else {
-                            #[cfg(any(test, feature = "structural-read-metrics"))]
-                            self.metrics.record_validated_slot();
-                            let field = contract.fields().get(slot).ok_or_else(|| {
-                                InternalError::persisted_row_slot_lookup_out_of_bounds(
-                                    contract.entity_path(),
-                                    slot,
-                                )
-                            })?;
-                            let raw_value = self.field_bytes.field(slot).ok_or_else(|| {
-                                InternalError::persisted_row_declared_field_missing(field.name())
-                            })?;
-                            let LeafCodec::Scalar(codec) = field.leaf_codec() else {
-                                return Err(InternalError::persisted_row_decode_failed(format!(
-                                    "validated scalar cache routed through non-scalar field contract: slot={slot}",
-                                )));
-                            };
-
-                            validated_scalar_slot_value(decode_scalar_slot_value(
-                                raw_value,
-                                codec,
-                                field.name(),
-                            )?)
-                        };
-                        materialize_validated_scalar_slot_value(
-                            validated,
-                            contract,
-                            &self.field_bytes,
-                            slot,
-                        )?
-                    };
-                    values.push(Some(value));
-                }
-                CachedSlotValue::Deferred { materialized } => {
-                    let field = contract.fields().get(slot).ok_or_else(|| {
-                        InternalError::persisted_row_slot_lookup_out_of_bounds(
-                            contract.entity_path(),
-                            slot,
-                        )
-                    })?;
-                    let value = if let Some(value) = materialized.into_inner() {
-                        value
-                    } else {
-                        #[cfg(any(test, feature = "structural-read-metrics"))]
-                        {
-                            self.metrics.record_validated_slot();
-                            self.metrics.record_validated_non_scalar();
-                            self.metrics.record_materialized_non_scalar();
-                        }
-                        let raw_value = self.field_bytes.field(slot).ok_or_else(|| {
-                            InternalError::persisted_row_declared_field_missing(field.name())
-                        })?;
-                        validate_non_scalar_slot_value(raw_value, field)?;
-                        decode_slot_value_for_field(field, raw_value)?
-                    };
-                    values.push(Some(value));
-                }
-            }
-        }
-
-        Ok(values)
-    }
-
     // Borrow one declared slot value from the validated structural cache,
     // materializing the semantic `Value` lazily when the caller first touches
     // that slot.
@@ -447,6 +362,110 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
     Ok(values)
 }
 
+/// Decode one sparse slot subset directly from persisted field bytes without
+/// constructing the per-slot lazy cache used by general `StructuralSlotReader`
+/// callers.
+///
+/// Executor sparse row paths usually touch each requested slot exactly once,
+/// so they can skip the reader-owned cache initialization loop and decode the
+/// selected slots directly after the shared row-envelope and primary-key
+/// validation steps.
+pub(in crate::db) fn decode_sparse_raw_row_with_contract(
+    raw_row: &RawRow,
+    contract: StructuralRowContract,
+    expected_key: StorageKey,
+    required_slots: &[usize],
+) -> Result<Vec<Option<Value>>, InternalError> {
+    // Phase 1: open the canonical field-byte spans once through the shared
+    // structural row envelope scanner.
+    let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
+
+    // Phase 2: validate the persisted primary-key payload directly against the
+    // authoritative storage key before decoding caller-selected fields.
+    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+
+    // Phase 3: decode only the requested slots without building the general
+    // lazy cache shape that sparse executor reads never reuse.
+    let mut values = vec![None; contract.field_count()];
+    let probe = StructuralReadProbe::begin(contract.field_count());
+
+    for &slot in required_slots {
+        values[slot] = Some(decode_selected_slot_value(
+            contract,
+            &field_bytes,
+            slot,
+            &probe,
+        )?);
+    }
+
+    finish_direct_probe(&probe);
+
+    Ok(values)
+}
+
+/// Decode one compact sparse slot buffer directly from persisted field bytes
+/// without constructing the surrounding `StructuralSlotReader`.
+pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(
+    raw_row: &RawRow,
+    contract: StructuralRowContract,
+    expected_key: StorageKey,
+    required_slots: &[usize],
+) -> Result<Vec<Option<Value>>, InternalError> {
+    // Phase 1: open the canonical field-byte spans once through the shared
+    // structural row envelope scanner.
+    let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
+
+    // Phase 2: validate the persisted primary-key payload directly against the
+    // authoritative storage key before decoding caller-selected fields.
+    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+
+    // Phase 3: decode only the requested retained slots into compact layout
+    // order, matching the executor-owned retained-slot layout contract.
+    let mut values = Vec::with_capacity(required_slots.len());
+    let probe = StructuralReadProbe::begin(contract.field_count());
+
+    for &slot in required_slots {
+        values.push(Some(decode_selected_slot_value(
+            contract,
+            &field_bytes,
+            slot,
+            &probe,
+        )?));
+    }
+
+    finish_direct_probe(&probe);
+
+    Ok(values)
+}
+
+/// Decode one selected slot value directly from persisted field bytes without
+/// constructing the surrounding row-reader cache.
+pub(in crate::db) fn decode_sparse_required_slot_with_contract(
+    raw_row: &RawRow,
+    contract: StructuralRowContract,
+    expected_key: StorageKey,
+    required_slot: usize,
+) -> Result<Option<Value>, InternalError> {
+    // Phase 1: open the canonical field-byte spans once through the shared
+    // structural row envelope scanner.
+    let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
+
+    // Phase 2: validate the persisted primary-key payload directly against the
+    // authoritative storage key before decoding the requested field.
+    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+
+    // Phase 3: decode exactly one caller-selected slot and report it through
+    // the same sparse-read metrics surface used by the reader-backed path.
+    let probe = StructuralReadProbe::begin(contract.field_count());
+    let value = decode_selected_slot_value(contract, &field_bytes, required_slot, &probe)?;
+    finish_direct_probe(&probe);
+
+    Ok(Some(value))
+}
+
 // Validate the persisted primary-key payload against one authoritative storage
 // key directly from structural field bytes.
 fn validate_storage_key_value_from_field_bytes(
@@ -503,6 +522,41 @@ fn validate_storage_key_value_from_field_bytes(
     Ok(())
 }
 
+// Decode one caller-selected slot directly from the structural field-byte
+// spans after row-envelope and primary-key validation have already succeeded.
+fn decode_selected_slot_value(
+    contract: StructuralRowContract,
+    field_bytes: &StructuralRowFieldBytes<'_>,
+    slot: usize,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
+    let field = contract.fields().get(slot).ok_or_else(|| {
+        InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
+    })?;
+    let raw_value = field_bytes
+        .field(slot)
+        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
+
+    match field.leaf_codec() {
+        LeafCodec::Scalar(codec) => {
+            probe.record_validated_slot();
+
+            match decode_scalar_slot_value(raw_value, codec, field.name())? {
+                ScalarSlotValueRef::Null => Ok(Value::Null),
+                ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
+            }
+        }
+        LeafCodec::CborFallback => {
+            probe.record_validated_slot();
+            probe.record_validated_non_scalar();
+            probe.record_materialized_non_scalar();
+            validate_non_scalar_slot_value(raw_value, field)?;
+
+            decode_slot_value_for_field(field, raw_value)
+        }
+    }
+}
+
 // Build the initial per-slot cache shape from the static field contract only.
 // This avoids a row-open decode loop while still letting access-time readers
 // branch cheaply by leaf codec.
@@ -521,6 +575,43 @@ fn build_initial_slot_cache(contract: StructuralRowContract) -> Vec<CachedSlotVa
         })
         .collect()
 }
+
+// Flush one direct sparse-read probe into the thread-local structural metrics
+// aggregator so executor sparse decode paths preserve the same observability
+// contract as reader-backed lazy decode paths.
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn finish_direct_probe(probe: &StructuralReadProbe) {
+    if !probe.collect {
+        return;
+    }
+
+    let validated_non_scalar_slots = probe.validated_non_scalar_slots.get();
+    let materialized_non_scalar_slots = probe.materialized_non_scalar_slots.get();
+    let declared_slots_validated = probe.declared_slots_validated.get();
+
+    STRUCTURAL_READ_METRICS.with(|metrics| {
+        if let Some(aggregate) = metrics.borrow_mut().as_mut() {
+            aggregate.rows_opened = aggregate.rows_opened.saturating_add(1);
+            aggregate.declared_slots_validated = aggregate
+                .declared_slots_validated
+                .saturating_add(declared_slots_validated);
+            aggregate.validated_non_scalar_slots = aggregate
+                .validated_non_scalar_slots
+                .saturating_add(validated_non_scalar_slots);
+            aggregate.materialized_non_scalar_slots = aggregate
+                .materialized_non_scalar_slots
+                .saturating_add(materialized_non_scalar_slots);
+            if materialized_non_scalar_slots == 0 {
+                aggregate.rows_without_lazy_non_scalar_materializations = aggregate
+                    .rows_without_lazy_non_scalar_materializations
+                    .saturating_add(1);
+            }
+        }
+    });
+}
+
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+const fn finish_direct_probe(_probe: &StructuralReadProbe) {}
 
 // Freeze one validated scalar slot into a compact cache state that preserves
 // fixed-width scalar payloads by value and defers payload-backed scalar
@@ -814,6 +905,10 @@ struct StructuralReadProbe {
     materialized_non_scalar_slots: Cell<u64>,
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[derive(Debug)]
+struct StructuralReadProbe;
+
 #[cfg(any(test, feature = "structural-read-metrics"))]
 impl StructuralReadProbe {
     // Begin one optional per-reader metrics probe when a test-scoped capture
@@ -857,6 +952,29 @@ impl StructuralReadProbe {
 
         self.materialized_non_scalar_slots
             .set(self.materialized_non_scalar_slots.get().saturating_add(1));
+    }
+}
+
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+impl StructuralReadProbe {
+    // Build one no-op probe when structural read metrics are not compiled in.
+    const fn begin(_field_count: usize) -> Self {
+        Self
+    }
+
+    // Record one distinct slot validated on first access.
+    const fn record_validated_slot(&self) {
+        let _ = self;
+    }
+
+    // Record one non-scalar slot validated at row-open.
+    const fn record_validated_non_scalar(&self) {
+        let _ = self;
+    }
+
+    // Record one distinct non-scalar slot materialized after row-open.
+    const fn record_materialized_non_scalar(&self) {
+        let _ = self;
     }
 }
 

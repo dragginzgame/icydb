@@ -8,9 +8,10 @@ use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 use crate::{
     db::{
         query::plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, UnaryOp},
-        scalar_expr::{ScalarExprValue, compile_scalar_literal_expr_value},
+        scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value},
     },
     model::entity::{EntityModel, resolve_field_slot},
+    value::Value,
 };
 
 ///
@@ -18,14 +19,15 @@ use crate::{
 ///
 /// ScalarProjectionExpr is the planner-owned compiled scalar projection tree
 /// carried into execution for scalar projection materialization.
-/// Field slots and scalar literals are resolved once so executor consumers no
-/// longer rediscover projection structure from `EntityModel`.
+/// Field slots are resolved once and scalar literals are prebuilt into runtime
+/// `Value`s so executor consumers no longer rediscover projection structure or
+/// re-materialize literals per row from `EntityModel`.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ScalarProjectionExpr {
     Field(ScalarProjectionField),
-    Literal(ScalarExprValue<'static>),
+    Literal(Value),
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
@@ -95,9 +97,9 @@ pub(in crate::db) fn compile_scalar_projection_expr(
                 program,
             }))
         }
-        Expr::Literal(value) => {
-            compile_scalar_literal_expr_value(value).map(ScalarProjectionExpr::Literal)
-        }
+        Expr::Literal(value) => compile_scalar_literal_expr_value(value)
+            .map(scalar_expr_value_into_value)
+            .map(ScalarProjectionExpr::Literal),
         Expr::Unary { op, expr } => {
             compile_scalar_projection_expr(model, expr.as_ref()).map(|expr| {
                 ScalarProjectionExpr::Unary {

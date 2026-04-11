@@ -35,9 +35,6 @@ use crate::{
 #[cfg(test)]
 use std::collections::HashMap;
 
-type ScalarAggregateIngestAllFn<'f> =
-    dyn FnMut(&mut ScalarAggregateEngine) -> Result<(), InternalError> + 'f;
-
 ///
 /// GroupedAggregateOutput
 ///
@@ -354,10 +351,13 @@ impl ScalarAggregateEngine {
 // Execute one scalar aggregate engine through one canonical ingest/finalize authority.
 // The caller supplies loop/key ingestion behavior while this boundary owns the
 // terminal finalize projection.
-pub(in crate::db::executor) fn execute_scalar_aggregate(
+pub(in crate::db::executor) fn execute_scalar_aggregate<F>(
     mut engine: ScalarAggregateEngine,
-    ingest_all: &mut ScalarAggregateIngestAllFn<'_>,
-) -> Result<ScalarAggregateOutput, InternalError> {
+    mut ingest_all: F,
+) -> Result<ScalarAggregateOutput, InternalError>
+where
+    F: FnMut(&mut ScalarAggregateEngine) -> Result<(), InternalError>,
+{
     ingest_all(&mut engine)?;
 
     Ok(engine.finalize())

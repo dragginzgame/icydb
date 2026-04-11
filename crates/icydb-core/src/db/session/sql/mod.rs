@@ -14,6 +14,11 @@ use crate::{
     db::{
         DbSession, EntityResponse, GroupedTextCursorPageWithTrace, MissingRowPolicy,
         PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
+        executor::EntityAuthority,
+        query::{
+            intent::StructuralQuery,
+            plan::{AccessPlannedQuery, VisibleIndexes},
+        },
         sql::{
             lowering::{bind_lowered_sql_query, lower_sql_command_from_prepared_statement},
             parser::{SqlStatement, parse_sql},
@@ -32,6 +37,11 @@ use crate::db::session::sql::surface::{
 
 pub use crate::db::session::sql::surface::{
     SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+};
+#[cfg(feature = "perf-attribution")]
+pub use crate::db::{
+    executor::SqlProjectionTextExecutorAttribution,
+    session::sql::dispatch::LoweredSqlDispatchExecutorAttribution,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +68,20 @@ const fn unsupported_sql_computed_projection_message(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Resolve planner-visible indexes and build one execution-ready
+    // structural plan at the session SQL boundary.
+    pub(in crate::db::session::sql) fn build_structural_plan_with_visible_indexes_for_authority(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<(VisibleIndexes<'_>, AccessPlannedQuery), QueryError> {
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
+
+        Ok((visible_indexes, plan))
+    }
+
     // Lower one parsed SQL statement onto the structural query lane while
     // keeping dedicated global aggregate execution outside this shared path.
     fn query_from_sql_parsed<E>(

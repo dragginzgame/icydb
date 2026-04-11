@@ -136,6 +136,8 @@ pub use session::{
     DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
     debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use session::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
 #[cfg(feature = "sql")]
 pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,

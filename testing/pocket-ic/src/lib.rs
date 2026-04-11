@@ -24,6 +24,7 @@ const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
 const DEMO_RPG_WASM_PROFILE_ENV: &str = "DEMO_RPG_WASM_PROFILE";
 const CANISTER_SQL_MODE_ENV: &str = "ICYDB_CANISTER_SQL_MODE";
+const CANISTER_PERF_ATTRIBUTION_ENV: &str = "ICYDB_CANISTER_PERF_ATTRIBUTION";
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -114,6 +115,21 @@ fn selected_canister_sql_enabled() -> Result<bool, String> {
     }
 }
 
+fn selected_canister_perf_attribution_enabled() -> Result<bool, String> {
+    let Some(explicit_mode) = env::var_os(CANISTER_PERF_ATTRIBUTION_ENV) else {
+        return Ok(false);
+    };
+
+    let normalized = explicit_mode.to_string_lossy().to_ascii_lowercase();
+    match normalized.as_str() {
+        "on" | "enabled" | "true" => Ok(true),
+        "off" | "disabled" | "false" => Ok(false),
+        other => Err(format!(
+            "invalid {CANISTER_PERF_ATTRIBUTION_ENV} value '{other}', expected 'on'/'enabled'/'true' or 'off'/'disabled'/'false'"
+        )),
+    }
+}
+
 // Shorten retained source/build paths in release wasm artifacts without
 // changing semantics. These remaps only affect diagnostic path payloads that
 // would otherwise inflate the module data section.
@@ -180,6 +196,7 @@ fn build_canister_package(
 ) -> Result<PathBuf, String> {
     let root = workspace_root();
     let sql_enabled = selected_canister_sql_enabled()?;
+    let perf_attribution_enabled = selected_canister_perf_attribution_enabled()?;
     let mut cargo = Command::new("cargo");
 
     // Phase 1: configure the wasm cargo build request.
@@ -192,6 +209,9 @@ fn build_canister_package(
     ]);
     if !sql_enabled {
         cargo.arg("--no-default-features");
+    }
+    if perf_attribution_enabled && package_name == SQL_PARITY_CANISTER_PACKAGE {
+        cargo.args(["--features", "perf-attribution"]);
     }
     if profile == "release" {
         cargo.arg("--release");

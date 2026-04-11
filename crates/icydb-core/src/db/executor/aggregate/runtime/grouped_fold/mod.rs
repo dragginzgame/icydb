@@ -39,9 +39,9 @@ use crate::{
             group::{GroupKey, StableHash, stable_hash_from_digest},
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntime, GroupedCursorPage, GroupedFoldStage,
-                GroupedRouteStage, GroupedRowRuntime, GroupedStreamStage, PageCursor,
-                PreparedExecutionProjection, ProjectionMaterializationMode, RowView,
+                ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage,
+                GroupedRouteStage, GroupedStreamStage, PageCursor, PreparedExecutionProjection,
+                ProjectionMaterializationMode, RowView, StructuralGroupedRowRuntime,
             },
             plan_metrics::record_grouped_plan_metrics,
         },
@@ -394,12 +394,12 @@ fn materialize_group_key_from_row_view(
 
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.
-pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
+pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
     route: &GroupedRouteStage,
-    runtime: &dyn ExecutionRuntime,
+    runtime: &ExecutionRuntimeAdapter<'_>,
     execution_preparation: ExecutionPreparation,
-    row_runtime: Box<dyn GroupedRowRuntime + 'a>,
-) -> Result<GroupedStreamStage<'a>, InternalError> {
+    row_runtime: StructuralGroupedRowRuntime,
+) -> Result<GroupedStreamStage, InternalError> {
     let execution_inputs = ExecutionInputs::new_prepared(
         runtime,
         route.plan(),
@@ -412,6 +412,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
         ProjectionMaterializationMode::SharedValidation,
         PreparedExecutionProjection::empty(),
         true,
+        false,
     );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
@@ -431,7 +432,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
 // only structural grouped reducer/runtime contracts.
 pub(in crate::db::executor) fn execute_group_fold_stage(
     route: &GroupedRouteStage,
-    mut stream: GroupedStreamStage<'_>,
+    mut stream: GroupedStreamStage,
 ) -> Result<GroupedFoldStage, InternalError> {
     // Phase 1: initialize grouped fold context, projection contracts, and reducers.
     let mut grouped_execution_context =
@@ -491,7 +492,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
 // grouped distinct aggregate path when that strategy is active.
 fn try_execute_global_distinct_grouped_fold_stage(
     route: &GroupedRouteStage,
-    stream: &mut GroupedStreamStage<'_>,
+    stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<Option<GroupedFoldStage>, InternalError> {
@@ -552,7 +553,7 @@ fn try_execute_global_distinct_grouped_fold_stage(
 // canonical grouped-count map instead of the generic grouped reducer stack.
 fn execute_single_grouped_count_fold_stage(
     route: &GroupedRouteStage,
-    stream: &mut GroupedStreamStage<'_>,
+    stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
@@ -567,33 +568,19 @@ fn execute_single_grouped_count_fold_stage(
     let mut grouped_counts = GroupedCountState::new();
 
     // Phase 1: fold grouped source rows directly into one canonical count map.
-    let mut on_key = |data_key: crate::db::data::DataKey| -> Result<
-        crate::db::executor::KeyStreamLoopControl,
-        InternalError,
-    > {
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-            return Ok(crate::db::executor::KeyStreamLoopControl::Emit);
+            continue;
         };
         scanned_rows = scanned_rows.saturating_add(1);
         if let Some(compiled_predicate) = compiled_predicate
             && !row_view.eval_predicate(compiled_predicate)
         {
-            return Ok(crate::db::executor::KeyStreamLoopControl::Emit);
+            continue;
         }
         filtered_rows = filtered_rows.saturating_add(1);
-        grouped_counts.increment_row(
-            &row_view,
-            route.group_fields(),
-            grouped_execution_context,
-        )?;
-
-        Ok(crate::db::executor::KeyStreamLoopControl::Emit)
-    };
-    crate::db::executor::drive_key_stream_with_control_flow(
-        resolved.key_stream_mut(),
-        &mut || crate::db::executor::KeyStreamLoopControl::Emit,
-        &mut on_key,
-    )?;
+        grouped_counts.increment_row(&row_view, route.group_fields(), grouped_execution_context)?;
+    }
 
     // Phase 2: page and project the finalized grouped-count rows directly so
     // this dedicated path does not round-trip through the generic candidate
@@ -617,7 +604,7 @@ fn execute_single_grouped_count_fold_stage(
 // that does not use a dedicated grouped fast path.
 fn execute_generic_grouped_fold_stage(
     route: &GroupedRouteStage,
-    stream: &mut GroupedStreamStage<'_>,
+    stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     mut grouped_bundle: GroupedAggregateBundle,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,

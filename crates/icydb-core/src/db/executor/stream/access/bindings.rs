@@ -213,6 +213,24 @@ impl<'a, K> ExecutableAccess<'a, K> {
         )
     }
 
+    /// Build one canonical runtime request and preserve top-level leaf index
+    /// order when the physical traversal order is part of the observable contract.
+    #[must_use]
+    pub(in crate::db::executor) fn new_with_preserved_leaf_index_order(
+        access: &'a AccessPlan<K>,
+        bindings: AccessStreamBindings<'a>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    ) -> Self {
+        Self::new(
+            access,
+            bindings,
+            physical_fetch_hint,
+            index_predicate_execution,
+        )
+        .with_preserved_leaf_index_order()
+    }
+
     /// Build one canonical runtime request from one executable access plan.
     #[must_use]
     pub(in crate::db::executor) const fn from_executable_plan(

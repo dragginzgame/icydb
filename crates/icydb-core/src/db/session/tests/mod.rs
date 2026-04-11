@@ -6858,6 +6858,91 @@ fn execute_sql_projection_filtered_composite_expression_order_only_query_returns
 }
 
 #[test]
+fn execute_sql_projection_filtered_composite_expression_order_only_pagination_matches_entity_rows()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one larger mixed-case filtered dataset so the guarded
+    // composite expression route has enough admitted rows to exercise several
+    // LIMIT/OFFSET windows while still carrying inactive and wrong-tier noise.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_281, "amber-user", true, "gold", "Amber", 10),
+            (9_282, "alpha-user", false, "gold", "alpha", 20),
+            (9_283, "bravo-user", true, "gold", "bravo", 30),
+            (9_284, "bravo-shadow", true, "silver", "Bravo", 40),
+            (9_285, "charlie-user", true, "gold", "CHARLIE", 50),
+            (9_286, "delta-user", true, "gold", "delta", 60),
+            (9_287, "echo-user", true, "gold", "Echo", 70),
+            (9_288, "foxtrot-user", false, "gold", "foxtrot", 80),
+            (9_289, "golf-user", true, "gold", "golf", 90),
+            (9_290, "hotel-user", true, "gold", "Hotel", 100),
+            (9_291, "india-user", true, "gold", "india", 110),
+        ],
+    );
+
+    // Phase 2: derive the canonical full ordered entity result so each paged
+    // projection window can be checked against the same structural order.
+    let base_sql = "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC";
+    let full_entity_rows = session
+        .execute_sql::<FilteredIndexedSessionSqlEntity>(base_sql)
+        .expect("filtered composite expression baseline entity query should execute");
+    let expected_projected_rows = full_entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().tier.clone()),
+                Value::Text(row.entity_ref().handle.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expected_projected_rows.len(),
+        8,
+        "the guarded composite expression fixture should admit eight ordered gold rows",
+    );
+
+    // Phase 3: compare several paged windows against both the entity lane and
+    // the expected ordered prefix so pagination cannot silently skip or repeat rows.
+    let mut concatenated_projection_pages = Vec::new();
+    for (offset, limit) in [(0_u64, 3_u64), (3, 3), (6, 3)] {
+        let paged_sql = format!("{base_sql} LIMIT {limit} OFFSET {offset}");
+        let projected_rows =
+            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, &paged_sql)
+                .expect("filtered composite expression paged projection query should execute");
+        let paged_entity_rows = session
+            .execute_sql::<FilteredIndexedSessionSqlEntity>(&paged_sql)
+            .expect("filtered composite expression paged entity query should execute");
+        let expected_page = paged_entity_rows
+            .iter()
+            .map(|row| {
+                vec![
+                    Value::Ulid(row.id().key()),
+                    Value::Text(row.entity_ref().tier.clone()),
+                    Value::Text(row.entity_ref().handle.clone()),
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            projected_rows, expected_page,
+            "paged composite expression projections must match the entity lane for LIMIT {limit} OFFSET {offset}",
+        );
+
+        concatenated_projection_pages.extend(projected_rows);
+    }
+
+    assert_eq!(
+        concatenated_projection_pages, expected_projected_rows,
+        "concatenated paged composite expression projections must preserve the canonical ordered guarded result set without missing or repeated rows",
+    );
+}
+
+#[test]
 fn execute_sql_projection_filtered_composite_expression_order_only_desc_query_returns_guarded_rows()
 {
     reset_indexed_session_sql_store();

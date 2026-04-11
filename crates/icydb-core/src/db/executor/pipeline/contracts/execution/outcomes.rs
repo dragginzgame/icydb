@@ -4,6 +4,24 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
+#[cfg(feature = "sql")]
+use crate::value::Value;
+
+///
+/// MaterializedExecutionPayload
+///
+/// Final materialization payload for one scalar execution attempt.
+/// Shared load lanes continue returning `StructuralCursorPage`, while fused
+/// immediate SQL terminals may emit final projected rows directly.
+///
+
+pub(in crate::db::executor) enum MaterializedExecutionPayload {
+    StructuralPage(StructuralCursorPage),
+    #[cfg(feature = "sql")]
+    SqlProjectedRows(Vec<Vec<Value>>),
+    #[cfg(feature = "sql")]
+    SqlRenderedRows(Vec<Vec<String>>),
+}
 
 ///
 /// MaterializedExecutionAttempt
@@ -13,7 +31,7 @@ use crate::db::executor::{ExecutionOptimization, pipeline::contracts::Structural
 ///
 
 pub(in crate::db::executor) struct MaterializedExecutionAttempt {
-    pub(in crate::db::executor) page: StructuralCursorPage,
+    pub(in crate::db::executor) payload: MaterializedExecutionPayload,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
     pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
@@ -39,10 +57,10 @@ pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
 }
 
 impl MaterializedExecutionAttempt {
-    // Split one materialized execution attempt into response page + observability metrics.
-    pub(in crate::db::executor) fn into_page_and_metrics(
+    // Split one materialized execution attempt into payload + observability metrics.
+    pub(in crate::db::executor) fn into_payload_and_metrics(
         self,
-    ) -> (StructuralCursorPage, ExecutionOutcomeMetrics) {
+    ) -> (MaterializedExecutionPayload, ExecutionOutcomeMetrics) {
         let metrics = ExecutionOutcomeMetrics {
             optimization: self.optimization,
             rows_scanned: self.rows_scanned,
@@ -52,6 +70,6 @@ impl MaterializedExecutionAttempt {
             distinct_keys_deduped: self.distinct_keys_deduped,
         };
 
-        (self.page, metrics)
+        (self.payload, metrics)
     }
 }

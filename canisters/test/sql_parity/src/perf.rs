@@ -4,6 +4,8 @@
 
 use crate::{core_db, db, sql_dispatch};
 use candid::{CandidType, Deserialize};
+#[cfg(feature = "perf-attribution")]
+use icydb::db::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
 use icydb::{
     Error,
     db::{
@@ -366,9 +368,76 @@ pub struct SqlPerfAttributionSample {
     pub lower_local_instructions: u64,
     pub dispatch_local_instructions: u64,
     pub execute_local_instructions: u64,
+    pub executor_breakdown: Option<SqlPerfExecutorAttribution>,
     pub wrapper_local_instructions: u64,
     pub total_local_instructions: u64,
     pub outcome: SqlPerfOutcome,
+}
+
+//
+// SqlPerfExecutorAttribution
+//
+// Nested execute-phase attribution for lowered SQL dispatch.
+// This keeps the existing top-level execute bucket stable while exposing the
+// inner bind/plan/projection phases needed for runtime hot-path triage.
+//
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfExecutorAttribution {
+    pub bind_local_instructions: u64,
+    pub visible_indexes_local_instructions: u64,
+    pub build_plan_local_instructions: u64,
+    pub projection_labels_local_instructions: u64,
+    pub projection_executor: SqlPerfProjectionTextExecutorAttribution,
+    pub dispatch_result_local_instructions: u64,
+    pub total_local_instructions: u64,
+}
+
+//
+// SqlPerfProjectionTextExecutorAttribution
+//
+// Nested projection executor attribution for rendered SQL row execution.
+// This separates structural prepare, scalar runtime, projection
+// materialization, and final row packaging inside the execute phase.
+//
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfProjectionTextExecutorAttribution {
+    pub prepare_projection_local_instructions: u64,
+    pub scalar_runtime_local_instructions: u64,
+    pub materialize_projection_local_instructions: u64,
+    pub result_rows_local_instructions: u64,
+    pub total_local_instructions: u64,
+}
+
+#[cfg(feature = "perf-attribution")]
+impl From<SqlProjectionTextExecutorAttribution> for SqlPerfProjectionTextExecutorAttribution {
+    fn from(attribution: SqlProjectionTextExecutorAttribution) -> Self {
+        Self {
+            prepare_projection_local_instructions: attribution
+                .prepare_projection_local_instructions,
+            scalar_runtime_local_instructions: attribution.scalar_runtime_local_instructions,
+            materialize_projection_local_instructions: attribution
+                .materialize_projection_local_instructions,
+            result_rows_local_instructions: attribution.result_rows_local_instructions,
+            total_local_instructions: attribution.total_local_instructions,
+        }
+    }
+}
+
+#[cfg(feature = "perf-attribution")]
+impl From<LoweredSqlDispatchExecutorAttribution> for SqlPerfExecutorAttribution {
+    fn from(attribution: LoweredSqlDispatchExecutorAttribution) -> Self {
+        Self {
+            bind_local_instructions: attribution.bind_local_instructions,
+            visible_indexes_local_instructions: attribution.visible_indexes_local_instructions,
+            build_plan_local_instructions: attribution.build_plan_local_instructions,
+            projection_labels_local_instructions: attribution.projection_labels_local_instructions,
+            projection_executor: attribution.projection_executor.into(),
+            dispatch_result_local_instructions: attribution.dispatch_result_local_instructions,
+            total_local_instructions: attribution.total_local_instructions,
+        }
+    }
 }
 
 // Measure one SQL surface request inside the running canister.
@@ -590,11 +659,27 @@ fn attribute_generated_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionS
     });
     let lowered = lowered_result?;
 
-    let (execute_local_instructions, execute_result) = measure_result(|| {
-        core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
-            .map_err(Error::from)
-    });
-    let _execute_result = execute_result?;
+    #[cfg(feature = "perf-attribution")]
+    let (execute_local_instructions, executor_breakdown) = {
+        let execute_breakdown = core
+            .attribute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+            .map_err(Error::from)?;
+
+        (
+            execute_breakdown.total_local_instructions,
+            Some(execute_breakdown.into()),
+        )
+    };
+    #[cfg(not(feature = "perf-attribution"))]
+    let (execute_local_instructions, executor_breakdown) = {
+        let (execute_local_instructions, execute_result) = measure_result(|| {
+            core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
+                .map_err(Error::from)
+        });
+        let _execute_result = execute_result?;
+
+        (execute_local_instructions, None)
+    };
 
     let dispatch_local_instructions = core_dispatch_total
         .saturating_sub(lower_local_instructions.saturating_add(execute_local_instructions));
@@ -617,6 +702,7 @@ fn attribute_generated_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionS
         lower_local_instructions,
         dispatch_local_instructions,
         execute_local_instructions,
+        executor_breakdown,
         wrapper_local_instructions,
         total_local_instructions: attributed_total(
             parse_local_instructions,
@@ -662,11 +748,27 @@ where
     });
     let lowered = lowered_result?;
 
-    let (execute_local_instructions, execute_result) = measure_result(|| {
-        core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
-            .map_err(Error::from)
-    });
-    let _execute_result = execute_result?;
+    #[cfg(feature = "perf-attribution")]
+    let (execute_local_instructions, executor_breakdown) = {
+        let execute_breakdown = core
+            .attribute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+            .map_err(Error::from)?;
+
+        (
+            execute_breakdown.total_local_instructions,
+            Some(execute_breakdown.into()),
+        )
+    };
+    #[cfg(not(feature = "perf-attribution"))]
+    let (execute_local_instructions, executor_breakdown) = {
+        let (execute_local_instructions, execute_result) = measure_result(|| {
+            core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
+                .map_err(Error::from)
+        });
+        let _execute_result = execute_result?;
+
+        (execute_local_instructions, None)
+    };
 
     let dispatch_local_instructions = core_dispatch_total
         .saturating_sub(lower_local_instructions.saturating_add(execute_local_instructions));
@@ -688,6 +790,7 @@ where
         lower_local_instructions,
         dispatch_local_instructions,
         execute_local_instructions,
+        executor_breakdown,
         wrapper_local_instructions,
         total_local_instructions: attributed_total(
             parse_local_instructions,
@@ -753,6 +856,7 @@ fn attribute_typed_grouped_surface(
         lower_local_instructions,
         dispatch_local_instructions,
         execute_local_instructions,
+        executor_breakdown: None,
         wrapper_local_instructions,
         total_local_instructions: attributed_total(
             parse_local_instructions,

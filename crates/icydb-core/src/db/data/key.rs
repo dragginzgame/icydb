@@ -15,7 +15,9 @@ use crate::{
 use canic_cdk::structures::storable::Bound;
 use std::{
     borrow::Cow,
+    cell::OnceCell,
     fmt::{self, Display},
+    hash::{Hash, Hasher},
     mem::size_of,
 };
 use thiserror::Error as ThisError;
@@ -75,10 +77,10 @@ pub(crate) enum DataKeyDecodeError {
 /// DataKey
 ///
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct DataKey {
     entity: EntityTag,
     key: StorageKey,
+    raw: OnceCell<RawDataKey>,
 }
 
 impl DataKey {
@@ -100,7 +102,25 @@ impl DataKey {
     /// Construct from runtime identity and key payload.
     #[must_use]
     pub(crate) const fn new(entity: EntityTag, key: StorageKey) -> Self {
-        Self { entity, key }
+        Self {
+            entity,
+            key,
+            raw: OnceCell::new(),
+        }
+    }
+
+    /// Construct one data key while freezing the already-known raw on-disk
+    /// representation alongside the decoded storage key.
+    #[must_use]
+    pub(crate) fn new_with_raw(entity: EntityTag, key: StorageKey, raw: RawDataKey) -> Self {
+        let cache = OnceCell::new();
+        let _ = cache.set(raw);
+
+        Self {
+            entity,
+            key,
+            raw: cache,
+        }
     }
 
     /// Construct using compile-time entity metadata.
@@ -194,10 +214,7 @@ impl DataKey {
     #[must_use]
     #[cfg(test)]
     fn max_storable() -> Self {
-        Self {
-            entity: EntityTag::new(u64::MAX),
-            key: StorageKey::max_storable(),
-        }
+        Self::new(EntityTag::new(u64::MAX), StorageKey::max_storable())
     }
 
     // ------------------------------------------------------------------
@@ -217,6 +234,10 @@ impl DataKey {
 
     /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
     pub(crate) fn to_raw_storage_key_error(&self) -> Result<RawDataKey, StorageKeyEncodeError> {
+        if let Some(raw) = self.raw.get() {
+            return Ok(*raw);
+        }
+
         // Phase 1: encode fixed-width big-endian entity tag identity prefix.
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
         let entity_bytes = self.entity.value().to_be_bytes();
@@ -226,8 +247,10 @@ impl DataKey {
         let key_bytes = self.key.to_bytes()?;
         let key_offset = Self::ENTITY_TAG_SIZE_USIZE;
         buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
+        let raw = RawDataKey(buf);
+        let _ = self.raw.set(raw);
 
-        Ok(RawDataKey(buf))
+        Ok(raw)
     }
 
     /// Encode a raw data key from validated entity + storage-key parts.
@@ -252,8 +275,60 @@ impl DataKey {
             .try_into()
             .map_err(|_| KeyDecodeError::from(StorageKeyDecodeError::InvalidSize))?;
         let key = StorageKey::try_from_stored_bytes(key_bytes).map_err(KeyDecodeError::from)?;
+        Ok(Self::new_with_raw(entity, key, *raw))
+    }
+}
 
-        Ok(Self { entity, key })
+impl Clone for DataKey {
+    fn clone(&self) -> Self {
+        let cache = OnceCell::new();
+        if let Some(raw) = self.raw.get() {
+            let _ = cache.set(*raw);
+        }
+
+        Self {
+            entity: self.entity,
+            key: self.key,
+            raw: cache,
+        }
+    }
+}
+
+impl fmt::Debug for DataKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataKey")
+            .field("entity", &self.entity)
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for DataKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity && self.key == other.key
+    }
+}
+
+impl Eq for DataKey {}
+
+impl PartialOrd for DataKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DataKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.entity
+            .cmp(&other.entity)
+            .then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl Hash for DataKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.entity.hash(state);
+        self.key.hash(state);
     }
 }
 
@@ -274,6 +349,20 @@ impl RawDataKey {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE_USIZE] {
         &self.0
+    }
+
+    /// Build one canonical raw data key from an entity tag plus one already
+    /// encoded storage-key payload.
+    #[must_use]
+    pub(crate) fn from_entity_and_stored_storage_key_bytes(
+        entity: EntityTag,
+        key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE],
+    ) -> Self {
+        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
+        out[..DataKey::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&entity.value().to_be_bytes());
+        out[DataKey::ENTITY_TAG_SIZE_USIZE..].copy_from_slice(key_bytes);
+
+        Self(out)
     }
 }
 
@@ -381,10 +470,7 @@ mod tests {
 
     #[test]
     fn data_key_golden_snapshot_entity_and_storage_key_layout_is_stable() {
-        let key = DataKey {
-            entity: EntityTag::new(5),
-            key: StorageKey::Int(-1),
-        };
+        let key = DataKey::new(EntityTag::new(5), StorageKey::Int(-1));
         let raw = key.to_raw().expect("data key should encode");
 
         // Freeze the on-disk wire contract:
@@ -407,22 +493,10 @@ mod tests {
     #[test]
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
-            DataKey {
-                entity: EntityTag::new(1),
-                key: StorageKey::Int(0),
-            },
-            DataKey {
-                entity: EntityTag::new(1),
-                key: StorageKey::Int(0),
-            },
-            DataKey {
-                entity: EntityTag::new(2),
-                key: StorageKey::Int(0),
-            },
-            DataKey {
-                entity: EntityTag::new(1),
-                key: StorageKey::Uint(1),
-            },
+            DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
+            DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
+            DataKey::new(EntityTag::new(2), StorageKey::Int(0)),
+            DataKey::new(EntityTag::new(1), StorageKey::Uint(1)),
         ];
 
         let mut by_ord = keys.clone();

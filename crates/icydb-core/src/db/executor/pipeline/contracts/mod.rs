@@ -20,16 +20,18 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+#[cfg(any(test, feature = "perf-attribution"))]
+pub(in crate::db::executor) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
     CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
-    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime, ExecutionRuntimeAdapter,
-    MaterializedExecutionAttempt, PreparedExecutionProjection, ProjectionMaterializationMode,
-    ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
+    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+    MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionProjection,
+    ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
     RuntimePageMaterializationRequest, StructuralCursorPage,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
-    GroupedRowRuntime, GroupedStreamStage, IndexSpecBundle, RowView, StructuralGroupedRowRuntime,
+    GroupedStreamStage, IndexSpecBundle, RowView, StructuralGroupedRowRuntime,
 };
 pub(in crate::db::executor) use post_access::PostAccessContract;
 
@@ -104,7 +106,6 @@ where
     E: PersistedRow + EntityValue,
 {
     /// Build one typed cursor page from structural rows plus cursor state.
-    #[inline(never)]
     pub(in crate::db::executor) fn from_data_rows(
         data_rows: Vec<DataRow>,
         next_cursor: Option<PageCursor>,
@@ -117,7 +118,6 @@ where
 
 impl StructuralCursorPage {
     /// Decode one structural scalar page into one typed entity response.
-    #[inline(never)]
     pub(in crate::db::executor) fn into_entity_response<E>(
         self,
     ) -> Result<EntityResponse<E>, InternalError>
@@ -130,7 +130,6 @@ impl StructuralCursorPage {
     }
 
     /// Decode one structural scalar page into one typed cursor page.
-    #[inline(never)]
     pub(in crate::db::executor) fn into_cursor_page<E>(self) -> Result<CursorPage<E>, InternalError>
     where
         E: PersistedRow + EntityValue,

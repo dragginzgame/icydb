@@ -179,7 +179,7 @@ impl ExecutionKernel {
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
-        let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
+        let ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             for (data_key, _) in &rows {
                 let fold_control = engine.ingest(data_key)?;
                 if matches!(fold_control, FoldControl::Break) {
@@ -192,7 +192,7 @@ impl ExecutionKernel {
 
         execute_aggregate_engine(
             ScalarAggregateEngine::new_scalar(kind, direction),
-            &mut ingest_all,
+            ingest_all,
         )
     }
     // Execute one aggregate terminal stage through kernel-owned
@@ -278,6 +278,7 @@ impl ExecutionKernel {
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
+            false,
             false,
         );
 

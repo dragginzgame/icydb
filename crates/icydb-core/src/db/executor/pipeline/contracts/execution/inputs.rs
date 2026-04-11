@@ -3,26 +3,16 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(feature = "sql")]
-use crate::value::Value;
-
-#[cfg(feature = "sql")]
-type StructuralSqlProjectionRows = (
-    Option<Vec<RetainedSlotRow>>,
-    Option<Vec<Vec<Value>>>,
-    Option<Vec<Vec<String>>>,
-    Vec<DataRow>,
-);
-
 use crate::{
     db::{
         cursor::CursorBoundary,
-        data::{DataKey, DataRow},
+        data::DataRow,
         direction::Direction,
-        executor::pipeline::contracts::{FastPathKeyResult, execution::ErasedRuntimeBindings},
+        executor::pipeline::contracts::{FastPathKeyResult, MaterializedExecutionPayload},
         executor::{
-            AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPreparation,
-            ExecutorError, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
+            AccessStreamBindings, EntityAuthority, ExecutableAccess, ExecutionKernel,
+            ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox,
+            ScalarContinuationBindings,
             pipeline::operators::PreparedSqlExecutionProjection,
             projection::{
                 PreparedProjectionShape, PreparedSlotProjectionValidation,
@@ -30,11 +20,13 @@ use crate::{
             },
             route::access_order_satisfied_by_route_contract,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
+            scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
+            stream::access::TraversalRuntime,
             terminal::{
-                RetainedSlotRow, RowDecoder, RowLayout,
+                RetainedSlotLayout, RetainedSlotRow,
                 page::{
-                    KernelPageMaterializationRequest, KernelRowPayloadMode, ScalarRowRuntimeHandle,
-                    ScalarRowRuntimeVTable, materialize_key_stream_into_structural_page,
+                    KernelPageMaterializationRequest, ScalarRowRuntimeHandle,
+                    ScalarRowRuntimeState, materialize_key_stream_into_execution_payload,
                 },
             },
             traversal::row_read_consistency_for_plan,
@@ -46,9 +38,8 @@ use crate::{
     },
     error::InternalError,
 };
-use std::marker::PhantomData;
 
-type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
+type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
 
 ///
 /// PreparedExecutionProjection
@@ -60,7 +51,7 @@ type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
 ///
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
-    slot_only_required_slots: Option<Vec<usize>>,
+    retained_slot_layout: Option<RetainedSlotLayout>,
     prepared_shape: Option<PreparedProjectionShape>,
     projection_validation_enabled: bool,
     #[cfg(feature = "sql")]
@@ -74,7 +65,7 @@ impl PreparedExecutionProjection {
     #[must_use]
     pub(in crate::db::executor) const fn empty() -> Self {
         Self {
-            slot_only_required_slots: None,
+            retained_slot_layout: None,
             prepared_shape: None,
             projection_validation_enabled: false,
             #[cfg(feature = "sql")]
@@ -91,16 +82,16 @@ impl PreparedExecutionProjection {
         projection_materialization: ProjectionMaterializationMode,
         load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     ) -> Result<Self, InternalError> {
-        let slot_only_required_slots = compile_slot_only_required_slots(
+        let retained_slot_layout = compile_retained_slot_layout(
             plan.projected_slot_mask().len(),
             plan,
             compiled_predicate,
             projection_materialization,
         );
         let projection_validation_enabled = projection_materialization.validate_projection();
-        let prepared_shape = projection_validation_enabled.then(|| {
-            prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan)
-        });
+        let prepared_shape = (projection_validation_enabled
+            || projection_materialization.retain_slot_rows())
+        .then(|| prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan));
 
         #[cfg(feature = "sql")]
         let sql = crate::db::executor::pipeline::operators::prepare_sql_execution_projection(
@@ -112,7 +103,7 @@ impl PreparedExecutionProjection {
         )?;
 
         Ok(Self {
-            slot_only_required_slots,
+            retained_slot_layout,
             prepared_shape,
             projection_validation_enabled,
             #[cfg(feature = "sql")]
@@ -121,8 +112,10 @@ impl PreparedExecutionProjection {
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
-        self.slot_only_required_slots.as_deref()
+    pub(in crate::db::executor) const fn retained_slot_layout(
+        &self,
+    ) -> Option<&RetainedSlotLayout> {
+        self.retained_slot_layout.as_ref()
     }
 
     #[must_use]
@@ -134,57 +127,15 @@ impl PreparedExecutionProjection {
             .and(self.prepared_shape.as_ref())
     }
 
+    #[must_use]
+    pub(in crate::db::executor) const fn prepared_shape(&self) -> Option<&PreparedProjectionShape> {
+        self.prepared_shape.as_ref()
+    }
+
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::executor) const fn sql(&self) -> Option<&PreparedSqlExecutionProjection> {
         self.sql.as_ref()
-    }
-}
-
-///
-/// ScalarRowRuntimeState
-///
-/// ScalarRowRuntimeState is the structural row-production descriptor recovered
-/// once at the scalar execution boundary.
-/// It owns store-read authority plus precomputed structural decode metadata so
-/// shared scalar loops can materialize `KernelRow` values without rebuilding
-/// typed row-runtime state during execution.
-///
-
-#[derive(Clone, Debug)]
-struct ScalarRowRuntimeState {
-    store: StoreHandle,
-    row_layout: RowLayout,
-    row_decoder: RowDecoder,
-}
-
-impl ScalarRowRuntimeState {
-    // Build one structural scalar row-runtime descriptor from resolved
-    // boundary inputs.
-    const fn new(store: StoreHandle, row_layout: RowLayout) -> Self {
-        Self {
-            store,
-            row_layout,
-            row_decoder: RowDecoder::structural(),
-        }
-    }
-
-    // Read one raw row through the structural store handle while preserving
-    // the scalar missing-row consistency contract.
-    fn read_row(
-        &self,
-        consistency: MissingRowPolicy,
-        key: &DataKey,
-    ) -> Result<Option<crate::db::data::RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
-        let row = self.store.with_data(|store| store.get(&raw_key));
-
-        match consistency {
-            MissingRowPolicy::Error => row
-                .map(Some)
-                .ok_or_else(|| InternalError::from(ExecutorError::missing_row(key))),
-            MissingRowPolicy::Ignore => Ok(row),
-        }
     }
 }
 
@@ -206,59 +157,6 @@ pub(in crate::db::executor) struct CoveringComponentScanState<'a> {
         &'a [crate::db::executor::LoweredIndexRangeSpec],
 }
 
-// Read one scalar kernel row through the typed store boundary, then decode the
-// persisted row structurally before any predicate or page logic runs.
-unsafe fn structural_scalar_read_kernel_row(
-    state: *mut (),
-    consistency: MissingRowPolicy,
-    key: &DataKey,
-    payload_mode: KernelRowPayloadMode,
-    predicate_preapplied: bool,
-    predicate_slots: Option<&PredicateProgram>,
-    required_slots: Option<&[usize]>,
-) -> Result<Option<crate::db::executor::terminal::page::KernelRow>, InternalError> {
-    let state = unsafe { &mut *state.cast::<ScalarRowRuntimeState>() };
-    let Some(row) = state.read_row(consistency, key)? else {
-        return Ok(None);
-    };
-    let kernel_row = match payload_mode {
-        KernelRowPayloadMode::FullRow => {
-            let data_row = (key.clone(), row);
-            state.row_decoder.decode(&state.row_layout, data_row)?
-        }
-        KernelRowPayloadMode::SlotsOnly => {
-            let slots = RowDecoder::decode_retained_slots(
-                &state.row_layout,
-                key.storage_key(),
-                &row,
-                required_slots.unwrap_or(&[]),
-            )?;
-
-            crate::db::executor::terminal::page::KernelRow::new_slot_only(slots)
-        }
-    };
-    if predicate_preapplied
-        && let Some(predicate_program) = predicate_slots
-        && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| kernel_row.slot_ref(slot))
-    {
-        return Ok(None);
-    }
-
-    Ok(Some(kernel_row))
-}
-
-// Keep borrowed runtime-state handles on the same erased callback boundary
-// without reclaiming adapter-owned state on handle drop.
-const unsafe fn structural_scalar_borrowed_drop_state(_state: *mut ()) {}
-
-// Build the erased row-runtime vtable for borrowed adapter-owned state.
-const fn borrowed_scalar_row_runtime_vtable() -> ScalarRowRuntimeVTable {
-    ScalarRowRuntimeVTable {
-        read_kernel_row: structural_scalar_read_kernel_row,
-        drop_state: structural_scalar_borrowed_drop_state,
-    }
-}
-
 ///
 /// StructuralCursorPage
 ///
@@ -269,15 +167,22 @@ const fn borrowed_scalar_row_runtime_vtable() -> ScalarRowRuntimeVTable {
 ///
 
 pub(in crate::db::executor) struct StructuralCursorPage {
-    data_rows: Vec<DataRow>,
-    row_count: usize,
-    #[cfg(feature = "sql")]
-    slot_rows: Option<Vec<RetainedSlotRow>>,
-    #[cfg(feature = "sql")]
-    projected_rows: Option<Vec<Vec<Value>>>,
-    #[cfg(feature = "sql")]
-    rendered_projected_rows: Option<Vec<Vec<String>>>,
+    payload: StructuralCursorPagePayload,
     next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
+}
+
+///
+/// StructuralCursorPagePayload
+///
+/// StructuralCursorPagePayload keeps the scalar page on exactly one payload
+/// shape at a time instead of carrying several mutually exclusive vectors in
+/// the same envelope.
+///
+
+pub(in crate::db::executor) enum StructuralCursorPagePayload {
+    DataRows(Vec<DataRow>),
+    #[cfg(feature = "sql")]
+    SlotRows(Vec<RetainedSlotRow>),
 }
 
 impl StructuralCursorPage {
@@ -288,14 +193,7 @@ impl StructuralCursorPage {
         next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) -> Self {
         Self {
-            row_count: data_rows.len(),
-            data_rows,
-            #[cfg(feature = "sql")]
-            slot_rows: None,
-            #[cfg(feature = "sql")]
-            projected_rows: None,
-            #[cfg(feature = "sql")]
-            rendered_projected_rows: None,
+            payload: StructuralCursorPagePayload::DataRows(data_rows),
             next_cursor,
         }
     }
@@ -306,51 +204,10 @@ impl StructuralCursorPage {
     #[must_use]
     pub(in crate::db::executor) const fn new_with_slot_rows(
         slot_rows: Vec<RetainedSlotRow>,
-        row_count: usize,
         next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) -> Self {
         Self {
-            data_rows: Vec::new(),
-            row_count,
-            slot_rows: Some(slot_rows),
-            projected_rows: None,
-            rendered_projected_rows: None,
-            next_cursor,
-        }
-    }
-
-    /// Build one structural scalar page from already-projected SQL value rows.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db::executor) const fn new_with_projected_rows(
-        projected_rows: Vec<Vec<Value>>,
-        row_count: usize,
-        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
-    ) -> Self {
-        Self {
-            data_rows: Vec::new(),
-            row_count,
-            slot_rows: None,
-            projected_rows: Some(projected_rows),
-            rendered_projected_rows: None,
-            next_cursor,
-        }
-    }
-
-    /// Build one structural scalar page from already-rendered SQL text rows.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db::executor) const fn new_with_rendered_projected_rows(
-        rendered_projected_rows: Vec<Vec<String>>,
-        row_count: usize,
-        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
-    ) -> Self {
-        Self {
-            data_rows: Vec::new(),
-            row_count,
-            slot_rows: None,
-            projected_rows: None,
-            rendered_projected_rows: Some(rendered_projected_rows),
+            payload: StructuralCursorPagePayload::SlotRows(slot_rows),
             next_cursor,
         }
     }
@@ -358,25 +215,28 @@ impl StructuralCursorPage {
     /// Return the number of structural rows carried by this page.
     #[must_use]
     pub(in crate::db::executor) const fn row_count(&self) -> usize {
-        self.row_count
+        match &self.payload {
+            StructuralCursorPagePayload::DataRows(data_rows) => data_rows.len(),
+            #[cfg(feature = "sql")]
+            StructuralCursorPagePayload::SlotRows(slot_rows) => slot_rows.len(),
+        }
     }
 
     /// Borrow structural scalar rows without forcing typed response assembly.
     #[must_use]
-    pub(in crate::db::executor) fn data_rows(&self) -> &[DataRow] {
-        &self.data_rows
+    pub(in crate::db::executor) const fn data_rows(&self) -> &[DataRow] {
+        match &self.payload {
+            StructuralCursorPagePayload::DataRows(data_rows) => data_rows.as_slice(),
+            #[cfg(feature = "sql")]
+            StructuralCursorPagePayload::SlotRows(_) => &[],
+        }
     }
 
-    /// Consume one structural scalar page into SQL-retained slot rows or canonical data rows.
-    #[cfg(feature = "sql")]
+    /// Consume one structural scalar page into its single owned payload shape.
     #[must_use]
-    pub(in crate::db::executor) fn into_sql_parts(self) -> StructuralSqlProjectionRows {
-        (
-            self.slot_rows,
-            self.projected_rows,
-            self.rendered_projected_rows,
-            self.data_rows,
-        )
+    #[cfg(any(test, feature = "perf-attribution"))]
+    pub(in crate::db::executor) fn into_payload(self) -> StructuralCursorPagePayload {
+        self.payload
     }
 
     /// Consume one structural scalar page into rows plus cursor state.
@@ -387,7 +247,13 @@ impl StructuralCursorPage {
         Vec<DataRow>,
         Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) {
-        (self.data_rows, self.next_cursor)
+        let data_rows = match self.payload {
+            StructuralCursorPagePayload::DataRows(data_rows) => data_rows,
+            #[cfg(feature = "sql")]
+            StructuralCursorPagePayload::SlotRows(_) => Vec::new(),
+        };
+
+        (data_rows, self.next_cursor)
     }
 }
 
@@ -447,14 +313,6 @@ impl ProjectionMaterializationMode {
         )
     }
 
-    /// Return whether this execution attempt should prefer already-rendered
-    /// SQL projection rows over `Value` materialization when a terminal short
-    /// path can prove them directly.
-    #[must_use]
-    pub(in crate::db::executor) const fn prefer_rendered_projection_rows(self) -> bool {
-        matches!(self, Self::SqlImmediateRenderedDispatch)
-    }
-
     /// Return whether this execution attempt should assemble one outward
     /// continuation cursor from the materialized structural page.
     #[must_use]
@@ -478,11 +336,14 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
-    pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
+    pub(in crate::db::executor) prepared_projection_shape: Option<&'a PreparedProjectionShape>,
     pub(in crate::db::executor) prepared_projection_validation:
         Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
+    pub(in crate::db::executor) projection_materialization: ProjectionMaterializationMode,
+    pub(in crate::db::executor) fuse_immediate_sql_terminal: bool,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
@@ -508,12 +369,14 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
-    pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
+    pub(in crate::db::executor) prepared_projection_shape: Option<&'a PreparedProjectionShape>,
     pub(in crate::db::executor) prepared_projection_validation:
         Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
-    pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
+    pub(in crate::db::executor) projection_materialization: ProjectionMaterializationMode,
+    pub(in crate::db::executor) fuse_immediate_sql_terminal: bool,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
 }
 
@@ -534,78 +397,13 @@ pub(in crate::db::executor) struct DirectCoveringScanMaterializationRequest<'a> 
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) prepared_projection_shape: Option<&'a PreparedProjectionShape>,
     pub(in crate::db::executor) prepared_projection_validation:
         Option<&'a PreparedSlotProjectionValidation>,
     #[cfg(feature = "sql")]
     pub(in crate::db::executor) prepared_sql_projection: Option<&'a PreparedSqlExecutionProjection>,
-    pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
-}
-
-///
-/// ExecutionRuntime
-///
-/// Executor-bound runtime adapter resolved once at the typed boundary.
-/// All typed access-path and context authority must flow through this trait so
-/// shared execution code can remain monomorphic over plan shape.
-///
-
-pub(in crate::db::executor) trait ExecutionRuntime {
-    /// Resolve one primary-key fast path when the route is already verified.
-    fn try_execute_pk_order_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError>;
-
-    /// Resolve one verified secondary-prefix fast path.
-    fn try_execute_secondary_index_order_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError>;
-
-    /// Resolve one verified index-range limit-pushdown fast path.
-    fn try_execute_index_range_limit_pushdown_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        index_range_spec: Option<&crate::db::executor::LoweredIndexRangeSpec>,
-        continuation: crate::db::executor::AccessScanContinuationInput<'_>,
-        fetch: usize,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError>;
-
-    /// Resolve the canonical fallback routed key stream for this execution attempt.
-    fn resolve_fallback_execution_key_stream(
-        &self,
-        bindings: AccessStreamBindings<'_>,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-        preserve_leaf_index_order: bool,
-    ) -> Result<OrderedKeyStreamBox, InternalError>;
-
-    /// Attempt the cursorless direct covering-scan short path before generic
-    /// key-stream resolution when the same terminal-owned covering contract
-    /// can already materialize the final structural page without a key stream.
-    fn try_materialize_load_via_direct_covering_scan<'a>(
-        &'a self,
-        request: DirectCoveringScanMaterializationRequest<'a>,
-    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
-
-    /// Attempt the cursorless row-collector short path and erase the typed page result.
-    fn try_materialize_load_via_row_collector<'a>(
-        &'a self,
-        request: RowCollectorMaterializationRequest<'a>,
-    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
-
-    /// Materialize one ordered key stream into one structural scalar page payload.
-    fn materialize_key_stream_into_structural_page(
-        &self,
-        request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<StructuralRowCollectorPayload, InternalError>;
+    pub(in crate::db::executor) projection_materialization: ProjectionMaterializationMode,
+    pub(in crate::db::executor) fuse_immediate_sql_terminal: bool,
 }
 
 ///
@@ -613,44 +411,69 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 ///
 /// Typed runtime adapter that captures recovered context plus structural
 /// runtime helpers once at the execution boundary and exposes one monomorphic
-/// runtime trait surface to shared executor code.
+/// runtime surface to shared executor code.
 ///
 
-///
-/// ExecutionRuntimeAdapterCore
-///
-/// Generic-free runtime-adapter payload shared by typed execution-runtime
-/// wrappers so structural row-runtime state stays monomorphic after the typed
-/// boundary computes access-specific inputs.
-///
-
-struct ExecutionRuntimeAdapterCore<'a> {
-    runtime: ErasedRuntimeBindings,
+pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'a> {
+    runtime: TraversalRuntime,
     access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     authority: Option<EntityAuthority>,
     scalar_row_runtime: Option<ScalarRowRuntimeState>,
     covering_component_scan: Option<CoveringComponentScanState<'a>>,
 }
 
-impl ExecutionRuntimeAdapterCore<'_> {
-    const fn new<'a>(
+impl<'a> ExecutionRuntimeAdapter<'a> {
+    /// Build one structural runtime adapter from structural runtime authority plus access plan.
+    pub(in crate::db::executor) const fn from_runtime_parts(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-        runtime: ErasedRuntimeBindings,
-        authority: Option<EntityAuthority>,
-        scalar_row_runtime: Option<ScalarRowRuntimeState>,
-        covering_component_scan: Option<CoveringComponentScanState<'a>>,
-    ) -> ExecutionRuntimeAdapterCore<'a> {
-        ExecutionRuntimeAdapterCore {
+        runtime: TraversalRuntime,
+        store: StoreHandle,
+        authority: EntityAuthority,
+    ) -> Self {
+        Self {
             runtime,
             access,
-            authority,
-            scalar_row_runtime,
-            covering_component_scan,
+            authority: Some(authority),
+            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
+            covering_component_scan: None,
+        }
+    }
+
+    /// Build one structural runtime adapter for scalar execution paths that
+    /// may consume route-owned covering-read component scans.
+    pub(in crate::db::executor) const fn from_scalar_runtime_parts(
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: TraversalRuntime,
+        store: StoreHandle,
+        authority: EntityAuthority,
+        covering_component_scan: CoveringComponentScanState<'a>,
+    ) -> Self {
+        Self {
+            runtime,
+            access,
+            authority: Some(authority),
+            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
+            covering_component_scan: Some(covering_component_scan),
+        }
+    }
+
+    /// Build one stream-only runtime adapter for key-stream resolution paths
+    /// that never materialize scalar rows.
+    pub(in crate::db::executor) const fn from_stream_runtime_parts(
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: TraversalRuntime,
+    ) -> Self {
+        Self {
+            runtime,
+            access,
+            authority: None,
+            scalar_row_runtime: None,
+            covering_component_scan: None,
         }
     }
 
     // Require the scalar materialization runtime when the caller enters one
-    // scalar-only row materialization path through the shared runtime trait.
+    // scalar-only row materialization path through the shared execution spine.
     fn scalar_row_runtime(&self) -> Result<&ScalarRowRuntimeState, InternalError> {
         self.scalar_row_runtime.as_ref().ok_or_else(|| {
             InternalError::query_executor_invariant(
@@ -669,16 +492,26 @@ impl ExecutionRuntimeAdapterCore<'_> {
         })
     }
 
-    fn try_execute_pk_order_stream(
+    /// Resolve one primary-key fast path when the route is already verified.
+    pub(in crate::db::executor) fn try_execute_pk_order_stream(
         &self,
         plan: &AccessPlannedQuery,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.runtime.pk_order(plan, direction, physical_fetch_hint)
+        execute_fast_stream_route(
+            &self.runtime,
+            FastStreamRouteKind::PrimaryKey,
+            FastStreamRouteRequest::PrimaryKey {
+                plan,
+                stream_direction: direction,
+                probe_fetch_hint: physical_fetch_hint,
+            },
+        )
     }
 
-    fn try_execute_secondary_index_order_stream(
+    /// Resolve one verified secondary-prefix fast path.
+    pub(in crate::db::executor) fn try_execute_secondary_index_order_stream(
         &self,
         plan: &AccessPlannedQuery,
         index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
@@ -686,16 +519,21 @@ impl ExecutionRuntimeAdapterCore<'_> {
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.runtime.secondary_index_order(
-            plan,
-            index_prefix_spec,
-            direction,
-            physical_fetch_hint,
-            index_predicate_execution,
+        execute_fast_stream_route(
+            &self.runtime,
+            FastStreamRouteKind::SecondaryIndex,
+            FastStreamRouteRequest::SecondaryIndex {
+                plan,
+                index_prefix_spec,
+                stream_direction: direction,
+                probe_fetch_hint: physical_fetch_hint,
+                index_predicate_execution,
+            },
         )
     }
 
-    fn try_execute_index_range_limit_pushdown_stream(
+    /// Resolve one verified index-range limit-pushdown fast path.
+    pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         &self,
         plan: &AccessPlannedQuery,
         index_range_spec: Option<&crate::db::executor::LoweredIndexRangeSpec>,
@@ -703,205 +541,93 @@ impl ExecutionRuntimeAdapterCore<'_> {
         fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.runtime.index_range_limit_pushdown(
-            plan,
-            index_range_spec,
-            continuation,
-            fetch,
-            index_predicate_execution,
+        execute_fast_stream_route(
+            &self.runtime,
+            FastStreamRouteKind::IndexRangeLimitPushdown,
+            FastStreamRouteRequest::IndexRangeLimitPushdown {
+                plan,
+                index_range_spec,
+                continuation,
+                effective_fetch: fetch,
+                index_predicate_execution,
+            },
         )
     }
 
-    fn resolve_fallback_execution_key_stream(
+    /// Resolve the canonical fallback routed key stream for this execution attempt.
+    pub(in crate::db::executor) fn resolve_fallback_execution_key_stream(
         &self,
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        self.runtime.fallback_execution_keys(
-            self.access,
-            bindings,
-            physical_fetch_hint,
-            index_predicate_execution,
-            preserve_leaf_index_order,
-        )
-    }
-}
+        let access = if preserve_leaf_index_order {
+            ExecutableAccess::new_with_preserved_leaf_index_order(
+                self.access,
+                bindings,
+                physical_fetch_hint,
+                index_predicate_execution,
+            )
+        } else {
+            ExecutableAccess::new(
+                self.access,
+                bindings,
+                physical_fetch_hint,
+                index_predicate_execution,
+            )
+        };
 
-pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
-    core: ExecutionRuntimeAdapterCore<'a>,
-    marker: PhantomData<(&'a (), &'ctx ())>,
-}
-
-impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
-    /// Build one structural runtime adapter from structural runtime authority plus access plan.
-    pub(in crate::db::executor) const fn from_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-        runtime: crate::db::executor::stream::access::TraversalRuntime,
-        store: StoreHandle,
-        authority: EntityAuthority,
-    ) -> Self {
-        Self {
-            core: ExecutionRuntimeAdapterCore::new(
-                access,
-                ErasedRuntimeBindings::from_runtime(runtime),
-                Some(authority),
-                Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
-                None,
-            ),
-            marker: PhantomData,
-        }
+        self.runtime.ordered_key_stream_from_runtime_access(access)
     }
 
-    /// Build one structural runtime adapter for scalar execution paths that
-    /// may consume route-owned covering-read component scans.
-    pub(in crate::db::executor) const fn from_scalar_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-        runtime: crate::db::executor::stream::access::TraversalRuntime,
-        store: StoreHandle,
-        authority: EntityAuthority,
-        covering_component_scan: CoveringComponentScanState<'a>,
-    ) -> Self {
-        Self {
-            core: ExecutionRuntimeAdapterCore::new(
-                access,
-                ErasedRuntimeBindings::from_runtime(runtime),
-                Some(authority),
-                Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
-                Some(covering_component_scan),
-            ),
-            marker: PhantomData,
-        }
-    }
-
-    /// Build one stream-only runtime adapter for key-stream resolution paths
-    /// that never materialize scalar rows.
-    pub(in crate::db::executor) const fn from_stream_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-        runtime: crate::db::executor::stream::access::TraversalRuntime,
-    ) -> Self {
-        Self {
-            core: ExecutionRuntimeAdapterCore::new(
-                access,
-                ErasedRuntimeBindings::from_runtime(runtime),
-                None,
-                None,
-                None,
-            ),
-            marker: PhantomData,
-        }
-    }
-}
-
-impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
-    fn try_execute_pk_order_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.core
-            .try_execute_pk_order_stream(plan, direction, physical_fetch_hint)
-    }
-
-    fn try_execute_secondary_index_order_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.core.try_execute_secondary_index_order_stream(
-            plan,
-            index_prefix_spec,
-            direction,
-            physical_fetch_hint,
-            index_predicate_execution,
-        )
-    }
-
-    fn try_execute_index_range_limit_pushdown_stream(
-        &self,
-        plan: &AccessPlannedQuery,
-        index_range_spec: Option<&crate::db::executor::LoweredIndexRangeSpec>,
-        continuation: crate::db::executor::AccessScanContinuationInput<'_>,
-        fetch: usize,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        self.core.try_execute_index_range_limit_pushdown_stream(
-            plan,
-            index_range_spec,
-            continuation,
-            fetch,
-            index_predicate_execution,
-        )
-    }
-
-    fn resolve_fallback_execution_key_stream(
-        &self,
-        bindings: AccessStreamBindings<'_>,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-        preserve_leaf_index_order: bool,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        self.core.resolve_fallback_execution_key_stream(
-            bindings,
-            physical_fetch_hint,
-            index_predicate_execution,
-            preserve_leaf_index_order,
-        )
-    }
-
-    fn try_materialize_load_via_direct_covering_scan<'a>(
-        &'a self,
-        request: DirectCoveringScanMaterializationRequest<'a>,
-    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
+    /// Attempt the cursorless direct covering-scan short path before generic
+    /// key-stream resolution when the same terminal-owned covering contract
+    /// can already materialize the final structural page without a key stream.
+    pub(in crate::db::executor) fn try_materialize_load_via_direct_covering_scan<'req>(
+        &'req self,
+        request: DirectCoveringScanMaterializationRequest<'req>,
+    ) -> Result<Option<MaterializedExecutionPayloadResult>, InternalError> {
         ExecutionKernel::try_materialize_load_via_direct_covering_scan(
             request,
-            self.core.scalar_row_runtime()?.store,
-            self.core.covering_component_scan,
+            self.scalar_row_runtime()?.store(),
+            self.covering_component_scan,
         )
     }
 
-    fn try_materialize_load_via_row_collector<'a>(
-        &'a self,
-        request: RowCollectorMaterializationRequest<'a>,
-    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
+    /// Attempt the cursorless row-collector short path and erase the typed page result.
+    pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'req>(
+        &'req self,
+        request: RowCollectorMaterializationRequest<'req>,
+    ) -> Result<Option<MaterializedExecutionPayloadResult>, InternalError> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
         // descriptor before every materialization call.
-        let scalar_row_runtime = self.core.scalar_row_runtime()?;
-        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(
-            scalar_row_runtime,
-            borrowed_scalar_row_runtime_vtable(),
-        );
+        let scalar_row_runtime = self.scalar_row_runtime()?;
+        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(scalar_row_runtime);
 
         ExecutionKernel::try_materialize_load_via_row_collector(
             request,
             &mut row_runtime,
-            scalar_row_runtime.store,
-            self.core.covering_component_scan,
+            scalar_row_runtime.store(),
+            self.covering_component_scan,
         )
     }
 
-    fn materialize_key_stream_into_structural_page(
+    /// Materialize one ordered key stream into one structural scalar page payload.
+    pub(in crate::db::executor) fn materialize_key_stream_into_structural_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<StructuralRowCollectorPayload, InternalError> {
+    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
         // descriptor before every materialization call.
-        let scalar_row_runtime = self.core.scalar_row_runtime()?;
-        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(
-            scalar_row_runtime,
-            borrowed_scalar_row_runtime_vtable(),
-        );
+        let scalar_row_runtime = self.scalar_row_runtime()?;
+        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(scalar_row_runtime);
 
-        materialize_key_stream_into_structural_page(
+        materialize_key_stream_into_execution_payload(
             KernelPageMaterializationRequest {
-                authority: self.core.authority()?,
+                authority: self.authority()?,
                 plan: request.plan,
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
@@ -909,10 +635,13 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 load_order_route_contract: request.load_order_route_contract,
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
-                slot_only_required_slots: request.slot_only_required_slots,
+                retained_slot_layout: request.retained_slot_layout,
+                prepared_projection_shape: request.prepared_projection_shape,
                 prepared_projection_validation: request.prepared_projection_validation,
                 #[cfg(feature = "sql")]
                 prepared_sql_projection: request.prepared_sql_projection,
+                projection_materialization: request.projection_materialization,
+                fuse_immediate_sql_terminal: request.fuse_immediate_sql_terminal,
                 cursor_emission: request.cursor_emission,
                 consistency: request.consistency,
                 continuation: request.continuation,
@@ -931,26 +660,28 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
 ///
 
 pub(in crate::db::executor) struct ExecutionInputs<'a> {
-    runtime: &'a dyn ExecutionRuntime,
+    runtime: &'a ExecutionRuntimeAdapter<'a>,
     plan: &'a AccessPlannedQuery,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
     projection_materialization: ProjectionMaterializationMode,
     prepared_projection: PreparedExecutionProjection,
     emit_cursor: bool,
+    fuse_immediate_sql_terminal: bool,
 }
 
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input payload from already-prepared
     /// execution and projection state.
-    pub(in crate::db::executor) fn new_prepared(
-        runtime: &'a dyn ExecutionRuntime,
+    pub(in crate::db::executor) const fn new_prepared(
+        runtime: &'a ExecutionRuntimeAdapter<'a>,
         plan: &'a AccessPlannedQuery,
         stream_bindings: AccessStreamBindings<'a>,
         execution_preparation: &'a ExecutionPreparation,
         projection_materialization: ProjectionMaterializationMode,
         prepared_projection: PreparedExecutionProjection,
         emit_cursor: bool,
+        fuse_immediate_sql_terminal: bool,
     ) -> Self {
         Self {
             runtime,
@@ -960,12 +691,13 @@ impl<'a> ExecutionInputs<'a> {
             projection_materialization,
             prepared_projection,
             emit_cursor,
+            fuse_immediate_sql_terminal,
         }
     }
 
     /// Borrow the resolved runtime adapter for this execution attempt.
     #[must_use]
-    pub(in crate::db::executor) const fn runtime(&self) -> &dyn ExecutionRuntime {
+    pub(in crate::db::executor) const fn runtime(&self) -> &ExecutionRuntimeAdapter<'a> {
         self.runtime
     }
 
@@ -1004,8 +736,19 @@ impl<'a> ExecutionInputs<'a> {
     /// Borrow the precomputed retained-slot layout for cursorless SQL
     /// materialization when this execution shape keeps slot rows.
     #[must_use]
-    pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
-        self.prepared_projection.slot_only_required_slots()
+    pub(in crate::db::executor) const fn retained_slot_layout(
+        &self,
+    ) -> Option<&RetainedSlotLayout> {
+        self.prepared_projection.retained_slot_layout()
+    }
+
+    /// Borrow prepared projection materialization shape for fused SQL terminal
+    /// lanes that emit final rows directly.
+    #[must_use]
+    pub(in crate::db::executor) const fn prepared_projection_shape(
+        &self,
+    ) -> Option<&PreparedProjectionShape> {
+        self.prepared_projection.prepared_shape()
     }
 
     /// Borrow one prepared slot-row projection validation bundle when this
@@ -1027,20 +770,26 @@ impl<'a> ExecutionInputs<'a> {
         self.prepared_projection.sql()
     }
 
-    /// Return whether this execution attempt should prefer already-rendered
-    /// SQL projection rows over `Value` materialization when a terminal short
-    /// path can prove them directly.
-    #[must_use]
-    pub(in crate::db::executor) const fn prefer_rendered_projection_rows(&self) -> bool {
-        self.projection_materialization
-            .prefer_rendered_projection_rows()
-    }
-
     /// Return whether this execution attempt should assemble one outward
     /// continuation cursor from the materialized structural page.
     #[must_use]
     pub(in crate::db::executor) const fn emit_cursor(&self) -> bool {
         self.emit_cursor
+    }
+
+    /// Borrow projection materialization mode for this execution attempt.
+    #[must_use]
+    pub(in crate::db::executor) const fn projection_materialization(
+        &self,
+    ) -> ProjectionMaterializationMode {
+        self.projection_materialization
+    }
+
+    /// Return whether the immediate SQL terminal may bypass the structural page
+    /// envelope and emit final rows directly.
+    #[must_use]
+    pub(in crate::db::executor) const fn fuse_immediate_sql_terminal(&self) -> bool {
+        self.fuse_immediate_sql_terminal
     }
 
     /// Return row-read missing-row policy for this execution attempt.
@@ -1051,24 +800,25 @@ impl<'a> ExecutionInputs<'a> {
 }
 
 // Compile the canonical retained-slot layout once per execution shape so
-// cursorless SQL row collectors do not rebuild projection/predicate/order
-// reachability ad hoc at each materialization boundary.
-fn compile_slot_only_required_slots(
+// shared scalar row materialization does not rebuild
+// projection/predicate/order/cursor reachability ad hoc at each execution
+// boundary.
+fn compile_retained_slot_layout(
     field_count: usize,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
-) -> Option<Vec<usize>> {
-    if !projection_materialization.retain_slot_rows() {
-        return None;
-    }
-
+) -> Option<RetainedSlotLayout> {
     let mut required_slots = vec![false; field_count];
 
-    // Phase 1: projection materialization always owns one stable slot set for
-    // retained-slot SQL rows, even when final projection happens later.
-    for &slot in plan.projection_referenced_slots() {
-        required_slots[slot] = true;
+    // Phase 1: projection validation and SQL immediate materialization both
+    // need one stable slot set for later structural slot reads.
+    if projection_materialization.validate_projection()
+        || projection_materialization.retain_slot_rows()
+    {
+        for &slot in plan.projection_referenced_slots() {
+            required_slots[slot] = true;
+        }
     }
 
     // Phase 2: residual predicate filtering still runs on retained slot rows
@@ -1079,22 +829,30 @@ fn compile_slot_only_required_slots(
         predicate_program.mark_referenced_slots(&mut required_slots);
     }
 
-    // Phase 3: post-access in-memory ordering only needs extra slots when the
-    // chosen route does not already satisfy the visible order contract.
+    // Phase 3: ordering slots are needed for in-memory ordering and also for
+    // cursor boundary assembly on route-ordered load paths.
     if plan.scalar_plan().order.as_ref().is_some()
-        && !access_order_satisfied_by_route_contract(plan)
         && let Some(order_slots) = plan.order_referenced_slots()
     {
-        for &slot in order_slots {
-            required_slots[slot] = true;
+        let route_needs_order_slots = !access_order_satisfied_by_route_contract(plan)
+            || projection_materialization.emit_cursor();
+
+        if route_needs_order_slots {
+            for &slot in order_slots {
+                required_slots[slot] = true;
+            }
         }
     }
 
-    Some(
-        required_slots
-            .into_iter()
-            .enumerate()
-            .filter_map(|(slot, required)| required.then_some(slot))
-            .collect(),
-    )
+    let required_slots = required_slots
+        .into_iter()
+        .enumerate()
+        .filter_map(|(slot, required)| required.then_some(slot))
+        .collect::<Vec<_>>();
+
+    if required_slots.is_empty() && !projection_materialization.retain_slot_rows() {
+        return None;
+    }
+
+    Some(RetainedSlotLayout::compile(field_count, required_slots))
 }

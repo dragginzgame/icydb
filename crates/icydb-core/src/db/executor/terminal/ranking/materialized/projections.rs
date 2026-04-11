@@ -37,10 +37,10 @@ where
             field_slot,
             take_count,
         )?;
-        let output_rows = ordered_rows
-            .into_iter()
-            .map(|(row_index, _)| rows[row_index].clone())
-            .collect::<Vec<_>>();
+        let mut output_rows = Vec::with_capacity(ordered_rows.len());
+        for (row_index, _) in ordered_rows {
+            output_rows.push(rows[row_index].clone());
+        }
 
         EntityResponse::from_data_rows(output_rows)
     }
@@ -61,7 +61,10 @@ where
             field_slot,
             take_count,
         )?;
-        let projected_values = ordered_rows.into_iter().map(|(_, value)| value).collect();
+        let mut projected_values = Vec::with_capacity(ordered_rows.len());
+        for (_, value) in ordered_rows {
+            projected_values.push(value);
+        }
 
         Ok(projected_values)
     }
@@ -103,10 +106,10 @@ where
             field_slot,
             take_count,
         )?;
-        let output_rows = ordered_rows
-            .into_iter()
-            .map(|(row_index, _)| rows[row_index].clone())
-            .collect::<Vec<_>>();
+        let mut output_rows = Vec::with_capacity(ordered_rows.len());
+        for (row_index, _) in ordered_rows {
+            output_rows.push(rows[row_index].clone());
+        }
 
         EntityResponse::from_data_rows(output_rows)
     }
@@ -127,7 +130,10 @@ where
             field_slot,
             take_count,
         )?;
-        let projected_values = ordered_rows.into_iter().map(|(_, value)| value).collect();
+        let mut projected_values = Vec::with_capacity(ordered_rows.len());
+        for (_, value) in ordered_rows {
+            projected_values.push(value);
+        }
 
         Ok(projected_values)
     }
@@ -158,8 +164,11 @@ fn field_values_with_data_keys_from_ranked_rows(
     rows: &[DataRow],
     ordered_rows: Vec<(usize, Value)>,
 ) -> Vec<(DataKey, Value)> {
-    ordered_rows
-        .into_iter()
-        .map(|(row_index, value)| (rows[row_index].0.clone(), value))
-        .collect()
+    let mut values_with_keys = Vec::with_capacity(ordered_rows.len());
+
+    for (row_index, value) in ordered_rows {
+        values_with_keys.push((rows[row_index].0.clone(), value));
+    }
+
+    values_with_keys
 }

@@ -53,15 +53,9 @@ pub(in crate::db::executor) use continuation::{
     ScalarContinuationBindings,
 };
 pub(in crate::db::executor) use covering::{
-    CoveringMembershipRows, CoveringProjectionComponentRows,
-    SingleComponentCoveringProjectionOutcome, SingleComponentCoveringScanRequest,
-    collect_single_component_covering_projection_from_lowered_specs,
-    collect_single_component_covering_projection_values_from_lowered_specs,
-    covering_projection_scan_direction, covering_requires_row_presence_check,
-    decode_covering_projection_pairs, decode_single_covering_projection_pairs,
-    map_covering_membership_pairs, map_covering_projection_pairs,
-    reorder_covering_projection_pairs, resolve_covering_memberships_from_lowered_specs,
-    resolve_covering_projection_component_from_lowered_specs,
+    CoveringProjectionComponentRows, covering_projection_scan_direction,
+    covering_requires_row_presence_check, decode_covering_projection_pairs,
+    decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
     resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
@@ -90,6 +84,10 @@ pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::entrypoints::execute_initial_grouped_rows_for_canister;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use projection::SqlProjectionTextExecutorAttribution;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) use projection::attribute_sql_projection_text_rows_for_canister;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
@@ -107,15 +105,16 @@ pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
-    OrderedKeyStreamBox, drive_key_stream_with_control_flow, exact_output_key_count_hint,
-    key_stream_budget_is_redundant, ordered_key_stream_from_materialized_keys,
+    OrderedKeyStreamBox, exact_output_key_count_hint, key_stream_budget_is_redundant,
+    ordered_key_stream_from_materialized_keys,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use terminal::KernelRow;
 #[cfg(feature = "sql")]
+pub(in crate::db::executor) use terminal::RetainedSlotLayout;
+#[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotRow;
 pub(in crate::db::executor) use util::saturating_row_len;
-pub(in crate::db) use window::compute_page_keep_count;
 
 ///
 /// ExecutionPlan

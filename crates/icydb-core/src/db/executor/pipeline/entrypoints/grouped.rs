@@ -8,7 +8,7 @@ use crate::{
     db::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
-            PreparedLoadPlan,
+            PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
                 GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
                 execute_group_fold_stage, finalize_grouped_output_with_observer,
@@ -22,6 +22,7 @@ use crate::{
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             stream::access::TraversalRuntime,
+            terminal::RowLayout,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -64,24 +65,30 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
 
 impl GroupedPathRuntimeCore {
     /// Build one grouped execution stream for an already resolved route.
-    fn build_grouped_stream<'a>(
-        &'a self,
+    fn build_grouped_stream(
+        &self,
         route: &GroupedRouteStage,
         execution_preparation: ExecutionPreparation,
-    ) -> Result<GroupedStreamStage<'a>, InternalError> {
+    ) -> Result<GroupedStreamStage, InternalError> {
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             &route.plan().access,
             self.traversal_runtime,
+        );
+        let grouped_slot_layout = compile_grouped_row_slot_layout(
+            self.authority.row_layout(),
+            route,
+            &execution_preparation,
         );
 
         build_grouped_stream_with_runtime(
             route,
             &runtime,
             execution_preparation,
-            Box::new(StructuralGroupedRowRuntime::new(
+            StructuralGroupedRowRuntime::new(
                 self.row_store,
                 self.authority.row_layout(),
-            )),
+                grouped_slot_layout,
+            ),
         )
     }
 
@@ -99,6 +106,60 @@ impl GroupedPathRuntimeCore {
             execution_time_micros,
         )
     }
+}
+
+// Compile the grouped ingest slot layout once from planner-owned route
+// metadata so grouped row decode only materializes the slots the runtime can
+// actually touch.
+fn compile_grouped_row_slot_layout(
+    row_layout: RowLayout,
+    route: &GroupedRouteStage,
+    execution_preparation: &ExecutionPreparation,
+) -> RetainedSlotLayout {
+    let field_count = row_layout.field_count();
+    let mut required_slots = vec![false; field_count];
+
+    // Phase 1: every grouped path needs the group key slots themselves.
+    for field in route.group_fields() {
+        if let Some(required_slot) = required_slots.get_mut(field.index()) {
+            *required_slot = true;
+        }
+    }
+
+    // Phase 2: residual predicate evaluation still runs on grouped row views.
+    if let Some(compiled_predicate) = execution_preparation.compiled_predicate() {
+        compiled_predicate.mark_referenced_slots(&mut required_slots);
+    }
+
+    // Phase 3: grouped reducer state only needs field-target slots for
+    // aggregates whose update contract actually reads row values.
+    for aggregate in route.grouped_aggregate_execution_specs() {
+        let Some(target_field) = aggregate.target_field() else {
+            continue;
+        };
+        if let Some(required_slot) = required_slots.get_mut(target_field.index()) {
+            *required_slot = true;
+        }
+    }
+
+    // Phase 4: the dedicated grouped DISTINCT path still reads its target
+    // field from the shared grouped row view when active.
+    if let Some(target_field) = route
+        .grouped_distinct_execution_strategy()
+        .global_distinct_target_slot()
+        && let Some(required_slot) = required_slots.get_mut(target_field.index())
+    {
+        *required_slot = true;
+    }
+
+    RetainedSlotLayout::compile(
+        field_count,
+        required_slots
+            .into_iter()
+            .enumerate()
+            .filter_map(|(slot, required)| required.then_some(slot))
+            .collect(),
+    )
 }
 
 // Execute one fully resolved grouped route through the canonical grouped

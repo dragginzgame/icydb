@@ -26,22 +26,24 @@ use crate::{
 /// ExecutionSpec
 ///
 /// Non-generic kernel descriptor consumed by canonical kernel orchestration.
-/// Captures one pre-bound lane operation with no typed closure capture.
+/// Captures one pre-bound scalar or grouped lane without an extra boxed
+/// trait-object shell around the already-concrete prepared runtime.
 ///
 
-pub(in crate::db::executor::pipeline::orchestrator) struct ExecutionSpec {
-    op: Box<dyn KernelOp>,
+pub(in crate::db::executor::pipeline::orchestrator) enum ExecutionSpec {
+    Scalar(PreparedScalarRouteRuntime),
+    Grouped(PreparedGroupedRouteRuntime),
 }
 
 impl ExecutionSpec {
     // Build one scalar execution descriptor.
-    fn scalar(op: impl KernelOp + 'static) -> Self {
-        Self { op: Box::new(op) }
+    const fn scalar(prepared: PreparedScalarRouteRuntime) -> Self {
+        Self::Scalar(prepared)
     }
 
     // Build one grouped execution descriptor.
-    fn grouped(op: impl KernelOp + 'static) -> Self {
-        Self { op: Box::new(op) }
+    const fn grouped(prepared: PreparedGroupedRouteRuntime) -> Self {
+        Self::Grouped(prepared)
     }
 }
 
@@ -70,81 +72,29 @@ struct KernelState {
     trace: Option<ExecutionTrace>,
 }
 
-///
-/// KernelOp
-///
-/// Monomorphic kernel operation trait used by the non-generic orchestration
-/// layer. Typed entity work stays confined to the boxed leaf adapters.
-///
-
-trait KernelOp {
-    // Execute one pre-bound kernel lane operation exactly once.
-    fn execute(
-        self: Box<Self>,
-        context: &mut LoadExecutionContext,
-    ) -> Result<KernelDispatchOutput, InternalError>;
-}
-
-///
-/// ScalarKernelOp
-///
-/// Non-generic scalar kernel operation shell bound once at descriptor
-/// construction. Typed executor/plan state is owned by one leaf runtime
-/// adapter so the runtime op type itself stays monomorphic.
-///
-
-struct ScalarKernelOp {
-    prepared: PreparedScalarRouteRuntime,
-}
-
-///
-/// GroupedKernelOp
-///
-/// Non-generic grouped kernel operation shell bound once at descriptor
-/// construction. Typed executor/plan state is owned by one leaf runtime
-/// adapter so the runtime op type itself stays monomorphic.
-///
-
-struct GroupedKernelOp {
-    prepared: PreparedGroupedRouteRuntime,
-}
-
-impl KernelOp for ScalarKernelOp {
-    fn execute(
-        self: Box<Self>,
-        _context: &mut LoadExecutionContext,
-    ) -> Result<KernelDispatchOutput, InternalError> {
-        let Self { prepared } = *self;
-        let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
-
-        Ok(KernelDispatchOutput {
-            payload: LoadExecutionPayload::Scalar(page),
-            trace,
-        })
-    }
-}
-
-impl KernelOp for GroupedKernelOp {
-    fn execute(
-        self: Box<Self>,
-        _context: &mut LoadExecutionContext,
-    ) -> Result<KernelDispatchOutput, InternalError> {
-        let Self { prepared } = *self;
-        let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
-
-        Ok(KernelDispatchOutput {
-            payload: LoadExecutionPayload::Grouped(page),
-            trace,
-        })
-    }
-}
-
 // Execute one canonical kernel dispatch over one runtime execution descriptor.
 fn execute_kernel(
-    mut context: LoadExecutionContext,
+    context: LoadExecutionContext,
     spec: ExecutionSpec,
 ) -> Result<KernelState, InternalError> {
-    let output = spec.op.execute(&mut context)?;
+    let output = match spec {
+        ExecutionSpec::Scalar(prepared) => {
+            let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
+
+            KernelDispatchOutput {
+                payload: LoadExecutionPayload::Scalar(page),
+                trace,
+            }
+        }
+        ExecutionSpec::Grouped(prepared) => {
+            let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+
+            KernelDispatchOutput {
+                payload: LoadExecutionPayload::Grouped(page),
+                trace,
+            }
+        }
+    };
 
     Ok(KernelState {
         context,
@@ -194,16 +144,14 @@ where
                     *resolved_continuation,
                     scalar_rows_mode,
                 )?;
-                let op = ScalarKernelOp { prepared };
 
-                Ok(ExecutionSpec::scalar(op))
+                Ok(ExecutionSpec::scalar(prepared))
             }
             PreparedLoadCursor::Grouped(cursor) => {
                 let route = Self::resolve_grouped_route(plan, cursor, self.debug)?;
                 let prepared = self.prepare_grouped_route_runtime(route)?;
-                let op = GroupedKernelOp { prepared };
 
-                Ok(ExecutionSpec::grouped(op))
+                Ok(ExecutionSpec::grouped(prepared))
             }
         }
     }

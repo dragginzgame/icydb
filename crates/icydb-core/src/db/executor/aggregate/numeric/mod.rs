@@ -43,7 +43,6 @@ use crate::{
     types::Decimal,
     value::Value,
 };
-use std::cell::RefCell;
 
 // Typed boundary request for one numeric field aggregate terminal family call.
 #[derive(Clone, Copy)]
@@ -258,9 +257,9 @@ where
             index_range_specs,
             ..
         } = prepared;
-        let continuation = RefCell::new(ContinuationRuntime::from_window(
+        let mut continuation = ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
-        ));
+        );
 
         // Phase 2: resolve the canonical ordered key stream from access descriptors.
         let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
@@ -281,42 +280,50 @@ where
         );
         let runtime = TraversalRuntime::new(store, authority.entity_tag());
         let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
+        let row_decoder = RowDecoder::structural();
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
         let mut accumulator = NumericAggregateAccumulator::new();
-        let mut pre_key =
-            || Self::loop_control_from_continuation_action(continuation.borrow_mut().pre_fetch());
-        let mut on_key = |_data_key,
-                          row: Option<crate::db::executor::terminal::page::KernelRow>|
-         -> Result<KeyStreamLoopControl, InternalError> {
-            let Some(row) = row else {
-                return Ok(KeyStreamLoopControl::Emit);
+
+        loop {
+            match Self::loop_control_from_continuation_action(continuation.pre_fetch()) {
+                KeyStreamLoopControl::Skip => continue,
+                KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
+
+            let Some(data_key) = key_stream.next_key()? else {
+                break;
+            };
+            let Some(row) = Self::read_kernel_row_for_field_aggregate(
+                store,
+                &row_layout,
+                row_decoder,
+                consistency,
+                &data_key,
+            )?
+            else {
+                continue;
             };
             rows_scanned = rows_scanned.saturating_add(1);
-            match continuation.borrow_mut().accept_row() {
-                LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
                 LoopAction::Emit => {}
-                LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+                LoopAction::Stop => break,
             }
+
+            let mut read_slot = |index: usize| row.slot_ref(index);
             let value = extract_numeric_field_decimal_with_slot_ref_reader(
                 target_field,
                 field_slot,
-                &mut |index| row.slot_ref(index),
+                &mut read_slot,
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);
+        }
 
-            Ok(KeyStreamLoopControl::Emit)
-        };
-        Self::drive_field_row_stream(
-            store,
-            &row_layout,
-            consistency,
-            key_stream.as_mut(),
-            &mut pre_key,
-            &mut on_key,
-        )?;
         record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.

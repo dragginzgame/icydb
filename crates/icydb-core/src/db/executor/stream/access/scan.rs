@@ -108,14 +108,16 @@ impl PrimaryScan {
         start: &DataKey,
         end: &DataKey,
     ) -> Result<Vec<DataKey>, InternalError> {
-        let keys = store.with_data(|store| {
+        let keys = store.with_data(|store| -> Result<Vec<DataKey>, InternalError> {
             let start_raw = start.to_raw()?;
             let end_raw = end.to_raw()?;
+            let mut keys = Vec::new();
 
-            store
-                .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .map(|entry| Self::decode_data_key(entry.key()))
-                .collect::<Result<Vec<_>, _>>()
+            for entry in store.range((Bound::Included(start_raw), Bound::Included(end_raw))) {
+                keys.push(Self::decode_data_key(entry.key())?);
+            }
+
+            Ok(keys)
         })?;
 
         Ok(keys)

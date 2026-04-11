@@ -12,10 +12,11 @@ use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            CanonicalSlotReader, DataRow, RawRow, StorageKey, StructuralRowContract,
-            StructuralSlotReader, decode_dense_raw_row_with_contract,
+            DataRow, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
+            decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
+            decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
         },
-        executor::terminal::{RetainedSlotRow, page::KernelRow},
+        executor::terminal::{RetainedSlotLayout, RetainedSlotRow, page::KernelRow},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -91,9 +92,11 @@ impl RowLayout {
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct RowDecoder {
     decode: fn(&RowLayout, DataRow) -> Result<KernelRow, InternalError>,
+    #[cfg(test)]
     decode_slots: RowDecodeSlotsFn,
 }
 
+#[cfg(test)]
 type RowDecodeSlotsFn = fn(
     &RowLayout,
     StorageKey,
@@ -107,6 +110,7 @@ impl RowDecoder {
     pub(in crate::db::executor) const fn structural() -> Self {
         Self {
             decode: decode_kernel_row_structural,
+            #[cfg(test)]
             decode_slots: decode_structural_slots,
         }
     }
@@ -122,6 +126,7 @@ impl RowDecoder {
 
     /// Decode one persisted row into slot-indexed structural values without
     /// constructing one full kernel-row envelope.
+    #[cfg(test)]
     pub(in crate::db::executor) fn decode_slots(
         self,
         layout: &RowLayout,
@@ -140,13 +145,7 @@ impl RowDecoder {
         row: &RawRow,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
-        // Phase 1: reuse the canonical row-open validation boundary once.
-        let reader = layout.open_raw_row(row)?;
-        reader.validate_storage_key_value(expected_key)?;
-
-        // Phase 2: decode only the caller-requested slot instead of staging a
-        // one-entry retained-slot row that would be torn down immediately.
-        decode_required_structural_slot_value(reader, required_slot)
+        decode_sparse_required_slot_with_contract(row, layout.contract, expected_key, required_slot)
     }
 
     /// Decode one retained structural slot-row without materializing a dense
@@ -155,24 +154,56 @@ impl RowDecoder {
         layout: &RowLayout,
         expected_key: StorageKey,
         row: &RawRow,
-        required_slots: &[usize],
+        retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<RetainedSlotRow, InternalError> {
         // Phase 1: let dense retained-slot callers reuse the dedicated direct
         // full-row decode path instead of constructing the sparse reader first.
-        if required_slots_match_full_layout(layout, required_slots) {
+        if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
             return Ok(RetainedSlotRow::from_dense_slots(
                 decode_dense_raw_row_with_contract(row, layout.contract, expected_key)?,
             ));
         }
 
-        // Phase 1: reuse the canonical row-open validation boundary once.
-        let reader = layout.open_raw_row(row)?;
-        reader.validate_storage_key_value(expected_key)?;
+        // Phase 2: reuse the canonical row-open validation boundary once, then
+        // retain only the caller-declared slot/value pairs in compact layout
+        // order for the retained-row wrapper.
+        Ok(RetainedSlotRow::from_indexed_values(
+            retained_slot_layout,
+            decode_sparse_indexed_raw_row_with_contract(
+                row,
+                layout.contract,
+                expected_key,
+                retained_slot_layout.required_slots(),
+            )?,
+        ))
+    }
 
-        // Phase 2: retain only the caller-declared slot/value pairs while
-        // placing them straight into the dense execution-row shape used by the
-        // slot-only SQL path.
-        decode_retained_structural_slots(reader, layout, required_slots)
+    /// Decode one compact retained-slot value buffer without constructing one
+    /// retained-row wrapper or field-count-sized slot image.
+    pub(in crate::db::executor) fn decode_indexed_slot_values(
+        layout: &RowLayout,
+        expected_key: StorageKey,
+        row: &RawRow,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        // Phase 1: let dense callers stay on the dedicated direct full-row
+        // decode path so compact retained layouts do not regress all-slot reads.
+        if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_sql_projection_full_row_decode_materialization();
+
+            return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
+        }
+
+        // Phase 2: reuse the canonical row-open validation boundary once, then
+        // materialize only the caller-declared retained slots into compact
+        // layout order.
+        decode_sparse_indexed_raw_row_with_contract(
+            row,
+            layout.contract,
+            expected_key,
+            retained_slot_layout.required_slots(),
+        )
     }
 }
 
@@ -206,79 +237,19 @@ fn decode_structural_slots(
         return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
     }
 
-    // Phase 1: build the canonical structural slot reader once so hot row
-    // decode can reuse the existing persisted-row validation boundary instead
-    // of re-encoding the decoded primary-key value back into `StorageKey`.
-    let reader = layout.open_raw_row(row)?;
-
-    // Phase 2: keep authoritative storage-key validation on the
-    // `StructuralSlotReader` boundary that already knows how to validate
-    // primary-key slots from cached scalar refs or raw field bytes.
-    reader.validate_storage_key_value(expected_key)?;
-
-    // Phase 3: sparse callers retain the lazy reader and materialize only the
-    // slots their compiled plan will actually touch.
-    decode_required_structural_slots(
-        reader,
-        layout,
+    // Phase 2: sparse callers decode only the slots their compiled plan will
+    // actually touch without building the general row-reader cache.
+    decode_sparse_raw_row_with_contract(
+        row,
+        layout.contract,
+        expected_key,
         required_slots.expect("dense full-slot callers return earlier"),
     )
 }
 
-// Materialize only the caller-declared slot subset while preserving the
-// canonical row-open validation boundary already enforced by the reader.
-fn decode_required_structural_slots(
-    reader: StructuralSlotReader<'_>,
-    layout: &RowLayout,
-    required_slots: &[usize],
-) -> Result<Vec<Option<Value>>, InternalError> {
-    if required_slots_match_full_layout(layout, required_slots) {
-        return reader.into_decoded_values();
-    }
-
-    let mut slots = vec![None; layout.field_count];
-
-    for &slot in required_slots {
-        slots[slot] = Some(reader.required_value_by_contract(slot)?);
-    }
-
-    Ok(slots)
-}
-
-// Materialize one caller-declared slot value directly from the canonical row
-// reader without staging a retained-slot row or dense slot vector.
-fn decode_required_structural_slot_value(
-    reader: StructuralSlotReader<'_>,
-    required_slot: usize,
-) -> Result<Option<Value>, InternalError> {
-    Ok(Some(reader.required_value_by_contract(required_slot)?))
-}
-
-// Materialize only the caller-declared slot/value pairs while preserving the
-// same row-open validation boundary used by dense slot decode.
-fn decode_retained_structural_slots(
-    reader: StructuralSlotReader<'_>,
-    layout: &RowLayout,
-    required_slots: &[usize],
-) -> Result<RetainedSlotRow, InternalError> {
-    if required_slots_match_full_layout(layout, required_slots) {
-        return Ok(RetainedSlotRow::from_dense_slots(
-            reader.into_decoded_values()?,
-        ));
-    }
-
-    let mut slots = vec![None; layout.field_count];
-
-    for &slot in required_slots {
-        slots[slot] = Some(reader.required_value_by_contract(slot)?);
-    }
-
-    Ok(RetainedSlotRow::from_dense_slots(slots))
-}
-
 // Detect the dense retained-slot case up front so full-row and full-slot SQL
-// paths can stay on the straight-line dense decode instead of paying the
-// sparse per-slot access machinery.
+// paths can stay on the straight-line dense decode before compact retained-row
+// conversion instead of paying the sparse per-slot decode machinery.
 fn required_slots_match_full_layout(layout: &RowLayout, required_slots: &[usize]) -> bool {
     required_slots.len() == layout.field_count
         && required_slots

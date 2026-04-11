@@ -15,7 +15,7 @@ use crate::{
 
 pub(in crate::db::executor) fn eval_unary_expr(
     op: UnaryOp,
-    value: Value,
+    value: &Value,
 ) -> Result<Value, ProjectionEvalError> {
     if matches!(value, Value::Null) {
         return Ok(Value::Null);
@@ -26,11 +26,11 @@ pub(in crate::db::executor) fn eval_unary_expr(
             let Some(result) = apply_numeric_arithmetic(
                 NumericArithmeticOp::Sub,
                 &Value::Decimal(Decimal::ZERO),
-                &value,
+                value,
             ) else {
                 return Err(ProjectionEvalError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
-                    found: Box::new(value),
+                    found: Box::new(value.clone()),
                 });
             };
 
@@ -40,11 +40,11 @@ pub(in crate::db::executor) fn eval_unary_expr(
             let Value::Bool(v) = value else {
                 return Err(ProjectionEvalError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
-                    found: Box::new(value),
+                    found: Box::new(value.clone()),
                 });
             };
 
-            Ok(Value::Bool(!v))
+            Ok(Value::Bool(!*v))
         }
     }
 }

@@ -35,29 +35,6 @@ pub(in crate::db::executor) enum FoldControl {
 }
 
 ///
-/// ScalarTerminalUpdateDispatch
-///
-/// Pre-resolved scalar terminal update dispatch selected once from aggregate
-/// kind so scalar reducer loops do not branch on aggregate kind per row.
-///
-
-type ScalarTerminalUpdateDispatch =
-    fn(&mut ScalarTerminalAggregateState, Option<StorageKey>) -> Result<FoldControl, InternalError>;
-
-///
-/// GroupedTerminalUpdateDispatch
-///
-/// Pre-resolved grouped terminal update dispatch selected once from aggregate
-/// kind so grouped reducer loops stay structural and avoid per-row kind checks.
-///
-
-type GroupedTerminalUpdateDispatch = fn(
-    &mut GroupedTerminalAggregateState,
-    Option<StorageKey>,
-    Option<&RowView>,
-) -> Result<FoldControl, InternalError>;
-
-///
 /// AggregateReducerClass
 ///
 /// Owner-local grouped classification for aggregate reducer state and terminal
@@ -414,11 +391,11 @@ pub(in crate::db::executor) trait ScalarAggregateState {
 ///
 
 pub(in crate::db::executor) struct ScalarTerminalAggregateState {
+    reducer_class: AggregateReducerClass,
     direction: Direction,
     distinct: bool,
     distinct_keys: Option<GroupKeySet>,
     requires_storage_key: bool,
-    terminal_update_dispatch: ScalarTerminalUpdateDispatch,
     reducer: ScalarAggregateReducerState,
 }
 
@@ -446,13 +423,13 @@ impl ScalarAggregateState for ScalarTerminalAggregateState {
 
 pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     kind: AggregateKind,
+    reducer_class: AggregateReducerClass,
     direction: Direction,
     distinct: bool,
     max_distinct_values_per_group: u64,
     distinct_keys: Option<GroupKeySet>,
     target_field: Option<FieldSlot>,
     requires_storage_key: bool,
-    terminal_update_dispatch: GroupedTerminalUpdateDispatch,
     reducer: GroupedAggregateReducerState,
 }
 
@@ -522,21 +499,6 @@ impl GroupedTerminalAggregateState {
         self.reducer.into_value()
     }
 
-    // Resolve one grouped terminal update dispatch function from one aggregate kind.
-    const fn terminal_update_dispatch_for_kind(
-        kind: AggregateKind,
-    ) -> GroupedTerminalUpdateDispatch {
-        match kind.reducer_class() {
-            AggregateReducerClass::Count => Self::apply_count,
-            AggregateReducerClass::SumLike => Self::apply_sum_like,
-            AggregateReducerClass::Exists => Self::apply_exists,
-            AggregateReducerClass::Min => Self::apply_min,
-            AggregateReducerClass::Max => Self::apply_max,
-            AggregateReducerClass::First => Self::apply_first,
-            AggregateReducerClass::Last => Self::apply_last,
-        }
-    }
-
     // Dispatch one grouped terminal aggregate update by kind at one canonical boundary.
     fn apply_terminal_update(
         &mut self,
@@ -544,8 +506,15 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let storage_key = self.requires_storage_key.then_some(key.storage_key());
-
-        (self.terminal_update_dispatch)(self, storage_key, row_view)
+        match self.reducer_class {
+            AggregateReducerClass::Count => self.apply_count(storage_key, row_view),
+            AggregateReducerClass::SumLike => self.apply_sum_like(storage_key, row_view),
+            AggregateReducerClass::Exists => self.apply_exists(storage_key, row_view),
+            AggregateReducerClass::Min => self.apply_min(storage_key, row_view),
+            AggregateReducerClass::Max => self.apply_max(storage_key, row_view),
+            AggregateReducerClass::First => self.apply_first(storage_key, row_view),
+            AggregateReducerClass::Last => self.apply_last(storage_key, row_view),
+        }
     }
 
     // Apply one COUNT grouped terminal update.
@@ -558,7 +527,7 @@ impl GroupedTerminalAggregateState {
             let Some(row_view) = row_view else {
                 return Err(Self::field_target_execution_required("COUNT(field)"));
             };
-            let value = row_view.require_slot(target_field.index())?;
+            let value = row_view.require_slot_ref(target_field.index())?;
             if matches!(value, Value::Null) {
                 return Ok(FoldControl::Continue);
             }
@@ -598,14 +567,14 @@ impl GroupedTerminalAggregateState {
         let Some(row_view) = row_view else {
             return Err(Self::field_target_execution_required(kind_label));
         };
-        let value = row_view.require_slot(target_field.index())?;
+        let value = row_view.require_slot_ref(target_field.index())?;
         if matches!(value, Value::Null) {
             return Ok(FoldControl::Continue);
         }
-        let Some(decimal) = coerce_numeric_decimal(&value) else {
+        let Some(decimal) = coerce_numeric_decimal(value) else {
             return Err(Self::sum_field_requires_numeric_value(
                 target_field.field(),
-                &value,
+                value,
             ));
         };
         match self.kind {
@@ -701,6 +670,7 @@ impl AggregateStateFactory {
         distinct: bool,
     ) -> ScalarTerminalAggregateState {
         ScalarTerminalAggregateState {
+            reducer_class: kind.reducer_class(),
             direction,
             distinct,
             distinct_keys: if distinct {
@@ -709,8 +679,6 @@ impl AggregateStateFactory {
                 None
             },
             requires_storage_key: kind.requires_decoded_id(),
-            terminal_update_dispatch:
-                ScalarTerminalAggregateState::terminal_update_dispatch_for_kind(kind),
             reducer: ScalarAggregateReducerState::for_kind(kind),
         }
     }
@@ -726,6 +694,7 @@ impl AggregateStateFactory {
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {
             kind,
+            reducer_class: kind.reducer_class(),
             direction,
             distinct,
             max_distinct_values_per_group,
@@ -736,8 +705,6 @@ impl AggregateStateFactory {
             },
             target_field,
             requires_storage_key: kind.requires_decoded_id(),
-            terminal_update_dispatch:
-                GroupedTerminalAggregateState::terminal_update_dispatch_for_kind(kind),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }
     }
@@ -758,26 +725,18 @@ impl ScalarTerminalAggregateState {
         ))
     }
 
-    // Resolve one scalar terminal update dispatch function from one aggregate kind.
-    const fn terminal_update_dispatch_for_kind(
-        kind: AggregateKind,
-    ) -> ScalarTerminalUpdateDispatch {
-        match kind.reducer_class() {
-            AggregateReducerClass::Count => Self::apply_count,
-            AggregateReducerClass::SumLike => Self::apply_sum_like_unsupported,
-            AggregateReducerClass::Exists => Self::apply_exists,
-            AggregateReducerClass::Min => Self::apply_min,
-            AggregateReducerClass::Max => Self::apply_max,
-            AggregateReducerClass::First => Self::apply_first,
-            AggregateReducerClass::Last => Self::apply_last,
-        }
-    }
-
     // Dispatch one scalar terminal aggregate update by kind at one canonical boundary.
     fn apply_terminal_update(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
         let storage_key = self.requires_storage_key.then_some(key.storage_key());
-
-        (self.terminal_update_dispatch)(self, storage_key)
+        match self.reducer_class {
+            AggregateReducerClass::Count => self.apply_count(storage_key),
+            AggregateReducerClass::SumLike => Self::apply_sum_like_unsupported(storage_key),
+            AggregateReducerClass::Exists => self.apply_exists(storage_key),
+            AggregateReducerClass::Min => self.apply_min(storage_key),
+            AggregateReducerClass::Max => self.apply_max(storage_key),
+            AggregateReducerClass::First => self.apply_first(storage_key),
+            AggregateReducerClass::Last => self.apply_last(storage_key),
+        }
     }
 
     // Apply one COUNT scalar terminal update.
@@ -795,10 +754,7 @@ impl ScalarTerminalAggregateState {
     }
 
     // Reject SUM/AVG through scalar key-based reducer paths.
-    fn apply_sum_like_unsupported(
-        _state: &mut Self,
-        _key: Option<StorageKey>,
-    ) -> Result<FoldControl, InternalError> {
+    fn apply_sum_like_unsupported(_key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         Err(Self::field_target_execution_required("SUM/AVG"))
     }
 

@@ -7,13 +7,11 @@ use crate::{
     db::{
         data::{DataKey, DataRow},
         executor::{
-            KeyStreamLoopControl, OrderedKeyStream,
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value_from_decoded_slot,
             },
-            drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
             read_data_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout, page::KernelRow},
@@ -314,35 +312,5 @@ where
                 .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Some(value))
-    }
-
-    // Drive one canonical key stream and decode rows with field-aggregate read
-    // consistency contracts while delegating row-level behavior to callbacks.
-    // This keeps stream control-flow ownership in one helper so aggregate
-    // terminals do not duplicate key-stream/read scaffolding.
-    pub(in crate::db::executor) fn drive_field_row_stream(
-        store: StoreHandle,
-        row_layout: &RowLayout,
-        consistency: MissingRowPolicy,
-        key_stream: &mut dyn OrderedKeyStream,
-        pre_key: &mut dyn FnMut() -> KeyStreamLoopControl,
-        on_key: &mut dyn FnMut(
-            DataKey,
-            Option<KernelRow>,
-        ) -> Result<KeyStreamLoopControl, InternalError>,
-    ) -> Result<(), InternalError> {
-        let row_decoder = RowDecoder::structural();
-
-        drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut |data_key| {
-            let row = Self::read_kernel_row_for_field_aggregate(
-                store,
-                row_layout,
-                row_decoder,
-                consistency,
-                &data_key,
-            )?;
-
-            on_key(data_key, row)
-        })
     }
 }

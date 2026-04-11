@@ -18,8 +18,8 @@ use crate::{
                     physical,
                 },
                 key::{
-                    IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-                    OrderedKeyStreamBox, ordered_key_stream_from_materialized_keys,
+                    KeyOrderComparator, OrderedKeyStreamBox,
+                    ordered_key_stream_from_materialized_keys,
                 },
             },
             traversal::IndexRangeTraversalContract,
@@ -71,30 +71,10 @@ impl<'a> TraversalInputs<'a> {
     }
 }
 
-///
-/// AccessTraversalRuntime
-///
-/// AccessTraversalRuntime keeps typed physical path resolution behind one
-/// execution-focused runtime boundary.
-/// Recursive access-plan traversal uses this only to resolve leaf path nodes;
-/// it must not absorb union/intersection orchestration or stream reduction.
-///
-
-trait AccessTraversalRuntime<K> {
-    /// Resolve one executable path leaf through the typed physical access boundary.
-    fn lower_path_access(
-        &self,
-        path: &ExecutableAccessPath<'_, K>,
-        inputs: TraversalInputs<'_>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>;
-}
-
 // Keep the historical traversal-layer invariant name stable for CI checks while
 // routing the actual contract enforcement through the traversal owner.
-fn validate_index_range_spec_alignment<K>(
-    path: &ExecutableAccessPath<'_, K>,
+fn validate_index_range_spec_alignment(
+    path: &ExecutableAccessPath<'_, AccessKey>,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
 ) -> Result<(), InternalError> {
     IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)
@@ -150,9 +130,9 @@ impl TraversalRuntime {
 
         Ok(key_stream)
     }
-}
 
-impl AccessTraversalRuntime<AccessKey> for TraversalRuntime {
+    // Resolve one executable path leaf through the structural physical access
+    // boundary without re-erasing the traversal runtime behind a local trait.
     fn lower_path_access(
         &self,
         path: &ExecutableAccessPath<'_, AccessKey>,
@@ -194,8 +174,8 @@ struct AccessPlanStreamResolver;
 
 impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
-    fn validate_index_prefix_spec_alignment<K>(
-        path: &ExecutableAccessPath<'_, K>,
+    fn validate_index_prefix_spec_alignment(
+        path: &ExecutableAccessPath<'_, AccessKey>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
@@ -213,15 +193,12 @@ impl AccessPlanStreamResolver {
     }
 
     // Collect one child key stream for each child access plan.
-    fn collect_child_key_streams<'a, K>(
-        runtime: &dyn AccessTraversalRuntime<K>,
-        children: &[ExecutableAccessPlan<'a, K>],
+    fn collect_child_key_streams<'a>(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'a, AccessKey>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
-    ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
-    where
-        K: Clone,
-    {
+    ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
             // Composite plans never need physical fetch-hint expansion on child lookups.
@@ -276,15 +253,12 @@ impl AccessPlanStreamResolver {
 
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
-    fn produce_key_stream<'a, K>(
-        runtime: &dyn AccessTraversalRuntime<K>,
-        access: &ExecutableAccessPlan<'a, K>,
+    fn produce_key_stream<'a>(
+        runtime: &TraversalRuntime,
+        access: &ExecutableAccessPlan<'a, AccessKey>,
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        K: Clone,
-    {
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
                 let path_capabilities = path.capabilities();
@@ -315,46 +289,32 @@ impl AccessPlanStreamResolver {
     }
 
     // Build one canonical stream for a union by pairwise-merging child streams.
-    fn produce_union_key_stream<'a, K>(
-        runtime: &dyn AccessTraversalRuntime<K>,
-        children: &[ExecutableAccessPlan<'a, K>],
+    fn produce_union_key_stream<'a>(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'a, AccessKey>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        K: Clone,
-    {
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
-            Box::new(MergeOrderedKeyStream::new_with_comparator(
-                left,
-                right,
-                key_comparator,
-            ))
+            OrderedKeyStreamBox::merge(left, right, key_comparator)
         }))
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
-    fn produce_intersection_key_stream<'a, K>(
-        runtime: &dyn AccessTraversalRuntime<K>,
-        children: &[ExecutableAccessPlan<'a, K>],
+    fn produce_intersection_key_stream<'a>(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'a, AccessKey>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        K: Clone,
-    {
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
-            Box::new(IntersectOrderedKeyStream::new_with_comparator(
-                left,
-                right,
-                key_comparator,
-            ))
+            OrderedKeyStreamBox::intersect(left, right, key_comparator)
         }))
     }
 }

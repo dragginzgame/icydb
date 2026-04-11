@@ -33,8 +33,8 @@ pub(super) fn execute_primary_key_fast_stream_route(
     verify_pk_stream_fast_path_access(plan)?;
 
     // Phase 2: lower through the canonical structural access-stream boundary.
-    let access = ExecutableAccess::from_executable_plan(
-        plan.access.resolve_strategy().into_executable(),
+    let access = ExecutableAccess::new(
+        &plan.access,
         AccessStreamBindings::no_index(stream_direction),
         probe_fetch_hint,
         None,

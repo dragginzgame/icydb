@@ -172,13 +172,19 @@ impl IndexEntryExistenceWitness {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexEntryMembership {
     storage_key: StorageKey,
+    raw_storage_key: [u8; StorageKey::STORED_SIZE_USIZE],
     existence_witness: IndexEntryExistenceWitness,
 }
 
 impl IndexEntryMembership {
-    const fn new(storage_key: StorageKey, existence_witness: IndexEntryExistenceWitness) -> Self {
+    const fn new(
+        storage_key: StorageKey,
+        raw_storage_key: [u8; StorageKey::STORED_SIZE_USIZE],
+        existence_witness: IndexEntryExistenceWitness,
+    ) -> Self {
         Self {
             storage_key,
+            raw_storage_key,
             existence_witness,
         }
     }
@@ -191,6 +197,11 @@ impl IndexEntryMembership {
     #[must_use]
     pub(in crate::db) const fn existence_witness(self) -> IndexEntryExistenceWitness {
         self.existence_witness
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn raw_storage_key_bytes(self) -> [u8; StorageKey::STORED_SIZE_USIZE] {
+        self.raw_storage_key
     }
 }
 
@@ -356,6 +367,7 @@ impl RawIndexEntry {
 
     // Decode one single-key entry without allocating the full membership
     // vector when the frame declares exactly one storage key.
+    #[cfg(test)]
     pub(crate) fn decode_single_key(&self) -> Result<Option<StorageKey>, IndexEntryCorruption> {
         Ok(self
             .decode_single_membership()?
@@ -551,7 +563,12 @@ fn decode_membership_at_offset(
     bytes: &[u8],
     offset: usize,
 ) -> Result<IndexEntryMembership, IndexEntryCorruption> {
-    let key = decode_stored_key_at_offset(bytes, offset)?;
+    let key_end = offset + StorageKey::STORED_SIZE_USIZE;
+    let raw_storage_key: [u8; StorageKey::STORED_SIZE_USIZE] = bytes[offset..key_end]
+        .try_into()
+        .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+    let key = StorageKey::try_from_stored_bytes(&raw_storage_key)
+        .map_err(|_| IndexEntryCorruption::InvalidKey)?;
     let witness = bytes
         .get(offset + StorageKey::STORED_SIZE_USIZE)
         .copied()
@@ -559,20 +576,9 @@ fn decode_membership_at_offset(
 
     Ok(IndexEntryMembership::new(
         key,
+        raw_storage_key,
         IndexEntryExistenceWitness::try_from_stored_byte(witness)?,
     ))
-}
-
-fn decode_stored_key_at_offset(
-    bytes: &[u8],
-    offset: usize,
-) -> Result<StorageKey, IndexEntryCorruption> {
-    let end = offset + StorageKey::STORED_SIZE_USIZE;
-    let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[offset..end])
-        .try_into()
-        .map_err(|_| IndexEntryCorruption::InvalidKey)?;
-
-    StorageKey::try_from_stored_bytes(key_bytes).map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
 impl TryFrom<&IndexEntry> for RawIndexEntry {

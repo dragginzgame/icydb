@@ -321,6 +321,7 @@ impl RawIndexKey {
     // Validate one raw index key while extracting only the requested component
     // segment. This keeps single-component covering scans from allocating a
     // full decoded `IndexKey` when they only need one component payload.
+    #[cfg(test)]
     pub(in crate::db) fn validated_component(
         &self,
         index: usize,

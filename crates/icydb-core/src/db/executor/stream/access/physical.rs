@@ -75,53 +75,6 @@ struct PhysicalStreamBindings<'a> {
     preserve_leaf_index_order: bool,
 }
 
-///
-/// PhysicalAccessRuntime
-///
-/// Execution-focused leaf runtime for one typed physical access context.
-/// The outer physical-path dispatcher uses this only for concrete scan and
-/// key-lowering leaves; it must not absorb match orchestration or ordering
-/// normalization.
-///
-
-trait PhysicalAccessRuntime<K> {
-    fn resolve_by_key(&self, key: K) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_by_keys(&self, keys: &[K]) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_key_range(
-        &self,
-        start: K,
-        end: K,
-        direction: Direction,
-        primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_full_scan(
-        &self,
-        direction: Direction,
-        primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_index_prefix(
-        &self,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        direction: Direction,
-        index_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_index_multi_lookup(
-        &self,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        value_count: usize,
-        direction: Direction,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-    fn resolve_index_range(
-        &self,
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-        continuation: IndexScanContinuationInput<'_>,
-        index_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
-}
-
 // Keep the historical physical-path invariant name stable for CI checks while
 // routing the actual contract enforcement through the traversal owner.
 fn require_index_range_spec(
@@ -147,9 +100,8 @@ impl KeyAccessRuntime {
     const fn new(store: StoreHandle, entity_tag: EntityTag) -> Self {
         Self { store, entity_tag }
     }
-}
 
-impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
+    // Resolve one direct primary-key lookup into its canonical ordered output.
     fn resolve_by_key(
         &self,
         key: AccessKey,
@@ -160,6 +112,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         ))
     }
 
+    // Resolve one multi-key primary lookup into canonical ascending key order.
     fn resolve_by_keys(
         &self,
         keys: &[AccessKey],
@@ -174,6 +127,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         Ok((data_keys, KeyOrderState::AscendingSorted))
     }
 
+    // Resolve one primary-key range scan.
     fn resolve_key_range(
         &self,
         start: AccessKey,
@@ -199,6 +153,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         Ok((keys, key_order_state))
     }
 
+    // Resolve one full primary-key scan.
     fn resolve_full_scan(
         &self,
         direction: Direction,
@@ -222,6 +177,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         Ok((keys, key_order_state))
     }
 
+    // Resolve one single-prefix secondary-index scan.
     fn resolve_index_prefix(
         &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
@@ -252,6 +208,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         Ok((keys, key_order_state))
     }
 
+    // Resolve one multi-lookup secondary-index scan and normalize duplicates.
     fn resolve_index_multi_lookup(
         &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
@@ -282,6 +239,7 @@ impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
         Ok((keys, KeyOrderState::AscendingSorted))
     }
 
+    // Resolve one secondary-index range scan.
     fn resolve_index_range(
         &self,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
@@ -333,14 +291,11 @@ fn normalize_ordered_keys(
 
 // Resolve one physical access path by dispatching only the coarse path shape
 // through the runtime leaf boundary.
-fn resolve_physical_key_stream<K>(
-    path: &ExecutableAccessPath<'_, K>,
+fn resolve_physical_key_stream(
+    path: &ExecutableAccessPath<'_, AccessKey>,
     request: PhysicalStreamBindings<'_>,
-    runtime: &dyn PhysicalAccessRuntime<K>,
-) -> Result<OrderedKeyStreamBox, InternalError>
-where
-    K: Clone,
-{
+    runtime: &KeyAccessRuntime,
+) -> Result<OrderedKeyStreamBox, InternalError> {
     let dispatch = dispatch_executable_access_path(path);
     let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
         request.physical_fetch_hint

@@ -16,8 +16,8 @@ use crate::{
 
 pub(in crate::db::executor) fn eval_binary_expr(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
     if matches!(left, Value::Null) || matches!(right, Value::Null) {
         return Ok(Value::Null);
@@ -37,13 +37,13 @@ pub(in crate::db::executor) fn eval_binary_expr(
 
 fn eval_numeric_binary_expr(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
     let Some(arithmetic_op) = numeric_arithmetic_op(op) else {
         return Err(invalid_binary_operands(op, left, right));
     };
-    let Some(result) = apply_numeric_arithmetic(arithmetic_op, &left, &right) else {
+    let Some(result) = apply_numeric_arithmetic(arithmetic_op, left, right) else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
@@ -52,10 +52,10 @@ fn eval_numeric_binary_expr(
 
 fn eval_boolean_binary_expr(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    let (Value::Bool(left_bool), Value::Bool(right_bool)) = (&left, &right) else {
+    let (Value::Bool(left_bool), Value::Bool(right_bool)) = (left, right) else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
@@ -79,13 +79,13 @@ fn eval_boolean_binary_expr(
 
 pub(super) fn invalid_binary_operands(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> ProjectionEvalError {
     ProjectionEvalError::InvalidBinaryOperands {
         op: binary_op_name(op).to_string(),
-        left: Box::new(left),
-        right: Box::new(right),
+        left: Box::new(left.clone()),
+        right: Box::new(right.clone()),
     }
 }
 

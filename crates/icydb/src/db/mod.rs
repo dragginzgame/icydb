@@ -33,12 +33,17 @@ pub use icydb_core::db::{
     GroupedCountFoldMetrics, RowCheckMetrics, StructuralReadMetrics,
     with_grouped_count_fold_metrics, with_row_check_metrics, with_structural_read_metrics,
 };
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use icydb_core::db::{
+    LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution, SqlStatementRoute,
+    identifiers_tail_match,
+};
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", not(feature = "perf-attribution")))]
 pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
 pub use response::{
     PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,

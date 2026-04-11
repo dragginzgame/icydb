@@ -22,7 +22,7 @@ use crate::{
             executable_plan::classify_bytes_by_projection_mode,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
-            resolve_covering_projection_component_from_lowered_specs,
+            resolve_covering_projection_components_from_lowered_specs,
             route::BytesTerminalFastPathContract,
             sum_row_payload_bytes_from_ordered_key_stream_with_store,
             sum_row_payload_bytes_full_scan_window_with_store,
@@ -286,13 +286,13 @@ where
         component_index: usize,
         direction: crate::db::direction::Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        resolve_covering_projection_component_from_lowered_specs(
+        resolve_covering_projection_components_from_lowered_specs(
             prepared.authority.entity_tag(),
             prepared.index_prefix_specs.as_slice(),
             prepared.index_range_specs.as_slice(),
             direction,
             usize::MAX,
-            component_index,
+            &[component_index],
             |index| prepared.store_resolver.try_get_store(index.store()),
         )
     }
@@ -391,7 +391,7 @@ where
 
         sum_row_payload_bytes_from_ordered_key_stream_with_store(
             prepared.store,
-            key_stream.as_mut(),
+            &mut key_stream,
             consistency,
             offset,
             limit,

@@ -15,7 +15,6 @@ use crate::db::{
     executor::{
         KeyOrderComparator, OrderedKeyStreamBox,
         pipeline::contracts::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
-        stream::key::DistinctOrderedKeyStream,
     },
     query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
 };
@@ -33,19 +32,16 @@ fn wrap_distinct_ordered_key_stream(
     }
 
     if let Some(counter) = dedup_counter {
-        let wrapped = Box::new(DistinctOrderedKeyStream::new_with_dedup_counter(
+        let wrapped = OrderedKeyStreamBox::distinct_with_dedup_counter(
             ordered_key_stream,
             key_comparator,
             counter.clone(),
-        ));
+        );
         return (wrapped, Some(counter));
     }
 
     (
-        Box::new(DistinctOrderedKeyStream::new(
-            ordered_key_stream,
-            key_comparator,
-        )),
+        OrderedKeyStreamBox::distinct(ordered_key_stream, key_comparator),
         None,
     )
 }

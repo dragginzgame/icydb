@@ -18,17 +18,6 @@ use crate::{
 };
 
 ///
-/// FastPathDecision
-///
-/// Canonical fast-path routing decision for one execution attempt.
-///
-
-pub(super) enum FastPathDecision {
-    Hit(FastPathKeyResult),
-    None,
-}
-
-///
 /// FastPathResolutionStrategy
 ///
 /// Strategy selected once from route shape so key-stream resolution does not
@@ -54,12 +43,12 @@ impl FastPathResolutionStrategy {
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<FastPathDecision, InternalError> {
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match self {
             Self::StreamingFastPathFirst => {
                 evaluate_fast_path(inputs, route_plan, index_predicate_execution)
             }
-            Self::FallbackOnly => Ok(FastPathDecision::None),
+            Self::FallbackOnly => Ok(None),
         }
     }
 }
@@ -131,7 +120,7 @@ pub(super) fn evaluate_fast_path(
     inputs: &ExecutionInputs<'_>,
     route_plan: &ExecutionPlan,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-) -> Result<FastPathDecision, InternalError> {
+) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Guard fast-path spec arity up front so plan/runtime traversal drift
     // cannot silently consume the wrong spec in release builds.
     ensure_load_fast_path_spec_arity(
@@ -158,7 +147,7 @@ pub(super) fn evaluate_fast_path(
         },
     )?;
 
-    Ok(fast.map_or(FastPathDecision::None, FastPathDecision::Hit))
+    Ok(fast)
 }
 
 // Execute one verified fast-path route and return keys if the route produces them.

@@ -11,6 +11,10 @@ mod tests;
 
 pub(in crate::db::executor) use eval::*;
 pub(in crate::db::executor) use grouped::*;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use materialize::SqlProjectionTextExecutorAttribution;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) use materialize::attribute_sql_projection_text_rows_for_canister;
 #[cfg(all(feature = "sql", test))]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
@@ -26,4 +30,8 @@ pub use materialize::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use materialize::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use materialize::{
+    project_sql_projection_slot_rows_for_dispatch, render_sql_projection_slot_rows_for_dispatch,
 };

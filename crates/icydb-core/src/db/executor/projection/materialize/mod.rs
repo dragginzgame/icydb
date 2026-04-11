@@ -33,6 +33,10 @@ use crate::db::executor::projection::eval::{
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_scalar_projection_expr_with_value_ref_reader,
 };
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use structural::SqlProjectionTextExecutorAttribution;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) use structural::attribute_sql_projection_text_rows_for_canister;
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
 pub(in crate::db::executor) use structural::record_sql_projection_full_row_decode_materialization;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
@@ -42,6 +46,10 @@ pub use structural::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use structural::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use structural::{
+    project_sql_projection_slot_rows_for_dispatch, render_sql_projection_slot_rows_for_dispatch,
 };
 
 ///
@@ -74,7 +82,7 @@ pub(in crate::db::executor) struct PreparedProjectionShape {
     projection_is_model_identity: bool,
     #[cfg(feature = "sql")]
     direct_projection_field_slots: Option<Vec<(String, usize)>>,
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "perf-attribution"))]
     projected_slot_mask: Vec<bool>,
 }
 
@@ -100,7 +108,7 @@ impl PreparedProjectionShape {
         self.direct_projection_field_slots.as_deref()
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "perf-attribution"))]
     #[must_use]
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.projected_slot_mask.as_slice()
@@ -122,7 +130,7 @@ pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProj
 /// Build one executor-owned prepared projection shape from planner-frozen metadata.
 #[must_use]
 pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
-    field_count: usize,
+    _field_count: usize,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
     let projection = plan.frozen_projection_spec().clone();
@@ -138,9 +146,9 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
         &projection,
         plan.frozen_direct_projection_slots(),
     );
-    #[cfg(feature = "sql")]
+    #[cfg(any(test, feature = "perf-attribution"))]
     let projected_slot_mask =
-        projected_slot_mask_from_slots(field_count, plan.projected_slot_mask());
+        projected_slot_mask_from_slots(_field_count, plan.projected_slot_mask());
 
     PreparedProjectionShape {
         projection,
@@ -148,7 +156,7 @@ pub(in crate::db::executor) fn prepare_projection_shape_from_plan(
         projection_is_model_identity: plan.projection_is_model_identity(),
         #[cfg(feature = "sql")]
         direct_projection_field_slots,
-        #[cfg(feature = "sql")]
+        #[cfg(any(test, feature = "perf-attribution"))]
         projected_slot_mask,
     }
 }
@@ -191,7 +199,7 @@ fn direct_projection_field_slots_from_projection(
     Some(field_slots)
 }
 
-#[cfg(feature = "sql")]
+#[cfg(any(test, feature = "perf-attribution"))]
 fn projected_slot_mask_from_slots(field_count: usize, projected_slots: &[bool]) -> Vec<bool> {
     let mut mask = vec![false; field_count];
 
@@ -263,7 +271,7 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 // values from retained structural rows until an expression needs ownership.
 #[cfg(feature = "sql")]
 pub(super) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
-    prepared: &PreparedProjectionPlan,
+    prepared: &'a PreparedProjectionPlan,
     projection: &ProjectionSpec,
     read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
     on_value: &mut dyn FnMut(Value),

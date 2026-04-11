@@ -19,8 +19,8 @@ use crate::{
 
 pub(super) fn eval_equality_binary_expr(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
     let numeric_widen_enabled =
         left.supports_numeric_coercion() || right.supports_numeric_coercion();
@@ -29,7 +29,7 @@ pub(super) fn eval_equality_binary_expr(
     } else {
         CoercionSpec::new(CoercionId::Strict)
     };
-    let are_equal = if let Some(are_equal) = compare_eq(&left, &right, &coercion) {
+    let are_equal = if let Some(are_equal) = compare_eq(left, right, &coercion) {
         are_equal
     } else if !numeric_widen_enabled {
         // Preserve projection behavior for non-numeric cross-variant comparisons.
@@ -58,10 +58,10 @@ pub(super) fn eval_equality_binary_expr(
 
 pub(super) fn eval_compare_binary_expr(
     op: BinaryOp,
-    left: Value,
-    right: Value,
+    left: &Value,
+    right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    let ordering = compare_ordering(op, &left, &right)
+    let ordering = compare_ordering(op, left, right)
         .ok_or_else(|| invalid_binary_operands(op, left, right))?;
 
     let result = match op {

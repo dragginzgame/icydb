@@ -18,7 +18,6 @@ use crate::{
                     extract_orderable_field_value_from_decoded_slot,
                 },
             },
-            drive_key_stream_with_control_flow,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
                 ProjectionMaterializationMode,
@@ -273,6 +272,7 @@ impl ExecutionKernel {
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
             false,
+            false,
         );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
@@ -293,13 +293,16 @@ impl ExecutionKernel {
 
     // Streaming reducer for index-leading field extrema. This keeps execution in
     // key-stream mode and stops once the first non-tie worse field value appears.
-    fn fold_streaming_field_extrema(
+    fn fold_streaming_field_extrema<S>(
         store: StoreHandle,
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
-        key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
+        key_stream: &mut S,
         spec: &FieldExtremaFoldSpec<'_>,
-    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
+    where
+        S: crate::db::executor::OrderedKeyStream + ?Sized,
+    {
         if spec.direction != spec.extrema_direction()? {
             return Err(FieldExtremaFoldSpec::fold_direction_mismatch());
         }
@@ -377,7 +380,22 @@ impl ExecutionKernel {
             Ok(KeyStreamLoopControl::Emit)
         };
 
-        drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut on_key)?;
+        loop {
+            match pre_key() {
+                KeyStreamLoopControl::Skip => continue,
+                KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
+
+            let Some(key) = key_stream.next_key()? else {
+                break;
+            };
+
+            match on_key(key)? {
+                KeyStreamLoopControl::Skip | KeyStreamLoopControl::Emit => {}
+                KeyStreamLoopControl::Stop => break,
+            }
+        }
 
         let selected_key = selected.map(|(key, _)| key);
         let output = spec.finalize_output(selected_key)?;
