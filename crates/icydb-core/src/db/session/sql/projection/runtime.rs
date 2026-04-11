@@ -167,7 +167,11 @@ where
     // Phase 3: project or preserve the structural page into rendered SQL rows.
     let (materialize_projection_local_instructions, rendered_rows) =
         measure_structural_result(|| {
-            render_structural_sql_projection_page(row_layout, &prepared_projection, page)
+            let projected =
+                project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
+            let projected = finalize_sql_projection_rows(&plan, projected)?;
+
+            Ok::<Vec<Vec<String>>, InternalError>(render_projected_sql_rows_text(projected))
         });
     let rendered_rows = rendered_rows?;
 
@@ -217,8 +221,10 @@ where
 
     // Execute the canonical scalar runtime and then shape the resulting
     // structural page into projected SQL values.
-    let page = execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan)?;
+    let page =
+        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan.clone())?;
     let projected = project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
+    let projected = finalize_sql_projection_rows(&plan, projected)?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
@@ -241,9 +247,11 @@ where
 
     // Execute the canonical scalar runtime and render the resulting structural
     // page at the SQL text boundary without staging another payload adapter.
-    let page = execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan)?;
-    let rendered_rows =
-        render_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
+    let page =
+        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan.clone())?;
+    let projected = project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
+    let projected = finalize_sql_projection_rows(&plan, projected)?;
+    let rendered_rows = render_projected_sql_rows_text(projected);
     let row_count = u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionTextRows::new(rendered_rows, row_count))
@@ -261,21 +269,6 @@ fn project_structural_sql_projection_page(
         page,
         project_slot_rows_from_projection_structural,
         project_data_rows_from_projection_structural,
-    )
-}
-
-#[cfg(feature = "sql")]
-fn render_structural_sql_projection_page(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    page: StructuralCursorPage,
-) -> Result<Vec<Vec<String>>, InternalError> {
-    shape_structural_sql_projection_page(
-        row_layout,
-        prepared_projection,
-        page,
-        render_slot_rows_from_projection_structural,
-        render_data_rows_from_projection_structural,
     )
 }
 
@@ -342,6 +335,17 @@ fn render_sql_projection_value_text(value: &Value) -> String {
         Value::Ulid(v) => v.to_string(),
         Value::Unit => "()".to_string(),
     }
+}
+
+#[cfg(feature = "sql")]
+fn render_projected_sql_rows_text(rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
+    rows.into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|value| render_sql_projection_value_text(&value))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 #[cfg(feature = "sql")]
@@ -431,15 +435,6 @@ fn project_slot_rows_from_projection_structural(
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut emit_value = std::convert::identity;
     shape_slot_rows_from_projection_structural(prepared_projection, rows, &mut emit_value)
-}
-
-#[cfg(feature = "sql")]
-fn render_slot_rows_from_projection_structural(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<Vec<String>>, InternalError> {
-    let mut render_value = |value| render_sql_projection_value_text(&value);
-    shape_slot_rows_from_projection_structural(prepared_projection, rows, &mut render_value)
 }
 
 #[cfg(feature = "sql")]
@@ -548,30 +543,6 @@ fn project_data_rows_from_projection_structural(
 }
 
 #[cfg(feature = "sql")]
-fn render_data_rows_from_projection_structural(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    rows: &[DataRow],
-) -> Result<Vec<Vec<String>>, InternalError> {
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
-    #[cfg(any(test, feature = "perf-attribution"))]
-    let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, feature = "perf-attribution")))]
-    let projected_slot_mask = &[];
-
-    #[cfg(any(test, feature = "structural-read-metrics"))]
-    record_sql_projection_data_rows_scalar_fallback_hit();
-    let mut render_value = |value| render_sql_projection_value_text(&value);
-    shape_scalar_data_rows_from_projection_structural(
-        compiled_fields,
-        rows,
-        row_layout,
-        projected_slot_mask,
-        &mut render_value,
-    )
-}
-
-#[cfg(feature = "sql")]
 fn shape_scalar_data_rows_from_projection_structural<T>(
     compiled_fields: &[ScalarProjectionExpr],
     rows: &[DataRow],
@@ -609,6 +580,52 @@ fn shape_scalar_data_rows_from_projection_structural<T>(
     }
 
     Ok(shaped_rows)
+}
+
+#[cfg(feature = "sql")]
+fn finalize_sql_projection_rows(
+    plan: &AccessPlannedQuery,
+    rows: Vec<Vec<Value>>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    if !plan.scalar_plan().distinct {
+        return Ok(rows);
+    }
+
+    // Phase 1: apply DISTINCT at the outward projected-row boundary so
+    // deduplication is defined over final SQL values rather than structural rows.
+    let mut distinct_rows = crate::db::executor::group::GroupKeySet::new();
+    let mut deduped_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        if distinct_rows
+            .insert_value(&Value::List(row.clone()))
+            .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)?
+        {
+            deduped_rows.push(row);
+        }
+    }
+
+    // Phase 2: apply LIMIT/OFFSET only after projected-row deduplication so
+    // DISTINCT paging matches SQL semantics.
+    if let Some(page) = plan.scalar_plan().page.as_ref() {
+        apply_sql_projection_page_window(&mut deduped_rows, page.offset, page.limit);
+    }
+
+    Ok(deduped_rows)
+}
+
+#[cfg(feature = "sql")]
+fn apply_sql_projection_page_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
+    let offset = usize::min(rows.len(), usize::try_from(offset).unwrap_or(usize::MAX));
+    if offset > 0 {
+        rows.drain(..offset);
+    }
+
+    if let Some(limit) = limit {
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        if rows.len() > limit {
+            rows.truncate(limit);
+        }
+    }
 }
 
 ///

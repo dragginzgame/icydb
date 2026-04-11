@@ -17,7 +17,7 @@ use crate::{
             aggregate::AggregateFoldMode,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, FastPathOrder,
-                TopNSeekSpec,
+                LoadOrderRouteContract, TopNSeekSpec,
             },
         },
         query::{
@@ -436,10 +436,12 @@ pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_desc
         return None;
     }
 
-    let node_type = if route_plan.is_streaming() {
-        ExplainExecutionNodeType::OrderByAccessSatisfied
-    } else {
-        ExplainExecutionNodeType::OrderByMaterializedSort
+    let node_type = match route_plan.load_order_route_contract() {
+        LoadOrderRouteContract::DirectStreaming => ExplainExecutionNodeType::OrderByAccessSatisfied,
+        LoadOrderRouteContract::MaterializedBoundary
+        | LoadOrderRouteContract::MaterializedFallback => {
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        }
     };
     let mut node = empty_execution_node_descriptor(node_type, execution_mode);
     node.node_properties.insert(
