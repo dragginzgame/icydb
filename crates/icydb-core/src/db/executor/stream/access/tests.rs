@@ -428,9 +428,10 @@ fn aggregate_primary_key_fast_path_uses_route_budget_safety_filter_gate() {
 #[test]
 fn route_hints_use_route_window_and_budget_safety_filter_gates() {
     let source_paths = [
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/mod.rs"),
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/load.rs"),
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/aggregate.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/planning/route/hints/mod.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/planning/route/hints/load.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/db/executor/planning/route/hints/aggregate.rs"),
     ];
     let mut source = String::new();
     for source_path in source_paths {

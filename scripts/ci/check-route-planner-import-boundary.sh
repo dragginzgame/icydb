@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
-ROUTE_PLANNER_ROOT="crates/icydb-core/src/db/executor/route/planner/mod.rs"
+ROUTE_PLANNER_ROOT="crates/icydb-core/src/db/executor/planning/route/planner/mod.rs"
 ALLOWED_TOP_LEVEL_DB_FAMILIES=3
 
 if [[ ! -f "$ROUTE_PLANNER_ROOT" ]]; then
