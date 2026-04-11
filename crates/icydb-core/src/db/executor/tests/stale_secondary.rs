@@ -3,7 +3,7 @@
 //! Does not own: unrelated executor behavior outside missing-row reconciliation.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         data::DataKey,

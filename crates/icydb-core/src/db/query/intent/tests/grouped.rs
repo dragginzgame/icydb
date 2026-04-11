@@ -89,6 +89,16 @@ fn grouped_load_distinct_count_terminal_is_allowed() {
 }
 
 #[test]
+fn grouped_load_distinct_count_field_terminal_is_allowed() {
+    Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(count_by("name").distinct())
+        .plan()
+        .expect("grouped distinct count(field) terminal should now plan");
+}
+
+#[test]
 fn grouped_aggregate_builder_count_shape_matches_helper_terminal() {
     let helper_explain = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")

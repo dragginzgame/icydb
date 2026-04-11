@@ -3,7 +3,7 @@
 //! Does not own: production aggregate behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         access::AccessPath,

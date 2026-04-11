@@ -1069,6 +1069,28 @@ fn compile_sql_command_select_grouped_qualified_identifiers_match_unqualified_in
 }
 
 #[test]
+fn compile_sql_command_rejects_top_level_grouped_select_distinct_shape() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT DISTINCT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("top-level grouped SELECT DISTINCT should remain fail-closed");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectDistinct));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_projection_expression_widening_in_current_slice() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, TRIM(name), COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped projection expression widening should remain fail-closed");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
 fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) \

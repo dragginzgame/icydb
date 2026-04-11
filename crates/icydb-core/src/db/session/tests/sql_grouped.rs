@@ -583,6 +583,56 @@ fn execute_sql_grouped_indexed_count_age_by_name_preserves_ordered_group_rows() 
 }
 
 #[test]
+fn execute_sql_grouped_indexed_count_distinct_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+            ("charlie", 50),
+        ],
+    );
+
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped COUNT(DISTINCT field) SQL execution should succeed");
+
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (Value::Text("alpha".to_string()), Value::Uint(2)),
+        (Value::Text("bravo".to_string()), Value::Uint(1)),
+        (Value::Text("charlie".to_string()), Value::Uint(2)),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped COUNT(DISTINCT field) should dedupe admitted field values per group",
+    );
+}
+
+#[test]
 fn execute_sql_grouped_indexed_sum_age_by_name_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -647,6 +697,65 @@ fn execute_sql_grouped_indexed_sum_age_by_name_preserves_ordered_group_rows() {
 }
 
 #[test]
+fn execute_sql_grouped_indexed_sum_distinct_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+            ("charlie", 50),
+        ],
+    );
+
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, SUM(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped SUM(DISTINCT field) SQL execution should succeed");
+
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (
+            Value::Text("alpha".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("bravo".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("charlie".to_string()),
+            Value::Decimal(crate::types::Decimal::from(90_u64)),
+        ),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped SUM(DISTINCT field) should dedupe admitted numeric field values per group",
+    );
+}
+
+#[test]
 fn execute_sql_grouped_indexed_avg_age_by_name_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -707,6 +816,65 @@ fn execute_sql_grouped_indexed_avg_age_by_name_preserves_ordered_group_rows() {
     assert!(
         execution.continuation_cursor().is_none(),
         "indexed grouped AVG(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_avg_distinct_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+            ("charlie", 50),
+        ],
+    );
+
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, AVG(DISTINCT age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped AVG(DISTINCT field) SQL execution should succeed");
+
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (
+            Value::Text("alpha".to_string()),
+            Value::Decimal(crate::types::Decimal::from(15_u64)),
+        ),
+        (
+            Value::Text("bravo".to_string()),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("charlie".to_string()),
+            Value::Decimal(crate::types::Decimal::from(45_u64)),
+        ),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped AVG(DISTINCT field) should dedupe admitted numeric field values per group",
     );
 }
 
@@ -1829,6 +1997,32 @@ fn execute_sql_rejects_unsupported_group_by_projection_shape() {
             ))
         ),
         "unsupported grouped SQL projection shapes should fail at reduced lowering boundary",
+    );
+}
+
+#[test]
+fn execute_sql_rejects_top_level_grouped_select_distinct_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_unsupported_sql_surface_result(
+        session.execute_sql::<SessionSqlEntity>(
+            "SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        ),
+        "top-level grouped SELECT DISTINCT should remain outside the current SQL surface",
+    );
+}
+
+#[test]
+fn execute_sql_rejects_grouped_projection_expression_widening_in_current_slice() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_unsupported_sql_surface_result(
+        session.execute_sql::<SessionSqlEntity>(
+            "SELECT age, TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        ),
+        "grouped projection expression widening should remain fail-closed in the current slice",
     );
 }
 

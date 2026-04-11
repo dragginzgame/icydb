@@ -3,7 +3,7 @@
 //! Does not own: generic aggregate parity helpers or non-numeric projection behavior.
 //! Boundary: keeps numeric aggregate execution checks local to the revived executor harness.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPathKind},

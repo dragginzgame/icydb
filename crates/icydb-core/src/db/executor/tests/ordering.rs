@@ -3,7 +3,7 @@
 //! Does not own: pagination or snapshot serializer behavior outside row ordering.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 
 #[test]
 fn delete_applies_order_and_delete_limit() {

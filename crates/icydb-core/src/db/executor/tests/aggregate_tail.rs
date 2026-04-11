@@ -3,7 +3,7 @@
 //! Does not own: aggregate path parity helpers or ranked field-target matrices.
 //! Boundary: keeps terminal short-circuit and tail-window behavior local to the revived executor harness.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         data::DataKey,

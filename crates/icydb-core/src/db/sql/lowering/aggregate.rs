@@ -846,16 +846,30 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
             field,
             distinct: false,
         } => Ok(count_by(field)),
+        LoweredSqlAggregateShape::CountField {
+            field,
+            distinct: true,
+        } => Ok(count_by(field).distinct()),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Sum,
             field,
             distinct: false,
         } => Ok(sum(field)),
         LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Sum,
+            field,
+            distinct: true,
+        } => Ok(sum(field).distinct()),
+        LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Avg,
             field,
             distinct: false,
         } => Ok(avg(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Avg,
+            field,
+            distinct: true,
+        } => Ok(avg(field).distinct()),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Min,
             field,
@@ -866,12 +880,6 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
             field,
             ..
         } => Ok(max_by(field)),
-        LoweredSqlAggregateShape::CountField { distinct: true, .. }
-        | LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Sum | SqlAggregateKind::Avg,
-            distinct: true,
-            ..
-        } => Err(SqlLoweringError::unsupported_select_group_by()),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Count,
             ..

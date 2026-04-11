@@ -3,7 +3,7 @@
 //! Does not own: optimization-hit marker counters or unrelated projection/ranked behavior.
 //! Boundary: keeps aggregate path semantics local to the live executor test harness.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},

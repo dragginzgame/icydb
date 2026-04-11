@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
-- `next patch` starts the `0.76` line by fixing scalar `SELECT DISTINCT` without primary-key projection, adding global aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
+- `0.76.1` starts the `0.76` line by fixing scalar `SELECT DISTINCT` without primary-key projection, adding both global and grouped aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
 
 See detailed breakdown:
 [docs/changelog/0.76.md](docs/changelog/0.76.md)

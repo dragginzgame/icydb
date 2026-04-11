@@ -771,6 +771,20 @@ fn explain_sql_supports_distinct_without_pk_projection() {
 }
 
 #[test]
+fn explain_sql_rejects_top_level_grouped_select_distinct_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_unsupported_sql_surface_result(
+        dispatch_explain_sql::<SessionSqlEntity>(
+            &session,
+            "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        ),
+        "EXPLAIN should keep top-level grouped SELECT DISTINCT outside the current SQL surface",
+    );
+}
+
+#[test]
 fn explain_sql_supports_computed_text_projection_in_dispatch_lane() {
     reset_session_sql_store();
     let session = sql_session();

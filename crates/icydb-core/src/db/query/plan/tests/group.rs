@@ -901,7 +901,61 @@ fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
 }
 
 #[test]
-fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
+fn grouped_plan_accepts_distinct_count_field_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .expect("distinct COUNT(field) grouped terminals should now be accepted");
+}
+
+#[test]
+fn grouped_plan_accepts_distinct_sum_field_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .expect("distinct SUM(field) grouped terminals should now be accepted");
+}
+
+#[test]
+fn grouped_plan_accepts_distinct_avg_field_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .expect("distinct AVG(field) grouped terminals should now be accepted");
+}
+
+#[test]
+fn grouped_plan_rejects_distinct_max_field_aggregate_terminal() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);
     let grouped = grouped_plan(
@@ -915,7 +969,7 @@ fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
     );
 
     let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("distinct field-target grouped terminals should remain rejected in grouped v1");
+        .expect_err("distinct MAX(field) grouped terminals should remain rejected");
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
         GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }

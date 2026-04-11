@@ -3,7 +3,7 @@
 //! Does not own: unrelated executor orchestration outside set access.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},

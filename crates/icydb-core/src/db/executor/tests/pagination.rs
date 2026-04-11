@@ -3,7 +3,7 @@
 //! Does not own: old matrix wrappers or query-intent paging policy tests.
 //! Boundary: covers small runtime pagination behaviors that are easiest to validate end-to-end.
 
-use super::*;
+use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},

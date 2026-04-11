@@ -132,7 +132,13 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
     ctx.aggregate
         .target_field
         .as_ref()
-        .filter(|_| ctx.aggregate.distinct())
+        .filter(|_| {
+            ctx.aggregate.distinct()
+                && !matches!(
+                    ctx.aggregate.kind(),
+                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                )
+        })
         .map(|target_field| {
             GroupPlanError::distinct_aggregate_field_target_unsupported(
                 ctx.index,

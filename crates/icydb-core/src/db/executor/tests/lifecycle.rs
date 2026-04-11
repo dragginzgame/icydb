@@ -4,7 +4,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 
 #[test]
 fn singleton_only_round_trips_through_runtime_load() {

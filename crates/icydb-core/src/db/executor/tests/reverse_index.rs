@@ -3,7 +3,7 @@
 //! Does not own: unrelated executor orchestration outside reverse-index state transitions.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 use crate::db::data::{DataKey, RawDataKey};
 use canic_cdk::structures::Storable;
 use std::borrow::Cow;

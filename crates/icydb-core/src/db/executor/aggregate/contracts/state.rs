@@ -484,15 +484,24 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
-        if self.distinct
-            && !record_grouped_distinct_key(
-                self.distinct_keys.as_mut(),
-                key,
-                execution_context,
-                self.max_distinct_values_per_group,
-            )?
-        {
-            return Ok(FoldControl::Continue);
+        if self.distinct {
+            let admitted = if self.target_field.is_some()
+                && matches!(
+                    self.kind,
+                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+                ) {
+                self.record_grouped_distinct_target_field_value(row_view, execution_context)?
+            } else {
+                record_grouped_distinct_key(
+                    self.distinct_keys.as_mut(),
+                    key,
+                    execution_context,
+                    self.max_distinct_values_per_group,
+                )?
+            };
+            if !admitted {
+                return Ok(FoldControl::Continue);
+            }
         }
 
         self.apply_terminal_update(key, row_view)
@@ -521,6 +530,44 @@ impl GroupedTerminalAggregateState {
             AggregateReducerClass::First => self.apply_first(storage_key, row_view),
             AggregateReducerClass::Last => self.apply_last(storage_key, row_view),
         }
+    }
+
+    // Admit one grouped DISTINCT field-target value before grouped COUNT/SUM/AVG
+    // reducers consume it so grouped DISTINCT deduplicates on the projected
+    // field value instead of row identity.
+    fn record_grouped_distinct_target_field_value(
+        &mut self,
+        row_view: Option<&RowView>,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<bool, GroupError> {
+        let Some(target_field) = self.target_field.as_ref() else {
+            return Err(GroupError::from(Self::field_target_execution_required(
+                "COUNT/SUM/AVG(DISTINCT field)",
+            )));
+        };
+        let Some(row_view) = row_view else {
+            return Err(GroupError::from(Self::field_target_execution_required(
+                "COUNT/SUM/AVG(DISTINCT field)",
+            )));
+        };
+        let value = row_view.require_slot_ref(target_field.index())?;
+        if matches!(value, Value::Null) {
+            return Ok(false);
+        }
+        let canonical_key = value
+            .canonical_key()
+            .map_err(KeyCanonicalError::into_internal_error)
+            .map_err(GroupError::from)?;
+
+        let Some(distinct_keys) = self.distinct_keys.as_mut() else {
+            return Ok(true);
+        };
+
+        execution_context.admit_distinct_key(
+            distinct_keys,
+            self.max_distinct_values_per_group,
+            canonical_key,
+        )
     }
 
     // Apply one COUNT grouped terminal update.

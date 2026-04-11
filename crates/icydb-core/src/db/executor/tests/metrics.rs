@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::*;
+use super::support::*;
 use crate::metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
 use std::cell::RefCell;
 

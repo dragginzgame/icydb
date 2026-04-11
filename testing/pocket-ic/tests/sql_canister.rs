@@ -4215,6 +4215,52 @@ fn sql_canister_perf_typed_execute_sql_grouped_customer_min_max_field_surfaces_e
 }
 
 #[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_distinct_aggregates_surfaces_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        for sql in [
+            "SELECT name, COUNT(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, SUM(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, AVG(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        ] {
+            let sample = sql_perf_sample(
+                pic,
+                canister_id,
+                &SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            );
+
+            assert_positive_perf_sample(
+                &format!("typed.execute_sql_grouped.customer.distinct::{sql}"),
+                &sample,
+            );
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_grouped DISTINCT aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind, "grouped_response",
+                "typed execute_sql_grouped DISTINCT aggregate perf sample should stay on the grouped response lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_grouped DISTINCT aggregate perf sample should stay on the Customer grouped lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                Some(3),
+                "typed execute_sql_grouped DISTINCT aggregate perf sample should emit the expected grouped row count for `{sql}`",
+            );
+        }
+    });
+}
+
+#[test]
 fn sql_canister_perf_typed_execute_sql_aggregate_customer_reject_path_reports_non_aggregate_error()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -8052,6 +8098,39 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                     surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql:
                         "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_count_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, COUNT(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_sum_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, SUM(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_avg_distinct_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, AVG(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
                             .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
