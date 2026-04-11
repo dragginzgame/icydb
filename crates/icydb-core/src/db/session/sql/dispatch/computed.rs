@@ -42,8 +42,36 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         };
 
-        // Phase 2: execute the base field-only projection and then apply the
-        // requested transforms without reopening generic expression ownership.
+        // Phase 2: execute the base query through the existing scalar or
+        // grouped lane, then apply only the outward computed transform.
+        if plan.is_grouped() {
+            let grouped = self.execute_lowered_sql_grouped_dispatch_select_core(
+                select,
+                authority,
+                plan.output_labels(),
+            )?;
+            let SqlDispatchResult::Grouped {
+                columns,
+                rows,
+                row_count,
+                next_cursor,
+            } = grouped
+            else {
+                return Err(QueryError::invariant(
+                    "grouped computed SQL projection did not produce grouped dispatch payload",
+                ));
+            };
+            let rows =
+                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
+
+            return Ok(SqlDispatchResult::Grouped {
+                columns,
+                rows,
+                row_count,
+                next_cursor,
+            });
+        }
+
         let structural = bind_lowered_sql_select_query_structural(
             authority.model(),
             select,

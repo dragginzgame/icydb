@@ -136,6 +136,68 @@ fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
 }
 
 #[test]
+fn query_from_sql_select_field_projection_lowers_to_scalar_field_selection() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let query = session
+        .query_from_sql::<SessionSqlEntity>("SELECT name, age FROM SessionSqlEntity")
+        .expect("field-list SQL query should lower");
+    let projection = query
+        .plan()
+        .expect("field-list SQL plan should build")
+        .projection_spec();
+    let field_names = projection
+        .fields()
+        .map(|field| match field {
+            ProjectionField::Scalar {
+                expr: Expr::Field(field),
+                alias: None,
+            } => field.as_str().to_string(),
+            other @ ProjectionField::Scalar { .. } => {
+                panic!("field-list SQL projection should lower to plain field exprs: {other:?}")
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(field_names, vec!["name".to_string(), "age".to_string()]);
+}
+
+#[test]
+fn query_from_sql_rejects_computed_text_projection_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .expect_err(
+            "query_from_sql should stay on the structural lowered-query lane and reject computed text projection forms",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("query_from_sql does not accept computed text projection"),
+        "query_from_sql should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_rejects_computed_text_projection_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .expect_err("execute_sql should keep computed text projection on the dispatch-owned lane");
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql rejects computed text projection"),
+        "execute_sql should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
 fn sql_statement_route_select_classifies_query_entity() {
     reset_session_sql_store();
     let session = sql_session();
@@ -225,6 +287,46 @@ fn sql_statement_route_show_columns_classifies_entity() {
     assert!(!route.is_show_indexes());
     assert!(route.is_show_columns());
     assert!(!route.is_show_entities());
+}
+
+#[test]
+fn execute_sql_rejects_table_alias_forms_in_reduced_parser() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity alias")
+        .expect_err("table aliases should be rejected by reduced SQL parser");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "table alias usage should fail closed through unsupported SQL boundary",
+    );
+}
+
+#[test]
+fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>("SELECT \"name\" FROM SessionSqlEntity")
+        .expect_err("quoted identifiers should be rejected by reduced SQL parser");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "quoted identifiers should fail closed through unsupported SQL boundary",
+    );
 }
 
 #[test]

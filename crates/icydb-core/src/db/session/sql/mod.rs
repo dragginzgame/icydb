@@ -21,7 +21,10 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         sql::{
-            lowering::{bind_lowered_sql_query, lower_sql_command_from_prepared_statement},
+            lowering::{
+                bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
+                prepare_sql_statement,
+            },
             parser::{SqlStatement, parse_sql},
         },
     },
@@ -124,6 +127,33 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(query)
     }
 
+    // Lower one session-owned computed grouped SQL projection onto the typed
+    // grouped query lane without widening generic grouped expression support.
+    fn grouped_query_from_computed_sql_projection_plan<E>(
+        plan: &computed_projection::SqlComputedProjectionPlan,
+    ) -> Result<Query<E>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let lowered = lower_sql_command_from_prepared_statement(
+            prepare_sql_statement(plan.cloned_base_statement(), E::MODEL.name())
+                .map_err(QueryError::from_sql_lowering_error)?,
+            E::MODEL.primary_key.name,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(query) = lowered.query().cloned() else {
+            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
+                SqlSurface::ExecuteSqlGrouped,
+                session_sql_lane(&lowered),
+            )));
+        };
+        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)?;
+        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
+
+        Ok(query)
+    }
+
     /// Parse one reduced SQL statement and return one reusable parsed envelope.
     ///
     /// This method is the SQL parse authority for dynamic route selection.
@@ -196,6 +226,28 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+            if !plan.is_grouped() {
+                return Err(QueryError::unsupported_query(
+                    unsupported_sql_computed_projection_message(
+                        SqlComputedProjectionSurface::ExecuteSqlGrouped,
+                    ),
+                ));
+            }
+
+            let query = Self::grouped_query_from_computed_sql_projection_plan::<E>(&plan)?;
+            let grouped = self.execute_grouped(&query, cursor_token)?;
+            let (rows, continuation_cursor, execution_trace) = grouped.into_parts();
+            let rows =
+                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
+
+            return Ok(PagedGroupedExecutionWithTrace::new(
+                rows,
+                continuation_cursor,
+                execution_trace,
+            ));
+        }
+
         let query = Self::query_from_sql_parsed::<E>(
             &parsed,
             SqlSurface::ExecuteSqlGrouped,
@@ -223,6 +275,24 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query(
                 "execute_sql_grouped rejects DELETE; use execute_sql_dispatch(...)",
             ));
+        }
+
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+            if !plan.is_grouped() {
+                return Err(QueryError::unsupported_query(
+                    unsupported_sql_computed_projection_message(
+                        SqlComputedProjectionSurface::ExecuteSqlGrouped,
+                    ),
+                ));
+            }
+
+            let query = Self::grouped_query_from_computed_sql_projection_plan::<E>(&plan)?;
+            let (rows, continuation_cursor, execution_trace) =
+                self.execute_grouped_text_cursor(&query, cursor_token)?;
+            let rows =
+                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
+
+            return Ok((rows, continuation_cursor, execution_trace));
         }
 
         let query = Self::query_from_sql_parsed::<E>(

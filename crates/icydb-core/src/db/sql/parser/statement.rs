@@ -137,7 +137,7 @@ impl Parser {
 
     fn parse_select_statement(&mut self) -> Result<SqlSelectStatement, SqlParseError> {
         let distinct = self.eat_keyword(Keyword::Distinct);
-        let projection = self.parse_projection()?;
+        let (projection, projection_aliases) = self.parse_projection()?;
         self.expect_keyword(Keyword::From)?;
         let entity = self.expect_identifier()?;
         self.reject_table_alias_if_present()?;
@@ -185,6 +185,7 @@ impl Parser {
         Ok(SqlSelectStatement {
             entity,
             projection,
+            projection_aliases,
             predicate,
             distinct,
             group_by,

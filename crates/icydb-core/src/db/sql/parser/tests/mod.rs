@@ -34,6 +34,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                     distinct: false,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::And(vec![
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
@@ -123,6 +124,7 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
                 }),
                 SqlSelectItem::Field("age".to_string()),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -145,6 +147,7 @@ fn parse_select_statement_with_expression_order_terms() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -203,6 +206,7 @@ fn parse_select_statement_with_left_and_right_projection_items() {
                     literal3: None,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -255,6 +259,7 @@ fn parse_select_statement_with_starts_ends_and_position_projection_items() {
                     literal3: None,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -284,6 +289,7 @@ fn parse_select_statement_with_replace_projection_item() {
                     literal3: None,
                 },
             )]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -320,6 +326,7 @@ fn parse_select_statement_with_substring_projection_item() {
                     literal3: None,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],
@@ -437,6 +444,7 @@ fn parse_explain_json_wrapped_select() {
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "users".to_string(),
                 projection: SqlProjection::All,
+                projection_aliases: Vec::default(),
                 predicate: None,
                 distinct: false,
                 group_by: vec![],
@@ -563,6 +571,7 @@ fn parse_select_statement_with_qualified_identifiers() {
                 SqlSelectItem::Field("users.name".to_string()),
                 SqlSelectItem::Field("users.age".to_string()),
             ]),
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
@@ -596,6 +605,7 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -629,6 +639,7 @@ fn parse_select_statement_with_strict_text_range_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::And(vec![
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "name",
@@ -670,6 +681,7 @@ fn parse_select_statement_with_direct_starts_with_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -703,6 +715,7 @@ fn parse_select_statement_with_direct_lower_starts_with_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -736,6 +749,7 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -769,6 +783,7 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -802,6 +817,7 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
@@ -863,6 +879,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                     distinct: false,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
@@ -899,6 +916,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                     "users.name".to_string(),
                 )]),
+                projection_aliases: Vec::default(),
                 predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                     "users.age",
                     CompareOp::Gte,
@@ -942,6 +960,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                     distinct: false,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec!["age".to_string()],
@@ -994,6 +1013,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                     distinct: false,
                 }),
             ]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec!["age".to_string()],
@@ -1122,11 +1142,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         ("EXPLAIN INSERT INTO users VALUES (1)", "INSERT"),
         (
-            "SELECT name AS alias FROM users",
-            "column/expression aliases",
-        ),
-        ("SELECT name alias FROM users", "column/expression aliases"),
-        (
             "SELECT * FROM users; SELECT * FROM users",
             "multi-statement SQL input",
         ),
@@ -1180,6 +1195,70 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
 }
 
 #[test]
+fn parse_sql_accepts_projection_aliases() {
+    let statement = parse_sql(
+        "SELECT name AS display_name, COUNT(*) total FROM users GROUP BY name ORDER BY name ASC",
+    )
+    .expect("projection aliases should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("name".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    field: None,
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![Some("display_name".to_string()), Some("total".to_string())],
+            predicate: None,
+            distinct: false,
+            group_by: vec!["name".to_string()],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "name".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_sql_accepts_bare_projection_aliases() {
+    let statement =
+        parse_sql("SELECT TRIM(name) trimmed_name FROM users").expect("bare aliases should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::TextFunction(
+                SqlTextFunctionCall {
+                    function: SqlTextFunction::Trim,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                },
+            )]),
+            projection_aliases: vec![Some("trimmed_name".to_string())],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_sql_rejects_multi_statement_input() {
     let err = parse_sql("SELECT * FROM users; SELECT * FROM users")
         .expect_err("multi-statement SQL input should be rejected");
@@ -1219,6 +1298,7 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
                 field: Some("age".to_string()),
                 distinct: true,
             })]),
+            projection_aliases: Vec::default(),
             predicate: None,
             distinct: false,
             group_by: vec![],

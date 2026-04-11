@@ -126,25 +126,31 @@ fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
     entities
 }
 
-// Project grouped SELECT item labels into one stable outward column contract.
-fn grouped_sql_projection_labels_from_statement(
+// Project parsed SELECT items into one stable outward column contract while
+// allowing parser-owned aliases to override only the final session label.
+fn sql_projection_labels_from_select_statement(
     statement: &SqlStatement,
-) -> Result<Vec<String>, QueryError> {
+) -> Result<Option<Vec<String>>, QueryError> {
     let SqlStatement::Select(select) = statement else {
         return Err(QueryError::invariant(
-            "grouped SQL projection labels require SELECT statement shape",
+            "SQL projection labels require SELECT statement shape",
         ));
     };
     let SqlProjection::Items(items) = &select.projection else {
-        return Err(QueryError::unsupported_query(
-            "grouped SQL dispatch requires explicit grouped projection items",
-        ));
+        return Ok(None);
     };
 
-    Ok(items
-        .iter()
-        .map(grouped_sql_projection_item_label)
-        .collect())
+    Ok(Some(
+        items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                select
+                    .projection_alias(index)
+                    .map_or_else(|| grouped_sql_projection_item_label(item), str::to_string)
+            })
+            .collect(),
+    ))
 }
 
 // Render one grouped SELECT item into the public grouped-column label used by
@@ -161,6 +167,16 @@ fn grouped_sql_projection_item_label(item: &SqlSelectItem) -> String {
             )
         }
     }
+}
+
+// Keep the dedicated SQL aggregate lane on parser-owned outward labels
+// without reopening alias semantics in lowering or runtime strategy state.
+fn sql_aggregate_dispatch_label_override(statement: &SqlStatement) -> Option<String> {
+    let SqlStatement::Select(select) = statement else {
+        return None;
+    };
+
+    select.projection_alias(0).map(str::to_string)
 }
 
 // Render one aggregate call into one canonical SQL-style label.
@@ -339,16 +355,14 @@ impl<C: CanisterKind> DbSession<C> {
             authority.model().name(),
             authority.model().primary_key.name,
         )?;
-        let grouped_columns = lowered
-            .query()
-            .filter(|query| query.has_grouping())
-            .map(|_| grouped_sql_projection_labels_from_statement(&parsed.statement))
+        let projection_columns = matches!(lowered.query(), Some(LoweredSqlQuery::Select(_)))
+            .then(|| sql_projection_labels_from_select_statement(&parsed.statement))
             .transpose()?;
         let query = lowered
             .into_query()
             .ok_or_else(|| QueryError::unsupported_query(unsupported_message))?;
 
-        Ok((query, grouped_columns))
+        Ok((query, projection_columns.flatten()))
     }
 
     // Execute one parsed SQL query route through the shared aggregate,
@@ -363,6 +377,7 @@ impl<C: CanisterKind> DbSession<C> {
             &Self,
             LoweredSelectShape,
             EntityAuthority,
+            bool,
             Option<Vec<String>>,
         ) -> Result<SqlDispatchResult, QueryError>,
         dispatch_delete: impl FnOnce(
@@ -377,7 +392,11 @@ impl<C: CanisterKind> DbSession<C> {
             let command =
                 Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
 
-            return self.execute_sql_aggregate_dispatch_for_authority(command, authority);
+            return self.execute_sql_aggregate_dispatch_for_authority(
+                command,
+                authority,
+                sql_aggregate_dispatch_label_override(&parsed.statement),
+            );
         }
 
         if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
@@ -386,15 +405,16 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: lower the remaining query route once, then let the caller
         // decide only the final outward result packaging.
-        let (query, grouped_columns) = Self::lowered_sql_query_dispatch_inputs_for_authority(
+        let (query, projection_columns) = Self::lowered_sql_query_dispatch_inputs_for_authority(
             parsed,
             authority,
             unsupported_message,
         )?;
+        let grouped_surface = query.has_grouping();
 
         match query {
             LoweredSqlQuery::Select(select) => {
-                dispatch_select(self, select, authority, grouped_columns)
+                dispatch_select(self, select, authority, grouped_surface, projection_columns)
             }
             LoweredSqlQuery::Delete(delete) => dispatch_delete(self, delete, authority),
         }
@@ -474,13 +494,28 @@ impl<C: CanisterKind> DbSession<C> {
                 parsed,
                 EntityAuthority::for_type::<E>(),
                 "execute_sql_dispatch accepts SELECT or DELETE only",
-                |session, select, authority, grouped_columns| match grouped_columns {
-                    Some(columns) => session.execute_lowered_sql_grouped_dispatch_select_core(
-                        select, authority, columns,
-                    ),
-                    None => session
-                        .execute_lowered_sql_projection_core(select, authority)
-                        .map(SqlProjectionPayload::into_dispatch_result),
+                |session, select, authority, grouped_surface, projection_columns| {
+                    if grouped_surface {
+                        let columns = projection_columns.ok_or_else(|| {
+                            QueryError::unsupported_query(
+                                "grouped SQL dispatch requires explicit grouped projection items",
+                            )
+                        })?;
+
+                        return session.execute_lowered_sql_grouped_dispatch_select_core(
+                            select, authority, columns,
+                        );
+                    }
+
+                    let payload = session.execute_lowered_sql_projection_core(select, authority)?;
+                    if let Some(columns) = projection_columns {
+                        let (_, rows, row_count) = payload.into_parts();
+
+                        return Ok(SqlProjectionPayload::new(columns, rows, row_count)
+                            .into_dispatch_result());
+                    }
+
+                    Ok(payload.into_dispatch_result())
                 },
                 |session, delete, _authority| {
                     let typed_query = bind_lowered_sql_query::<E>(
@@ -526,13 +561,38 @@ impl<C: CanisterKind> DbSession<C> {
                 parsed,
                 authority,
                 "generated SQL query surface requires query or EXPLAIN statement lanes",
-                |session, select, authority, grouped_columns| match grouped_columns {
-                    Some(columns) => session.execute_lowered_sql_grouped_dispatch_select_core(
-                        select, authority, columns,
-                    ),
-                    None => {
-                        session.execute_lowered_sql_dispatch_select_text_core(select, authority)
+                |session, select, authority, grouped_surface, projection_columns| {
+                    if grouped_surface {
+                        let columns = projection_columns.ok_or_else(|| {
+                            QueryError::unsupported_query(
+                                "grouped SQL dispatch requires explicit grouped projection items",
+                            )
+                        })?;
+
+                        return session
+                            .execute_lowered_sql_grouped_dispatch_select_core(select, authority, columns);
                     }
+
+                    let result =
+                        session.execute_lowered_sql_dispatch_select_text_core(select, authority)?;
+                    if let Some(columns) = projection_columns {
+                        let SqlDispatchResult::ProjectionText {
+                            rows, row_count, ..
+                        } = result
+                        else {
+                            return Err(QueryError::invariant(
+                                "generated scalar SQL dispatch text path must emit projection text rows",
+                            ));
+                        };
+
+                        return Ok(SqlDispatchResult::ProjectionText {
+                            columns,
+                            rows,
+                            row_count,
+                        });
+                    }
+
+                    Ok(result)
                 },
                 |session, delete, authority| {
                     session.execute_lowered_sql_dispatch_delete_core(&delete, authority)

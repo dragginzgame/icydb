@@ -87,6 +87,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
+        projection_aliases: _,
         predicate,
         distinct,
         group_by,
@@ -99,17 +100,19 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     let projection_for_having = projection.clone();
 
     // Phase 1: resolve scalar/grouped projection shape.
-    let (scalar_projection_fields, grouped_projection_aggregates) = if group_by.is_empty() {
-        let scalar_projection_fields = lower_scalar_projection_fields(projection, distinct)?;
-        (scalar_projection_fields, Vec::new())
-    } else {
-        if distinct {
-            return Err(SqlLoweringError::unsupported_select_distinct());
-        }
-        let grouped_projection_aggregates =
-            grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
-        (None, grouped_projection_aggregates)
-    };
+    let has_grouping = !group_by.is_empty();
+    let (scalar_projection_fields, grouped_projection_aggregates, normalized_distinct) =
+        if has_grouping {
+            // Top-level DISTINCT is redundant for the admitted grouped SQL surface:
+            // grouped projection lowering already emits one row per group key plus
+            // declared aggregates, so distinctness does not widen the result set.
+            let grouped_projection_aggregates =
+                grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
+            (None, grouped_projection_aggregates, false)
+        } else {
+            let scalar_projection_fields = lower_scalar_projection_fields(projection, distinct)?;
+            (scalar_projection_fields, Vec::new(), distinct)
+        };
 
     // Phase 2: resolve HAVING symbols against grouped projection authority.
     let having = lower_having_clauses(
@@ -123,7 +126,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         scalar_projection_fields,
         grouped_projection_aggregates,
         group_by_fields: group_by,
-        distinct,
+        distinct: normalized_distinct,
         having,
         predicate,
         order_by,

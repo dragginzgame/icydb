@@ -383,6 +383,917 @@ fn assert_explain_route(
     }
 }
 
+// Drop regenerated id values from one delete payload so parity checks can
+// compare the stable semantic row content across fresh fixture reloads.
+fn stable_delete_rows(rows: &SqlQueryRowsOutput) -> Vec<Vec<String>> {
+    let id_index = rows
+        .columns
+        .iter()
+        .position(|column| column == "id")
+        .expect("generated delete projection should expose canonical id column");
+
+    rows.rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .filter(|(index, _)| *index != id_index)
+                .map(|(_, value)| value.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+}
+
+///
+/// DeleteParityCase
+///
+/// One shared generated delete parity case.
+/// Each case compares one accepted direct or text-range spelling against the
+/// established LIKE delete payload while ignoring regenerated identity values.
+///
+
+struct DeleteParityCase {
+    name: &'static str,
+    direct_sql: &'static str,
+    like_sql: &'static str,
+}
+
+// Assert one generated delete parity case by comparing the stable row payload
+// emitted by the direct or text-range spelling against the LIKE baseline.
+fn assert_delete_parity_case(pic: &Pic, canister_id: Principal, case: &DeleteParityCase) {
+    reset_fixtures(pic, canister_id);
+    load_default_fixtures(pic, canister_id);
+    let direct = query_projection_rows(
+        pic,
+        canister_id,
+        case.direct_sql,
+        "generated direct STARTS_WITH delete should return projection rows",
+    );
+
+    reset_fixtures(pic, canister_id);
+    load_default_fixtures(pic, canister_id);
+    let like = query_projection_rows(
+        pic,
+        canister_id,
+        case.like_sql,
+        "generated LIKE delete should return projection rows",
+    );
+
+    assert_eq!(
+        direct.columns, like.columns,
+        "{}: generated delete columns should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        stable_delete_rows(&direct),
+        stable_delete_rows(&like),
+        "{}: generated delete payload should stay in parity aside from regenerated ids",
+        case.name,
+    );
+}
+
+///
+/// UnsupportedStartsWithCase
+///
+/// One shared unsupported direct `STARTS_WITH` wrapper case.
+/// Each case locks one public query or explain surface to the same
+/// `Runtime::Unsupported` error class and stable detail message.
+///
+
+struct UnsupportedStartsWithCase {
+    name: &'static str,
+    sql: &'static str,
+}
+
+// Assert one unsupported direct `STARTS_WITH` wrapper case against the shared
+// error taxonomy and stable unsupported-feature message.
+fn assert_unsupported_starts_with_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &UnsupportedStartsWithCase,
+) {
+    let err = query_result(pic, canister_id, case.sql).expect_err(case.name);
+
+    assert!(
+        matches!(
+            err.kind(),
+            icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+        ),
+        "{} should map to Runtime::Unsupported: {err:?}",
+        case.name,
+    );
+    assert!(
+        err.message().contains(
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+        ),
+        "{} should preserve the stable unsupported-feature detail: {err:?}",
+        case.name,
+    );
+}
+
+///
+/// UserExpressionCoveringCase
+///
+/// One shared Customer `LOWER(name)` covering-route matrix case.
+/// Each case locks both the public projection payload and the paired
+/// `EXPLAIN EXECUTION` route surface for one ordering or range shape.
+///
+
+struct UserExpressionCoveringCase {
+    name: &'static str,
+    projection_sql: &'static str,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared Customer `LOWER(name)` covering-route case across both
+// the public projection and `EXPLAIN EXECUTION` surfaces.
+fn assert_user_expression_covering_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &UserExpressionCoveringCase,
+) {
+    // Phase 1: execute the public projection and keep the projected window
+    // pinned to the expected column and row shape.
+    let rows = query_projection_rows(pic, canister_id, case.projection_sql, case.name);
+    assert_projection_window(
+        &rows,
+        "Customer",
+        case.projection_columns,
+        case.projection_rows,
+        case.name,
+    );
+
+    // Phase 2: request the paired execution descriptor and keep the route
+    // token surface aligned with the same Customer expression-order shape.
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "Customer",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerOrderCoveringCase
+///
+/// One shared CustomerOrder covering-route matrix case.
+/// Each case locks both the public projection payload and the paired
+/// `EXPLAIN EXECUTION` route surface for one equality, range, or order shape.
+///
+
+struct CustomerOrderCoveringCase {
+    name: &'static str,
+    projection_sql: &'static str,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared CustomerOrder covering-route case across both the public
+// projection and `EXPLAIN EXECUTION` surfaces.
+fn assert_customer_order_covering_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerOrderCoveringCase,
+) {
+    // Phase 1: execute the public projection and keep the projected window
+    // pinned to the expected CustomerOrder row shape.
+    let rows = query_projection_rows(pic, canister_id, case.projection_sql, case.name);
+    assert_projection_window(
+        &rows,
+        "CustomerOrder",
+        case.projection_columns,
+        case.projection_rows,
+        case.name,
+    );
+
+    // Phase 2: request the paired execution descriptor and keep the route
+    // token surface aligned with the same CustomerOrder access shape.
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerOrder",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// GroupedOrderedExplainCase
+///
+/// One shared ordered-group explain case for the generated Customer SQL lane.
+/// Each case locks one grouped `EXPLAIN` or `EXPLAIN EXECUTION` surface to
+/// the expected access and grouping tokens for a specific aggregate shape.
+///
+
+struct GroupedOrderedExplainCase {
+    name: &'static str,
+    sql: &'static str,
+    required_tokens: &'static [&'static str],
+}
+
+// Assert one shared grouped ordered explain case by checking that the explain
+// text contains every route token required by the admitted grouped shape.
+fn assert_grouped_ordered_explain_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &GroupedOrderedExplainCase,
+) {
+    let explain = query_explain_text(pic, canister_id, case.sql, case.name);
+
+    for token in case.required_tokens {
+        assert!(
+            explain.contains(token),
+            "{}: missing explain token `{token}` in {explain}",
+            case.name
+        );
+    }
+}
+
+///
+/// CustomerAccountFilteredCoveringCase
+///
+/// One shared simple filtered CustomerAccount covering-route matrix case.
+/// Each case locks both the public projection payload and the paired
+/// `EXPLAIN EXECUTION` route surface for one guarded filtered-index shape.
+///
+
+struct CustomerAccountFilteredCoveringCase {
+    name: &'static str,
+    projection_sql: &'static str,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared simple filtered CustomerAccount covering-route case
+// across both the public projection and `EXPLAIN EXECUTION` surfaces.
+fn assert_customer_account_filtered_covering_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCoveringCase,
+) {
+    let rows = query_projection_rows(pic, canister_id, case.projection_sql, case.name);
+    assert_projection_window(
+        &rows,
+        "CustomerAccount",
+        case.projection_columns,
+        case.projection_rows,
+        case.name,
+    );
+
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerAccount",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredPrefixParityCase
+///
+/// One shared simple filtered CustomerAccount strict-prefix parity case.
+/// Each case checks that LIKE, direct STARTS_WITH, and strict text-range
+/// spellings all project the same guarded filtered-index row window.
+///
+
+struct CustomerAccountFilteredPrefixParityCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+}
+
+// Assert one shared strict-prefix parity case by keeping all accepted
+// spellings pinned to the same CustomerAccount projection payload.
+fn assert_customer_account_filtered_prefix_parity_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredPrefixParityCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: direct STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: strict text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredCompositeCoveringCase
+///
+/// One shared composite filtered CustomerAccount covering-route matrix case.
+/// Each case locks both the public projection payload and the paired
+/// `EXPLAIN EXECUTION` route surface for one composite filtered-index shape.
+///
+
+struct CustomerAccountFilteredCompositeCoveringCase {
+    name: &'static str,
+    projection_sql: &'static str,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared composite filtered CustomerAccount covering-route case
+// across both the public projection and `EXPLAIN EXECUTION` surfaces.
+fn assert_customer_account_filtered_composite_covering_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCompositeCoveringCase,
+) {
+    let rows = query_projection_rows(pic, canister_id, case.projection_sql, case.name);
+    assert_projection_window(
+        &rows,
+        "CustomerAccount",
+        case.projection_columns,
+        case.projection_rows,
+        case.name,
+    );
+
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerAccount",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredCompositePrefixParityCase
+///
+/// One shared composite filtered CustomerAccount strict-prefix parity case.
+/// Each case checks that LIKE, direct STARTS_WITH, and strict text-range
+/// spellings all project the same guarded composite filtered row window.
+///
+
+struct CustomerAccountFilteredCompositePrefixParityCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+}
+
+// Assert one shared composite strict-prefix parity case by keeping all
+// accepted spellings pinned to the same CustomerAccount projection payload.
+fn assert_customer_account_filtered_composite_prefix_parity_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCompositePrefixParityCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: direct STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: strict text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredExpressionCoveringCase
+///
+/// One shared filtered-expression CustomerAccount covering-route matrix case.
+/// Each case locks both the public projection payload and the paired
+/// `EXPLAIN EXECUTION` route surface for one guarded `LOWER(handle)` shape.
+///
+
+struct CustomerAccountFilteredExpressionCoveringCase {
+    name: &'static str,
+    projection_sql: &'static str,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared filtered-expression CustomerAccount covering-route case
+// across both the public projection and `EXPLAIN EXECUTION` surfaces.
+fn assert_customer_account_filtered_expression_covering_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredExpressionCoveringCase,
+) {
+    let rows = query_projection_rows(pic, canister_id, case.projection_sql, case.name);
+    assert_projection_window(
+        &rows,
+        "CustomerAccount",
+        case.projection_columns,
+        case.projection_rows,
+        case.name,
+    );
+
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerAccount",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredExpressionPrefixParityCase
+///
+/// One shared filtered-expression CustomerAccount strict-prefix parity case.
+/// Each case checks that LIKE, direct STARTS_WITH, and strict text-range
+/// spellings all project the same guarded expression-order row window.
+///
+
+struct CustomerAccountFilteredExpressionPrefixParityCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    expected_rows: &'static [&'static [&'static str]],
+}
+
+// Assert one shared filtered-expression strict-prefix parity case by keeping
+// all accepted spellings pinned to the same CustomerAccount projection payload.
+fn assert_customer_account_filtered_expression_prefix_parity_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredExpressionPrefixParityCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_projection_window(
+        &like_rows,
+        "CustomerAccount",
+        &["id", "handle"],
+        case.expected_rows,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredCompositeExpressionCase
+///
+/// One shared composite-expression CustomerAccount route case.
+/// Each case can lock an optional public projection payload and one paired
+/// `EXPLAIN EXECUTION` route surface for a guarded `tier, LOWER(handle)` shape.
+///
+
+struct CustomerAccountFilteredCompositeExpressionCase {
+    name: &'static str,
+    projection_sql: Option<&'static str>,
+    projection_columns: &'static [&'static str],
+    projection_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared composite-expression CustomerAccount route case across an
+// optional public projection payload and one paired `EXPLAIN EXECUTION` route.
+fn assert_customer_account_filtered_composite_expression_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCompositeExpressionCase,
+) {
+    if let Some(sql) = case.projection_sql {
+        let rows = query_projection_rows(pic, canister_id, sql, case.name);
+        assert_projection_window(
+            &rows,
+            "CustomerAccount",
+            case.projection_columns,
+            case.projection_rows,
+            case.name,
+        );
+    }
+
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerAccount",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredCompositeExpressionParityCase
+///
+/// One shared full-row composite-expression strict-prefix parity case.
+/// Each case checks that LIKE, direct STARTS_WITH, and strict text-range
+/// spellings all project the same guarded `tier, LOWER(handle)` row window.
+///
+
+struct CustomerAccountFilteredCompositeExpressionParityCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    columns: &'static [&'static str],
+    expected_rows: &'static [&'static [&'static str]],
+}
+
+// Assert one shared full-row composite-expression prefix parity case by
+// keeping all accepted spellings pinned to the same projection payload.
+fn assert_customer_account_filtered_composite_expression_parity_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCompositeExpressionParityCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_projection_window(
+        &like_rows,
+        "CustomerAccount",
+        case.columns,
+        case.expected_rows,
+        case.name,
+    );
+}
+
+///
+/// CustomerAccountFilteredCompositeExpressionKeyOnlyParityCase
+///
+/// One shared key-only composite-expression direct-prefix parity case.
+/// Each case checks that accepted prefix spellings stay aligned on the
+/// guarded covering payload and that the direct route keeps its explain shape.
+///
+
+struct CustomerAccountFilteredCompositeExpressionKeyOnlyParityCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: Option<&'static str>,
+    columns: &'static [&'static str],
+    expected_rows: &'static [&'static [&'static str]],
+    explain_sql: &'static str,
+    explain_required_tokens: &'static [&'static str],
+    explain_forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared key-only composite-expression direct-prefix parity case by
+// keeping accepted prefix spellings aligned and then checking the direct route.
+fn assert_customer_account_filtered_composite_expression_key_only_parity_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerAccountFilteredCompositeExpressionKeyOnlyParityCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    if let Some(range_sql) = case.range_sql {
+        let range_rows = query_projection_rows(pic, canister_id, range_sql, case.name);
+        assert_eq!(
+            range_rows, like_rows,
+            "{}: text-range and LIKE rows should stay in parity",
+            case.name,
+        );
+    }
+    assert_projection_window(
+        &like_rows,
+        "CustomerAccount",
+        case.columns,
+        case.expected_rows,
+        case.name,
+    );
+
+    let payload = query_result(pic, canister_id, case.explain_sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "CustomerAccount",
+        case.explain_required_tokens,
+        case.explain_forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// CustomerOrderStrictPrefixProjectionCase
+///
+/// One shared CustomerOrder strict-prefix projection parity case.
+/// Each case keeps LIKE, direct STARTS_WITH, and strict text-range
+/// spellings aligned on the same ordered covering projection window.
+///
+
+struct CustomerOrderStrictPrefixProjectionCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    expected_rows: &'static [&'static [&'static str]],
+}
+
+// Assert one shared CustomerOrder strict-prefix projection case by keeping
+// accepted prefix spellings pinned to the same public row window.
+fn assert_customer_order_strict_prefix_projection_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerOrderStrictPrefixProjectionCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: direct STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: strict text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_projection_window(
+        &like_rows,
+        "CustomerOrder",
+        &["id", "name"],
+        case.expected_rows,
+        case.name,
+    );
+}
+
+///
+/// CustomerOrderStrictPrefixExplainCase
+///
+/// One shared CustomerOrder strict-prefix explain-route case.
+/// Each case keeps LIKE, direct STARTS_WITH, and strict text-range
+/// spellings aligned on the same bounded covering route surface.
+///
+
+struct CustomerOrderStrictPrefixExplainCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    required_tokens: &'static [&'static str],
+    forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared CustomerOrder strict-prefix explain case by keeping all
+// accepted prefix spellings aligned on the same covering-route token surface.
+fn assert_customer_order_strict_prefix_explain_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerOrderStrictPrefixExplainCase,
+) {
+    for sql in [case.like_sql, case.starts_with_sql, case.range_sql] {
+        let payload = query_result(pic, canister_id, sql).unwrap_or_else(|err| {
+            panic!("{}: explain should return an Ok payload: {err}", case.name)
+        });
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            case.required_tokens,
+            case.forbidden_tokens,
+            case.name,
+        );
+    }
+}
+
+///
+/// CustomerCasefoldPrefixProjectionCase
+///
+/// One shared Customer casefold-prefix projection parity case.
+/// Each case keeps LIKE, direct STARTS_WITH, and strict text-range
+/// spellings aligned for one accepted `LOWER` or `UPPER` field wrapper.
+///
+
+struct CustomerCasefoldPrefixProjectionCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    expected_rows: &'static [&'static [&'static str]],
+}
+
+// Assert one shared Customer casefold-prefix projection case by keeping all
+// accepted spellings pinned to the same row window.
+fn assert_customer_casefold_prefix_projection_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerCasefoldPrefixProjectionCase,
+) {
+    let like_rows = query_projection_rows(pic, canister_id, case.like_sql, case.name);
+    let starts_with_rows = query_projection_rows(pic, canister_id, case.starts_with_sql, case.name);
+    let range_rows = query_projection_rows(pic, canister_id, case.range_sql, case.name);
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "{}: direct STARTS_WITH and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "{}: strict text-range and LIKE rows should stay in parity",
+        case.name,
+    );
+    assert_projection_window(
+        &like_rows,
+        "Customer",
+        &["id", "name"],
+        case.expected_rows,
+        case.name,
+    );
+}
+
+///
+/// CustomerCasefoldPrefixExplainCase
+///
+/// One shared Customer casefold-prefix explain-route case.
+/// Each case keeps LIKE, direct STARTS_WITH, and strict text-range
+/// spellings aligned for one explain surface and casefold wrapper.
+///
+
+struct CustomerCasefoldPrefixExplainCase {
+    name: &'static str,
+    like_sql: &'static str,
+    starts_with_sql: &'static str,
+    range_sql: &'static str,
+    required_tokens: &'static [&'static str],
+    forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared Customer casefold-prefix explain case by keeping all
+// accepted spellings aligned on the same explain-route token contract.
+fn assert_customer_casefold_prefix_explain_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerCasefoldPrefixExplainCase,
+) {
+    for sql in [case.like_sql, case.starts_with_sql, case.range_sql] {
+        let payload = query_result(pic, canister_id, sql).unwrap_or_else(|err| {
+            panic!("{}: explain should return an Ok payload: {err}", case.name)
+        });
+        assert_explain_route(
+            payload,
+            "Customer",
+            case.required_tokens,
+            case.forbidden_tokens,
+            case.name,
+        );
+    }
+}
+
+///
+/// CustomerCasefoldRangeExplainCase
+///
+/// One shared Customer casefold text-range explain case.
+/// Each case locks one direct `LOWER` or `UPPER` range explain surface to
+/// the expected index-range route tokens.
+///
+
+struct CustomerCasefoldRangeExplainCase {
+    name: &'static str,
+    sql: &'static str,
+    required_tokens: &'static [&'static str],
+    forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared Customer casefold range explain case against the expected
+// explain-route token surface.
+fn assert_customer_casefold_range_explain_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: &CustomerCasefoldRangeExplainCase,
+) {
+    let payload = query_result(pic, canister_id, case.sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        "Customer",
+        case.required_tokens,
+        case.forbidden_tokens,
+        case.name,
+    );
+}
+
+///
+/// PlannerProjectionCase
+///
+/// One shared planner projection-window case.
+/// Each case pins a planner query to one expected ordered row window so
+/// offset and ordering policy can be checked without repeated boilerplate.
+///
+
+struct PlannerProjectionCase {
+    name: &'static str,
+    entity: &'static str,
+    sql: &'static str,
+    columns: &'static [&'static str],
+    expected_rows: &'static [&'static [&'static str]],
+}
+
+// Assert one shared planner projection case against the expected ordered row
+// window for the named planner entity.
+fn assert_planner_projection_case(pic: &Pic, canister_id: Principal, case: &PlannerProjectionCase) {
+    let rows = query_projection_rows(pic, canister_id, case.sql, case.name);
+    assert_projection_window(
+        &rows,
+        case.entity,
+        case.columns,
+        case.expected_rows,
+        case.name,
+    );
+}
+
+///
+/// PlannerExplainCase
+///
+/// One shared planner explain-route case.
+/// Each case locks one planner `EXPLAIN JSON` or `EXPLAIN EXECUTION`
+/// surface to the chosen access path, ordering contract, and exclusions.
+///
+
+struct PlannerExplainCase {
+    name: &'static str,
+    entity: &'static str,
+    sql: &'static str,
+    required_tokens: &'static [&'static str],
+    forbidden_tokens: &'static [&'static str],
+}
+
+// Assert one shared planner explain case against the expected route tokens
+// for the named planner entity.
+fn assert_planner_explain_case(pic: &Pic, canister_id: Principal, case: &PlannerExplainCase) {
+    let payload = query_result(pic, canister_id, case.sql)
+        .unwrap_or_else(|err| panic!("{}: explain should return an Ok payload: {err}", case.name));
+    assert_explain_route(
+        payload,
+        case.entity,
+        case.required_tokens,
+        case.forbidden_tokens,
+        case.name,
+    );
+}
+
 //
 // SqlPerfSurface
 //
@@ -1926,113 +2837,66 @@ fn sql_canister_query_lane_supports_delete_projection() {
 #[test]
 fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() {
     run_with_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: compare the accepted direct family against the established
-        // LIKE forms on the generated query/delete boundary.
         let cases = [
-            (
-                "DELETE FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 1",
-                "DELETE FROM Customer WHERE name LIKE 'a%' ORDER BY id LIMIT 1",
-                "generated strict direct STARTS_WITH delete",
-            ),
-            (
-                "DELETE FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
-                "DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
-                "generated direct LOWER(field) STARTS_WITH delete",
-            ),
-            (
-                "DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
-                "DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
-                "generated direct LOWER(field) ordered text-range delete",
-            ),
-            (
-                "DELETE FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
-                "DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
-                "generated direct UPPER(field) STARTS_WITH delete",
-            ),
-            (
-                "DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
-                "DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
-                "generated direct UPPER(field) ordered text-range delete",
-            ),
+            DeleteParityCase {
+                name: "generated strict direct STARTS_WITH delete",
+                direct_sql: "DELETE FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 1",
+                like_sql: "DELETE FROM Customer WHERE name LIKE 'a%' ORDER BY id LIMIT 1",
+            },
+            DeleteParityCase {
+                name: "generated direct LOWER(field) STARTS_WITH delete",
+                direct_sql: "DELETE FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+                like_sql: "DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+            },
+            DeleteParityCase {
+                name: "generated direct LOWER(field) ordered text-range delete",
+                direct_sql: "DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                like_sql: "DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+            },
+            DeleteParityCase {
+                name: "generated direct UPPER(field) STARTS_WITH delete",
+                direct_sql: "DELETE FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+                like_sql: "DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+            },
+            DeleteParityCase {
+                name: "generated direct UPPER(field) ordered text-range delete",
+                direct_sql: "DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                like_sql: "DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+            },
         ];
 
-        // Phase 2: execute both spellings against fresh fixtures so the deleted
-        // row payload remains semantically identical on the generated canister
-        // surface. Fixture reloads mint fresh ids, so compare stable
-        // non-identity columns instead of the raw full-row payload.
-        for (direct_sql, like_sql, context) in cases {
-            reset_fixtures(pic, canister_id);
-            load_default_fixtures(pic, canister_id);
-            let direct = query_projection_rows(
-                pic,
-                canister_id,
-                direct_sql,
-                "generated direct STARTS_WITH delete should return projection rows",
-            );
-
-            reset_fixtures(pic, canister_id);
-            load_default_fixtures(pic, canister_id);
-            let like = query_projection_rows(
-                pic,
-                canister_id,
-                like_sql,
-                "generated LIKE delete should return projection rows",
-            );
-
-            assert_eq!(
-                direct.columns, like.columns,
-                "generated direct STARTS_WITH delete should keep canonical delete columns: {context}",
-            );
-            let stable_delete_rows = |rows: &SqlQueryRowsOutput| {
-                let id_index = rows
-                    .columns
-                    .iter()
-                    .position(|column| column == "id")
-                    .expect("generated delete projection should expose canonical id column");
-
-                rows.rows
-                    .iter()
-                    .map(|row| {
-                        row.iter()
-                            .enumerate()
-                            .filter(|(index, _)| *index != id_index)
-                            .map(|(_, value)| value.clone())
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(
-                stable_delete_rows(&direct),
-                stable_delete_rows(&like),
-                "generated direct STARTS_WITH delete should match the established LIKE delete payload aside from regenerated ids: {context}",
-            );
+        for case in &cases {
+            assert_delete_parity_case(pic, canister_id, case);
         }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+fn sql_canister_query_lane_unsupported_direct_starts_with_surface_matrix_rejects_non_casefold_wrapped_forms()
+ {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let err = query_result(
-            pic,
-            canister_id,
-            "DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
-        )
-        .expect_err("generated direct STARTS_WITH delete wrapper should fail closed");
+        let cases = [
+            UnsupportedStartsWithCase {
+                name: "query non-casefold wrapped direct STARTS_WITH",
+                sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+            },
+            UnsupportedStartsWithCase {
+                name: "generated direct STARTS_WITH delete wrapper",
+                sql: "DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+            },
+            UnsupportedStartsWithCase {
+                name: "generated direct STARTS_WITH delete EXPLAIN wrapper",
+                sql: "EXPLAIN DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+            },
+            UnsupportedStartsWithCase {
+                name: "generated direct STARTS_WITH JSON delete EXPLAIN wrapper",
+                sql: "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+            },
+        ];
 
-        assert!(
-            matches!(
-                err.kind(),
-                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
-            ),
-            "generated direct STARTS_WITH delete wrapper should map to Runtime::Unsupported: {err:?}",
-        );
-        assert!(
-            err.message().contains(
-                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-            ),
-            "generated direct STARTS_WITH delete wrapper should preserve the stable unsupported-feature detail: {err:?}",
-        );
+        for case in &cases {
+            assert_unsupported_starts_with_case(pic, canister_id, case);
+        }
     });
 }
 
@@ -2057,342 +2921,147 @@ fn sql_canister_query_lane_supports_computed_projection() {
 }
 
 #[test]
-fn sql_canister_query_lane_supports_user_expression_order_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one expression-order Customer projection so the
-        // generated SQL lane proves the new LOWER(name) secondary order path.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-            "query Customer expression-order covering projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface returns the expected
-        // projected Customer window and column order.
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(
-            rows.rows[0][1],
-            "alice".to_string(),
-            "expression-order Customer query should start from the lowercased first row",
-        );
-        assert_eq!(
-            rows.rows[1][1],
-            "bob".to_string(),
-            "expression-order Customer query should keep stable lowercased ordering",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_covering_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the new expression
-        // order-only Customer projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query Customer expression-order covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "Customer expression-order EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_user_expression_key_only_order_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-            "query Customer expression key-only order covering projection should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0].len(), 1);
-        assert_eq!(rows.rows[1].len(), 1);
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_order_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query Customer expression key-only order covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "CoveringRead",
-                "covering_read",
-                "existing_row_mode",
-                "planner_proven",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "Customer expression key-only order EXPLAIN EXECUTION should expose the planner-proven covering route without the removed authority labels",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_user_expression_order_desc_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending expression-order Customer projection so
-        // reverse traversal stays locked in the generated SQL harness.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-            "query Customer descending expression-order covering projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface returns the expected
-        // descending projected Customer window.
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(
-            rows.rows[0][1],
-            "charlie".to_string(),
-            "descending expression-order Customer query should start from the last lowercased row",
-        );
-        assert_eq!(
-            rows.rows[1][1],
-            "bob".to_string(),
-            "descending expression-order Customer query should keep stable reverse lowercased ordering",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_desc_covering_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending
-        // expression order-only Customer projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query Customer descending expression-order covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "descending Customer expression-order EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_user_expression_key_only_order_desc_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-            "query Customer descending expression key-only order covering projection should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0].len(), 1);
-        assert_eq!(rows.rows[1].len(), 1);
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_order_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query Customer descending expression key-only order covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "CoveringRead",
-                "covering_read",
-                "existing_row_mode",
-                "planner_proven",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "descending Customer expression key-only order EXPLAIN EXECUTION should expose the planner-proven covering route without the removed authority labels",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_user_expression_key_only_strict_text_range_covering_projection()
+fn sql_canister_query_lane_user_expression_covering_matrix_preserves_projection_and_explain_routes()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-            "query Customer expression key-only strict text-range covering projection should return projected rows",
-        );
+        // Phase 1: lock the shared Customer `LOWER(name)` covering family into
+        // one table-driven projection and `EXPLAIN EXECUTION` matrix.
+        let cases = [
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering ASC full-row",
+                projection_sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "name"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "alice"],
+                    &[ANY_PROJECTION_VALUE, "bob"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering ASC key-only",
+                projection_sql: "SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                projection_columns: &["id"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE], &[ANY_PROJECTION_VALUE]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "covering_read",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering DESC full-row",
+                projection_sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "name"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "charlie"],
+                    &[ANY_PROJECTION_VALUE, "bob"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering DESC key-only",
+                projection_sql: "SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                projection_columns: &["id"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE], &[ANY_PROJECTION_VALUE]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "covering_read",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering ASC strict-range key-only",
+                projection_sql: "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                projection_columns: &["id"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "covering_read",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+            UserExpressionCoveringCase {
+                name: "Customer expression-order covering DESC strict-range key-only",
+                projection_sql: "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                projection_columns: &["id"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "covering_read",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "LOWER(name)",
+                    "proj_fields",
+                    "id",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+        ];
 
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0].len(), 1);
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_strict_text_range_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query Customer expression key-only strict text-range covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "CoveringRead",
-                "covering_read",
-                "existing_row_mode",
-                "planner_proven",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "Customer expression key-only strict text-range EXPLAIN EXECUTION should expose the planner-proven covering route without the removed authority labels",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_user_expression_key_only_strict_text_range_desc_covering_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-            "query Customer descending expression key-only strict text-range covering projection should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0].len(), 1);
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_strict_text_range_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query Customer descending expression key-only strict text-range covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "CoveringRead",
-                "covering_read",
-                "existing_row_mode",
-                "planner_proven",
-                "LOWER(name)",
-                "proj_fields",
-                "id",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "descending Customer expression key-only strict text-range EXPLAIN EXECUTION should expose the planner-proven covering route without the removed authority labels",
-        );
+        // Phase 2: execute each shared case so the projection payload and the
+        // paired execution descriptor stay locked to the same route family.
+        for case in &cases {
+            assert_user_expression_covering_case(pic, canister_id, case);
+        }
     });
 }
 
@@ -2442,702 +3111,288 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_primary_key_covering_
 }
 
 #[test]
-fn sql_canister_query_lane_supports_customer_order_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id ASC LIMIT 1",
-            "query CustomerOrder covering projection should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "CustomerOrder");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0][1], "A-101".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_covering_read_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id ASC LIMIT 1",
-        )
-        .expect("query CustomerOrder covering EXPLAIN EXECUTION should return an Ok payload");
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "name",
-            ],
-            &["row_check_required"],
-            "CustomerOrder covering EXPLAIN EXECUTION should expose the explicit covering-read route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_order_only_composite_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-            "query CustomerOrder order-only composite covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "10", "Alpha"],
-                &[ANY_PROJECTION_VALUE, "20", "Backlog"],
-            ],
-            "CustomerOrder order-only composite covering projection should preserve the expected composite window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerOrder order-only composite covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "CustomerOrder order-only composite EXPLAIN EXECUTION should expose the index-range covering route without the removed authority labels",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_order_only_composite_desc_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-            "query CustomerOrder descending order-only composite covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "30", "Closed"],
-                &[ANY_PROJECTION_VALUE, "20", "Draft"],
-            ],
-            "descending CustomerOrder order-only composite covering projection should preserve the reverse composite window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query CustomerOrder descending order-only composite covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &[
-                "row_check_required",
-                "authority_decision",
-                "authority_reason",
-                "index_state",
-            ],
-            "descending CustomerOrder order-only composite EXPLAIN EXECUTION should expose the index-range covering route without the removed authority labels",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_numeric_equality_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-            "query CustomerOrder numeric-equality covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "20", "Backlog"],
-                &[ANY_PROJECTION_VALUE, "20", "Billing"],
-            ],
-            "CustomerOrder numeric-equality covering projection should preserve the equality-prefix ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerOrder numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "CoveringRead",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &["row_check_required"],
-            "CustomerOrder numeric-equality EXPLAIN EXECUTION should expose the planner-proven covering route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_numeric_equality_desc_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-            "query descending CustomerOrder numeric-equality covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "20", "Draft"],
-                &[ANY_PROJECTION_VALUE, "20", "Closed"],
-            ],
-            "descending CustomerOrder numeric-equality covering projection should preserve the reverse equality-prefix ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerOrder numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "CoveringRead",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &["row_check_required"],
-            "descending CustomerOrder numeric-equality EXPLAIN EXECUTION should expose the planner-proven covering route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_numeric_equality_status_strict_text_range_covering_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
-            "query CustomerOrder numeric-equality bounded status covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "20", "Backlog"],
-                &[ANY_PROJECTION_VALUE, "20", "Billing"],
-            ],
-            "CustomerOrder numeric-equality bounded status covering projection should preserve the bounded suffix ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_status_strict_text_range_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerOrder numeric-equality bounded status covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "CoveringRead",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &["row_check_required"],
-            "CustomerOrder numeric-equality bounded status EXPLAIN EXECUTION should expose the planner-proven covering route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_order_numeric_equality_status_strict_text_range_desc_covering_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
-            "query descending CustomerOrder numeric-equality bounded status covering projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerOrder",
-            &["id", "priority", "status"],
-            &[
-                &[ANY_PROJECTION_VALUE, "20", "Closed"],
-                &[ANY_PROJECTION_VALUE, "20", "Billing"],
-            ],
-            "descending CustomerOrder numeric-equality bounded status covering projection should preserve the reverse bounded suffix ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_status_strict_text_range_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerOrder numeric-equality bounded status covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "CoveringRead",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "existing_row_mode",
-                "planner_proven",
-                "id",
-                "priority",
-                "status",
-            ],
-            &["row_check_required"],
-            "descending CustomerOrder numeric-equality bounded status EXPLAIN EXECUTION should expose the planner-proven covering route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_order_only_covering_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one filtered-index guarded order-only projection so
-        // the generated SQL lane reaches the guarded secondary-index route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered order-only covering projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface returns the guarded
-        // filtered-index window instead of falling back to materialized rows.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "name"],
-            &[
-                &[ANY_PROJECTION_VALUE, "bravo"],
-                &[ANY_PROJECTION_VALUE, "charlie"],
-            ],
-            "CustomerAccount filtered order-only covering projection should expose the guarded filtered-index window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_order_only_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded filtered
-        // order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered order-only covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "CustomerAccount filtered order-only EXPLAIN EXECUTION should expose the index-range covering route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_order_only_desc_covering_projection()
+fn sql_canister_query_lane_customer_order_covering_matrix_preserves_projection_and_explain_routes()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending filtered-index guarded order-only
-        // projection so reverse traversal stays locked in the generated lane.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered order-only covering projection should return projected rows",
-        );
+        // Phase 1: lock the shared CustomerOrder covering family into one
+        // table-driven projection and `EXPLAIN EXECUTION` matrix.
+        let cases = [
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder exact-name covering read",
+                projection_sql: "SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id ASC LIMIT 1",
+                projection_columns: &["id", "name"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE, "A-101"]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id ASC LIMIT 1",
+                explain_required_tokens: &[
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder order-only composite covering ASC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "10", "Alpha"],
+                    &[ANY_PROJECTION_VALUE, "20", "Backlog"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder order-only composite covering DESC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "30", "Closed"],
+                    &[ANY_PROJECTION_VALUE, "20", "Draft"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &[
+                    "row_check_required",
+                    "authority_decision",
+                    "authority_reason",
+                    "index_state",
+                ],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder numeric-equality covering ASC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "20", "Backlog"],
+                    &[ANY_PROJECTION_VALUE, "20", "Billing"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder numeric-equality covering DESC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "20", "Draft"],
+                    &[ANY_PROJECTION_VALUE, "20", "Closed"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder numeric-equality bounded-status covering ASC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "20", "Backlog"],
+                    &[ANY_PROJECTION_VALUE, "20", "Billing"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerOrderCoveringCase {
+                name: "CustomerOrder numeric-equality bounded-status covering DESC",
+                projection_sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "priority", "status"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "20", "Closed"],
+                    &[ANY_PROJECTION_VALUE, "20", "Billing"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "CoveringRead",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "id",
+                    "priority",
+                    "status",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+        ];
 
-        // Phase 2: assert the generated query surface returns the expected
-        // descending filtered-index window.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "name"],
-            &[
-                &[ANY_PROJECTION_VALUE, "echo"],
-                &[ANY_PROJECTION_VALUE, "charlie"],
-            ],
-            "descending CustomerAccount filtered order-only covering projection should expose the reverse filtered-index window",
-        );
+        // Phase 2: execute each shared case so the projection payload and the
+        // paired execution descriptor stay locked to the same route family.
+        for case in &cases {
+            assert_customer_order_covering_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_order_only_desc_covering_route()
+fn sql_canister_query_lane_customer_account_filtered_simple_covering_matrix_preserves_projection_and_explain_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // filtered order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered order-only covering EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "covering_read",
-                "covering_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "descending CustomerAccount filtered order-only EXPLAIN EXECUTION should expose the index-range covering route",
-        );
+        let cases = [
+            CustomerAccountFilteredCoveringCase {
+                name: "CustomerAccount filtered order-only covering ASC",
+                projection_sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "name"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bravo"],
+                    &[ANY_PROJECTION_VALUE, "charlie"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCoveringCase {
+                name: "CustomerAccount filtered order-only covering DESC",
+                projection_sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "name"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "echo"],
+                    &[ANY_PROJECTION_VALUE, "charlie"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "covering_read",
+                    "covering_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCoveringCase {
+                name: "CustomerAccount filtered strict LIKE prefix covering ASC",
+                projection_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+                projection_columns: &["id", "name"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE, "bravo"]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCoveringCase {
+                name: "CustomerAccount filtered strict LIKE prefix covering DESC",
+                projection_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+                projection_columns: &["id", "name"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE, "bravo"]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_covering_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_strict_like_prefix_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one guarded filtered-index strict prefix projection
-        // so the generated SQL lane reaches the bounded filtered route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
-            "query CustomerAccount filtered strict LIKE prefix projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the guarded
-        // bounded window on the CustomerAccount filtered index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "name"],
-            &[&[ANY_PROJECTION_VALUE, "bravo"]],
-            "CustomerAccount filtered strict LIKE prefix projection should expose the bounded filtered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
+fn sql_canister_query_lane_customer_account_filtered_simple_prefix_parity_matrix_preserves_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the three accepted guarded strict prefix spellings
-        // against the same ordered CustomerAccount projection window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
-            "CustomerAccount filtered strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
-            "CustomerAccount filtered direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
-            "CustomerAccount filtered strict text-range predicate should return projected rows",
-        );
+        let cases = [
+            CustomerAccountFilteredPrefixParityCase {
+                name: "CustomerAccount filtered strict prefix parity ASC",
+                like_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+                starts_with_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
+                range_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
+            },
+            CustomerAccountFilteredPrefixParityCase {
+                name: "CustomerAccount filtered strict prefix parity DESC",
+                like_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+                starts_with_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
+                range_sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
+            },
+        ];
 
-        // Phase 2: keep the canister query lane pinned to one shared filtered
-        // result set across the equivalent strict prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerAccount filtered direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "CustomerAccount filtered strict text-range and LIKE prefix query rows should stay in parity",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_strict_like_prefix_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded filtered
-        // strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
-        )
-        .expect(
-            "query CustomerAccount filtered strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // bounded index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "CustomerAccount filtered strict LIKE prefix EXPLAIN EXECUTION should expose the bounded covering index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_strict_like_prefix_desc_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded filtered-index strict prefix
-        // projection so the generated SQL lane reaches the reverse bounded route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
-            "query descending CustomerAccount filtered strict LIKE prefix projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the guarded
-        // reverse bounded window on the CustomerAccount filtered index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "name"],
-            &[&[ANY_PROJECTION_VALUE, "bravo"]],
-            "descending CustomerAccount filtered strict LIKE prefix projection should expose the reverse bounded filtered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the three accepted descending guarded strict prefix
-        // spellings against the same reverse CustomerAccount projection window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
-            "descending CustomerAccount filtered strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
-            "descending CustomerAccount filtered direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
-            "descending CustomerAccount filtered strict text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the reverse canister query lane pinned to one shared
-        // filtered result set across the equivalent strict prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "descending CustomerAccount filtered direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "descending CustomerAccount filtered strict text-range and LIKE prefix query rows should stay in parity",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_strict_like_prefix_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // filtered strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
-        )
-        .expect(
-            "query descending CustomerAccount filtered strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse bounded index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "descending CustomerAccount filtered strict LIKE prefix EXPLAIN EXECUTION should expose the reverse bounded covering index-range route",
-        );
+        for case in &cases {
+            assert_customer_account_filtered_prefix_parity_case(pic, canister_id, case);
+        }
     });
 }
 
@@ -3216,313 +3471,148 @@ fn sql_canister_query_lane_supports_grouped_explain() {
 }
 
 #[test]
-fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_order_only() {
+fn sql_canister_query_lane_grouped_ordered_explain_matrix_preserves_grouped_route_tokens() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped EXPLAIN should return an explain payload",
-        );
+        // Phase 1: lock the ordered grouped Customer explain family into one
+        // table-driven matrix across logical and execution explain surfaces.
+        let cases = [
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group order-only COUNT(*)",
+                sql: "EXPLAIN SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexRange",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group exact-prefix COUNT(*)",
+                sql: "EXPLAIN SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexPrefix",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group order-only COUNT(field)",
+                sql: "EXPLAIN SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexRange",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group exact-prefix COUNT(field)",
+                sql: "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexPrefix",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group order-only SUM(field)",
+                sql: "EXPLAIN SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexRange",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group order-only AVG(field)",
+                sql: "EXPLAIN SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexRange",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN ordered group exact-prefix AVG(field)",
+                sql: "EXPLAIN SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "access=IndexPrefix",
+                    "grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group order-only COUNT(*)",
+                sql: "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "OrderByMaterializedSort",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group exact-prefix COUNT(*)",
+                sql: "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group order-only COUNT(field)",
+                sql: "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "OrderByMaterializedSort",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group exact-prefix COUNT(field)",
+                sql: "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group order-only SUM(field)",
+                sql: "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "OrderByMaterializedSort",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group order-only AVG(field)",
+                sql: "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "OrderByMaterializedSort",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+            GroupedOrderedExplainCase {
+                name: "Customer grouped EXPLAIN EXECUTION ordered group exact-prefix AVG(field)",
+                sql: "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "GroupedAggregateOrderedMaterialized",
+                    "grouped_plan_fallback_reason=Text(\"none\")",
+                    "grouped_execution_mode=Text(\"ordered_materialized\")",
+                ],
+            },
+        ];
 
-        assert!(
-            explain.contains("access=IndexRange"),
-            "Customer grouped EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_explain_projects_ordered_group_for_customer_exact_prefix_filter()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexPrefix"),
-            "filtered Customer grouped EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "filtered Customer grouped EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped COUNT(field) EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexRange"),
-            "Customer grouped COUNT(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_count_field_explain_projects_ordered_group_for_customer_exact_prefix_filter()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped COUNT(field) EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexPrefix"),
-            "filtered Customer grouped COUNT(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "filtered Customer grouped COUNT(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_sum_field_explain_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped SUM(field) EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexRange"),
-            "Customer grouped SUM(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "Customer grouped SUM(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped AVG(field) EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexRange"),
-            "Customer grouped AVG(field) EXPLAIN should stay on the admitted order-only index-range access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_avg_field_explain_projects_ordered_group_for_customer_exact_prefix_filter()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped AVG(field) EXPLAIN should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("access=IndexPrefix"),
-            "filtered Customer grouped AVG(field) EXPLAIN should stay on the admitted equality-prefix access path: {explain}",
-        );
-        assert!(
-            explain
-                .contains("grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None"),
-            "filtered Customer grouped AVG(field) EXPLAIN should project the ordered grouped family without planner fallback: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, COUNT(*) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexPrefixScan")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "filtered Customer grouped EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped COUNT(field) EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_count_field_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, COUNT(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexPrefixScan")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "filtered Customer grouped COUNT(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_sum_field_explain_execution_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped SUM(field) EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "Customer grouped SUM(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_group_for_customer_order_only()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "Customer grouped AVG(field) EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_grouped_avg_field_explain_execution_projects_ordered_group_for_customer_exact_prefix_filter()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explain = query_explain_text(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT name, AVG(age) FROM Customer WHERE name = 'alice' GROUP BY name ORDER BY name ASC LIMIT 10",
-            "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should return an explain payload",
-        );
-
-        assert!(
-            explain.contains("IndexPrefixScan")
-                && explain.contains("GroupedAggregateOrderedMaterialized")
-                && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
-                && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
-            "filtered Customer grouped AVG(field) EXPLAIN EXECUTION should expose the admitted ordered grouped execution family: {explain}",
-        );
+        // Phase 2: execute each grouped explain case so the logical and
+        // execution surfaces stay pinned to the admitted ordered-group route.
+        for case in &cases {
+            assert_grouped_ordered_explain_case(pic, canister_id, case);
+        }
     });
 }
 
@@ -4261,6 +4351,209 @@ fn sql_canister_perf_typed_execute_sql_grouped_customer_distinct_aggregates_surf
 }
 
 #[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_top_level_distinct_surfaces_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql =
+            "SELECT DISTINCT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.execute_sql_grouped.customer.top_level_distinct::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed execute_sql_grouped top-level DISTINCT perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "grouped_response",
+            "typed execute_sql_grouped top-level DISTINCT perf sample should stay on the grouped response lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "typed execute_sql_grouped top-level DISTINCT perf sample should stay on the Customer grouped lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(3),
+            "typed execute_sql_grouped top-level DISTINCT perf sample should emit the expected grouped row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_computed_projection_surfaces_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql =
+            "SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.execute_sql_grouped.customer.computed::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed execute_sql_grouped computed projection perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "grouped_response",
+            "typed execute_sql_grouped computed projection perf sample should stay on the grouped response lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "typed execute_sql_grouped computed projection perf sample should stay on the Customer grouped lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(3),
+            "typed execute_sql_grouped computed projection perf sample should emit the expected grouped row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_computed_projection_aliases_surface_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "SELECT TRIM(name) AS trimmed_name, COUNT(*) total FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.execute_sql_grouped.customer.computed_alias::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed execute_sql_grouped computed projection alias perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "grouped_response",
+            "typed execute_sql_grouped computed projection alias perf sample should stay on the grouped response lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "typed execute_sql_grouped computed projection alias perf sample should stay on the Customer grouped lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(3),
+            "typed execute_sql_grouped computed projection alias perf sample should emit the expected grouped row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_order_by_group_field_alias_surfaces_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "SELECT age years, COUNT(*) total FROM Customer GROUP BY age ORDER BY years ASC LIMIT 10";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.execute_sql_grouped.customer.order_alias::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed execute_sql_grouped order-alias perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "grouped_response",
+            "typed execute_sql_grouped order-alias perf sample should stay on the grouped response lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "typed execute_sql_grouped order-alias perf sample should stay on the Customer grouped lane for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(3),
+            "typed execute_sql_grouped order-alias perf sample should emit the expected grouped row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_dispatch_customer_account_order_by_lower_alias_surfaces_expected_values()
+{
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "SELECT LOWER(handle) AS normalized_handle, id FROM CustomerAccount WHERE active = true ORDER BY normalized_handle ASC, id ASC LIMIT 2";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerAccount,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.customer_account.lower_order_alias::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch lower-order-alias perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("CustomerAccount"),
+            "typed dispatch lower-order-alias perf sample should stay on the CustomerAccount route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "typed dispatch lower-order-alias perf sample should emit the expected ordered row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_typed_execute_sql_aggregate_customer_reject_path_reports_non_aggregate_error()
 {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -4415,1857 +4708,968 @@ fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like
 }
 
 #[test]
-fn sql_canister_query_lane_explain_delete_direct_upper_text_range_preserves_index_range_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
-        )
-        .expect("generated direct UPPER(field) ordered text-range delete EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "mode=Delete",
-                "access=IndexRange",
-                "Customer|LOWER(name)",
-                "lower: Included(Text(\"a\"))",
-                "upper: Excluded(Text(\"b\"))",
-            ],
-            &["access=FullScan"],
-            "generated direct UPPER(field) ordered text-range delete explain should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_direct_upper_text_range_preserves_index_range_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-        )
-        .expect("generated direct UPPER(field) ordered text-range JSON EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"predicate\":\"And([Compare",
-                "id: TextCasefold",
-            ],
-            &["\"type\":\"FullScan\""],
-            "generated direct UPPER(field) ordered text-range JSON explain should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_equivalent_direct_upper_prefix_forms_preserve_index_range_route()
+fn sql_canister_query_lane_customer_casefold_range_delete_explain_matrix_preserves_index_range_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let cases = [
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
-                "direct UPPER(field) LIKE JSON explain route",
-            ),
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
-                "direct UPPER(field) STARTS_WITH JSON explain route",
-            ),
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-                "direct UPPER(field) ordered text-range JSON explain route",
-            ),
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct LOWER(name) text-range delete explain route",
+                sql: "EXPLAIN DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                required_tokens: &[
+                    "mode=Delete",
+                    "access=IndexRange",
+                    "Customer|LOWER(name)",
+                    "lower: Included(Text(\"a\"))",
+                    "upper: Excluded(Text(\"b\"))",
+                ],
+                forbidden_tokens: &["access=FullScan"],
+            },
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct UPPER(name) text-range delete explain route",
+                sql: "EXPLAIN DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                required_tokens: &[
+                    "mode=Delete",
+                    "access=IndexRange",
+                    "Customer|LOWER(name)",
+                    "lower: Included(Text(\"a\"))",
+                    "upper: Excluded(Text(\"b\"))",
+                ],
+                forbidden_tokens: &["access=FullScan"],
+            },
         ];
 
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
+        for case in &cases {
+            assert_customer_casefold_range_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_casefold_range_json_explain_matrix_preserves_index_range_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct LOWER(name) text-range JSON explain route",
+                sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"predicate\":\"And([Compare",
+                    "id: TextCasefold",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct UPPER(name) text-range JSON explain route",
+                sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"predicate\":\"And([Compare",
+                    "id: TextCasefold",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_casefold_range_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_casefold_prefix_json_explain_matrix_preserves_index_range_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct LOWER(name) prefix JSON explain parity",
+                like_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+                starts_with_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+                range_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                required_tokens: &[
                     "\"mode\":{\"type\":\"Load\"",
                     "\"access\":{\"type\":\"IndexRange\"",
                 ],
-                &["\"type\":\"FullScan\""],
-                context,
-            );
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct UPPER(name) prefix JSON explain parity",
+                like_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+                starts_with_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+                range_sql: "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_casefold_prefix_explain_case(pic, canister_id, case);
         }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_json_delete_direct_upper_text_range_preserves_index_range_route()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
-        )
-        .expect("generated direct UPPER(field) ordered text-range JSON delete EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "\"mode\":{\"type\":\"Delete\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"predicate\":\"And([Compare",
-                "id: TextCasefold",
-            ],
-            &["\"type\":\"FullScan\""],
-            "generated direct UPPER(field) ordered text-range JSON delete explain should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_delete_direct_upper_equivalent_prefix_forms_preserve_index_range_route()
+fn sql_canister_query_lane_customer_casefold_range_json_delete_explain_matrix_preserves_index_range_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let cases = [
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
-                "direct UPPER(field) LIKE JSON delete explain route",
-            ),
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
-                "direct UPPER(field) STARTS_WITH JSON delete explain route",
-            ),
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
-                "direct UPPER(field) ordered text-range JSON delete explain route",
-            ),
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct LOWER(name) text-range JSON delete explain route",
+                sql: "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Delete\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"predicate\":\"And([Compare",
+                    "id: TextCasefold",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+            CustomerCasefoldRangeExplainCase {
+                name: "Customer direct UPPER(name) text-range JSON delete explain route",
+                sql: "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Delete\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"predicate\":\"And([Compare",
+                    "id: TextCasefold",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
         ];
 
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
+        for case in &cases {
+            assert_customer_casefold_range_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_casefold_prefix_json_delete_explain_matrix_preserves_index_range_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct LOWER(name) prefix JSON delete explain parity",
+                like_sql: "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+                starts_with_sql: "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+                range_sql: "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                required_tokens: &[
                     "\"mode\":{\"type\":\"Delete\"",
                     "\"access\":{\"type\":\"IndexRange\"",
                 ],
-                &["\"type\":\"FullScan\""],
-                context,
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct UPPER(name) prefix JSON delete explain parity",
+                like_sql: "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+                starts_with_sql: "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+                range_sql: "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Delete\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                forbidden_tokens: &["\"type\":\"FullScan\""],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_casefold_prefix_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_order_strict_prefix_projection_matrix_preserves_projection_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerOrderStrictPrefixProjectionCase {
+                name: "CustomerOrder strict prefix projection parity ASC",
+                like_sql: "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                starts_with_sql: "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                range_sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "A-100"],
+                    &[ANY_PROJECTION_VALUE, "A-101"],
+                ],
+            },
+            CustomerOrderStrictPrefixProjectionCase {
+                name: "CustomerOrder strict prefix projection parity DESC",
+                like_sql: "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                starts_with_sql: "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                range_sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "A-102"],
+                    &[ANY_PROJECTION_VALUE, "A-101"],
+                ],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_order_strict_prefix_projection_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_composite_covering_matrix_preserves_projection_and_explain_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite strict LIKE prefix covering ASC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite strict LIKE prefix covering DESC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite order-only covering ASC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite order-only covering DESC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "OrderByMaterializedSort",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "row_check_required",
+                ],
+            },
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite order-only offset covering DESC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[&[ANY_PROJECTION_VALUE, "gold", "bravo"]],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "OrderByMaterializedSort",
+                    "offset=Uint(1)",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "row_check_required",
+                ],
+            },
+            CustomerAccountFilteredCompositeCoveringCase {
+                name: "CustomerAccount filtered composite residual covering DESC",
+                projection_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND name >= 'a' ORDER BY handle DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND name >= 'a' ORDER BY handle DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "ResidualPredicateFilter",
+                    "OrderByMaterializedSort",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &["TopNSeek", "OrderByAccessSatisfied"],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_composite_covering_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_composite_prefix_parity_matrix_preserves_projection_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredCompositePrefixParityCase {
+                name: "CustomerAccount filtered composite strict prefix parity ASC",
+                like_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+                starts_with_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+                range_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+            },
+            CustomerAccountFilteredCompositePrefixParityCase {
+                name: "CustomerAccount filtered composite strict prefix parity DESC",
+                like_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+                starts_with_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+                range_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_composite_prefix_parity_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_expression_covering_matrix_preserves_projection_and_explain_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression order-only covering ASC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bravo"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression order-only covering DESC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bristle"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression strict LIKE prefix covering ASC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bravo"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression strict text-range covering ASC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bravo"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression strict LIKE prefix covering DESC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bristle"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredExpressionCoveringCase {
+                name: "CustomerAccount filtered expression strict text-range covering DESC",
+                projection_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                projection_columns: &["id", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bristle"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_expression_covering_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_expression_prefix_parity_matrix_preserves_projection_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredExpressionPrefixParityCase {
+                name: "CustomerAccount filtered expression strict prefix parity ASC",
+                like_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                starts_with_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                range_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bravo"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+            },
+            CustomerAccountFilteredExpressionPrefixParityCase {
+                name: "CustomerAccount filtered expression strict prefix parity DESC",
+                like_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                starts_with_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                range_sql: "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "bristle"],
+                    &[ANY_PROJECTION_VALUE, "Brisk"],
+                ],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_expression_prefix_parity_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_composite_expression_route_matrix_preserves_projection_and_explain_routes()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression order-only ASC",
+                projection_sql: Some(
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression order-only DESC",
+                projection_sql: Some(
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier", "handle"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByMaterializedSort",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression key-only order-only ASC",
+                projection_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression key-only order-only DESC",
+                projection_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexPrefixScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByMaterializedSort",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression key-only strict text-range ASC",
+                projection_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression key-only strict text-range DESC",
+                projection_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ),
+                projection_columns: &["id", "tier"],
+                projection_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression strict LIKE prefix ASC route",
+                projection_sql: None,
+                projection_columns: &[],
+                projection_rows: &[],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression strict text-range ASC route",
+                projection_sql: None,
+                projection_columns: &[],
+                projection_rows: &[],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression strict LIKE prefix DESC route",
+                projection_sql: None,
+                projection_columns: &[],
+                projection_rows: &[],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+            CustomerAccountFilteredCompositeExpressionCase {
+                name: "CustomerAccount filtered composite expression strict text-range DESC route",
+                projection_sql: None,
+                projection_columns: &[],
+                projection_rows: &[],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "cov_read_route",
+                    "materialized",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "tier",
+                    "handle",
+                ],
+                explain_forbidden_tokens: &[],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_composite_expression_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_account_filtered_composite_expression_full_row_prefix_parity_matrix_preserves_projection_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerAccountFilteredCompositeExpressionParityCase {
+                name: "CustomerAccount filtered composite expression strict prefix parity ASC",
+                like_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                starts_with_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                range_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                columns: &["id", "tier", "handle"],
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                ],
+            },
+            CustomerAccountFilteredCompositeExpressionParityCase {
+                name: "CustomerAccount filtered composite expression strict prefix parity DESC",
+                like_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                starts_with_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                range_sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                columns: &["id", "tier", "handle"],
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold", "bristle"],
+                    &[ANY_PROJECTION_VALUE, "gold", "bravo"],
+                ],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_composite_expression_parity_case(
+                pic,
+                canister_id,
+                case,
             );
         }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let err = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
-        )
-        .expect_err("generated direct STARTS_WITH delete EXPLAIN wrapper should fail closed");
-
-        assert!(
-            matches!(
-                err.kind(),
-                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
-            ),
-            "generated direct STARTS_WITH delete EXPLAIN wrapper should map to Runtime::Unsupported: {err:?}",
-        );
-        assert!(
-            err.message().contains(
-                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-            ),
-            "generated direct STARTS_WITH delete EXPLAIN wrapper should preserve the stable unsupported-feature detail: {err:?}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let err = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
-        )
-        .expect_err("generated direct STARTS_WITH JSON delete EXPLAIN wrapper should fail closed");
-
-        assert!(
-            matches!(
-                err.kind(),
-                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
-            ),
-            "generated direct STARTS_WITH JSON delete EXPLAIN wrapper should map to Runtime::Unsupported: {err:?}",
-        );
-        assert!(
-            err.message().contains(
-                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-            ),
-            "generated direct STARTS_WITH JSON delete EXPLAIN wrapper should preserve the stable unsupported-feature detail: {err:?}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_strict_like_prefix_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-            "query strict LIKE prefix predicate should return projected CustomerOrder rows",
-        );
-
-        assert_eq!(rows.entity, "CustomerOrder");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0][1], "A-100".to_string());
-        assert_eq!(rows.rows[1][1], "A-101".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_strict_like_prefix_desc_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-            "query descending strict LIKE prefix predicate should return projected CustomerOrder rows",
-        );
-
-        assert_eq!(rows.entity, "CustomerOrder");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0][1], "A-102".to_string());
-        assert_eq!(rows.rows[1][1], "A-101".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_strict_like_prefix_projection()
+fn sql_canister_query_lane_customer_account_filtered_composite_expression_key_only_prefix_parity_matrix_preserves_projection_and_direct_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one guarded composite filtered strict-prefix
-        // projection so the generated SQL lane reaches the equality-prefix
-        // plus bounded-suffix route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite strict LIKE prefix projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the bounded suffix
-        // window on the composite filtered CustomerAccount index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-            ],
-            "CustomerAccount filtered composite strict LIKE prefix projection should expose the bounded composite window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the three accepted guarded composite strict prefix
-        // spellings against the same equality-prefix CustomerAccount projection window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite strict text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the canister query lane pinned to one shared composite
-        // filtered result set across the equivalent strict prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerAccount filtered composite direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "CustomerAccount filtered composite strict text-range and LIKE prefix query rows should stay in parity",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_strict_like_prefix_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded composite
-        // filtered strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // composite index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["row_check_required"],
-            "CustomerAccount filtered composite strict LIKE prefix EXPLAIN EXECUTION should expose the bounded covering index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_strict_like_prefix_desc_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded composite filtered
-        // strict-prefix projection so the generated SQL lane reaches the
-        // reverse equality-prefix plus bounded-suffix route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered composite strict LIKE prefix projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the reverse
-        // bounded suffix window on the composite filtered CustomerAccount index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-            ],
-            "descending CustomerAccount filtered composite strict LIKE prefix projection should expose the reverse bounded composite window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the three accepted descending guarded composite
-        // strict prefix spellings against the same reverse equality-prefix window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite strict text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the reverse canister query lane pinned to one shared
-        // composite filtered result set across the equivalent strict prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "descending CustomerAccount filtered composite direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "descending CustomerAccount filtered composite strict text-range and LIKE prefix query rows should stay in parity",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_strict_like_prefix_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite filtered strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse composite index-range and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["row_check_required"],
-            "descending CustomerAccount filtered composite strict LIKE prefix EXPLAIN EXECUTION should expose the reverse bounded covering index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one guarded composite filtered order-only
-        // projection so the generated SQL lane reaches the equality-prefix
-        // suffix-order route without an extra bounded text predicate.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite order-only projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the ordered
-        // equality-prefix window on the composite filtered CustomerAccount index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-            ],
-            "CustomerAccount filtered composite order-only projection should expose the ordered equality-prefix window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded composite
-        // filtered order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // composite index-prefix and covering-read labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["row_check_required"],
-            "CustomerAccount filtered composite order-only EXPLAIN EXECUTION should expose the covering index-prefix route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_desc_projection()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded composite filtered
-        // order-only projection so reverse suffix traversal stays pinned.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered composite order-only projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the reverse
-        // ordered equality-prefix window on the composite filtered index.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-            ],
-            "descending CustomerAccount filtered composite order-only projection should expose the reverse equality-prefix window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_desc_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite filtered order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse composite index-prefix and covering-read labels while
-        // failing closed to a materialized sort on the non-unique suffix.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["TopNSeek", "OrderByAccessSatisfied", "row_check_required"],
-            "descending CustomerAccount filtered composite order-only EXPLAIN EXECUTION should expose the reverse covering index-prefix route with one equality prefix and a fail-closed materialized sort without TopN",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_desc_offset_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded composite filtered offset
-        // projection so the materialized-boundary route stays pinned on the
-        // existing equality-prefix index path.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-            "query descending CustomerAccount filtered composite order-only offset projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the reverse
-        // equality-prefix window while honoring the retained offset.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[&[ANY_PROJECTION_VALUE, "gold", "bravo"]],
-            "descending CustomerAccount filtered composite order-only offset projection should expose the retained one-row offset window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_desc_offset_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite filtered offset order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite order-only offset EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane keeps the index-prefix
-        // route, stays on the materialized boundary, and suppresses Top-N.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "OrderByMaterializedSort",
-                "offset=Uint(1)",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["TopNSeek", "OrderByAccessSatisfied", "row_check_required"],
-            "descending CustomerAccount filtered composite order-only offset EXPLAIN EXECUTION should expose the materialized-boundary index-prefix route without TopN",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_desc_residual_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded composite residual
-        // projection so the generated SQL lane proves the `tier, handle` route
-        // still owns ordering while `name >= 'a'` remains residual.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND name >= 'a' ORDER BY handle DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered composite residual projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the reverse
-        // equality-prefix window while preserving the residual filter result.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-            ],
-            "descending CustomerAccount filtered composite residual projection should preserve the reverse equality-prefix window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_desc_residual_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite residual CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND name >= 'a' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite residual EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane fails closed to the
-        // materialized residual route and suppresses Top-N.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "ResidualPredicateFilter",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &["TopNSeek", "OrderByAccessSatisfied"],
-            "descending CustomerAccount filtered composite residual EXPLAIN EXECUTION should expose the fail-closed materialized residual route without TopN",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_expression_order_only_projection() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one filtered expression-order CustomerAccount
-        // projection so the generated SQL lane proves the guarded
-        // `LOWER(handle)` secondary order path.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered expression-order projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface returns the expected
-        // guarded `LOWER(handle)` window and column order.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "bravo"],
-                &[ANY_PROJECTION_VALUE, "Brisk"],
-            ],
-            "CustomerAccount filtered expression order-only projection should expose the guarded LOWER(handle) window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_order_only_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded filtered
-        // expression-order CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered expression-order EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // expression index-range and materialized route labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered expression-order EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_expression_order_only_desc_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending filtered expression-order
-        // CustomerAccount projection so reverse traversal stays locked in the
-        // generated SQL harness.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered expression-order projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface returns the expected
-        // descending guarded `LOWER(handle)` window.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "bristle"],
-                &[ANY_PROJECTION_VALUE, "Brisk"],
-            ],
-            "descending CustomerAccount filtered expression order-only projection should expose the reverse LOWER(handle) window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_order_only_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending
-        // filtered expression-order CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered expression-order EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse expression index-range and materialized labels from the
-        // shared execution descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered expression-order EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the accepted guarded expression prefix spellings
-        // against the same ordered CustomerAccount projection window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered expression LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered expression STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered expression text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the canister query lane pinned to one shared filtered
-        // result set across the equivalent expression prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerAccount filtered expression STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "CustomerAccount filtered expression text-range and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(like_rows.entity, "CustomerAccount");
-        assert_eq!(
-            like_rows.columns,
-            vec!["id".to_string(), "handle".to_string()]
-        );
-        assert_eq!(like_rows.row_count, 2);
-        assert_eq!(like_rows.rows.len(), 2);
-        assert_eq!(like_rows.rows[0][1], "bravo".to_string());
-        assert_eq!(like_rows.rows[1][1], "Brisk".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_like_prefix_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded filtered
-        // expression strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered expression strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // expression index-range and materialized route labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered expression strict LIKE prefix EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_text_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered expression strict text-range EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the accepted descending guarded expression prefix
-        // spellings against the same reverse CustomerAccount projection window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered expression LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered expression STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered expression text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the reverse canister query lane pinned to one shared
-        // filtered result set across the equivalent expression prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "descending CustomerAccount filtered expression STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "descending CustomerAccount filtered expression text-range and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(like_rows.entity, "CustomerAccount");
-        assert_eq!(
-            like_rows.columns,
-            vec!["id".to_string(), "handle".to_string()]
-        );
-        assert_eq!(like_rows.row_count, 2);
-        assert_eq!(like_rows.rows.len(), 2);
-        assert_eq!(like_rows.rows[0][1], "bristle".to_string());
-        assert_eq!(like_rows.rows[1][1], "Brisk".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_like_prefix_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending
-        // filtered expression strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered expression strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse expression index-range and materialized labels from the shared
-        // execution descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered expression strict LIKE prefix EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_text_range_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered expression strict text-range EXPLAIN EXECUTION should expose the index-range materialized route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_order_only_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one guarded composite expression order-only
-        // projection so the generated SQL lane proves the equality-prefix
-        // `tier, LOWER(handle)` route.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite expression order-only projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the canonical
-        // guarded `LOWER(handle)` suffix window on the gold tier.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-            ],
-            "CustomerAccount filtered composite expression order-only projection should expose the guarded LOWER(handle) suffix window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_order_only_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded composite
-        // expression order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // index-prefix and materialized route labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered composite expression order-only EXPLAIN EXECUTION should expose the materialized index-prefix route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_key_only_order_only_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite expression key-only order-only projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold"],
-                &[ANY_PROJECTION_VALUE, "gold"],
-            ],
-            "CustomerAccount filtered composite expression key-only order-only projection should expose the guarded covering window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_order_only_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression key-only order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "tier",
-            ],
-            &["row_check_required"],
-            "CustomerAccount filtered composite expression key-only order-only EXPLAIN EXECUTION should expose the planner-proven covering route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_order_only_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite expression key-only order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "id",
-                "tier",
-            ],
-            &["row_check_required"],
-            "descending CustomerAccount filtered composite expression key-only order-only EXPLAIN EXECUTION should expose the planner-proven covering route with one equality prefix and a fail-closed materialized sort",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_key_only_strict_text_range_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite expression key-only strict text-range projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold"],
-                &[ANY_PROJECTION_VALUE, "gold"],
-            ],
-            "CustomerAccount filtered composite expression key-only strict text-range projection should expose the guarded covering window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_strict_text_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression key-only strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "tier",
-            ],
-            &["row_check_required"],
-            "CustomerAccount filtered composite expression key-only strict text-range EXPLAIN EXECUTION should expose the planner-proven covering route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered composite expression key-only strict text-range projection should return projected rows",
-        );
-
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold"],
-                &[ANY_PROJECTION_VALUE, "gold"],
-            ],
-            "descending CustomerAccount filtered composite expression key-only strict text-range projection should expose the guarded covering window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite expression key-only strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "tier",
-            ],
-            &["row_check_required"],
-            "descending CustomerAccount filtered composite expression key-only strict text-range EXPLAIN EXECUTION should expose the planner-proven covering route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_composite_expression_key_only_equivalent_direct_prefix_forms_match_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite expression key-only LIKE prefix projection should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "query CustomerAccount filtered composite expression key-only STARTS_WITH projection should return projected rows",
-        );
-
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerAccount filtered composite expression key-only STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_projection_window(
-            &like_rows,
-            "CustomerAccount",
-            &["id", "tier"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold"],
-                &[ANY_PROJECTION_VALUE, "gold"],
-            ],
-            "CustomerAccount filtered composite expression key-only direct prefix projection should expose the guarded covering window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_direct_starts_with_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "existing_row_mode",
-                "planner_proven",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "tier",
-            ],
-            &["row_check_required"],
-            "CustomerAccount filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should expose the planner-proven covering route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_order_only_desc_projection()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute one descending guarded composite expression
-        // order-only projection so reverse `LOWER(handle)` traversal stays pinned.
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "query descending CustomerAccount filtered composite expression order-only projection should return projected rows",
-        );
-
-        // Phase 2: assert the generated query surface keeps the reverse
-        // guarded `LOWER(handle)` suffix window on the gold tier.
-        assert_projection_window(
-            &rows,
-            "CustomerAccount",
-            &["id", "tier", "handle"],
-            &[
-                &[ANY_PROJECTION_VALUE, "gold", "bristle"],
-                &[ANY_PROJECTION_VALUE, "gold", "bravo"],
-            ],
-            "descending CustomerAccount filtered composite expression order-only projection should expose the reverse LOWER(handle) suffix window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_order_only_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite expression order-only CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite expression order-only EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse index-prefix and materialized labels while failing closed
-        // to a materialized sort on the non-unique suffix.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexPrefixScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered composite expression order-only EXPLAIN EXECUTION should expose the reverse materialized index-prefix route with one equality prefix and a fail-closed materialized sort",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the accepted guarded composite expression prefix
-        // spellings against the same equality-prefix CustomerAccount window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite expression LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite expression STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "CustomerAccount filtered composite expression text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the canister query lane pinned to one shared composite
-        // expression result set across the equivalent strict prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "CustomerAccount filtered composite expression text-range and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(like_rows.entity, "CustomerAccount");
-        assert_eq!(
-            like_rows.columns,
-            vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-        );
-        assert_eq!(like_rows.row_count, 2);
-        assert_eq!(like_rows.rows.len(), 2);
-        assert_eq!(like_rows.rows[0][2], "bravo".to_string());
-        assert_eq!(like_rows.rows[1][2], "bristle".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_like_prefix_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the guarded composite
-        // expression strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // index-range and materialized route labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN EXECUTION should expose the materialized index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_text_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect(
-            "query CustomerAccount filtered composite expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "CustomerAccount filtered composite expression strict text-range EXPLAIN EXECUTION should expose the materialized index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: execute the accepted descending guarded composite
-        // expression prefix spellings against the same reverse equality-prefix window.
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite expression LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite expression STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "descending CustomerAccount filtered composite expression text-range predicate should return projected rows",
-        );
-
-        // Phase 2: keep the reverse canister query lane pinned to one shared
-        // composite expression result set across the equivalent prefix spellings.
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "descending CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "descending CustomerAccount filtered composite expression text-range and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(like_rows.entity, "CustomerAccount");
-        assert_eq!(
-            like_rows.columns,
-            vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-        );
-        assert_eq!(like_rows.row_count, 2);
-        assert_eq!(like_rows.rows.len(), 2);
-        assert_eq!(like_rows.rows[0][2], "bristle".to_string());
-        assert_eq!(like_rows.rows[1][2], "bravo".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_like_prefix_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: request one execution descriptor for the descending guarded
-        // composite expression strict-prefix CustomerAccount projection shape.
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload",
-        );
-        // Phase 2: assert the generated query lane preserves the stable
-        // reverse index-range and materialized labels from the shared descriptor.
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN EXECUTION should expose the reverse materialized index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_text_range_desc_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerAccount filtered composite expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-
-        assert_explain_route(
-            payload,
-            "CustomerAccount",
-            &[
-                "IndexRangeScan",
-                "cov_read_route",
-                "materialized",
-                "prefix_len",
-                "Uint(1)",
-                "prefix_values",
-                "gold",
-                "LOWER(handle)",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "tier",
-                "handle",
-            ],
-            &[],
-            "descending CustomerAccount filtered composite expression strict text-range EXPLAIN EXECUTION should expose the reverse materialized index-range route with one equality prefix",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_strict_text_range_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-            "query strict text-range predicate should return projected CustomerOrder rows",
-        );
-
-        assert_eq!(rows.entity, "CustomerOrder");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0][1], "A-100".to_string());
-        assert_eq!(rows.rows[1][1], "A-101".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_strict_text_range_desc_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-            "query descending strict text-range predicate should return projected CustomerOrder rows",
-        );
-
-        assert_eq!(rows.entity, "CustomerOrder");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0][1], "A-102".to_string());
-        assert_eq!(rows.rows[1][1], "A-101".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_equivalent_strict_prefix_forms_match_customer_order_projection_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-            "CustomerOrder strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
-            "CustomerOrder direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-            "CustomerOrder strict text-range predicate should return projected rows",
-        );
-
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "CustomerOrder direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "CustomerOrder strict text-range and LIKE prefix query rows should stay in parity",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_equivalent_desc_strict_prefix_forms_match_customer_order_projection_rows()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-            "descending CustomerOrder strict LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
-            "descending CustomerOrder direct STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-            "descending CustomerOrder strict text-range predicate should return projected rows",
-        );
-
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "descending CustomerOrder direct STARTS_WITH and LIKE prefix query rows should stay in parity",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "descending CustomerOrder strict text-range and LIKE prefix query rows should stay in parity",
-        );
+        let cases = [
+            CustomerAccountFilteredCompositeExpressionKeyOnlyParityCase {
+                name: "CustomerAccount filtered composite expression key-only direct prefix parity ASC",
+                like_sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                starts_with_sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                range_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ),
+                columns: &["id", "tier"],
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+            CustomerAccountFilteredCompositeExpressionKeyOnlyParityCase {
+                name: "CustomerAccount filtered composite expression key-only direct prefix parity DESC",
+                like_sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                starts_with_sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                range_sql: Some(
+                    "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ),
+                columns: &["id", "tier"],
+                expected_rows: &[
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                    &[ANY_PROJECTION_VALUE, "gold"],
+                ],
+                explain_sql: "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                explain_required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "existing_row_mode",
+                    "planner_proven",
+                    "prefix_len",
+                    "Uint(1)",
+                    "prefix_values",
+                    "gold",
+                    "LOWER(handle)",
+                    "OrderByAccessSatisfied",
+                    "proj_fields",
+                    "id",
+                    "tier",
+                ],
+                explain_forbidden_tokens: &["row_check_required"],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_account_filtered_composite_expression_key_only_parity_case(
+                pic,
+                canister_id,
+                case,
+            );
+        }
     });
 }
 
@@ -6288,187 +5692,69 @@ fn sql_canister_query_lane_supports_direct_starts_with_predicate() {
 }
 
 #[test]
-fn sql_canister_query_lane_supports_direct_lower_starts_with_predicate() {
+fn sql_canister_query_lane_customer_casefold_prefix_projection_matrix_preserves_projection_rows() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
-            "query direct LOWER(field) STARTS_WITH predicate should return projected rows",
-        );
+        let cases = [
+            CustomerCasefoldPrefixProjectionCase {
+                name: "Customer direct LOWER(name) prefix projection parity",
+                like_sql: "SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+                starts_with_sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+                range_sql: "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                expected_rows: &[&[ANY_PROJECTION_VALUE, "alice"]],
+            },
+            CustomerCasefoldPrefixProjectionCase {
+                name: "Customer direct UPPER(name) prefix projection parity",
+                like_sql: "SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+                starts_with_sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+                range_sql: "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                expected_rows: &[&[ANY_PROJECTION_VALUE, "alice"]],
+            },
+        ];
 
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0][1], "alice".to_string());
+        for case in &cases {
+            assert_customer_casefold_prefix_projection_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_supports_direct_lower_strict_text_range_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-            "query direct LOWER(field) ordered text-range predicate should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0][1], "alice".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_equivalent_direct_lower_prefix_forms_match_projection_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
-            "query direct LOWER(field) LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
-            "query direct LOWER(field) STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-            "query direct LOWER(field) ordered text-range predicate should return projected rows",
-        );
-
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "direct LOWER(field) STARTS_WITH and LIKE prefix canister query rows should stay identical",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "direct LOWER(field) ordered text-range and LIKE prefix canister query rows should stay identical",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_direct_lower_strict_text_range_index_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-        )
-        .expect(
-            "query direct LOWER(field) ordered text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "IndexRangeScan",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &["FullScan"],
-            "direct LOWER(field) ordered text-range EXPLAIN EXECUTION should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_equivalent_direct_lower_prefix_forms_preserve_index_range_route()
+fn sql_canister_query_lane_customer_casefold_prefix_explain_execution_matrix_preserves_index_range_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let cases = [
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
-                "direct LOWER(field) LIKE prefix EXPLAIN EXECUTION route",
-            ),
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
-                "direct LOWER(field) STARTS_WITH EXPLAIN EXECUTION route",
-            ),
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-                "direct LOWER(field) ordered text-range EXPLAIN EXECUTION route",
-            ),
-        ];
-
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct LOWER(name) prefix EXPLAIN EXECUTION parity",
+                like_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+                starts_with_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+                range_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                required_tokens: &[
                     "IndexRangeScan",
                     "OrderByMaterializedSort",
                     "proj_fields",
                     "id",
                     "name",
                 ],
-                &["FullScan"],
-                context,
-            );
+                forbidden_tokens: &["FullScan"],
+            },
+            CustomerCasefoldPrefixExplainCase {
+                name: "Customer direct UPPER(name) prefix EXPLAIN EXECUTION parity",
+                like_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+                starts_with_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+                range_sql: "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "OrderByMaterializedSort",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                forbidden_tokens: &["FullScan"],
+            },
+        ];
+
+        for case in &cases {
+            assert_customer_casefold_prefix_explain_case(pic, canister_id, case);
         }
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_delete_direct_lower_text_range_preserves_index_range_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
-        )
-        .expect("generated direct LOWER(field) ordered text-range delete EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "mode=Delete",
-                "access=IndexRange",
-                "Customer|LOWER(name)",
-                "lower: Included(Text(\"a\"))",
-                "upper: Excluded(Text(\"b\"))",
-            ],
-            &["access=FullScan"],
-            "generated direct LOWER(field) ordered text-range delete explain should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_direct_lower_text_range_preserves_index_range_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-        )
-        .expect("generated direct LOWER(field) ordered text-range JSON EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"predicate\":\"And([Compare",
-                "id: TextCasefold",
-            ],
-            &["\"type\":\"FullScan\""],
-            "generated direct LOWER(field) ordered text-range JSON explain should preserve the shared expression index-range route",
-        );
     });
 }
 
@@ -6497,484 +5783,335 @@ fn sql_canister_query_lane_explain_json_planner_prefix_choice_prefers_order_comp
 }
 
 #[test]
-fn sql_canister_query_lane_explain_json_planner_range_choice_prefers_order_compatible_index() {
+fn sql_canister_query_lane_planner_range_choice_json_explain_matrix_prefers_order_compatible_index()
+{
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner range-choice JSON explain should succeed");
+        let cases = [
+            PlannerExplainCase {
+                name: "planner range-choice JSON explain ASC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"name\":\"PlannerChoice|tier|label|handle\"",
+                ],
+                forbidden_tokens: &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            },
+            PlannerExplainCase {
+                name: "planner range-choice JSON explain DESC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                    "\"name\":\"PlannerChoice|tier|label|handle\"",
+                ],
+                forbidden_tokens: &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"name\":\"PlannerChoice|tier|label|handle\"",
-            ],
-            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
-            "planner range-choice JSON explain should lock the order-compatible range index",
-        );
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_json_planner_range_choice_desc_prefers_order_compatible_index() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending range-choice JSON explain should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"name\":\"PlannerChoice|tier|label|handle\"",
-            ],
-            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
-            "planner descending range-choice JSON explain should lock the order-compatible range index",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_planner_equality_prefix_suffix_order_choice_prefers_order_compatible_index()
+fn sql_canister_query_lane_planner_equality_prefix_suffix_order_json_explain_matrix_prefers_order_compatible_index()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner equality-prefix suffix-order choice JSON explain should succeed");
+        let cases = [
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order JSON explain ASC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexPrefix\"",
+                    "\"name\":\"PlannerChoice|tier|label|handle\"",
+                ],
+                forbidden_tokens: &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            },
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order JSON explain DESC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexPrefix\"",
+                    "\"name\":\"PlannerChoice|tier|label|handle\"",
+                ],
+                forbidden_tokens: &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexPrefix\"",
-                "\"name\":\"PlannerChoice|tier|label|handle\"",
-            ],
-            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
-            "planner equality-prefix suffix-order choice JSON explain should lock the order-compatible composite prefix index",
-        );
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_json_planner_equality_prefix_suffix_order_choice_desc_prefers_order_compatible_index()
+fn sql_canister_query_lane_planner_equality_prefix_suffix_order_explain_execution_matrix_preserves_ordered_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending equality-prefix suffix-order choice JSON explain should succeed");
+        let cases = [
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order EXPLAIN EXECUTION ASC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                ],
+                forbidden_tokens: &["IndexRangeLimitPushdown"],
+            },
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order EXPLAIN EXECUTION DESC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "OrderByMaterializedSort",
+                    "scan_dir=Text(\"desc\")",
+                ],
+                forbidden_tokens: &[
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                ],
+            },
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order EXPLAIN EXECUTION ASC offset",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["IndexRangeLimitPushdown", "OrderByMaterializedSort"],
+            },
+            PlannerExplainCase {
+                name: "planner equality-prefix suffix-order EXPLAIN EXECUTION DESC offset",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "OrderByMaterializedSort",
+                    "scan_dir=Text(\"desc\")",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &[
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                ],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexPrefix\"",
-                "\"name\":\"PlannerChoice|tier|label|handle\"",
-            ],
-            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
-            "planner descending equality-prefix suffix-order choice JSON explain should lock the order-compatible composite prefix index",
-        );
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_reports_bounded_ordered_route()
+fn sql_canister_query_lane_planner_equality_prefix_suffix_order_offset_projection_matrix_preserves_ordered_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner equality-prefix suffix-order EXPLAIN EXECUTION should succeed");
+        let cases = [
+            PlannerProjectionCase {
+                name: "planner equality-prefix suffix-order offset projection ASC",
+                entity: "PlannerChoice",
+                sql: "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "echo"], &["gold", "lima"]],
+            },
+            PlannerProjectionCase {
+                name: "planner equality-prefix suffix-order offset projection DESC",
+                entity: "PlannerChoice",
+                sql: "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "echo"], &["gold", "charlie"]],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-            ],
-            &["IndexRangeLimitPushdown"],
-            "planner equality-prefix suffix-order EXPLAIN EXECUTION should expose the bounded chosen prefix route",
-        );
+        for case in &cases {
+            assert_planner_projection_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_desc_reports_materialized_order_fallback()
+fn sql_canister_query_lane_planner_unique_prefix_offset_projection_matrix_preserves_ordered_rows() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            PlannerProjectionCase {
+                name: "planner unique-prefix offset projection ASC",
+                entity: "PlannerUniquePrefixChoice",
+                sql: "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+                columns: &["tier", "note"],
+                expected_rows: &[&["gold", "B"], &["gold", "C"]],
+            },
+            PlannerProjectionCase {
+                name: "planner unique-prefix offset projection DESC",
+                entity: "PlannerUniquePrefixChoice",
+                sql: "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                columns: &["tier", "note"],
+                expected_rows: &[&["gold", "C"], &["gold", "B"]],
+            },
+        ];
+
+        for case in &cases {
+            assert_planner_projection_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_unique_prefix_offset_explain_execution_matrix_preserves_ordered_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending equality-prefix suffix-order EXPLAIN EXECUTION should succeed");
+        let cases = [
+            PlannerExplainCase {
+                name: "planner unique-prefix offset EXPLAIN EXECUTION ASC",
+                entity: "PlannerUniquePrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerUniquePrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
+            PlannerExplainCase {
+                name: "planner unique-prefix offset EXPLAIN EXECUTION DESC",
+                entity: "PlannerUniquePrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexPrefixScan",
+                    "PlannerUniquePrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "OrderByMaterializedSort",
-                "scan_dir=Text(\"desc\")",
-            ],
-            &[
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-            ],
-            "planner descending equality-prefix suffix-order EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback",
-        );
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_planner_equality_prefix_suffix_order_offset_windows_preserve_ordered_rows()
- {
+fn sql_canister_query_lane_planner_range_choice_explain_execution_matrix_preserves_ordered_routes()
+{
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let asc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
-            "planner equality-prefix suffix-order ascending offset projection should succeed",
-        );
-        assert_projection_window(
-            &asc_rows,
-            "PlannerChoice",
-            &["tier", "handle"],
-            &[&["gold", "echo"], &["gold", "lima"]],
-            "planner equality-prefix suffix-order ascending offset projection should preserve the expected ordered window",
-        );
+        let cases = [
+            PlannerExplainCase {
+                name: "planner range-choice EXPLAIN EXECUTION ASC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "OrderByAccessSatisfied",
+                ],
+                forbidden_tokens: &["TopNSeek"],
+            },
+            PlannerExplainCase {
+                name: "planner range-choice EXPLAIN EXECUTION DESC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                ],
+                forbidden_tokens: &["TopNSeek"],
+            },
+            PlannerExplainCase {
+                name: "planner range-choice EXPLAIN EXECUTION ASC offset",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "OrderByAccessSatisfied",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["TopNSeek"],
+            },
+            PlannerExplainCase {
+                name: "planner range-choice EXPLAIN EXECUTION DESC offset",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|tier|label|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["TopNSeek"],
+            },
+        ];
 
-        let desc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-            "planner equality-prefix suffix-order descending offset projection should succeed",
-        );
-        assert_projection_window(
-            &desc_rows,
-            "PlannerChoice",
-            &["tier", "handle"],
-            &[&["gold", "echo"], &["gold", "charlie"]],
-            "planner equality-prefix suffix-order descending offset projection should preserve the expected reversed ordered window",
-        );
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_offset_reports_bounded_ordered_route()
- {
+fn sql_canister_query_lane_planner_range_choice_offset_projection_matrix_preserves_ordered_rows() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner equality-prefix suffix-order offset EXPLAIN EXECUTION should succeed");
+        let cases = [
+            PlannerProjectionCase {
+                name: "planner range-choice offset projection ASC",
+                entity: "PlannerChoice",
+                sql: "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "echo"], &["gold", "lima"]],
+            },
+            PlannerProjectionCase {
+                name: "planner range-choice offset projection DESC",
+                entity: "PlannerChoice",
+                sql: "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "lima"], &["gold", "echo"]],
+            },
+        ];
 
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "offset=Uint(1)",
-            ],
-            &["IndexRangeLimitPushdown", "OrderByMaterializedSort"],
-            "planner equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the bounded chosen prefix route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_desc_offset_reports_materialized_order_fallback()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner descending equality-prefix suffix-order offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "OrderByMaterializedSort",
-                "scan_dir=Text(\"desc\")",
-                "offset=Uint(1)",
-            ],
-            &[
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-            ],
-            "planner descending equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_planner_unique_prefix_offset_windows_preserve_ordered_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let asc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
-            "unique-prefix ascending offset projection should succeed",
-        );
-        assert_projection_window(
-            &asc_rows,
-            "PlannerUniquePrefixChoice",
-            &["tier", "note"],
-            &[&["gold", "B"], &["gold", "C"]],
-            "unique-prefix ascending offset projection should preserve the expected ordered window",
-        );
-
-        let desc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-            "unique-prefix descending offset projection should succeed",
-        );
-        assert_projection_window(
-            &desc_rows,
-            "PlannerUniquePrefixChoice",
-            &["tier", "note"],
-            &[&["gold", "C"], &["gold", "B"]],
-            "unique-prefix descending offset projection should preserve the expected reversed ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_unique_prefix_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner unique-prefix ascending offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerUniquePrefixChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerUniquePrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner unique-prefix ascending offset EXPLAIN EXECUTION should expose the bounded ordered prefix route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_unique_prefix_offset_desc_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner unique-prefix descending offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerUniquePrefixChoice",
-            &[
-                "IndexPrefixScan",
-                "PlannerUniquePrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner unique-prefix descending offset EXPLAIN EXECUTION should expose the bounded ordered prefix route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_range_choice_reports_bounded_ordered_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner range-choice EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "OrderByAccessSatisfied",
-            ],
-            &["TopNSeek"],
-            "planner range-choice EXPLAIN EXECUTION should expose the bounded ordered range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_range_choice_desc_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending range-choice EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-            ],
-            &["TopNSeek"],
-            "planner descending range-choice EXPLAIN EXECUTION should expose the bounded ordered range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_planner_range_offset_windows_preserve_ordered_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let asc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
-            "planner range ascending offset projection should succeed",
-        );
-        assert_projection_window(
-            &asc_rows,
-            "PlannerChoice",
-            &["tier", "handle"],
-            &[&["gold", "echo"], &["gold", "lima"]],
-            "planner range ascending offset projection should preserve the expected ordered window",
-        );
-
-        let desc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
-            "planner range descending offset projection should succeed",
-        );
-        assert_projection_window(
-            &desc_rows,
-            "PlannerChoice",
-            &["tier", "handle"],
-            &[&["gold", "lima"], &["gold", "echo"]],
-            "planner range descending offset projection should preserve the expected reversed ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_range_choice_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner range-choice offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "OrderByAccessSatisfied",
-                "offset=Uint(1)",
-            ],
-            &["TopNSeek"],
-            "planner range-choice offset EXPLAIN EXECUTION should expose the bounded ordered range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_range_choice_desc_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner descending range-choice offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|tier|label|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-                "offset=Uint(1)",
-            ],
-            &["TopNSeek"],
-            "planner descending range-choice offset EXPLAIN EXECUTION should expose the bounded ordered range route",
-        );
+        for case in &cases {
+            assert_planner_projection_case(pic, canister_id, case);
+        }
     });
 }
 
@@ -7003,741 +6140,252 @@ fn sql_canister_query_lane_explain_json_planner_order_only_choice_prefers_order_
 }
 
 #[test]
-fn sql_canister_query_lane_planner_order_only_offset_windows_preserve_ordered_rows() {
+fn sql_canister_query_lane_planner_order_only_offset_projection_matrix_preserves_ordered_rows() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let asc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
-            "planner order-only ascending offset projection should succeed",
-        );
-        assert_projection_window(
-            &asc_rows,
-            "PlannerChoice",
-            &["alpha"],
-            &[&["bravo"], &["charlie"]],
-            "planner order-only ascending offset projection should preserve the expected ordered window",
-        );
+        let cases = [
+            PlannerProjectionCase {
+                name: "planner order-only offset projection ASC",
+                entity: "PlannerChoice",
+                sql: "SELECT alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+                columns: &["alpha"],
+                expected_rows: &[&["bravo"], &["charlie"]],
+            },
+            PlannerProjectionCase {
+                name: "planner order-only offset projection DESC",
+                entity: "PlannerChoice",
+                sql: "SELECT alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+                columns: &["alpha"],
+                expected_rows: &[&["foxtrot"], &["delta"]],
+            },
+        ];
 
-        let desc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
-            "planner order-only descending offset projection should succeed",
-        );
-        assert_projection_window(
-            &desc_rows,
-            "PlannerChoice",
-            &["alpha"],
-            &[&["foxtrot"], &["delta"]],
-            "planner order-only descending offset projection should preserve the expected reversed ordered window",
-        );
+        for case in &cases {
+            assert_planner_projection_case(pic, canister_id, case);
+        }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_planner_order_only_choice_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner order-only offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|alpha",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "offset=Uint(1)",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_order_only_choice_desc_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner descending order-only offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerChoice|alpha",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-                "offset=Uint(1)",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner descending order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_planner_composite_order_only_choice_prefers_order_compatible_index()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner composite order-only choice JSON explain should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"name\":\"PlannerPrefixChoice|tier|handle\"",
-            ],
-            &["\"name\":\"PlannerPrefixChoice|tier|label\""],
-            "planner composite order-only choice JSON explain should lock the order-compatible fallback index",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_planner_composite_order_only_choice_desc_prefers_order_compatible_index()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending composite order-only choice JSON explain should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"name\":\"PlannerPrefixChoice|tier|handle\"",
-            ],
-            &["\"name\":\"PlannerPrefixChoice|tier|label\""],
-            "planner descending composite order-only choice JSON explain should lock the order-compatible fallback index",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
-        )
-        .expect("planner composite order-only EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerPrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-            ],
-            &[],
-            "planner composite order-only EXPLAIN EXECUTION should expose the bounded chosen index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_desc_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
-        )
-        .expect("planner descending composite order-only EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerPrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-            ],
-            &[],
-            "planner descending composite order-only EXPLAIN EXECUTION should expose the bounded ordered fallback route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_planner_composite_order_only_offset_windows_preserve_ordered_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let asc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
-            "planner composite order-only ascending offset projection should succeed",
-        );
-        assert_projection_window(
-            &asc_rows,
-            "PlannerPrefixChoice",
-            &["tier", "handle"],
-            &[&["gold", "charlie"], &["silver", "delta"]],
-            "planner composite order-only ascending offset projection should preserve the expected ordered window",
-        );
-
-        let desc_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
-            "planner composite order-only descending offset projection should succeed",
-        );
-        assert_projection_window(
-            &desc_rows,
-            "PlannerPrefixChoice",
-            &["tier", "handle"],
-            &[&["gold", "charlie"], &["gold", "bravo"]],
-            "planner composite order-only descending offset projection should preserve the expected reversed ordered window",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner composite order-only offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerPrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "offset=Uint(1)",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner composite order-only offset EXPLAIN EXECUTION should expose the bounded chosen index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_desc_offset_reports_bounded_ordered_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("planner descending composite order-only offset EXPLAIN EXECUTION should succeed");
-
-        assert_explain_route(
-            payload,
-            "PlannerPrefixChoice",
-            &[
-                "IndexRangeScan",
-                "PlannerPrefixChoice|tier|handle",
-                "SecondaryOrderPushdown",
-                "IndexRangeLimitPushdown",
-                "TopNSeek",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-                "offset=Uint(1)",
-            ],
-            &["OrderByMaterializedSort"],
-            "planner descending composite order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_equivalent_direct_lower_prefix_forms_preserve_index_range_route()
+fn sql_canister_query_lane_planner_order_only_offset_explain_execution_matrix_preserves_ordered_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let cases = [
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
-                "direct LOWER(field) LIKE JSON explain route",
-            ),
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
-                "direct LOWER(field) STARTS_WITH JSON explain route",
-            ),
-            (
-                "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
-                "direct LOWER(field) ordered text-range JSON explain route",
-            ),
+            PlannerExplainCase {
+                name: "planner order-only offset EXPLAIN EXECUTION ASC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|alpha",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
+            PlannerExplainCase {
+                name: "planner order-only offset EXPLAIN EXECUTION DESC",
+                entity: "PlannerChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerChoice|alpha",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
         ];
 
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_composite_order_only_json_explain_matrix_prefers_order_compatible_index()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            PlannerExplainCase {
+                name: "planner composite order-only JSON explain ASC",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
                     "\"mode\":{\"type\":\"Load\"",
                     "\"access\":{\"type\":\"IndexRange\"",
+                    "\"name\":\"PlannerPrefixChoice|tier|handle\"",
                 ],
-                &["\"type\":\"FullScan\""],
-                context,
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_delete_direct_lower_text_range_preserves_index_range_route()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
-        )
-        .expect("generated direct LOWER(field) ordered text-range JSON delete EXPLAIN should succeed");
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "\"mode\":{\"type\":\"Delete\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-                "\"predicate\":\"And([Compare",
-                "id: TextCasefold",
-            ],
-            &["\"type\":\"FullScan\""],
-            "generated direct LOWER(field) ordered text-range JSON delete explain should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_json_delete_direct_lower_equivalent_prefix_forms_preserve_index_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let cases = [
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
-                "direct LOWER(field) LIKE JSON delete explain route",
-            ),
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
-                "direct LOWER(field) STARTS_WITH JSON delete explain route",
-            ),
-            (
-                "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
-                "direct LOWER(field) ordered text-range JSON delete explain route",
-            ),
-        ];
-
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
-                    "\"mode\":{\"type\":\"Delete\"",
+                forbidden_tokens: &["\"name\":\"PlannerPrefixChoice|tier|label\""],
+            },
+            PlannerExplainCase {
+                name: "planner composite order-only JSON explain DESC",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "\"mode\":{\"type\":\"Load\"",
                     "\"access\":{\"type\":\"IndexRange\"",
+                    "\"name\":\"PlannerPrefixChoice|tier|handle\"",
                 ],
-                &["\"type\":\"FullScan\""],
-                context,
-            );
+                forbidden_tokens: &["\"name\":\"PlannerPrefixChoice|tier|label\""],
+            },
+        ];
+
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
         }
     });
 }
 
 #[test]
-fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
-            "query direct UPPER(field) STARTS_WITH predicate should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0][1], "alice".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_supports_direct_upper_strict_text_range_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-            "query direct UPPER(field) ordered text-range predicate should return projected rows",
-        );
-
-        assert_eq!(rows.entity, "Customer");
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
-        assert_eq!(rows.rows[0][1], "alice".to_string());
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_equivalent_direct_upper_prefix_forms_match_projection_rows() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let like_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
-            "query direct UPPER(field) LIKE prefix predicate should return projected rows",
-        );
-        let starts_with_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
-            "query direct UPPER(field) STARTS_WITH predicate should return projected rows",
-        );
-        let range_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-            "query direct UPPER(field) ordered text-range predicate should return projected rows",
-        );
-
-        assert_eq!(
-            starts_with_rows, like_rows,
-            "direct UPPER(field) STARTS_WITH and LIKE prefix canister query rows should stay identical",
-        );
-        assert_eq!(
-            range_rows, like_rows,
-            "direct UPPER(field) ordered text-range and LIKE prefix canister query rows should stay identical",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_direct_upper_strict_text_range_index_range_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-        )
-        .expect(
-            "query direct UPPER(field) ordered text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "Customer",
-            &[
-                "IndexRangeScan",
-                "OrderByMaterializedSort",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &["FullScan"],
-            "direct UPPER(field) ordered text-range EXPLAIN EXECUTION should preserve the shared expression index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_equivalent_direct_upper_prefix_forms_preserve_index_range_route()
+fn sql_canister_query_lane_planner_composite_order_only_explain_execution_matrix_preserves_ordered_routes()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let cases = [
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
-                "direct UPPER(field) LIKE prefix EXPLAIN EXECUTION route",
-            ),
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
-                "direct UPPER(field) STARTS_WITH EXPLAIN EXECUTION route",
-            ),
-            (
-                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
-                "direct UPPER(field) ordered text-range EXPLAIN EXECUTION route",
-            ),
+            PlannerExplainCase {
+                name: "planner composite order-only EXPLAIN EXECUTION ASC",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerPrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                ],
+                forbidden_tokens: &[],
+            },
+            PlannerExplainCase {
+                name: "planner composite order-only EXPLAIN EXECUTION DESC",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerPrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                ],
+                forbidden_tokens: &[],
+            },
+            PlannerExplainCase {
+                name: "planner composite order-only EXPLAIN EXECUTION ASC offset",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerPrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
+            PlannerExplainCase {
+                name: "planner composite order-only EXPLAIN EXECUTION DESC offset",
+                entity: "PlannerPrefixChoice",
+                sql: "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "PlannerPrefixChoice|tier|handle",
+                    "SecondaryOrderPushdown",
+                    "IndexRangeLimitPushdown",
+                    "TopNSeek",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                    "offset=Uint(1)",
+                ],
+                forbidden_tokens: &["OrderByMaterializedSort"],
+            },
         ];
 
-        for (sql, context) in cases {
-            let payload = query_result(pic, canister_id, sql)
-                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
-            assert_explain_route(
-                payload,
-                "Customer",
-                &[
+        for case in &cases {
+            assert_planner_explain_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_composite_order_only_offset_projection_matrix_preserves_ordered_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            PlannerProjectionCase {
+                name: "planner composite order-only offset projection ASC",
+                entity: "PlannerPrefixChoice",
+                sql: "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "charlie"], &["silver", "delta"]],
+            },
+            PlannerProjectionCase {
+                name: "planner composite order-only offset projection DESC",
+                entity: "PlannerPrefixChoice",
+                sql: "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+                columns: &["tier", "handle"],
+                expected_rows: &[&["gold", "charlie"], &["gold", "bravo"]],
+            },
+        ];
+
+        for case in &cases {
+            assert_planner_projection_case(pic, canister_id, case);
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_customer_order_strict_prefix_explain_matrix_preserves_covering_routes() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let cases = [
+            CustomerOrderStrictPrefixExplainCase {
+                name: "CustomerOrder strict prefix covering route parity ASC",
+                like_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                starts_with_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                range_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                required_tokens: &[
                     "IndexRangeScan",
-                    "OrderByMaterializedSort",
+                    "covering_read",
+                    "cov_read_route",
+                    "OrderByAccessSatisfied",
                     "proj_fields",
                     "id",
                     "name",
                 ],
-                &["FullScan"],
-                context,
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_strict_like_prefix_covering_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-        )
-        .expect("query CustomerOrder strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload");
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "CustomerOrder strict LIKE prefix EXPLAIN EXECUTION should expose the bounded covering index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_covering_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-        )
-        .expect("query CustomerOrder strict text-range EXPLAIN EXECUTION should return an Ok payload");
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "OrderByAccessSatisfied",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "CustomerOrder strict text-range EXPLAIN EXECUTION should expose the bounded covering index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_desc_covering_route() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let payload = query_result(
-            pic,
-            canister_id,
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-        )
-        .expect(
-            "query descending CustomerOrder strict text-range EXPLAIN EXECUTION should return an Ok payload",
-        );
-        assert_explain_route(
-            payload,
-            "CustomerOrder",
-            &[
-                "IndexRangeScan",
-                "covering_read",
-                "cov_read_route",
-                "OrderByAccessSatisfied",
-                "scan_dir=Text(\"desc\")",
-                "proj_fields",
-                "id",
-                "name",
-            ],
-            &[],
-            "descending CustomerOrder strict text-range EXPLAIN EXECUTION should expose the bounded reverse covering index-range route",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_equivalent_strict_prefix_forms_preserve_customer_order_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explains = [
-            (
-                "strict LIKE prefix",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-                    "CustomerOrder strict LIKE prefix EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
-            (
-                "direct STARTS_WITH",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
-                    "CustomerOrder direct STARTS_WITH EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
-            (
-                "strict text range",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-                    "CustomerOrder strict text-range EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
+                forbidden_tokens: &[],
+            },
+            CustomerOrderStrictPrefixExplainCase {
+                name: "CustomerOrder strict prefix covering route parity DESC",
+                like_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                starts_with_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                range_sql: "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                required_tokens: &[
+                    "IndexRangeScan",
+                    "covering_read",
+                    "cov_read_route",
+                    "OrderByAccessSatisfied",
+                    "scan_dir=Text(\"desc\")",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                forbidden_tokens: &[],
+            },
         ];
 
-        for (context, explain) in explains {
-            assert!(
-                explain.contains("IndexRangeScan")
-                    && explain.contains("covering_read")
-                    && explain.contains("cov_read_route")
-                    && explain.contains("OrderByAccessSatisfied"),
-                "{context} EXPLAIN EXECUTION should expose the bounded covering index-range route: {explain}",
-            );
-            assert!(
-                explain.contains("proj_fields")
-                    && explain.contains("id")
-                    && explain.contains("name"),
-                "{context} EXPLAIN EXECUTION should expose the projected fields: {explain}",
-            );
+        for case in &cases {
+            assert_customer_order_strict_prefix_explain_case(pic, canister_id, case);
         }
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_explain_execution_equivalent_desc_strict_prefix_forms_preserve_customer_order_covering_route()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let explains = [
-            (
-                "descending strict LIKE prefix",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-                    "descending CustomerOrder strict LIKE prefix EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
-            (
-                "descending direct STARTS_WITH",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
-                    "descending CustomerOrder direct STARTS_WITH EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
-            (
-                "descending strict text range",
-                query_explain_text(
-                    pic,
-                    canister_id,
-                    "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-                    "descending CustomerOrder strict text-range EXPLAIN EXECUTION should return Explain payload",
-                ),
-            ),
-        ];
-
-        for (context, explain) in explains {
-            assert!(
-                explain.contains("IndexRangeScan")
-                    && explain.contains("covering_read")
-                    && explain.contains("cov_read_route")
-                    && explain.contains("OrderByAccessSatisfied")
-                    && explain.contains("scan_dir=Text(\"desc\")"),
-                "{context} EXPLAIN EXECUTION should expose the bounded reverse covering index-range route: {explain}",
-            );
-            assert!(
-                explain.contains("proj_fields")
-                    && explain.contains("id")
-                    && explain.contains("name"),
-                "{context} EXPLAIN EXECUTION should expose the projected fields: {explain}",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_query_lane_rejects_non_casefold_wrapped_direct_starts_with_predicate() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let err = query_result(
-            pic,
-            canister_id,
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
-        )
-        .expect_err("query non-casefold wrapped direct STARTS_WITH should fail closed");
-
-        assert!(
-            matches!(
-                err.kind(),
-                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
-            ),
-            "non-casefold wrapped direct STARTS_WITH should map to Runtime::Unsupported: {err:?}",
-        );
-        assert!(
-            err.message().contains(
-                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-            ),
-            "non-casefold wrapped direct STARTS_WITH should preserve the stable unsupported-feature detail: {err:?}",
-        );
     });
 }
 
@@ -7781,6 +6429,46 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.order_alias.user_name_age_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT name AS customer_name, age years FROM Customer ORDER BY customer_name ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.order_alias.user_name_age_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
+                    sql: "SELECT name AS customer_name, age years FROM Customer ORDER BY customer_name ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.order_alias.customer_account_lower_handle_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
+                    sql: "SELECT LOWER(handle) AS normalized_handle, id FROM CustomerAccount WHERE active = true ORDER BY normalized_handle ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.order_alias.customer_age_count_limit10",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql: "SELECT age years, COUNT(*) total FROM Customer GROUP BY age ORDER BY years ASC LIMIT 10"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -8065,6 +6753,39 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                     surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql:
                         "SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_count.top_level_distinct",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT DISTINCT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_trimmed_name_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_trimmed_name_count.aliases",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT TRIM(name) AS trimmed_name, COUNT(*) total FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
                             .to_string(),
                     cursor_token: None,
                     repeat_count: 5,

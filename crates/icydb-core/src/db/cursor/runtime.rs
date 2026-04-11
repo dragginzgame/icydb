@@ -174,7 +174,7 @@ impl<'a> ContinuationRuntime<'a> {
         LoopAction::Emit
     }
 
-    /// Validate continuation-envelope compatibility and derive resumed scan bounds.
+    /// Validate continuation-envelope consistency and derive resumed scan bounds.
     pub(in crate::db) fn scan_bounds(
         &self,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),

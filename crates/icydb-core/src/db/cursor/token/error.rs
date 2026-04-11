@@ -1,6 +1,6 @@
 //! Module: db::cursor::token::error
 //! Responsibility: cursor token wire encode/decode error taxonomy.
-//! Does not own: higher-level cursor validation or continuation compatibility policy.
+//! Does not own: higher-level cursor validation or continuation policy.
 //! Boundary: local error surface for cursor token serialization helpers.
 
 use thiserror::Error as ThisError;

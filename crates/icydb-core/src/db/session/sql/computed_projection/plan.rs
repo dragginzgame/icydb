@@ -12,12 +12,64 @@ use crate::{
             SqlComputedProjectionItem, SqlComputedProjectionPlan,
         },
         sql::parser::{
-            SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlProjection, SqlSelectItem,
-            SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+            SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExplainStatement,
+            SqlExplainTarget, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
+            SqlTextFunction, SqlTextFunctionCall,
         },
     },
     value::Value,
 };
+
+// Resolve one computed-projection `ORDER BY <alias>` onto the already-shipped
+// order target family before this lane rewrites the base projection to plain
+// fields. This keeps computed dispatch alias-neutral once the base statement
+// enters shared SQL lowering.
+fn rewrite_computed_projection_order_aliases(
+    select: &SqlSelectStatement,
+    order_by: &mut [crate::db::sql::parser::SqlOrderTerm],
+) -> Result<(), QueryError> {
+    let SqlProjection::Items(items) = &select.projection else {
+        return Ok(());
+    };
+
+    for term in order_by.iter_mut() {
+        for (item, alias) in items.iter().zip(select.projection_aliases.iter()) {
+            let Some(alias) = alias.as_deref() else {
+                continue;
+            };
+            if !alias.eq_ignore_ascii_case(term.field.as_str()) {
+                continue;
+            }
+
+            term.field = match item {
+                SqlSelectItem::Field(field) => field.clone(),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower,
+                    field,
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }) => format!("LOWER({field})"),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Upper,
+                    field,
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }) => format!("UPPER({field})"),
+                SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => {
+                    return Err(QueryError::unsupported_query(format!(
+                        "ORDER BY alias '{alias}' does not resolve to a supported order target",
+                    )));
+                }
+            };
+
+            break;
+        }
+    }
+
+    Ok(())
+}
 
 // Validate one integer-like literal used by the narrow numeric text
 // projection helpers.
@@ -164,6 +216,37 @@ fn computed_sql_projection_text_function_item(
     ))
 }
 
+// Render one grouped aggregate output label for the session-owned computed
+// projection lane so grouped dispatch and grouped direct execution keep the
+// same outward column contract.
+fn computed_sql_grouped_aggregate_label(aggregate: &SqlAggregateCall) -> String {
+    let kind = match aggregate.kind {
+        SqlAggregateKind::Count => "COUNT",
+        SqlAggregateKind::Sum => "SUM",
+        SqlAggregateKind::Avg => "AVG",
+        SqlAggregateKind::Min => "MIN",
+        SqlAggregateKind::Max => "MAX",
+    };
+
+    match aggregate.field.as_deref() {
+        Some(field) if aggregate.distinct => format!("{kind}(DISTINCT {field})"),
+        Some(field) => format!("{kind}({field})"),
+        None => format!("{kind}(*)"),
+    }
+}
+
+// Resolve one computed projection output label from parser-owned alias
+// metadata while keeping generic structural planning alias-neutral.
+fn computed_sql_output_label(
+    select: &crate::db::sql::parser::SqlSelectStatement,
+    index: usize,
+    fallback: impl FnOnce() -> String,
+) -> String {
+    select
+        .projection_alias(index)
+        .map_or_else(fallback, str::to_string)
+}
+
 // Build one narrow computed SQL projection plan when the parsed statement uses
 // the currently shipped text projection forms on the session-owned lane.
 pub(in crate::db::session::sql::computed_projection) fn computed_sql_projection_plan(
@@ -182,38 +265,92 @@ pub(in crate::db::session::sql::computed_projection) fn computed_sql_projection_
         return Ok(None);
     }
 
-    // Phase 1: fence this lane to the small scalar projection subset so it
-    // does not silently broaden SQL semantics through the session boundary.
-    if select.distinct || !select.group_by.is_empty() || !select.having.is_empty() {
+    let grouped_surface = !select.group_by.is_empty();
+
+    // Phase 1: fence this lane to the currently admitted scalar and grouped
+    // projection subsets so it does not silently broaden SQL semantics
+    // through the session boundary.
+    if (!grouped_surface && (select.distinct || !select.having.is_empty()))
+        || (grouped_surface && !select.having.is_empty())
+    {
         return Err(QueryError::unsupported_query(
-            "computed SQL projection currently supports only scalar SELECT field lists plus TRIM(...) / LTRIM(...) / RTRIM(...) / LOWER(...) / UPPER(...) / LENGTH(...) / LEFT(...) / RIGHT(...) / STARTS_WITH(...) / ENDS_WITH(...) / CONTAINS(...) / POSITION(...) / REPLACE(...) / SUBSTRING(...) without DISTINCT or GROUP BY",
+            "computed SQL projection currently supports only scalar SELECT field lists plus TRIM(...) / LTRIM(...) / RTRIM(...) / LOWER(...) / UPPER(...) / LENGTH(...) / LEFT(...) / RIGHT(...) / STARTS_WITH(...) / ENDS_WITH(...) / CONTAINS(...) / POSITION(...) / REPLACE(...) / SUBSTRING(...), or grouped SELECT lists where those text functions wrap grouped fields before aggregate outputs",
         ));
     }
 
     let mut base_items = Vec::with_capacity(items.len());
     let mut computed_items = Vec::with_capacity(items.len());
+    let mut projected_group_fields = Vec::new();
+    let mut seen_aggregate = false;
 
     // Phase 2: derive base field projection plus the post-load transform plan
     // in the same declaration order.
-    for item in items {
+    for (index, item) in items.iter().enumerate() {
         match item {
             SqlSelectItem::Field(field) => {
+                if grouped_surface {
+                    if seen_aggregate {
+                        return Err(QueryError::unsupported_query(
+                            "grouped computed SQL projection requires grouped fields before aggregate outputs",
+                        ));
+                    }
+                    projected_group_fields.push(field.clone());
+                }
                 base_items.push(SqlSelectItem::Field(field.clone()));
-                computed_items.push(SqlComputedProjectionItem::field(field.clone()));
+                let mut computed = SqlComputedProjectionItem::field(field.clone());
+                computed.output_label = computed_sql_output_label(select, index, || field.clone());
+                computed_items.push(computed);
             }
             SqlSelectItem::TextFunction(call) => {
+                if grouped_surface {
+                    if seen_aggregate {
+                        return Err(QueryError::unsupported_query(
+                            "grouped computed SQL projection requires grouped fields before aggregate outputs",
+                        ));
+                    }
+                    projected_group_fields.push(call.field.clone());
+                }
                 base_items.push(SqlSelectItem::Field(call.field.clone()));
-                computed_items.push(computed_sql_projection_text_function_item(call)?);
+                let mut computed = computed_sql_projection_text_function_item(call)?;
+                computed.output_label =
+                    computed_sql_output_label(select, index, || computed.output_label.clone());
+                computed_items.push(computed);
             }
-            SqlSelectItem::Aggregate(_) => {
-                return Err(QueryError::unsupported_query(
-                    "computed SQL projection does not support aggregate projection items",
+            SqlSelectItem::Aggregate(aggregate) => {
+                if !grouped_surface {
+                    return Err(QueryError::unsupported_query(
+                        "computed SQL projection does not support aggregate projection items",
+                    ));
+                }
+                seen_aggregate = true;
+                base_items.push(SqlSelectItem::Aggregate(aggregate.clone()));
+                computed_items.push(SqlComputedProjectionItem::passthrough(
+                    computed_sql_output_label(select, index, || {
+                        computed_sql_grouped_aggregate_label(aggregate)
+                    }),
                 ));
             }
         }
     }
 
+    // Phase 3: keep grouped computed projection on the same grouped SQL
+    // ownership boundary as the admitted grouped lowering lane.
+    if grouped_surface
+        && (!seen_aggregate || projected_group_fields.as_slice() != select.group_by.as_slice())
+    {
+        return Err(QueryError::unsupported_query(
+            "grouped computed SQL projection currently supports only grouped fields or text functions over those grouped fields followed by aggregate outputs",
+        ));
+    }
+
     let mut base_select = select.clone();
+    if grouped_surface {
+        // Top-level DISTINCT is redundant for the admitted grouped SQL lane,
+        // so keep the computed rewrite on the same normalized grouped query.
+        base_select.distinct = false;
+    }
+
+    rewrite_computed_projection_order_aliases(select, &mut base_select.order_by)?;
     base_select.projection = SqlProjection::Items(base_items);
 
     Ok(Some(SqlComputedProjectionPlan {

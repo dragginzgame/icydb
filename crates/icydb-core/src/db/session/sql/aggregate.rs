@@ -276,12 +276,13 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: SqlGlobalAggregateCommandCore,
         authority: crate::db::executor::EntityAuthority,
+        label_override: Option<String>,
     ) -> Result<SqlDispatchResult, QueryError> {
         let model = authority.model();
         let strategy = command
             .prepared_scalar_strategy_with_model(model)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let label = Self::sql_scalar_aggregate_label(&strategy);
+        let label = label_override.unwrap_or_else(|| Self::sql_scalar_aggregate_label(&strategy));
         let value = match strategy.runtime_descriptor() {
             PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
                 let (_, _, row_count) = self
@@ -537,7 +538,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)?;
             let authority = crate::db::executor::EntityAuthority::for_type::<E>();
             let SqlDispatchResult::Projection { rows, .. } =
-                self.execute_sql_aggregate_dispatch_for_authority(dispatch, authority)?
+                self.execute_sql_aggregate_dispatch_for_authority(dispatch, authority, None)?
             else {
                 return Err(QueryError::invariant(
                     "DISTINCT SQL aggregate dispatch must finalize as one projection row",

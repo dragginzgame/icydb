@@ -54,7 +54,7 @@ impl<'a> IndexScanContinuationInput<'a> {
         self.direction
     }
 
-    /// Validate continuation-envelope compatibility and derive resumed scan
+    /// Validate continuation-envelope consistency and derive resumed scan
     /// bounds for one directional index scan.
     pub(in crate::db) fn resume_bounds(
         &self,

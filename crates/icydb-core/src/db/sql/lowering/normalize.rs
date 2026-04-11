@@ -9,7 +9,7 @@ use crate::db::{
         },
         parser::{
             SqlAggregateCall, SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection,
-            SqlSelectItem, SqlSelectStatement, SqlTextFunctionCall,
+            SqlSelectItem, SqlSelectStatement, SqlTextFunction, SqlTextFunctionCall,
         },
     },
 };
@@ -17,7 +17,7 @@ use crate::db::{
 pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entity(
     mut statement: SqlSelectStatement,
     expected_entity: &'static str,
-) -> SqlSelectStatement {
+) -> Result<SqlSelectStatement, SqlLoweringError> {
     // Re-scope parsed identifiers onto the resolved entity surface after the
     // caller has already established entity ownership for this statement.
     let entity_scope = sql_entity_scope_candidates(statement.entity.as_str(), expected_entity);
@@ -27,10 +27,15 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
     statement.predicate = statement
         .predicate
         .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
-    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+    statement.order_by = normalize_select_order_terms(
+        statement.order_by,
+        &statement.projection,
+        statement.projection_aliases.as_slice(),
+        entity_scope.as_slice(),
+    )?;
     statement.having = normalize_having_clauses(statement.having, entity_scope.as_slice());
 
-    statement
+    Ok(statement)
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
@@ -129,6 +134,88 @@ fn normalize_projection_identifiers(
                 })
                 .collect(),
         ),
+    }
+}
+
+// Normalize `ORDER BY` targets after projection normalization so alias
+// rewrites stay parser/session-owned and planner order semantics remain
+// canonical.
+fn normalize_select_order_terms(
+    terms: Vec<SqlOrderTerm>,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+    entity_scope: &[String],
+) -> Result<Vec<SqlOrderTerm>, SqlLoweringError> {
+    terms
+        .into_iter()
+        .map(|term| {
+            let field = match resolve_projection_order_alias(
+                term.field.as_str(),
+                projection,
+                projection_aliases,
+            )? {
+                Some(rewritten) => rewritten,
+                None => term.field,
+            };
+
+            Ok(SqlOrderTerm {
+                field: normalize_order_term_identifier(field, entity_scope),
+                direction: term.direction,
+            })
+        })
+        .collect()
+}
+
+// Resolve one `ORDER BY <alias>` target onto one already-supported projection
+// order target. Unsupported aliases fail closed here rather than leaking new
+// order semantics into planner lowering.
+fn resolve_projection_order_alias(
+    order_target: &str,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> Result<Option<String>, SqlLoweringError> {
+    let SqlProjection::Items(items) = projection else {
+        return Ok(None);
+    };
+
+    for (item, alias) in items.iter().zip(projection_aliases.iter()) {
+        let Some(alias) = alias.as_deref() else {
+            continue;
+        };
+        if !alias.eq_ignore_ascii_case(order_target) {
+            continue;
+        }
+
+        let Some(target) = order_target_from_projection_item(item) else {
+            return Err(SqlLoweringError::unsupported_order_by_alias(order_target));
+        };
+
+        return Ok(Some(target));
+    }
+
+    Ok(None)
+}
+
+// Restrict alias rewrites to the exact order target family already accepted by
+// the reduced SQL parser: plain fields and LOWER/UPPER(field) expressions.
+fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
+    match item {
+        SqlSelectItem::Field(field) => Some(field.clone()),
+        SqlSelectItem::TextFunction(SqlTextFunctionCall {
+            function: SqlTextFunction::Lower,
+            field,
+            literal: None,
+            literal2: None,
+            literal3: None,
+        }) => Some(format!("LOWER({field})")),
+        SqlSelectItem::TextFunction(SqlTextFunctionCall {
+            function: SqlTextFunction::Upper,
+            field,
+            literal: None,
+            literal2: None,
+            literal3: None,
+        }) => Some(format!("UPPER({field})")),
+        SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
     }
 }
 

@@ -17,15 +17,16 @@ use crate::{
 impl Parser {
     pub(super) fn parse_projection(
         &mut self,
-    ) -> Result<SqlProjection, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<(SqlProjection, Vec<Option<String>>), crate::db::reduced_sql::SqlParseError> {
         if self.eat_star() {
-            return Ok(SqlProjection::All);
+            return Ok((SqlProjection::All, Vec::new()));
         }
 
         let mut items = Vec::new();
+        let mut aliases = Vec::new();
         loop {
             items.push(self.parse_select_item()?);
-            self.reject_projection_alias_if_present()?;
+            aliases.push(self.parse_projection_alias_if_present()?);
 
             if self.eat_comma() {
                 continue;
@@ -41,7 +42,7 @@ impl Parser {
             ));
         }
 
-        Ok(SqlProjection::Items(items))
+        Ok((SqlProjection::Items(items), aliases))
     }
 
     fn parse_select_item(
@@ -131,20 +132,20 @@ impl Parser {
         Ok(call)
     }
 
-    // Keep projection aliases fail-closed so reduced SQL does not silently open
-    // expression-label ownership at the parser boundary.
-    fn reject_projection_alias_if_present(
+    // Parse one optional projection alias while keeping alias ownership at the
+    // parser/session boundary instead of widening planner semantics.
+    fn parse_projection_alias_if_present(
         &mut self,
-    ) -> Result<(), crate::db::reduced_sql::SqlParseError> {
-        if self.eat_keyword(Keyword::As)
-            || matches!(self.peek_kind(), Some(TokenKind::Identifier(_)))
-        {
-            return Err(crate::db::reduced_sql::SqlParseError::unsupported_feature(
-                "column/expression aliases",
-            ));
+    ) -> Result<Option<String>, crate::db::reduced_sql::SqlParseError> {
+        if self.eat_keyword(Keyword::As) {
+            return self.expect_identifier().map(Some);
         }
 
-        Ok(())
+        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            return self.expect_identifier().map(Some);
+        }
+
+        Ok(None)
     }
 
     fn parse_unary_text_function_call(

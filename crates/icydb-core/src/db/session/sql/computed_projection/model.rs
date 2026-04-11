@@ -124,6 +124,21 @@ impl SqlComputedProjectionItem {
         }
     }
 
+    /// Build one passthrough projection item for an already-computed output column.
+    #[must_use]
+    pub(in crate::db::session::sql::computed_projection) fn passthrough(
+        output_label: String,
+    ) -> Self {
+        Self {
+            source_field: output_label.clone(),
+            output_label,
+            transform: SqlComputedProjectionTransform::Field,
+            literal: None,
+            literal2: None,
+            literal3: None,
+        }
+    }
+
     /// Build one text-function projection item.
     #[must_use]
     pub(in crate::db::session::sql::computed_projection) fn text_function(
@@ -178,6 +193,31 @@ impl SqlComputedProjectionPlan {
     #[must_use]
     pub(in crate::db::session::sql) fn into_base_statement(self) -> SqlStatement {
         self.base_statement
+    }
+
+    /// Return whether this computed-projection plan targets a grouped SQL surface.
+    #[must_use]
+    pub(in crate::db::session::sql) const fn is_grouped(&self) -> bool {
+        self.group_key_arity() != 0
+    }
+
+    /// Return the number of grouped key items carried by the rewritten base statement.
+    #[must_use]
+    pub(in crate::db::session::sql) const fn group_key_arity(&self) -> usize {
+        let SqlStatement::Select(select) = &self.base_statement else {
+            return 0;
+        };
+
+        select.group_by.len()
+    }
+
+    /// Return the outward projection labels requested by this computed-projection plan.
+    #[must_use]
+    pub(in crate::db::session::sql) fn output_labels(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .map(|item| item.output_label.clone())
+            .collect()
     }
 }
 

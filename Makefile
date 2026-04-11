@@ -1,4 +1,4 @@
-.PHONY: help version tags patch minor major release \
+.PHONY: help version tags patch minor major release publish \
         test build check clippy fmt fmt-check clean install-dev install-env update-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
@@ -50,6 +50,7 @@ help:
 	@echo "  minor            Run tests, then bump minor version (0.x.0)"
 	@echo "  major            Run tests, then bump major version (x.0.0)"
 	@echo "  release          CI-driven release (local target is no-op)"
+	@echo "  publish          Publish workspace crates to crates.io in dependency order"
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests"
@@ -169,6 +170,9 @@ major: ensure-clean fmt test
 
 release: ensure-clean
 	@echo "Release handled by CI on tag push"
+
+publish: ensure-clean fmt-check clippy check
+	$(CARGO_WORK_ENV) bash scripts/ci/publish-workspace.sh
 
 
 #

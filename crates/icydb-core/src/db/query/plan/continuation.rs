@@ -295,7 +295,7 @@ impl PlannedContinuationContract {
         self.window_size
     }
 
-    /// Borrow planner-projected access plan used for continuation compatibility checks.
+    /// Borrow planner-projected access plan used for continuation consistency checks.
     #[must_use]
     pub(in crate::db) const fn access_plan(&self) -> &AccessPlan<Value> {
         &self.access

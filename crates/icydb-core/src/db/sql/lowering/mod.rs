@@ -200,6 +200,9 @@ pub(crate) enum SqlLoweringError {
 
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
+
+    #[error("ORDER BY alias '{alias}' does not resolve to a supported order target")]
+    UnsupportedOrderByAlias { alias: String },
 }
 
 impl SqlLoweringError {
@@ -229,6 +232,13 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
+    }
+
+    /// Construct one unsupported ORDER BY alias SQL lowering error.
+    fn unsupported_order_by_alias(alias: impl Into<String>) -> Self {
+        Self::UnsupportedOrderByAlias {
+            alias: alias.into(),
+        }
     }
 }
 

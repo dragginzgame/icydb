@@ -223,7 +223,7 @@ fn validate_structured_cursor<K: FieldValue, S: CursorPlanSurface<K>>(
 /// Shared invariant gate for decoded cursor boundary + optional index-range anchor.
 ///
 /// This is the single cursor-spine boundary for direction, window-shape,
-/// boundary arity/type, and index-range anchor compatibility checks.
+/// boundary arity/type, and index-range anchor consistency checks.
 fn validate_cursor_boundary_anchor_invariants<K: FieldValue, S: CursorPlanSurface<K>>(
     boundary: &CursorBoundary,
     index_range_anchor: Option<&IndexRangeCursorAnchor>,

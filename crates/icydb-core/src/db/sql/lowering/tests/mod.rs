@@ -247,6 +247,53 @@ fn compile_sql_command_select_distinct_without_pk_projection_lowers_to_distinct_
 }
 
 #[test]
+fn compile_sql_command_order_by_field_alias_matches_canonical_order_target() {
+    let alias_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT name AS display_name FROM SqlLowerEntity ORDER BY display_name ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("ORDER BY field alias should lower");
+    let canonical_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT name FROM SqlLowerEntity ORDER BY name ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical ORDER BY field should lower");
+
+    let SqlCommand::Query(alias_query) = alias_command else {
+        panic!("expected lowered field-alias query command");
+    };
+    let SqlCommand::Query(canonical_query) = canonical_command else {
+        panic!("expected lowered canonical query command");
+    };
+
+    assert_eq!(
+        alias_query
+            .plan()
+            .expect("field alias plan should build")
+            .into_inner(),
+        canonical_query
+            .plan()
+            .expect("canonical field plan should build")
+            .into_inner(),
+        "ORDER BY field aliases should normalize onto the same canonical planner order target",
+    );
+}
+
+#[test]
+fn compile_sql_command_rejects_order_by_alias_for_unsupported_target_family() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT TRIM(name) AS trimmed_name FROM SqlLowerEntity ORDER BY trimmed_name ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("ORDER BY aliases should stay fail-closed for unsupported target families");
+
+    assert!(
+        matches!(err, SqlLoweringError::UnsupportedOrderByAlias { .. }),
+        "unsupported ORDER BY alias target must fail at the SQL lowering boundary: {err:?}",
+    );
+}
+
+#[test]
 fn compile_sql_command_delete_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3",
@@ -1069,14 +1116,35 @@ fn compile_sql_command_select_grouped_qualified_identifiers_match_unqualified_in
 }
 
 #[test]
-fn compile_sql_command_rejects_top_level_grouped_select_distinct_shape() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_select_grouped_top_level_distinct_normalizes_to_grouped_query() {
+    let distinct_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT DISTINCT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("top-level grouped SELECT DISTINCT should remain fail-closed");
+    .expect("top-level grouped SELECT DISTINCT should lower");
+    let plain_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("plain grouped aggregate projection should lower");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectDistinct));
+    let (SqlCommand::Query(distinct_query), SqlCommand::Query(plain_query)) =
+        (distinct_command, plain_command)
+    else {
+        panic!("expected lowered grouped query commands");
+    };
+
+    assert_eq!(
+        distinct_query
+            .plan()
+            .expect("distinct grouped SQL plan should build")
+            .into_inner(),
+        plain_query
+            .plan()
+            .expect("plain grouped SQL plan should build")
+            .into_inner(),
+        "top-level grouped SELECT DISTINCT should normalize to the same grouped intent as the non-DISTINCT form",
+    );
 }
 
 #[test]

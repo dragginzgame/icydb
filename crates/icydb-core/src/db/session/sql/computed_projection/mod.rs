@@ -10,7 +10,7 @@ mod model;
 mod plan;
 
 use crate::db::{
-    QueryError,
+    GroupedRow, QueryError,
     session::sql::projection::SqlProjectionPayload,
     sql::parser::{SqlExplainMode, SqlStatement},
 };
@@ -37,5 +37,14 @@ pub(in crate::db::session::sql) fn apply_computed_sql_projection_payload(
 ) -> Result<SqlProjectionPayload, QueryError> {
     crate::db::session::sql::computed_projection::eval::apply_computed_sql_projection_payload(
         payload, plan,
+    )
+}
+
+pub(in crate::db::session::sql) fn apply_computed_sql_projection_grouped_rows(
+    rows: Vec<GroupedRow>,
+    plan: &SqlComputedProjectionPlan,
+) -> Result<Vec<GroupedRow>, QueryError> {
+    crate::db::session::sql::computed_projection::eval::apply_computed_sql_projection_grouped_rows(
+        rows, plan,
     )
 }

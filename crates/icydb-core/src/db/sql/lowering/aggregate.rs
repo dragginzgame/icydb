@@ -662,6 +662,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
 ) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
+        projection_aliases: _,
         predicate,
         distinct,
         group_by,

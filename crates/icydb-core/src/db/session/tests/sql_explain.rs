@@ -771,16 +771,117 @@ fn explain_sql_supports_distinct_without_pk_projection() {
 }
 
 #[test]
-fn explain_sql_rejects_top_level_grouped_select_distinct_shape() {
+fn explain_sql_grouped_top_level_distinct_matches_plain_grouped_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_unsupported_sql_surface_result(
-        dispatch_explain_sql::<SessionSqlEntity>(
-            &session,
-            "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    let distinct_explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    )
+    .expect("EXPLAIN should support top-level grouped SELECT DISTINCT");
+    let plain_explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    )
+    .expect("EXPLAIN should support plain grouped aggregate projection");
+
+    assert_eq!(
+        distinct_explain, plain_explain,
+        "top-level grouped SELECT DISTINCT should normalize to the same logical EXPLAIN output as the non-DISTINCT form",
+    );
+}
+
+#[test]
+fn explain_sql_projection_alias_matches_unaliased_plan_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN should accept projection aliases");
+    let plain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN should accept the unaliased projection");
+
+    assert_eq!(
+        aliased, plain,
+        "projection aliases should stay presentation-only and not affect EXPLAIN output",
+    );
+}
+
+#[test]
+fn explain_sql_order_by_field_alias_matches_canonical_plan_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 1",
+    )
+    .expect("EXPLAIN should accept ORDER BY field aliases");
+    let canonical = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 1",
+    )
+    .expect("EXPLAIN should accept the canonical field ORDER BY target");
+
+    assert_eq!(
+        aliased, canonical,
+        "ORDER BY field aliases should normalize away before EXPLAIN output is rendered",
+    );
+}
+
+#[test]
+fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 1",
+    )
+    .expect_err("EXPLAIN should keep unsupported ORDER BY alias targets fail-closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
         ),
-        "EXPLAIN should keep top-level grouped SELECT DISTINCT outside the current SQL surface",
+        "unsupported ORDER BY alias targets must fail at the EXPLAIN SQL boundary",
+    );
+    assert!(
+        err.to_string()
+            .contains("ORDER BY alias 'trimmed_name' does not resolve to a supported order target"),
+        "unsupported ORDER BY alias failure should explain the narrowed alias-order boundary",
+    );
+}
+
+#[test]
+fn explain_sql_order_by_lower_alias_matches_canonical_plan_output() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let aliased = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
+    )
+    .expect("EXPLAIN should accept ORDER BY LOWER(field) aliases on the computed projection lane");
+    let canonical = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
+    )
+    .expect("EXPLAIN should accept the canonical LOWER(field) order target");
+
+    assert_eq!(
+        aliased, canonical,
+        "ORDER BY LOWER(field) aliases should normalize away before EXPLAIN output is rendered",
     );
 }
 
@@ -803,6 +904,34 @@ fn explain_sql_supports_computed_text_projection_in_dispatch_lane() {
     assert!(
         explain.contains("access="),
         "computed text projection explain should still expose the routed access shape",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_computed_text_projection_matches_base_grouped_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let computed_explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT TRIM(name), COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+    )
+    .expect("EXPLAIN should support grouped computed text projection on the session-owned lane");
+    let base_explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+    )
+    .expect("EXPLAIN should support the rewritten base grouped query");
+
+    assert_eq!(
+        computed_explain, base_explain,
+        "grouped computed SQL projection explain should stay on the rewritten base grouped query",
     );
 }
 

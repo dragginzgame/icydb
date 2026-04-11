@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
+- `0.76.2` keeps the same SQL-only completion line moving without changing the runtime model: grouped top-level `SELECT DISTINCT ... GROUP BY ...` now normalizes away during lowering, grouped `TRIM(...)`-style projection over grouped fields now runs through the session-owned grouped SQL lane, projection aliases now work as output-label syntax, and narrow `ORDER BY` aliases now work for already-supported field and `LOWER/UPPER(...)` order targets without widening planner or runtime semantics.
 - `0.76.1` starts the `0.76` line by fixing scalar `SELECT DISTINCT` without primary-key projection, adding both global and grouped aggregate DISTINCT qualifiers, admitting grouped `MIN/MAX(field)`, and making ordered `DELETE ... OFFSET` work through the same normalized execution stack instead of parser-only restrictions or fake fallback lanes.
 
 See detailed breakdown:

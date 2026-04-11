@@ -214,6 +214,7 @@ pub(crate) struct SqlOrderTerm {
 pub(crate) struct SqlSelectStatement {
     pub(crate) entity: String,
     pub(crate) projection: SqlProjection,
+    pub(crate) projection_aliases: Vec<Option<String>>,
     pub(crate) predicate: Option<Predicate>,
     pub(crate) distinct: bool,
     pub(crate) group_by: Vec<String>,
@@ -221,6 +222,16 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
+}
+
+impl SqlSelectStatement {
+    /// Borrow the parser-owned alias, if present, for one projection item.
+    #[must_use]
+    pub(crate) fn projection_alias(&self, index: usize) -> Option<&str> {
+        self.projection_aliases
+            .get(index)
+            .and_then(Option::as_deref)
+    }
 }
 
 ///

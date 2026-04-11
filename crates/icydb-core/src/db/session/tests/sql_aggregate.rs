@@ -273,6 +273,62 @@ fn execute_sql_aggregate_offset_beyond_window_returns_empty_aggregate_semantics(
 }
 
 #[test]
+fn execute_sql_dispatch_returns_projection_payload_for_global_aggregate_execution() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect(
+            "execute_sql_dispatch should execute global aggregate SQL through projection payload",
+        );
+
+    let SqlDispatchResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = payload
+    else {
+        panic!(
+            "execute_sql_dispatch should return one projection payload for global aggregate SQL"
+        );
+    };
+
+    assert_eq!(
+        columns,
+        vec!["COUNT(*)".to_string()],
+        "global aggregate dispatch payload should preserve aggregate projection label",
+    );
+    assert_eq!(
+        rows,
+        vec![vec![Value::Uint(0)]],
+        "global aggregate dispatch payload should preserve empty-store scalar aggregate value",
+    );
+    assert_eq!(
+        row_count, 1,
+        "global aggregate dispatch payload should expose one scalar aggregate row",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_global_aggregate_alias_overrides_output_label() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "SELECT COUNT(*) AS total_rows FROM SessionSqlEntity",
+        )
+        .expect("aliased global aggregate dispatch should succeed");
+
+    let SqlDispatchResult::Projection { columns, .. } = payload else {
+        panic!("global aggregate dispatch should return projection payload");
+    };
+
+    assert_eq!(columns, vec!["total_rows".to_string()]);
+}
+
+#[test]
 fn execute_sql_aggregate_matrix_queries_match_expected_values() {
     reset_session_sql_store();
     let session = sql_session();

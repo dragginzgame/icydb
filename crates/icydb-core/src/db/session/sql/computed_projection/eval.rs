@@ -7,7 +7,7 @@
 
 use crate::{
     db::{
-        QueryError,
+        GroupedRow, QueryError,
         session::sql::{
             computed_projection::model::{
                 SqlComputedProjectionItem, SqlComputedProjectionPlan,
@@ -323,4 +323,42 @@ pub(in crate::db::session::sql::computed_projection) fn apply_computed_sql_proje
         projected_rows,
         row_count,
     ))
+}
+
+// Apply one grouped computed SQL projection plan to already-grouped rows while
+// preserving row order, aggregate values, and continuation behavior.
+pub(in crate::db::session::sql::computed_projection) fn apply_computed_sql_projection_grouped_rows(
+    rows: Vec<GroupedRow>,
+    plan: &SqlComputedProjectionPlan,
+) -> Result<Vec<GroupedRow>, QueryError> {
+    let group_key_arity = plan.group_key_arity();
+    let projected_columns = plan.items.len();
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: transform only grouped key cells through the computed lane and
+    // preserve aggregate outputs exactly as the grouped runtime produced them.
+    for row in rows {
+        let group_key = row.group_key();
+        let aggregate_values = row.aggregate_values();
+
+        if group_key.len() != group_key_arity
+            || projected_columns != group_key.len().saturating_add(aggregate_values.len())
+        {
+            return Err(QueryError::invariant(
+                "grouped computed SQL projection row shape did not match session transform plan",
+            ));
+        }
+
+        let mut projected_group_key = Vec::with_capacity(group_key.len());
+        for (value, item) in group_key.iter().cloned().zip(plan.items.iter()) {
+            projected_group_key.push(apply_computed_sql_projection_value(value, item)?);
+        }
+
+        projected_rows.push(GroupedRow::from_parts(
+            projected_group_key,
+            aggregate_values.iter().cloned(),
+        ));
+    }
+
+    Ok(projected_rows)
 }

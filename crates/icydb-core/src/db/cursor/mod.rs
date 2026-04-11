@@ -193,18 +193,17 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
 
 /// Validate grouped cursor ordering plan shape.
 ///
-/// GROUP BY v1 uses canonical lexicographic group-key order by default, so
-/// explicit ordering is optional, but empty order specs remain invalid.
+/// Grouped pagination uses canonical lexicographic group-key order by default,
+/// so explicit ordering is optional, but empty order specs remain invalid.
 pub(in crate::db) fn validate_grouped_cursor_order_plan(
     order: Option<&OrderSpec>,
 ) -> Result<(), CursorPlanError> {
-    let _ = validated_cursor_order_internal(
+    validated_cursor_order_internal(
         order,
         false,
         "grouped cursor pagination uses canonical group-key order when ORDER BY is omitted",
-    )?;
-
-    Ok(())
+    )
+    .map(|_| ())
 }
 
 fn validated_cursor_order_internal<'a>(

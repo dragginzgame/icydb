@@ -96,10 +96,7 @@ fn prepare_select_statement(
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-    Ok(normalize_select_statement_to_expected_entity(
-        statement,
-        expected_entity,
-    ))
+    normalize_select_statement_to_expected_entity(statement, expected_entity)
 }
 
 fn prepare_delete_statement(
