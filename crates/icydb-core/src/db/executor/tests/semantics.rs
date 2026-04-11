@@ -162,7 +162,7 @@ fn query_execution_pipeline_snapshot_for_by_key_shape_with_projection_columns_is
 plan_hash=1c2e397fbaf8bcbccd7837c27f79c1c831f3cf590bcf15944a190a0535ca997f
 mode=Load(LoadSpec { limit: None, offset: 0 })
 is_grouped=false
-execution_strategy=PrimaryKey
+execution_family=PrimaryKey
 load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None
@@ -200,7 +200,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
 plan_hash=87929209508ef73f44d549ec8fd44eabc7ab4cc917024821ae7d21a5c95224cd
 mode=Load(LoadSpec { limit: Some(5), offset: 0 })
 is_grouped=false
-execution_strategy=Ordered
+execution_family=Ordered
 load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None
@@ -252,7 +252,7 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
 plan_hash=9a842929dfd25f6b7ecc892a0736bd11ae320c275fdf902837ee7d79cb206290
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=false
-execution_strategy=Ordered
+execution_family=Ordered
 load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None
@@ -291,7 +291,7 @@ fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
 plan_hash=00b4578dd3c15ce3d5eb204f9e7acd72f7cb2aa94224c01f18cf28162d7cf08f
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=true
-execution_strategy=Grouped
+execution_family=Grouped
 load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None

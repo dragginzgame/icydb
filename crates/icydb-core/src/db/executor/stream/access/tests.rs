@@ -311,7 +311,7 @@ fn runtime_route_capability_helpers_are_not_reintroduced() {
 #[test]
 fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/db/executor/aggregate/runtime/grouped_fold/ingest.rs");
+        .join("src/db/executor/aggregate/runtime/grouped_fold/mod.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
