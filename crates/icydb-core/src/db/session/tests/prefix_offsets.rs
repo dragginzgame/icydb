@@ -1,13 +1,30 @@
 use super::*;
 
+// Expected scan direction for one prefix-ordered window shape.
+enum PrefixScanDirectionExpectation {
+    Asc,
+    Desc,
+}
+
+// Expected ordered-route shape for one prefix-ordered window shape.
+enum PrefixOrderedRouteExpectation {
+    TopNSeekAccessSatisfied,
+    MaterializedSort,
+}
+
+// Expected index-range limit-pushdown visibility for one prefix-ordered
+// window shape.
+enum IndexRangeLimitPushdownExpectation {
+    Allowed,
+    Forbidden,
+}
+
 // Expected EXPLAIN route properties for one prefix-ordered window shape.
 struct PrefixRouteExpectations<'a> {
     access_name: &'a str,
-    expect_desc_scan: bool,
-    expect_top_n_seek: bool,
-    expect_access_satisfied: bool,
-    expect_materialized_sort: bool,
-    forbid_index_range_limit_pushdown: bool,
+    scan_direction: PrefixScanDirectionExpectation,
+    ordered_route: PrefixOrderedRouteExpectation,
+    index_range_limit_pushdown: IndexRangeLimitPushdownExpectation,
 }
 
 // Build the shared equality-prefix suffix-order filter once so the descriptor
@@ -97,12 +114,21 @@ fn assert_prefix_route_descriptor(
         ),
         "{context} should expose the chosen order-compatible composite index",
     );
-    if expectations.expect_desc_scan {
-        assert_eq!(
-            descriptor.node_properties().get("scan_dir"),
-            Some(&Value::Text("desc".to_string())),
-            "{context} should expose the descending scan direction",
-        );
+    match expectations.scan_direction {
+        PrefixScanDirectionExpectation::Asc => {
+            assert_ne!(
+                descriptor.node_properties().get("scan_dir"),
+                Some(&Value::Text("desc".to_string())),
+                "{context} should not expose a descending scan direction",
+            );
+        }
+        PrefixScanDirectionExpectation::Desc => {
+            assert_eq!(
+                descriptor.node_properties().get("scan_dir"),
+                Some(&Value::Text("desc".to_string())),
+                "{context} should expose the descending scan direction",
+            );
+        }
     }
     assert!(
         explain_execution_find_first_node(
@@ -112,38 +138,66 @@ fn assert_prefix_route_descriptor(
         .is_some(),
         "{context} should expose secondary order pushdown",
     );
-    assert_eq!(
-        explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek).is_some(),
-        expectations.expect_top_n_seek,
-        "{context} should keep the expected Top-N seek behavior",
-    );
-    assert_eq!(
-        explain_execution_find_first_node(
-            descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        expectations.expect_access_satisfied,
-        "{context} should keep the expected access-satisfied ordering behavior",
-    );
-    assert_eq!(
-        explain_execution_find_first_node(
-            descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_some(),
-        expectations.expect_materialized_sort,
-        "{context} should keep the expected materialized-sort behavior",
-    );
-    if expectations.forbid_index_range_limit_pushdown {
-        assert!(
-            explain_execution_find_first_node(
-                descriptor,
-                ExplainExecutionNodeType::IndexRangeLimitPushdown
-            )
-            .is_none(),
-            "{context} must not pretend to be an index-range limit-pushdown shape",
-        );
+    match expectations.ordered_route {
+        PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied => {
+            assert!(
+                explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek)
+                    .is_some(),
+                "{context} should keep the expected Top-N seek behavior",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByAccessSatisfied
+                )
+                .is_some(),
+                "{context} should keep the expected access-satisfied ordering behavior",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByMaterializedSort
+                )
+                .is_none(),
+                "{context} should not materialize ordering on this route",
+            );
+        }
+        PrefixOrderedRouteExpectation::MaterializedSort => {
+            assert!(
+                explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::TopNSeek)
+                    .is_none(),
+                "{context} should not keep Top-N seek on this route",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByAccessSatisfied
+                )
+                .is_none(),
+                "{context} should not mark ordering as access satisfied",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::OrderByMaterializedSort
+                )
+                .is_some(),
+                "{context} should keep the expected materialized-sort behavior",
+            );
+        }
+    }
+    match expectations.index_range_limit_pushdown {
+        IndexRangeLimitPushdownExpectation::Allowed => {}
+        IndexRangeLimitPushdownExpectation::Forbidden => {
+            assert!(
+                explain_execution_find_first_node(
+                    descriptor,
+                    ExplainExecutionNodeType::IndexRangeLimitPushdown
+                )
+                .is_none(),
+                "{context} must not pretend to be an index-range limit-pushdown shape",
+            );
+        }
     }
 }
 
@@ -157,11 +211,9 @@ fn session_explain_execution_equality_prefix_suffix_order_uses_top_n_seek_on_cho
         &descriptor,
         PrefixRouteExpectations {
             access_name: "z_tier_score_label_idx",
-            expect_desc_scan: false,
-            expect_top_n_seek: true,
-            expect_access_satisfied: true,
-            expect_materialized_sort: false,
-            forbid_index_range_limit_pushdown: true,
+            scan_direction: PrefixScanDirectionExpectation::Asc,
+            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
         },
         "equality-prefix suffix-order roots",
     );
@@ -178,11 +230,9 @@ fn session_explain_execution_equality_prefix_suffix_order_desc_materializes_orde
         &descriptor,
         PrefixRouteExpectations {
             access_name: "z_tier_score_label_idx",
-            expect_desc_scan: true,
-            expect_top_n_seek: false,
-            expect_access_satisfied: false,
-            expect_materialized_sort: true,
-            forbid_index_range_limit_pushdown: true,
+            scan_direction: PrefixScanDirectionExpectation::Desc,
+            ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
         },
         "descending equality-prefix suffix-order roots",
     );
@@ -293,11 +343,9 @@ fn session_explain_execution_equality_prefix_suffix_order_offset_uses_top_n_seek
         &descriptor,
         PrefixRouteExpectations {
             access_name: "z_tier_score_label_idx",
-            expect_desc_scan: false,
-            expect_top_n_seek: true,
-            expect_access_satisfied: true,
-            expect_materialized_sort: false,
-            forbid_index_range_limit_pushdown: false,
+            scan_direction: PrefixScanDirectionExpectation::Asc,
+            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
         },
         "equality-prefix suffix-order offset roots",
     );
@@ -314,11 +362,9 @@ fn session_explain_execution_equality_prefix_suffix_order_desc_offset_materializ
         &descriptor,
         PrefixRouteExpectations {
             access_name: "z_tier_score_label_idx",
-            expect_desc_scan: true,
-            expect_top_n_seek: false,
-            expect_access_satisfied: false,
-            expect_materialized_sort: true,
-            forbid_index_range_limit_pushdown: false,
+            scan_direction: PrefixScanDirectionExpectation::Desc,
+            ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
         },
         "descending equality-prefix suffix-order offset roots",
     );
@@ -399,11 +445,9 @@ fn session_explain_execution_unique_prefix_offset_uses_top_n_seek() {
         &descriptor,
         PrefixRouteExpectations {
             access_name: "tier_handle_unique",
-            expect_desc_scan: false,
-            expect_top_n_seek: true,
-            expect_access_satisfied: true,
-            expect_materialized_sort: false,
-            forbid_index_range_limit_pushdown: false,
+            scan_direction: PrefixScanDirectionExpectation::Asc,
+            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
         },
         "unique-prefix offset roots",
     );
@@ -419,11 +463,9 @@ fn session_explain_execution_unique_prefix_offset_desc_uses_top_n_seek() {
         &descriptor,
         PrefixRouteExpectations {
             access_name: "tier_handle_unique",
-            expect_desc_scan: true,
-            expect_top_n_seek: true,
-            expect_access_satisfied: true,
-            expect_materialized_sort: false,
-            forbid_index_range_limit_pushdown: false,
+            scan_direction: PrefixScanDirectionExpectation::Desc,
+            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
         },
         "descending unique-prefix offset roots",
     );
