@@ -390,7 +390,11 @@ impl<C: crate::traits::CanisterKind> SessionSqlLegacyTestExt<C> for DbSession<C>
         match self.execute_sql_statement::<E>(sql)? {
             SqlStatementResult::Grouped {
                 rows, next_cursor, ..
-            } => Ok(PagedGroupedExecutionWithTrace::new(rows, next_cursor, None)),
+            } => Ok(PagedGroupedExecutionWithTrace::new(
+                rows,
+                next_cursor.map(String::into_bytes),
+                None,
+            )),
             SqlStatementResult::Projection { .. } | SqlStatementResult::ProjectionText { .. } => {
                 Err(QueryError::unsupported_query(
                     "execute_sql_grouped requires grouped SELECT",
