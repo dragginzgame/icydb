@@ -9,7 +9,6 @@ use syn::parse_str;
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let mut tokens = quote!();
     tokens.extend(stores(builder));
-    tokens.extend(sql_dispatch(builder));
     tokens
 }
 
@@ -171,10 +170,4 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
             #hook_inits
         ];
     }
-}
-
-fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
-    let _ = builder;
-
-    quote! {}
 }

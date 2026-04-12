@@ -315,7 +315,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-minimal-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -326,7 +325,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-one-complex-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -337,7 +335,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -348,7 +345,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-ten-complex-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -359,7 +355,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-ten-simple-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -381,7 +376,6 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-test-sql-fixtures",
- "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -393,7 +387,6 @@ dependencies = [
  "icydb",
  "icydb-core",
  "icydb-testing-test-sql-parity-fixtures",
- "icydb-testing-wasm-helpers",
  "serde",
 ]
 

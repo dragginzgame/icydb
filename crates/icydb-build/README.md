@@ -2,10 +2,10 @@
 
 Build-time helpers for generated canister wiring, query/export surfaces, and metrics endpoints.
 
-This crate also generates canister-local SQL routing glue (`sql_dispatch`) that maps
-runtime SQL entity identifiers to concrete typed entity execution surfaces when
-the consuming canister enables the `sql` feature. That routing boundary is
-actor/facade-owned and intentionally not part of `icydb-core` SQL semantics.
+In the current `0.77` line, this crate generates store/session wiring and actor
+support code, but it does not generate public canister SQL routing glue.
+Canister-owned SQL query helpers remain explicit code in the consuming canister
+crate when that facade is needed.
 
 This crate is usually consumed transitively through `icydb` and is published to support downstream dependency resolution.
 

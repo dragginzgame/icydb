@@ -85,26 +85,22 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.76.13`
-- Latest tagged release in this repo: `v0.76.13`
-- Current branch work in progress: `0.76.14`
+- Workspace version on `main`: `0.77.0`
+- Latest tagged release in this repo: `v0.77.0`
+- Current branch work in progress: `0.77.0`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.76.x` notes: `docs/changelog/0.76.md`
+- Detailed `0.77.x` notes: `docs/changelog/0.77.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- Current branch work on the `0.76` line now splits write results on one clearer rule: `SELECT` and every admitted row-producing mutation surface share the same row payload family, while non-returning typed create/insert/update/replace/delete helpers share one mutation-result family.
-- `0.76.12` adds a separate authored typed write shape per entity, so generated fields and managed timestamps are structurally absent from the authored create payload instead of being rejected only after a full entity value is built.
-- `0.76.11` hardens insert-generated field ownership on the admitted authored write lanes, so typed-dispatch SQL and public structural writes now reject explicit values for `generated(insert = \"...\")` fields instead of letting caller-authored values compete with system-owned synthesis.
-- `0.76.10` keeps reduced SQL defaults explicit by widening schema-owned `generated(insert = \"...\")` only to a small allowlist, so typed-dispatch inserts can synthesize `Timestamp::now` as well as `Ulid::generate` while ordinary `default = ...` values still stay a typed-Rust construction concern.
-- `0.76.14` admits `INSERT ... RETURNING`, `UPDATE ... RETURNING`, and `DELETE ... RETURNING` on the unified dispatch lane, keeps bare dispatch mutations count-first, and then extends that same row family to fluent delete returning plus typed `create_returning...`, `insert_returning...`, and `update_returning...` helpers.
-- `0.76.7` adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
-- `0.76.6` widens the reduced SQL write lane with ordered-window `UPDATE`, write-lane aliases, and generated-key `Ulid` inserts while keeping mutation ownership on typed dispatch.
-- `0.76.5` broadens the reduced SQL write lane so typed-dispatch `UPDATE ... WHERE ...` can target rows selected by the admitted reduced predicate surface, and single-table aliases now work on that narrowed `UPDATE` path.
-- SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
+- `0.77.0` removes the old generated canister `sql_dispatch` surface, keeps reduced SQL as a narrower typed read/introspection surface, and moves canister SQL helpers onto explicit canister-owned query functions where they are still needed.
+- `0.76.14` admits `INSERT ... RETURNING`, `UPDATE ... RETURNING`, and `DELETE ... RETURNING` on the unified typed dispatch lane, while bare dispatch mutations still keep their simpler count-first result shape.
+- `0.76.12` adds authored typed write shapes per entity, so generated fields and managed timestamps are structurally absent from caller-authored create payloads instead of being rejected only after full entity construction.
+- `0.76.10` keeps reduced SQL defaults explicit by widening `generated(insert = \"...\")` only to a small schema-owned allowlist, so typed-dispatch inserts can synthesize `Timestamp::now` and `Ulid::generate` without turning ordinary Rust defaults into hidden SQL behavior.
+- SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
 
 ---
 
@@ -134,18 +130,18 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.76.13" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.77.0" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.76.13", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.77.0", default-features = false }
 ```
 
-With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
-`sql_dispatch` modules are not available.
+With `default-features = false`, `db::sql::*` and the reduced SQL session
+helpers are not available.
 
 ---
 
@@ -379,7 +375,7 @@ Out of scope and fail-closed by design:
 - `schema/test/sql_parity` — the broad SQL parity test-canister fixture surface.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
-- `testing/wasm-helpers` — shared generated-surface assertions and helpers for the wasm audit canisters.
+- `testing/wasm-helpers` — shared schema and audit helper macros for the wasm audit canisters.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
 
 ---
@@ -395,7 +391,7 @@ the schema surface they need.
 - `schema/test/sql_parity` holds the broad SQL parity test-canister fixture surface.
 - `schema/demo/rpg/src/fixtures` holds deterministic RPG fixture datasets shared by demo and test canisters.
 - `schema/audit/minimal`, `schema/audit/one_simple`, `schema/audit/one_complex`, `schema/audit/ten_simple`, and `schema/audit/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
-- `testing/wasm-helpers` holds shared generated actor / `sql_dispatch` assertions used across those audit canisters.
+- `testing/wasm-helpers` holds shared schema and helper macros used across those audit canisters.
 
 This split keeps the wasm audit baseline from absorbing unrelated fixture schema
 weight while preserving full-featured fixtures for test harnesses.

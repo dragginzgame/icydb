@@ -25,8 +25,5 @@ serde = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-test-sql-parity-fixtures = { workspace = true }
 
-[dev-dependencies]
-icydb-testing-wasm-helpers = { workspace = true }
-
 [lints]
 workspace = true
