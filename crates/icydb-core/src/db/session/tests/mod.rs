@@ -178,6 +178,39 @@ struct SessionSqlWriteEntity {
 }
 
 ///
+/// SessionSqlGeneratedFieldEntity
+///
+/// SQL write fixture used to prove schema-owned insert generation is not
+/// limited to primary keys and does not reuse general Rust default semantics.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlGeneratedFieldEntity {
+    id: u64,
+    token: Ulid,
+    name: String,
+}
+
+///
+/// SessionSqlManagedWriteEntity
+///
+/// SQL write fixture used to lock explicit managed timestamp rejection while
+/// still allowing the write lane to synthesize those fields automatically.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlManagedWriteEntity {
+    id: u64,
+    name: String,
+    created_at: Timestamp,
+    updated_at: Timestamp,
+}
+
+///
 /// IndexedSessionSqlEntity
 ///
 /// Indexed SQL session fixture used to lock strict text-prefix execution over a
@@ -517,7 +550,7 @@ crate::test_entity_schema! {
     entity_tag = crate::testing::SESSION_SQL_ENTITY_TAG,
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Ulid),
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text),
         ("age", FieldKind::Uint),
     ],
@@ -537,6 +570,41 @@ crate::test_entity_schema! {
         ("id", FieldKind::Uint),
         ("name", FieldKind::Text),
         ("age", FieldKind::Uint),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlGeneratedFieldEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "SessionSqlGeneratedFieldEntity",
+    entity_tag = EntityTag::new(0x1045),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Uint),
+        ("token", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("name", FieldKind::Text),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlManagedWriteEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "SessionSqlManagedWriteEntity",
+    entity_tag = EntityTag::new(0x1046),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Uint),
+        ("name", FieldKind::Text),
+        ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
+        ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1894,7 +1962,7 @@ fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str)
 // Assert query-surface cursor errors remain wrapped under QueryError::Plan(PlanError::Cursor).
 fn assert_query_error_is_cursor_plan(
     err: QueryError,
-    predicate: impl FnOnce(&CursorPlanError) -> bool,
+    predicate: impl Fn(&CursorPlanError) -> bool,
 ) {
     assert!(matches!(
         err,
@@ -1909,14 +1977,14 @@ fn assert_query_error_is_cursor_plan(
 // Assert both session conversion paths preserve the same cursor-plan variant payload.
 fn assert_cursor_mapping_parity(
     build: impl Fn() -> CursorPlanError,
-    predicate: impl Fn(&CursorPlanError) -> bool + Copy,
+    predicate: impl Fn(&CursorPlanError) -> bool,
 ) {
     let mapped_via_executor =
         QueryError::from_executor_plan_error(ExecutorPlanError::from(build()));
-    assert_query_error_is_cursor_plan(mapped_via_executor, predicate);
+    assert_query_error_is_cursor_plan(mapped_via_executor, &predicate);
 
     let mapped_via_plan = QueryError::from(PlanError::from(build()));
-    assert_query_error_is_cursor_plan(mapped_via_plan, predicate);
+    assert_query_error_is_cursor_plan(mapped_via_plan, &predicate);
 }
 
 // Assert SQL parser unsupported-feature labels remain preserved through

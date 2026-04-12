@@ -328,34 +328,20 @@ fn execute_sql_rejects_computed_text_projection_in_current_lane() {
 }
 
 #[test]
-fn sql_statement_route_select_classifies_query_entity() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let route = session
-        .sql_statement_route("SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1")
-        .expect("select SQL statement should parse");
-
-    assert_eq!(
-        route,
-        SqlStatementRoute::Query {
-            entity: "SessionSqlEntity".to_string(),
-        }
-    );
-    assert_eq!(route.entity(), "SessionSqlEntity");
-    assert!(!route.is_explain());
-    assert!(!route.is_describe());
-    assert!(!route.is_show_indexes());
-    assert!(!route.is_show_columns());
-    assert!(!route.is_show_entities());
-}
-
-#[test]
-fn sql_statement_route_insert_classifies_entity() {
+fn sql_statement_route_matrix_classifies_supported_surfaces() {
     reset_session_sql_store();
     let session = sql_session();
 
     for (sql, expected_route, entity, flags, context) in [
+        (
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+            SqlStatementRoute::Query {
+                entity: "SessionSqlEntity".to_string(),
+            },
+            "SessionSqlEntity",
+            (false, false, false, false, false),
+            "select SQL statement",
+        ),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
             SqlStatementRoute::Insert {
@@ -400,6 +386,22 @@ fn sql_statement_route_insert_classifies_entity() {
             "public.SessionSqlEntity",
             (false, false, false, true, false),
             "show columns SQL statement",
+        ),
+        (
+            "SHOW ENTITIES",
+            SqlStatementRoute::ShowEntities,
+            "",
+            (false, false, false, false, true),
+            "show entities SQL statement",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE age > 20 LIMIT 1",
+            SqlStatementRoute::Explain {
+                entity: "SessionSqlEntity".to_string(),
+            },
+            "SessionSqlEntity",
+            (true, false, false, false, false),
+            "explain SQL statement",
         ),
     ] {
         assert_sql_statement_route_case(&session, sql, expected_route, entity, flags, context);
@@ -460,62 +462,6 @@ fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
 }
 
 #[test]
-fn sql_statement_route_show_entities_classifies_surface() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let route = session
-        .sql_statement_route("SHOW ENTITIES")
-        .expect("show entities SQL statement should parse");
-
-    assert_eq!(route, SqlStatementRoute::ShowEntities);
-    assert!(route.is_show_entities());
-    assert_eq!(route.entity(), "");
-    assert!(!route.is_show_indexes());
-    assert!(!route.is_show_columns());
-    assert!(!route.is_describe());
-    assert!(!route.is_explain());
-}
-
-#[test]
-fn sql_statement_route_explain_classifies_wrapped_entity() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let route = session
-        .sql_statement_route("EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE age > 20 LIMIT 1")
-        .expect("explain SQL statement should parse");
-
-    assert_eq!(
-        route,
-        SqlStatementRoute::Explain {
-            entity: "SessionSqlEntity".to_string(),
-        }
-    );
-    assert_eq!(route.entity(), "SessionSqlEntity");
-    assert!(route.is_explain());
-    assert!(!route.is_describe());
-    assert!(!route.is_show_indexes());
-    assert!(!route.is_show_columns());
-    assert!(!route.is_show_entities());
-}
-
-#[test]
-fn describe_sql_returns_same_payload_as_describe_entity() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let from_sql = dispatch_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
-        .expect("describe_sql should succeed");
-    let from_typed = session.describe_entity::<SessionSqlEntity>();
-
-    assert_eq!(
-        from_sql, from_typed,
-        "describe_sql should project through canonical describe_entity payload",
-    );
-}
-
-#[test]
 fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
@@ -548,22 +494,6 @@ fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
     assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
         dispatch_describe_sql::<SessionSqlEntity>(&session, sql)
     });
-}
-
-#[test]
-fn show_indexes_sql_returns_same_payload_as_show_indexes() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let from_sql =
-        dispatch_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
-            .expect("show_indexes_sql should succeed");
-    let from_typed = session.show_indexes::<SessionSqlEntity>();
-
-    assert_eq!(
-        from_sql, from_typed,
-        "show_indexes_sql should project through canonical show_indexes payload",
-    );
 }
 
 #[test]
@@ -602,22 +532,6 @@ fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
 }
 
 #[test]
-fn show_columns_sql_returns_same_payload_as_show_columns() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let from_sql =
-        dispatch_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("show_columns_sql should succeed");
-    let from_typed = session.show_columns::<SessionSqlEntity>();
-
-    assert_eq!(
-        from_sql, from_typed,
-        "show_columns_sql should project through canonical show_columns payload",
-    );
-}
-
-#[test]
 fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
@@ -653,15 +567,39 @@ fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
 }
 
 #[test]
-fn show_entities_sql_returns_runtime_entity_names() {
+fn sql_metadata_surfaces_match_typed_payloads() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let entities = dispatch_show_entities_sql(&session, "SHOW ENTITIES")
+    let describe_from_sql =
+        dispatch_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
+            .expect("describe_sql should succeed");
+    let show_indexes_from_sql =
+        dispatch_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
+            .expect("show_indexes_sql should succeed");
+    let show_columns_from_sql =
+        dispatch_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("show_columns_sql should succeed");
+    let show_entities_from_sql = dispatch_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
 
     assert_eq!(
-        entities,
+        describe_from_sql,
+        session.describe_entity::<SessionSqlEntity>(),
+        "describe_sql should project through canonical describe_entity payload",
+    );
+    assert_eq!(
+        show_indexes_from_sql,
+        session.show_indexes::<SessionSqlEntity>(),
+        "show_indexes_sql should project through canonical show_indexes payload",
+    );
+    assert_eq!(
+        show_columns_from_sql,
+        session.show_columns::<SessionSqlEntity>(),
+        "show_columns_sql should project through canonical show_columns payload",
+    );
+    assert_eq!(
+        show_entities_from_sql,
         session.show_entities(),
         "show_entities_sql should project through canonical show_entities payload",
     );
@@ -734,68 +672,26 @@ fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
 }
 
 #[test]
-fn sql_statement_route_preserves_parser_unsupported_feature_detail_labels() {
+fn sql_surfaces_preserve_parser_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| session.sql_statement_route(sql));
-}
-
-#[test]
-fn query_from_sql_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         session.query_from_sql::<SessionSqlEntity>(sql)
     });
-}
-
-#[test]
-fn execute_sql_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         session.execute_sql::<SessionSqlEntity>(sql)
     });
-}
-
-#[test]
-fn execute_sql_projection_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
     });
-}
-
-#[test]
-fn execute_sql_grouped_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         session.execute_sql_grouped::<SessionSqlEntity>(sql, None)
     });
-}
-
-#[test]
-fn execute_sql_aggregate_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         session.execute_sql_aggregate::<SessionSqlEntity>(sql)
     });
-}
-
-#[test]
-fn explain_sql_preserves_parser_unsupported_feature_detail_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         let explain_sql = format!("EXPLAIN {sql}");
         dispatch_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())

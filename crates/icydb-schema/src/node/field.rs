@@ -42,21 +42,46 @@ impl VisitableNode for FieldList {
 ///
 
 #[derive(Clone, Debug, Serialize)]
+pub enum FieldGeneration {
+    Insert(Arg),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum FieldWriteManagement {
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct Field {
     ident: &'static str,
     value: Value,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     default: Option<Arg>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generated: Option<FieldGeneration>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    write_management: Option<FieldWriteManagement>,
 }
 
 impl Field {
     #[must_use]
-    pub const fn new(ident: &'static str, value: Value, default: Option<Arg>) -> Self {
+    pub const fn new(
+        ident: &'static str,
+        value: Value,
+        default: Option<Arg>,
+        generated: Option<FieldGeneration>,
+        write_management: Option<FieldWriteManagement>,
+    ) -> Self {
         Self {
             ident,
             value,
             default,
+            generated,
+            write_management,
         }
     }
 
@@ -74,6 +99,16 @@ impl Field {
     pub const fn default(&self) -> Option<&Arg> {
         self.default.as_ref()
     }
+
+    #[must_use]
+    pub const fn generated(&self) -> Option<&FieldGeneration> {
+        self.generated.as_ref()
+    }
+
+    #[must_use]
+    pub const fn write_management(&self) -> Option<FieldWriteManagement> {
+        self.write_management
+    }
 }
 
 impl ValidateNode for Field {
@@ -90,6 +125,9 @@ impl VisitableNode for Field {
     fn drive<V: Visitor>(&self, v: &mut V) {
         self.value().accept(v);
         if let Some(node) = self.default() {
+            node.accept(v);
+        }
+        if let Some(FieldGeneration::Insert(node)) = self.generated() {
             node.accept(v);
         }
     }

@@ -35,7 +35,12 @@ pub struct SqlParityStore {}
     index(fields = "name"),
     index(fields = "name", key_items = "LOWER(name)"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text"))),
         field(ident = "age", value(item(prim = "Int32")))
     )
@@ -65,7 +70,12 @@ pub struct Customer {}
         predicate = "active = true"
     ),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text"))),
         field(ident = "active", value(item(prim = "Bool"))),
         field(ident = "tier", value(item(prim = "Text"))),
@@ -100,7 +110,12 @@ pub struct CustomerOrderProfile {}
     index(fields = "name"),
     index(fields = "priority, status"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text"))),
         field(ident = "priority", value(item(prim = "Nat16"))),
         field(ident = "status", value(item(prim = "Text"))),
@@ -145,7 +160,12 @@ pub struct SqlWriteProbe {}
     index(fields = "beta"),
     index(fields = "alpha"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "tier", value(item(prim = "Text"))),
         field(ident = "score", value(item(prim = "Nat16"))),
         field(ident = "handle", value(item(prim = "Text"))),
@@ -170,7 +190,12 @@ pub struct PlannerChoice {}
     index(fields = "tier,label"),
     index(fields = "tier,handle"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "tier", value(item(prim = "Text"))),
         field(ident = "handle", value(item(prim = "Text"))),
         field(ident = "label", value(item(prim = "Text")))
@@ -190,7 +215,12 @@ pub struct PlannerPrefixChoice {}
     pk(field = "id"),
     index(fields = "tier,handle", unique),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "tier", value(item(prim = "Text"))),
         field(ident = "handle", value(item(prim = "Text"))),
         field(ident = "note", value(item(prim = "Text")))

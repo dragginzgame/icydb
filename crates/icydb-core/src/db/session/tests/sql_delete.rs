@@ -46,78 +46,59 @@ fn remaining_session_name_age_rows(session: &DbSession<SessionSqlCanister>) -> N
 }
 
 #[test]
-fn execute_sql_delete_honors_predicate_order_and_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn execute_sql_delete_ordered_window_matrix_honors_delete_shape() {
+    let cases = [
+        (
+            "ordered limit",
+            "minor",
+            "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1",
+            vec![("first-minor".to_string(), 16)],
+            vec![("second-minor".to_string(), 17), ("adult".to_string(), 42)],
+        ),
+        (
+            "ordered offset then limit",
+            "offset",
+            "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1 OFFSET 1",
+            vec![("second-minor".to_string(), 17)],
+            vec![
+                ("first-minor".to_string(), 16),
+                ("third-minor".to_string(), 18),
+                ("adult".to_string(), 42),
+            ],
+        ),
+        (
+            "single-table alias",
+            "minor",
+            "DELETE FROM SessionSqlEntity alias \
+             WHERE alias.age < 20 \
+             ORDER BY alias.age ASC LIMIT 1",
+            vec![("first-minor".to_string(), 16)],
+            vec![("second-minor".to_string(), 17), ("adult".to_string(), 42)],
+        ),
+    ];
 
-    seed_delete_minor_fixture(&session);
+    for (context, fixture, sql, expected_deleted, expected_remaining) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
 
-    let deleted = execute_sql_delete_name_age_rows(
-        &session,
-        "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1",
-    );
-    let remaining = remaining_session_name_age_rows(&session);
+        match fixture {
+            "minor" => seed_delete_minor_fixture(&session),
+            "offset" => seed_delete_offset_fixture(&session),
+            _ => unreachable!("delete ordered window matrix uses fixed fixtures"),
+        }
 
-    assert_eq!(
-        deleted,
-        vec![("first-minor".to_string(), 16)],
-        "ordered delete should remove the youngest matching row first",
-    );
-    assert_eq!(
-        remaining,
-        vec![("second-minor".to_string(), 17), ("adult".to_string(), 42),],
-        "delete window semantics should preserve non-deleted rows",
-    );
-}
+        let deleted = execute_sql_delete_name_age_rows(&session, sql);
+        let remaining = remaining_session_name_age_rows(&session);
 
-#[test]
-fn execute_sql_delete_honors_ordered_offset_then_limit() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_delete_offset_fixture(&session);
-
-    let deleted = execute_sql_delete_name_age_rows(
-        &session,
-        "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1 OFFSET 1",
-    );
-    let remaining = remaining_session_name_age_rows(&session);
-
-    assert_eq!(
-        deleted,
-        vec![("second-minor".to_string(), 17)],
-        "ordered delete offset should skip the first matching row before applying LIMIT",
-    );
-    assert_eq!(
-        remaining,
-        vec![
-            ("first-minor".to_string(), 16),
-            ("third-minor".to_string(), 18),
-            ("adult".to_string(), 42),
-        ],
-        "ordered delete offset should preserve skipped and non-matching rows",
-    );
-}
-
-#[test]
-fn execute_sql_delete_accepts_single_table_alias() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_delete_minor_fixture(&session);
-
-    let deleted = execute_sql_delete_name_age_rows(
-        &session,
-        "DELETE FROM SessionSqlEntity alias \
-         WHERE alias.age < 20 \
-         ORDER BY alias.age ASC LIMIT 1",
-    );
-
-    assert_eq!(
-        deleted,
-        vec![("first-minor".to_string(), 16)],
-        "ordered delete with one qualifying field and one table alias should remove the youngest matching row first",
-    );
+        assert_eq!(
+            deleted, expected_deleted,
+            "{context} should preserve deleted-row ordering",
+        );
+        assert_eq!(
+            remaining, expected_remaining,
+            "{context} should preserve remaining-row semantics",
+        );
+    }
 }
 
 #[test]

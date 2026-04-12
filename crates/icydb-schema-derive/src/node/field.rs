@@ -1,4 +1,5 @@
 use crate::{prelude::*, validate::reserved::is_reserved_word};
+use darling::ast::NestedMeta;
 use icydb_utils::{Case, Casing};
 use std::slice::Iter;
 
@@ -87,6 +88,78 @@ impl<'a> IntoIterator for &'a FieldList {
 /// Field
 ///
 
+#[derive(Clone, Debug)]
+pub(crate) enum FieldGeneration {
+    Insert(Arg),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FieldWriteManagement {
+    CreatedAt,
+    UpdatedAt,
+}
+
+impl FromMeta for FieldGeneration {
+    fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
+        let mut insert = None;
+
+        for item in items {
+            let NestedMeta::Meta(syn::Meta::NameValue(name_value)) = item else {
+                return Err(DarlingError::custom(
+                    "generated(...) currently requires insert = \"Ulid::generate\"",
+                ));
+            };
+
+            if !name_value.path.is_ident("insert") {
+                return Err(DarlingError::custom(
+                    "generated(...) currently supports only insert = \"Ulid::generate\"",
+                ));
+            }
+
+            let syn::Expr::Lit(expr_lit) = &name_value.value else {
+                return Err(DarlingError::custom(
+                    "generated(insert = ...) currently requires a quoted generator path",
+                ));
+            };
+
+            let arg = Arg::from_value(&expr_lit.lit)?;
+            if insert.replace(arg).is_some() {
+                return Err(DarlingError::custom(
+                    "generated(...) currently accepts only one insert = \"...\" argument",
+                ));
+            }
+        }
+
+        let Some(insert) = insert else {
+            return Err(DarlingError::custom(
+                "generated(...) currently requires insert = \"Ulid::generate\"",
+            ));
+        };
+
+        Ok(Self::Insert(insert))
+    }
+}
+
+impl HasSchemaPart for FieldGeneration {
+    fn schema_part(&self) -> TokenStream {
+        match self {
+            Self::Insert(arg) => {
+                let arg = quote_one(arg, Arg::schema_part);
+                quote!(::icydb::schema::node::FieldGeneration::Insert(#arg))
+            }
+        }
+    }
+}
+
+impl HasSchemaPart for FieldWriteManagement {
+    fn schema_part(&self) -> TokenStream {
+        match self {
+            Self::CreatedAt => quote!(::icydb::schema::node::FieldWriteManagement::CreatedAt),
+            Self::UpdatedAt => quote!(::icydb::schema::node::FieldWriteManagement::UpdatedAt),
+        }
+    }
+}
+
 #[derive(Clone, Debug, FromMeta)]
 pub struct Field {
     pub(crate) ident: Ident,
@@ -94,6 +167,12 @@ pub struct Field {
 
     #[darling(default)]
     pub(crate) default: Option<Arg>,
+
+    #[darling(default)]
+    pub(crate) generated: Option<FieldGeneration>,
+
+    #[darling(default, skip)]
+    pub(crate) write_management: Option<FieldWriteManagement>,
 }
 
 // Canonical relation identity suffixes.
@@ -143,6 +222,10 @@ impl Field {
             }
         }
 
+        // Insert-generation stays schema-owned and explicit instead of making
+        // SQL omission inferable from general Rust defaults.
+        self.validate_generated()?;
+
         Ok(())
     }
 
@@ -175,6 +258,27 @@ impl Field {
         format_ident!("{constant}")
     }
 
+    pub fn insert_generation_expr(&self) -> TokenStream {
+        match self.generated {
+            Some(FieldGeneration::Insert(_)) => {
+                quote!(Some(::icydb::model::field::FieldInsertGeneration::Ulid))
+            }
+            None => quote!(None),
+        }
+    }
+
+    pub fn write_management_expr(&self) -> TokenStream {
+        match self.write_management {
+            Some(FieldWriteManagement::CreatedAt) => {
+                quote!(Some(::icydb::model::field::FieldWriteManagement::CreatedAt))
+            }
+            Some(FieldWriteManagement::UpdatedAt) => {
+                quote!(Some(::icydb::model::field::FieldWriteManagement::UpdatedAt))
+            }
+            None => quote!(None),
+        }
+    }
+
     pub fn created_at() -> Self {
         Self {
             ident: format_ident!("created_at"),
@@ -183,6 +287,8 @@ impl Field {
                 ..Default::default()
             },
             default: None,
+            generated: None,
+            write_management: Some(FieldWriteManagement::CreatedAt),
         }
     }
 
@@ -194,6 +300,8 @@ impl Field {
                 ..Default::default()
             },
             default: None,
+            generated: None,
+            write_management: Some(FieldWriteManagement::UpdatedAt),
         }
     }
 
@@ -210,6 +318,49 @@ impl Field {
 
         primitive_default_matches(primitive, default)
     }
+
+    // `generated(insert = "...")` is currently the schema-owned
+    // insert-generation contract for single-cardinality primitive Ulid fields
+    // only.
+    fn validate_generated(&self) -> Result<(), DarlingError> {
+        let Some(FieldGeneration::Insert(generator)) = self.generated.as_ref() else {
+            return Ok(());
+        };
+
+        if self.value.cardinality() != Cardinality::One {
+            return Err(DarlingError::custom(
+                "generated(insert = ...) currently supports only single-value fields",
+            )
+            .with_span(&self.ident));
+        }
+
+        if self.value.item.is.is_some() || self.value.item.relation.is_some() {
+            return Err(DarlingError::custom(
+                "generated(insert = ...) currently supports only primitive Ulid fields",
+            )
+            .with_span(&self.ident));
+        }
+
+        if !matches!(self.value.item.primitive, Some(Primitive::Ulid)) {
+            return Err(DarlingError::custom(
+                "generated(insert = ...) currently supports only primitive Ulid fields",
+            )
+            .with_span(&self.ident));
+        }
+
+        if !generated_insert_matches_ulid_generator(generator) {
+            return Err(DarlingError::custom(
+                "generated(insert = ...) currently supports only Ulid::generate",
+            )
+            .with_span(&self.ident));
+        }
+
+        Ok(())
+    }
+}
+
+fn generated_insert_matches_ulid_generator(generator: &Arg) -> bool {
+    matches!(generator, Arg::FuncPath(path) if path_ends_with_segments(path, &["Ulid", "generate"]))
 }
 
 // Explicit `None` or `Option::default()` matches the implicit optional default.
@@ -374,9 +525,20 @@ impl HasSchemaPart for Field {
         let ident = quote_one(&self.ident, to_str_lit);
         let value = self.value.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
+        let generated = quote_option(self.generated.as_ref(), FieldGeneration::schema_part);
+        let write_management = quote_option(
+            self.write_management.as_ref(),
+            FieldWriteManagement::schema_part,
+        );
 
         quote! {
-            ::icydb::schema::node::Field::new(#ident, #value, #default)
+            ::icydb::schema::node::Field::new(
+                #ident,
+                #value,
+                #default,
+                #generated,
+                #write_management,
+            )
         }
     }
 }
@@ -398,7 +560,7 @@ impl HasTypeExpr for Field {
 
 #[cfg(test)]
 mod tests {
-    use super::{Field, Value};
+    use super::{Field, FieldGeneration, FieldWriteManagement, Value};
     use crate::node::{Arg, Item};
     use icydb_schema::types::Primitive;
     use quote::format_ident;
@@ -417,6 +579,8 @@ mod tests {
                 },
             },
             default: None,
+            generated: None,
+            write_management: None,
         }
     }
 
@@ -467,6 +631,8 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(String::new))),
+            generated: None,
+            write_management: None,
         };
 
         assert!(
@@ -488,6 +654,8 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(crate::Profile::default))),
+            generated: None,
+            write_management: None,
         };
 
         assert!(
@@ -509,11 +677,109 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(Ulid::generate))),
+            generated: None,
+            write_management: None,
         };
 
         assert!(
             !field.default_matches_implicit_default(),
             "custom constructors must still force an explicit Default impl",
+        );
+    }
+
+    #[test]
+    fn generated_clause_accepts_single_value_primitive_ulid_fields() {
+        let field = Field {
+            ident: format_ident!("id"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Ulid),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+                Ulid::generate
+            )))),
+            write_management: None,
+        };
+
+        field
+            .validate()
+            .expect("generated(insert = ...) should be admitted for primitive Ulid fields");
+    }
+
+    #[test]
+    fn generated_clause_rejects_non_ulid_fields() {
+        let field = Field {
+            ident: format_ident!("name"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+                Ulid::generate
+            )))),
+            write_management: None,
+        };
+
+        let err = field
+            .validate()
+            .expect_err("generated(insert = ...) should stay fail-closed on non-Ulid fields");
+        assert!(
+            err.to_string()
+                .contains("generated(insert = ...) currently supports only primitive Ulid fields"),
+            "unexpected generated(insert = ...) validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn generated_clause_rejects_non_ulid_generators() {
+        let field = Field {
+            ident: format_ident!("id"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Ulid),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+                Id::generate
+            )))),
+            write_management: None,
+        };
+
+        let err = field
+            .validate()
+            .expect_err("generated(insert = ...) should stay fail-closed on non-Ulid generators");
+        assert!(
+            err.to_string()
+                .contains("generated(insert = ...) currently supports only Ulid::generate"),
+            "unexpected generated(insert = ...) validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn created_and_updated_fields_emit_write_management_metadata() {
+        assert_eq!(
+            Field::created_at().write_management,
+            Some(FieldWriteManagement::CreatedAt),
+            "created_at helper should mark the field as insert-managed",
+        );
+        assert_eq!(
+            Field::updated_at().write_management,
+            Some(FieldWriteManagement::UpdatedAt),
+            "updated_at helper should mark the field as update-managed",
         );
     }
 }

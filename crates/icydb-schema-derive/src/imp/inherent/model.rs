@@ -24,12 +24,16 @@ pub fn model_field_expr(field: &Field) -> TokenStream {
     let kind = model_kind_from_value(&field.value);
     let storage_decode = model_storage_decode_from_value(&field.value);
     let nullable = matches!(field.value.cardinality(), Cardinality::Opt);
+    let insert_generation = field.insert_generation_expr();
+    let write_management = field.write_management_expr();
 
-    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_and_nullability(
+    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
         #name,
         #kind,
         #storage_decode,
         #nullable,
+        #insert_generation,
+        #write_management,
     ))
 }
 

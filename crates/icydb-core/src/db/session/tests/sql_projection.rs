@@ -61,6 +61,27 @@ fn assert_projection_columns_and_rows(
     );
 }
 
+// Assert that one SQL surface still derives the exact public projection
+// column labels expected by the session boundary.
+fn assert_projection_columns(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_columns: &[&str],
+    context: &str,
+) {
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
+
+    assert_eq!(
+        columns,
+        expected_columns
+            .iter()
+            .map(|column| (*column).to_string())
+            .collect::<Vec<_>>(),
+        "{context} should expose the expected projection column labels",
+    );
+}
+
 // Assert that one field-alias surface still normalizes to the same projected
 // rows as the equivalent canonical SQL spelling.
 fn assert_projection_alias_matches_canonical<E>(
@@ -118,34 +139,34 @@ fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
 }
 
 #[test]
-fn sql_projection_columns_select_field_list_returns_canonical_labels() {
+fn sql_projection_columns_matrix_matches_expected_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
-        &session,
-        "SELECT name, age FROM SessionSqlEntity",
-    )
-    .expect("field-list SQL projection columns should derive");
-
-    assert_eq!(columns, vec!["name".to_string(), "age".to_string()]);
-}
-
-#[test]
-fn sql_projection_columns_select_aliases_override_parser_owned_output_labels() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
-        &session,
-        "SELECT TRIM(name) AS trimmed_name, age years FROM SessionSqlEntity",
-    )
-    .expect("aliased SQL projection columns should derive");
-
-    assert_eq!(
-        columns,
-        vec!["trimmed_name".to_string(), "years".to_string()],
-    );
+    for (sql, expected_columns, context) in [
+        (
+            "SELECT name, age FROM SessionSqlEntity",
+            &["name", "age"][..],
+            "field-list projection columns",
+        ),
+        (
+            "SELECT TRIM(name) AS trimmed_name, age years FROM SessionSqlEntity",
+            &["trimmed_name", "years"][..],
+            "aliased projection columns",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity",
+            &["id", "name", "age"][..],
+            "star projection columns",
+        ),
+        (
+            "DELETE FROM SessionSqlEntity WHERE age > 10",
+            &["id", "name", "age"][..],
+            "delete projection columns",
+        ),
+    ] {
+        assert_projection_columns(&session, sql, expected_columns, context);
+    }
 }
 
 #[test]
@@ -213,39 +234,6 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
 }
 
 #[test]
-fn sql_projection_columns_select_star_returns_entity_model_order() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let columns =
-        dispatch_projection_columns::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
-            .expect("star SQL projection columns should derive");
-
-    assert_eq!(
-        columns,
-        vec!["id".to_string(), "name".to_string(), "age".to_string()]
-    );
-}
-
-#[test]
-fn sql_projection_columns_delete_returns_entity_model_order() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
-        &session,
-        "DELETE FROM SessionSqlEntity WHERE age > 10",
-    )
-    .expect("delete SQL columns should derive from full entity row shape");
-
-    assert_eq!(
-        columns,
-        vec!["id".to_string(), "name".to_string(), "age".to_string()],
-        "delete SQL should project full entity columns in model order",
-    );
-}
-
-#[test]
 fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -276,160 +264,127 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
 }
 
 #[test]
-fn execute_sql_projection_trim_ltrim_rtrim_lower_upper_and_length_dispatch_from_session_boundary() {
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven computed projection matrix"
+)]
+fn execute_sql_projection_computed_function_matrix_dispatches_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
 
     seed_projection_text_fixture(&session);
 
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
-        &[
-            "TRIM(name)",
-            "LTRIM(name)",
-            "RTRIM(name)",
-            "LOWER(name)",
-            "UPPER(name)",
-            "LENGTH(name)",
-            "age",
-        ],
-        vec![
+    for (sql, expected_columns, expected_rows, context) in [
+        (
+            "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "TRIM(name)",
+                "LTRIM(name)",
+                "RTRIM(name)",
+                "LOWER(name)",
+                "UPPER(name)",
+                "LENGTH(name)",
+                "age",
+            ][..],
             vec![
-                Value::Text("Ada".to_string()),
-                Value::Text("Ada  ".to_string()),
-                Value::Text("  Ada".to_string()),
-                Value::Text("  ada  ".to_string()),
-                Value::Text("  ADA  ".to_string()),
-                Value::Uint(7),
-                Value::Uint(33),
+                vec![
+                    Value::Text("Ada".to_string()),
+                    Value::Text("Ada  ".to_string()),
+                    Value::Text("  Ada".to_string()),
+                    Value::Text("  ada  ".to_string()),
+                    Value::Text("  ADA  ".to_string()),
+                    Value::Uint(7),
+                    Value::Uint(33),
+                ],
+                vec![
+                    Value::Text("Bob".to_string()),
+                    Value::Text("Bob".to_string()),
+                    Value::Text("\tBob".to_string()),
+                    Value::Text("\tbob".to_string()),
+                    Value::Text("\tBOB".to_string()),
+                    Value::Uint(4),
+                    Value::Uint(21),
+                ],
             ],
+            "computed trim/case/length projections",
+        ),
+        (
+            "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
+            &["LEFT(name, 2)", "RIGHT(name, 3)", "LEFT(name, NULL)"][..],
             vec![
-                Value::Text("Bob".to_string()),
-                Value::Text("Bob".to_string()),
-                Value::Text("\tBob".to_string()),
-                Value::Text("\tbob".to_string()),
-                Value::Text("\tBOB".to_string()),
-                Value::Uint(4),
-                Value::Uint(21),
+                vec![
+                    Value::Text("  ".to_string()),
+                    Value::Text("a  ".to_string()),
+                    Value::Null,
+                ],
+                vec![
+                    Value::Text("\tB".to_string()),
+                    Value::Text("Bob".to_string()),
+                    Value::Null,
+                ],
             ],
-        ],
-        "computed trim/case/length projections",
-    );
-}
-
-#[test]
-fn execute_sql_projection_left_and_right_dispatch_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
-        &["LEFT(name, 2)", "RIGHT(name, 3)", "LEFT(name, NULL)"],
-        vec![
+            "left/right projections",
+        ),
+        (
+            "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "STARTS_WITH(name, ' ')",
+                "ENDS_WITH(name, 'b')",
+                "CONTAINS(name, 'da')",
+                "POSITION('da', name)",
+                "POSITION(NULL, name)",
+            ][..],
             vec![
-                Value::Text("  ".to_string()),
-                Value::Text("a  ".to_string()),
-                Value::Null,
+                vec![
+                    Value::Bool(true),
+                    Value::Bool(false),
+                    Value::Bool(true),
+                    Value::Uint(4),
+                    Value::Null,
+                ],
+                vec![
+                    Value::Bool(false),
+                    Value::Bool(true),
+                    Value::Bool(false),
+                    Value::Uint(0),
+                    Value::Null,
+                ],
             ],
+            "text predicate projections",
+        ),
+        (
+            "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
+            &["REPLACE(name, 'A', 'E')", "REPLACE(name, NULL, 'x')"][..],
             vec![
-                Value::Text("\tB".to_string()),
-                Value::Text("Bob".to_string()),
-                Value::Null,
+                vec![Value::Text("  Eda  ".to_string()), Value::Null],
+                vec![Value::Text("\tBob".to_string()), Value::Null],
             ],
-        ],
-        "left/right projections",
-    );
-}
-
-#[test]
-fn execute_sql_projection_starts_ends_and_position_dispatch_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
-        &[
-            "STARTS_WITH(name, ' ')",
-            "ENDS_WITH(name, 'b')",
-            "CONTAINS(name, 'da')",
-            "POSITION('da', name)",
-            "POSITION(NULL, name)",
-        ],
-        vec![
+            "replace projections",
+        ),
+        (
+            "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "SUBSTRING(name, 3, 3)",
+                "SUBSTRING(name, 3)",
+                "SUBSTRING(name, NULL, 2)",
+            ][..],
             vec![
-                Value::Bool(true),
-                Value::Bool(false),
-                Value::Bool(true),
-                Value::Uint(4),
-                Value::Null,
+                vec![
+                    Value::Text("Ada".to_string()),
+                    Value::Text("Ada  ".to_string()),
+                    Value::Null,
+                ],
+                vec![
+                    Value::Text("ob".to_string()),
+                    Value::Text("ob".to_string()),
+                    Value::Null,
+                ],
             ],
-            vec![
-                Value::Bool(false),
-                Value::Bool(true),
-                Value::Bool(false),
-                Value::Uint(0),
-                Value::Null,
-            ],
-        ],
-        "text predicate projections",
-    );
-}
-
-#[test]
-fn execute_sql_projection_replace_dispatch_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
-        &["REPLACE(name, 'A', 'E')", "REPLACE(name, NULL, 'x')"],
-        vec![
-            vec![Value::Text("  Eda  ".to_string()), Value::Null],
-            vec![Value::Text("\tBob".to_string()), Value::Null],
-        ],
-        "replace projections",
-    );
-}
-
-#[test]
-fn execute_sql_projection_substring_dispatch_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
-        &[
-            "SUBSTRING(name, 3, 3)",
-            "SUBSTRING(name, 3)",
-            "SUBSTRING(name, NULL, 2)",
-        ],
-        vec![
-            vec![
-                Value::Text("Ada".to_string()),
-                Value::Text("Ada  ".to_string()),
-                Value::Null,
-            ],
-            vec![
-                Value::Text("ob".to_string()),
-                Value::Text("ob".to_string()),
-                Value::Null,
-            ],
-        ],
-        "substring projections",
-    );
+            "substring projections",
+        ),
+    ] {
+        assert_projection_columns_and_rows(&session, sql, expected_columns, expected_rows, context);
+    }
 }
 
 #[test]
@@ -614,66 +569,79 @@ fn execute_sql_select_distinct_star_executes() {
 }
 
 #[test]
-fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
+    for (seed_rows, sql, expected_rows, expect_pk_rows, context) in [
+        (
+            vec![("distinct-pk-a", 25_u64), ("distinct-pk-b", 25_u64)],
+            "SELECT DISTINCT id, age FROM SessionSqlEntity ORDER BY id ASC",
+            vec![],
+            true,
+            "SELECT DISTINCT field-list with PK",
+        ),
+        (
+            vec![
+                ("distinct-no-pk-a", 25_u64),
+                ("distinct-no-pk-b", 25_u64),
+                ("distinct-no-pk-c", 30_u64),
+            ],
+            "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC",
+            vec![vec![Value::Uint(25)], vec![Value::Uint(30)]],
+            false,
+            "SELECT DISTINCT without PK in projection",
+        ),
+        (
+            vec![
+                ("distinct-window-a", 25_u64),
+                ("distinct-window-b", 25_u64),
+                ("distinct-window-c", 30_u64),
+                ("distinct-window-d", 35_u64),
+            ],
+            "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
+            vec![vec![Value::Uint(30)]],
+            false,
+            "SELECT DISTINCT without PK projection paging",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
 
-    seed_session_sql_entities(&session, &[("distinct-pk-a", 25), ("distinct-pk-b", 25)]);
+        seed_session_sql_entities(&session, &seed_rows);
 
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT DISTINCT id, age FROM SessionSqlEntity ORDER BY id ASC",
-    )
-    .expect("SELECT DISTINCT field-list with PK should execute");
-    assert_eq!(response.len(), 2);
-    assert_eq!(response[0].len(), 2);
-}
+        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
-#[test]
-fn execute_sql_projection_select_distinct_without_pk_projection_executes() {
-    reset_session_sql_store();
-    let session = sql_session();
+        if expect_pk_rows {
+            assert_eq!(
+                response.len(),
+                2,
+                "{context} should return one row per distinct id"
+            );
+            assert_eq!(
+                response[0].len(),
+                2,
+                "{context} should keep both projected columns"
+            );
+            assert!(
+                matches!(response[0][0], Value::Ulid(_))
+                    && matches!(response[1][0], Value::Ulid(_)),
+                "{context} should keep the primary key in the first projected column",
+            );
+            assert_eq!(
+                response
+                    .iter()
+                    .map(|row| row[1].clone())
+                    .collect::<Vec<_>>(),
+                vec![Value::Uint(25), Value::Uint(25)],
+                "{context} should preserve the distinct field payloads",
+            );
+            continue;
+        }
 
-    seed_session_sql_entities(
-        &session,
-        &[
-            ("distinct-no-pk-a", 25),
-            ("distinct-no-pk-b", 25),
-            ("distinct-no-pk-c", 30),
-        ],
-    );
-
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC",
-    )
-    .expect("SELECT DISTINCT without PK in projection should execute");
-
-    assert_eq!(response, vec![vec![Value::Uint(25)], vec![Value::Uint(30)]]);
-}
-
-#[test]
-fn execute_sql_projection_select_distinct_without_pk_projection_applies_page_after_dedup() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_session_sql_entities(
-        &session,
-        &[
-            ("distinct-window-a", 25),
-            ("distinct-window-b", 25),
-            ("distinct-window-c", 30),
-            ("distinct-window-d", 35),
-        ],
-    );
-
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
-    )
-    .expect("SELECT DISTINCT without PK projection should page after dedup");
-
-    assert_eq!(response, vec![vec![Value::Uint(30)]]);
+        assert_eq!(
+            response, expected_rows,
+            "{context} should match expected rows"
+        );
+    }
 }
 
 #[test]

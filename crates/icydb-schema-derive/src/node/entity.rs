@@ -542,6 +542,8 @@ mod tests {
                 },
             },
             default: None,
+            generated: None,
+            write_management: None,
         }
     }
 
@@ -557,6 +559,8 @@ mod tests {
                 },
             },
             default: None,
+            generated: None,
+            write_management: None,
         }
     }
 

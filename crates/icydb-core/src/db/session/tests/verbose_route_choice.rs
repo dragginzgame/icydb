@@ -104,152 +104,112 @@ fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank
 }
 
 #[test]
-fn session_fluent_verbose_range_choice_prefers_order_compatible_index_when_rank_ties() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("score")
-        .order_by("label")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("session deterministic range verbose explain should build");
+fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_when_rank_ties() {
+    for (context, descending) in [
+        ("session fluent verbose range explain", false),
+        ("session descending verbose range explain", true),
+    ] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+        let mut query = session
+            .load::<SessionDeterministicRangeEntity>()
+            .filter(Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "tier",
+                    CompareOp::Eq,
+                    Value::Text("gold".to_string()),
+                    CoercionId::Strict,
+                )),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "score",
+                    CompareOp::Gt,
+                    Value::Uint(10),
+                    CoercionId::Strict,
+                )),
+            ]));
+        query = if descending {
+            query
+                .order_by_desc("score")
+                .order_by_desc("label")
+                .order_by_desc("id")
+        } else {
+            query.order_by("score").order_by("label").order_by("id")
+        };
+        let verbose = query
+            .explain_execution_verbose()
+            .unwrap_or_else(|err| panic!("{context} should build: {err}"));
 
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexRange(z_tier_score_label_idx)",
-        "index:a_tier_score_handle_idx=order_compatible_preferred",
-        "session fluent verbose range explain",
-    );
+        assert_verbose_access_choice(
+            &verbose,
+            "IndexRange(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+            context,
+        );
+    }
 }
 
 #[test]
-fn session_fluent_verbose_range_choice_desc_prefers_order_compatible_index_when_rank_ties() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Gt,
-                Value::Uint(10),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("score")
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .explain_execution_verbose()
-        .expect("session descending deterministic range verbose explain should build");
-
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexRange(z_tier_score_label_idx)",
-        "index:a_tier_score_handle_idx=order_compatible_preferred",
-        "session descending verbose range explain",
-    );
-}
-
-#[test]
-fn session_fluent_verbose_equality_prefix_suffix_order_prefers_order_compatible_index_when_rank_ties()
+fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_compatible_index_when_rank_ties()
  {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("label")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("session deterministic equality-prefix suffix-order verbose explain should build");
+    for (context, descending) in [
+        (
+            "session fluent verbose equality-prefix suffix-order explain",
+            false,
+        ),
+        (
+            "session descending verbose equality-prefix suffix-order explain",
+            true,
+        ),
+    ] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+        let mut query = session
+            .load::<SessionDeterministicRangeEntity>()
+            .filter(Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "tier",
+                    CompareOp::Eq,
+                    Value::Text("gold".to_string()),
+                    CoercionId::Strict,
+                )),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "score",
+                    CompareOp::Eq,
+                    Value::Uint(20),
+                    CoercionId::Strict,
+                )),
+            ]));
+        query = if descending {
+            query.order_by_desc("label").order_by_desc("id")
+        } else {
+            query.order_by("label").order_by("id")
+        };
+        let verbose = query
+            .explain_execution_verbose()
+            .unwrap_or_else(|err| panic!("{context} should build: {err}"));
 
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexPrefix(z_tier_score_label_idx)",
-        "index:a_tier_score_handle_idx=order_compatible_preferred",
-        "session fluent verbose equality-prefix suffix-order explain",
-    );
-}
+        assert_verbose_access_choice(
+            &verbose,
+            "IndexPrefix(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+            context,
+        );
 
-#[test]
-fn session_fluent_verbose_equality_prefix_suffix_order_desc_prefers_order_compatible_index_when_rank_ties()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by_desc("label")
-        .order_by_desc("id")
-        .explain_execution_verbose()
-        .expect("session descending deterministic equality-prefix suffix-order verbose explain should build");
+        if descending {
+            let diagnostics = session_verbose_diagnostics_map(&verbose);
 
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexPrefix(z_tier_score_label_idx)",
-        "index:a_tier_score_handle_idx=order_compatible_preferred",
-        "session descending verbose equality-prefix suffix-order explain",
-    );
-
-    let diagnostics = session_verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.load_order_route_contract"),
-        Some(&"materialized_boundary".to_string()),
-        "session descending verbose explain must expose the materialized-boundary route contract for descending non-unique equality-prefix suffix-order shapes",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.load_order_route_reason"),
-        Some(&"descending_non_unique_secondary_prefix_not_admitted".to_string()),
-        "session descending verbose explain must expose the planner-owned materialized-boundary reason for descending non-unique equality-prefix suffix-order shapes",
-    );
+            assert_eq!(
+                diagnostics.get("diag.r.load_order_route_contract"),
+                Some(&"materialized_boundary".to_string()),
+                "session descending verbose explain must expose the materialized-boundary route contract for descending non-unique equality-prefix suffix-order shapes",
+            );
+            assert_eq!(
+                diagnostics.get("diag.r.load_order_route_reason"),
+                Some(&"descending_non_unique_secondary_prefix_not_admitted".to_string()),
+                "session descending verbose explain must expose the planner-owned materialized-boundary reason for descending non-unique equality-prefix suffix-order shapes",
+            );
+        }
+    }
 }
 
 #[test]
@@ -285,45 +245,35 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
 }
 
 #[test]
-fn session_fluent_verbose_composite_order_only_choice_prefers_order_compatible_index_when_rank_ties()
+fn session_fluent_verbose_composite_order_only_choice_matrix_prefers_order_compatible_index_when_rank_ties()
  {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("session deterministic composite order-only verbose explain should build");
+    for (context, descending) in [
+        ("session fluent verbose composite order-only explain", false),
+        (
+            "session descending verbose composite order-only explain",
+            true,
+        ),
+    ] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+        let mut query = session.load::<SessionDeterministicChoiceEntity>();
+        query = if descending {
+            query
+                .order_by_desc("tier")
+                .order_by_desc("handle")
+                .order_by_desc("id")
+        } else {
+            query.order_by("tier").order_by("handle").order_by("id")
+        };
+        let verbose = query
+            .explain_execution_verbose()
+            .unwrap_or_else(|err| panic!("{context} should build: {err}"));
 
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexRange(z_tier_handle_idx)",
-        "index:a_tier_label_idx=order_compatible_preferred",
-        "session fluent verbose composite order-only explain",
-    );
-}
-
-#[test]
-fn session_fluent_verbose_composite_order_only_choice_desc_prefers_order_compatible_index_when_rank_ties()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let verbose = session
-        .load::<SessionDeterministicChoiceEntity>()
-        .order_by_desc("tier")
-        .order_by_desc("handle")
-        .order_by_desc("id")
-        .explain_execution_verbose()
-        .expect(
-            "session descending deterministic composite order-only verbose explain should build",
+        assert_verbose_access_choice(
+            &verbose,
+            "IndexRange(z_tier_handle_idx)",
+            "index:a_tier_label_idx=order_compatible_preferred",
+            context,
         );
-
-    assert_verbose_access_choice(
-        &verbose,
-        "IndexRange(z_tier_handle_idx)",
-        "index:a_tier_label_idx=order_compatible_preferred",
-        "session descending verbose composite order-only explain",
-    );
+    }
 }

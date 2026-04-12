@@ -121,7 +121,7 @@ fn assert_expression_covering_read_route(session: &DbSession<SessionSqlCanister>
 }
 
 #[test]
-fn execute_sql_projection_expression_order_query_matches_entity_rows() {
+fn execute_sql_projection_expression_order_matrix_matches_entity_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -138,44 +138,63 @@ fn execute_sql_projection_expression_order_query_matches_entity_rows() {
         ],
     );
 
-    // Phase 2: verify the projection lane keeps the same `LOWER(name), id`
-    // ordering contract as the entity lane and the explicit expected window on
-    // the matching expression index.
-    let sql = "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
-    let projected_rows =
-        dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
-            .expect("expression-order projection query should execute");
-    let entity_rows = session
-        .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)
-        .expect("expression-order entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
+    // Phase 2: verify both ascending and descending expression order keep the
+    // same `LOWER(name), id` ordering contract on the projection and entity lanes.
+    for (sql, expected_rows, context) in [
+        (
+            "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
             vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().name.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        vec![
-            Value::Ulid(Ulid::from_u128(9_244)),
-            Value::Text("Alex".to_string()),
-        ],
-        vec![
-            Value::Ulid(Ulid::from_u128(9_241)),
-            Value::Text("bob".to_string()),
-        ],
-    ];
+                vec![
+                    Value::Ulid(Ulid::from_u128(9_244)),
+                    Value::Text("Alex".to_string()),
+                ],
+                vec![
+                    Value::Ulid(Ulid::from_u128(9_241)),
+                    Value::Text("bob".to_string()),
+                ],
+            ],
+            "ascending expression order",
+        ),
+        (
+            "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            vec![
+                vec![
+                    Value::Ulid(Ulid::from_u128(9_242)),
+                    Value::Text("zoe".to_string()),
+                ],
+                vec![
+                    Value::Ulid(Ulid::from_u128(9_243)),
+                    Value::Text("sam".to_string()),
+                ],
+            ],
+            "descending expression order",
+        ),
+    ] {
+        let projected_rows =
+            dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
+        let entity_rows = session
+            .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
+        let entity_projected_rows = entity_rows
+            .iter()
+            .map(|row| {
+                vec![
+                    Value::Ulid(row.id().key()),
+                    Value::Text(row.entity_ref().name.clone()),
+                ]
+            })
+            .collect::<Vec<_>>();
 
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "entity execution must honor the LOWER(name), id ordering contract",
-    );
-    assert_eq!(
-        projected_rows, expected_rows,
-        "projection execution must honor the LOWER(name), id ordering contract",
-    );
+        assert_eq!(
+            entity_projected_rows, expected_rows,
+            "{context} entity execution must honor the LOWER(name), id ordering contract",
+        );
+        assert_eq!(
+            projected_rows, expected_rows,
+            "{context} projection execution must honor the LOWER(name), id ordering contract",
+        );
+    }
 }
 
 #[test]
@@ -248,62 +267,6 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
 }
 
 #[test]
-fn execute_sql_projection_expression_order_desc_query_matches_entity_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: reuse one deterministic mixed-case dataset whose primary-key
-    // order disagrees with reverse expression order.
-    seed_expression_order_fixture(
-        &session,
-        &[
-            (9_243_u128, "sam", 10),
-            (9_244, "Alex", 20),
-            (9_241, "bob", 30),
-            (9_242, "zoe", 40),
-        ],
-    );
-
-    // Phase 2: verify descending expression order stays explicit on both the
-    // projection and entity lanes.
-    let sql = "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2";
-    let projected_rows =
-        dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
-            .expect("descending expression-order projection query should execute");
-    let entity_rows = session
-        .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)
-        .expect("descending expression-order entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().name.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = vec![
-        vec![
-            Value::Ulid(Ulid::from_u128(9_242)),
-            Value::Text("zoe".to_string()),
-        ],
-        vec![
-            Value::Ulid(Ulid::from_u128(9_243)),
-            Value::Text("sam".to_string()),
-        ],
-    ];
-
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "descending entity execution must honor the LOWER(name), id ordering contract",
-    );
-    assert_eq!(
-        projected_rows, expected_rows,
-        "descending projection execution must honor the LOWER(name), id ordering contract",
-    );
-}
-
-#[test]
 fn session_explain_execution_order_only_expression_query_uses_index_range_access() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -333,13 +296,12 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
 }
 
 #[test]
-fn session_explain_execution_expression_key_only_covering_routes_stay_on_covering_family() {
+fn session_explain_execution_expression_key_only_covering_route_matrix_stays_on_covering_family() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic mixed-case dataset so both the
-    // order-only and bounded text-range key-only siblings can prove covering
-    // eligibility without claiming original `name` reconstruction.
+    // Phase 1: seed one deterministic mixed-case dataset so both ascending and
+    // descending key-only siblings stay on the same honest covering family.
     seed_expression_order_fixture(
         &session,
         &[
@@ -350,32 +312,11 @@ fn session_explain_execution_expression_key_only_covering_routes_stay_on_coverin
         ],
     );
 
-    // Phase 2: require the ascending key-only expression routes to stay on
-    // the same planner-proven covering-read family.
-    assert_expression_covering_read_route(&session, false);
-}
-
-#[test]
-fn session_explain_execution_expression_key_only_desc_covering_routes_stay_on_covering_family() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic mixed-case dataset so the descending
-    // order-only and bounded text-range key-only siblings stay on the same
-    // honest covering family.
-    seed_expression_order_fixture(
-        &session,
-        &[
-            (9_265_u128, "sam", 10),
-            (9_266, "Alex", 20),
-            (9_267, "amy", 30),
-            (9_268, "bob", 40),
-        ],
-    );
-
-    // Phase 2: require the descending key-only expression routes to surface
-    // the covering route and planner-proven existing-row mode consistently.
-    assert_expression_covering_read_route(&session, true);
+    // Phase 2: require the ascending and descending key-only expression
+    // routes to surface the covering route consistently.
+    for desc in [false, true] {
+        assert_expression_covering_read_route(&session, desc);
+    }
 }
 
 #[test]

@@ -51,7 +51,7 @@ fn assert_direct_casefold_expression_route(
 }
 
 #[test]
-fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
+fn execute_sql_direct_starts_with_plain_prefix_matrix_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -59,77 +59,66 @@ fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
     // secondary text index used by the strict LIKE prefix regression.
     seed_direct_starts_with_fixture(&session);
 
-    // Phase 2: prove the new direct spelling returns the same indexed
-    // projection rows as the established strict LIKE prefix path.
-    let direct_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    // Phase 2: prove the direct spelling stays aligned with the established
+    // strict LIKE and explicit text-range paths on both public lanes.
+    let projection_direct_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
     )
     .expect("direct STARTS_WITH projection should execute");
-    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
     )
     .expect("strict LIKE prefix projection should execute");
-    let range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC",
     )
     .expect("strict text-range projection should execute");
 
     assert_eq!(
-        direct_rows, like_rows,
+        projection_direct_rows, projection_like_rows,
         "direct STARTS_WITH projection should match the established strict LIKE prefix result set",
     );
     assert_eq!(
-        direct_rows, range_rows,
+        projection_direct_rows, projection_range_rows,
         "direct STARTS_WITH projection should match the equivalent strict text-range result set",
     );
-}
 
-#[test]
-fn execute_sql_entity_direct_starts_with_matches_indexed_like_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic uppercase-prefix dataset under the same
-    // secondary text index used by the strict LIKE prefix regression.
-    seed_direct_starts_with_fixture(&session);
-
-    // Phase 2: prove the direct spelling keeps entity-row execution aligned
-    // with the established strict LIKE prefix path.
-    let direct_rows = session
+    let entity_direct_names = session
         .execute_sql::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
         )
-        .expect("direct STARTS_WITH entity query should execute");
-    let like_rows = session
+        .expect("direct STARTS_WITH entity query should execute")
+        .iter()
+        .map(|row| row.entity_ref().name.clone())
+        .collect::<Vec<_>>();
+    let entity_like_names = session
         .execute_sql::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
         )
-        .expect("strict LIKE prefix entity query should execute");
-    let range_rows = session
+        .expect("strict LIKE prefix entity query should execute")
+        .iter()
+        .map(|row| row.entity_ref().name.clone())
+        .collect::<Vec<_>>();
+    let entity_range_names = session
         .execute_sql::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC",
         )
-        .expect("strict text-range entity query should execute");
+        .expect("strict text-range entity query should execute")
+        .iter()
+        .map(|row| row.entity_ref().name.clone())
+        .collect::<Vec<_>>();
 
-    assert_eq!(direct_rows.len(), like_rows.len());
-    for (direct, like) in direct_rows.iter().zip(like_rows.iter()) {
-        assert_eq!(
-            direct.entity_ref(),
-            like.entity_ref(),
-            "direct STARTS_WITH entity rows should match strict LIKE prefix entity rows",
-        );
-    }
-    assert_eq!(direct_rows.len(), range_rows.len());
-    for (direct, range) in direct_rows.iter().zip(range_rows.iter()) {
-        assert_eq!(
-            direct.entity_ref(),
-            range.entity_ref(),
-            "direct STARTS_WITH entity rows should match strict text-range entity rows",
-        );
-    }
+    assert_eq!(
+        entity_direct_names, entity_like_names,
+        "direct STARTS_WITH entity rows should match strict LIKE prefix entity rows",
+    );
+    assert_eq!(
+        entity_direct_names, entity_range_names,
+        "direct STARTS_WITH entity rows should match strict text-range entity rows",
+    );
 }
 
 #[test]
@@ -167,8 +156,8 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
 }
 
 #[test]
-fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expression_index_route()
-{
+fn session_explain_execution_direct_casefold_equivalent_prefix_matrix_preserves_expression_index_route()
+ {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
@@ -185,6 +174,18 @@ fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expre
         (
             "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
             "LOWER(field) ordered text-range explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
+            "UPPER(field) LIKE explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
+            "direct UPPER(field) STARTS_WITH explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+            "UPPER(field) ordered text-range explain route",
         ),
     ];
 
@@ -229,33 +230,6 @@ fn execute_sql_entity_direct_upper_prefix_matrix_matches_indexed_like_rows() {
                 "{context} should match the established casefold LIKE prefix entity rows",
             );
         }
-    }
-}
-
-#[test]
-fn session_explain_execution_direct_upper_equivalent_prefix_forms_preserve_expression_index_route()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_direct_starts_with_fixture(&session);
-
-    let cases = [
-        (
-            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
-            "UPPER(field) LIKE explain route",
-        ),
-        (
-            "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
-            "direct UPPER(field) STARTS_WITH explain route",
-        ),
-        (
-            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-            "UPPER(field) ordered text-range explain route",
-        ),
-    ];
-
-    for (sql, context) in cases {
-        assert_direct_casefold_expression_route(&session, sql, context);
     }
 }
 

@@ -55,91 +55,85 @@ fn assert_indexed_covering_descriptor(
     );
 }
 
-#[test]
-fn execute_sql_projection_index_coverable_primary_key_and_prefix_field_matches_entity_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+// Enumerate the small set of projected row shapes used by the covering
+// projection parity checks in this file.
+#[derive(Clone, Copy)]
+enum CoveringProjectionShape {
+    IdAndName,
+    NameOnly,
+}
 
-    // Phase 1: seed one deterministic equality-prefix dataset on the indexed
-    // `name` field so the projection lane can stay on the same query shape as
-    // the hot canister attribution benchmark.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alice", 10), ("alice", 20), ("bob", 30), ("carol", 40)],
-    );
-
-    // Phase 2: verify the projection lane returns the same `(id, name)` row
-    // as the entity lane for an index-covered equality-prefix query.
-    let sql =
-        "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1";
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
-        .expect("index-covered projection query should execute");
+// Assert that one SQL surface keeps projection rows in parity with the entity
+// lane after projecting one explicit set of fields.
+fn assert_projection_matches_entity_rows(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    shape: CoveringProjectionShape,
+    context: &str,
+) {
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
     let entity_rows = session
         .execute_sql::<IndexedSessionSqlEntity>(sql)
-        .expect("index-covered entity query should execute");
+        .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
     let entity_projected_rows = entity_rows
         .iter()
-        .map(|row| {
-            vec![
+        .map(|row| match shape {
+            CoveringProjectionShape::IdAndName => vec![
                 Value::Ulid(row.entity_ref().id),
                 Value::Text(row.entity_ref().name.clone()),
-            ]
+            ],
+            CoveringProjectionShape::NameOnly => {
+                vec![Value::Text(row.entity_ref().name.clone())]
+            }
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(entity_projected_rows, projected_rows);
+    assert_eq!(
+        entity_projected_rows, projected_rows,
+        "{context} should keep projection and entity lanes in parity",
+    );
 }
 
 #[test]
-fn execute_sql_projection_index_coverable_secondary_order_field_matches_entity_rows() {
+fn execute_sql_projection_index_covering_matrix_matches_entity_rows() {
     reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+    // Phase 1: run one equality-prefix and two order-only covering shapes
+    // through the same projection/entity parity contract.
+    for (seed, sql, context, shape) in [
+        (
+            "equality_prefix",
+            "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1",
+            "index-covered equality-prefix projection",
+            CoveringProjectionShape::IdAndName,
+        ),
+        (
+            "order_only",
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
+            "secondary-order covering projection",
+            CoveringProjectionShape::NameOnly,
+        ),
+        (
+            "order_only",
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2 OFFSET 1",
+            "secondary-order covering projection page",
+            CoveringProjectionShape::NameOnly,
+        ),
+    ] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic ordered secondary-index dataset on the
-    // indexed `name` field so the projection lane can stay on the same
-    // coverable order-by-name shape tracked by PocketIC attribution.
-    seed_indexed_covering_order_fixture(&session);
+        match seed {
+            "equality_prefix" => seed_indexed_session_sql_entities(
+                &session,
+                &[("alice", 10), ("alice", 20), ("bob", 30), ("carol", 40)],
+            ),
+            "order_only" => seed_indexed_covering_order_fixture(&session),
+            other => panic!("unexpected covering seed family: {other}"),
+        }
 
-    // Phase 2: verify the projection lane returns the same ordered `name`
-    // row as the entity lane for a direct secondary-index covering query.
-    let sql = "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1";
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
-        .expect("secondary-order covering projection query should execute");
-    let entity_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(sql)
-        .expect("secondary-order covering entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
-        .collect::<Vec<_>>();
-
-    assert_eq!(entity_projected_rows, projected_rows);
-}
-
-#[test]
-fn execute_sql_projection_index_coverable_secondary_order_field_with_offset_matches_entity_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic ordered secondary-index dataset so the
-    // covering projection lane can validate post-filter pagination against the
-    // entity lane on the same index-ordered shape.
-    seed_indexed_covering_order_fixture(&session);
-
-    // Phase 2: verify the projection lane preserves the same ordered page
-    // window as the entity lane for a direct secondary-index covering query.
-    let sql = "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2 OFFSET 1";
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
-        .expect("secondary-order covering projection page query should execute");
-    let entity_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(sql)
-        .expect("secondary-order covering entity page query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
-        .collect::<Vec<_>>();
-
-    assert_eq!(entity_projected_rows, projected_rows);
+        assert_projection_matches_entity_rows(&session, sql, shape, context);
+    }
 }
 
 #[test]

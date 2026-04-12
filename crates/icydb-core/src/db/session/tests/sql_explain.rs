@@ -19,6 +19,27 @@ fn assert_explain_identifier_normalization_case(
     );
 }
 
+// Execute one aliased-vs-canonical EXPLAIN pair and assert both spellings stay
+// on the same public logical plan output.
+fn assert_explain_alias_normalization_case<E>(
+    session: &DbSession<SessionSqlCanister>,
+    aliased_sql: &str,
+    canonical_sql: &str,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let aliased = dispatch_explain_sql::<E>(session, aliased_sql)
+        .unwrap_or_else(|err| panic!("{context} aliased SQL should succeed: {err}"));
+    let canonical = dispatch_explain_sql::<E>(session, canonical_sql)
+        .unwrap_or_else(|err| panic!("{context} canonical SQL should succeed: {err}"));
+
+    assert_eq!(
+        aliased, canonical,
+        "{context} should normalize away before EXPLAIN output is rendered",
+    );
+}
+
 #[test]
 fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     reset_session_sql_store();
@@ -136,143 +157,46 @@ fn explain_sql_json_matrix_queries_include_expected_tokens() {
 }
 
 #[test]
-fn explain_sql_execution_returns_descriptor_text() {
+fn explain_sql_delete_rejection_matrix_preserves_unsupported_feature_detail() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN EXECUTION should succeed");
-
-    assert!(
-        explain.contains("node_id=0"),
-        "execution explain output should include the root descriptor node id",
-    );
-    assert!(
-        explain.contains("layer="),
-        "execution explain output should include execution layer annotations",
-    );
-}
-
-#[test]
-fn explain_sql_plan_returns_logical_plan_text() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN should succeed");
-
-    assert!(
-        explain.contains("mode=Load"),
-        "logical explain text should include query mode projection",
-    );
-    assert!(
-        explain.contains("access="),
-        "logical explain text should include projected access shape",
-    );
-}
-
-#[test]
-fn explain_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-    )
-    .expect_err("non-casefold direct STARTS_WITH delete EXPLAIN should stay fail-closed");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    for (sql, feature, context) in [
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+            "EXPLAIN DELETE non-casefold wrapped STARTS_WITH",
         ),
-        "EXPLAIN DELETE should reject non-casefold wrapped direct STARTS_WITH",
-    );
-    assert_sql_unsupported_feature_detail(
-        err,
-        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-    );
-}
-
-#[test]
-fn explain_json_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-    )
-    .expect_err("non-casefold direct STARTS_WITH JSON delete EXPLAIN should stay fail-closed");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+            "EXPLAIN JSON DELETE non-casefold wrapped STARTS_WITH",
         ),
-        "EXPLAIN JSON DELETE should reject non-casefold wrapped direct STARTS_WITH",
-    );
-    assert_sql_unsupported_feature_detail(
-        err,
-        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-    );
-}
-
-#[test]
-fn explain_sql_rejects_join_as_explicit_unsupported_feature() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-    )
-    .expect_err("EXPLAIN should reject JOIN as an explicit unsupported SQL feature");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
+            "JOIN",
+            "EXPLAIN JOIN",
         ),
-        "EXPLAIN JOIN should fail through the unsupported SQL boundary",
-    );
-    assert_sql_unsupported_feature_detail(err, "JOIN");
-}
-
-#[test]
-fn explain_json_sql_rejects_join_as_explicit_unsupported_feature() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
-    )
-    .expect_err("EXPLAIN JSON should reject JOIN as an explicit unsupported SQL feature");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "EXPLAIN JSON SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
+            "JOIN",
+            "EXPLAIN JSON JOIN",
         ),
-        "EXPLAIN JSON JOIN should fail through the unsupported SQL boundary",
-    );
-    assert_sql_unsupported_feature_detail(err, "JOIN");
+    ] {
+        let err = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+            .expect_err("unsupported EXPLAIN feature should stay fail-closed");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "{context} should fail through the unsupported SQL boundary",
+        );
+        assert_sql_unsupported_feature_detail(err, feature);
+    }
 }
 
 #[test]
@@ -316,123 +240,88 @@ fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
 }
 
 #[test]
-fn explain_sql_delete_direct_upper_text_range_preserves_index_range_route() {
+fn explain_sql_delete_direct_text_range_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
-    )
-    .expect("direct UPPER(field) ordered text-range delete EXPLAIN should succeed");
+    for (sql, tokens, context) in [
+        (
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+            &[
+                "mode=Delete",
+                "access=IndexRange",
+                "predicate=And([Compare",
+                "op: Lt, value: Text(\"T\")",
+                "op: Gte, value: Text(\"S\")",
+                "id: TextCasefold",
+            ][..],
+            "direct UPPER(field) ordered text-range delete EXPLAIN",
+        ),
+        (
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+            &[
+                "mode=Delete",
+                "access=IndexRange",
+                "predicate=And([Compare",
+                "op: Lt, value: Text(\"t\")",
+                "op: Gte, value: Text(\"s\")",
+                "id: TextCasefold",
+            ][..],
+            "direct LOWER(field) ordered text-range delete EXPLAIN",
+        ),
+    ] {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "mode=Delete",
-            "access=IndexRange",
-            "predicate=And([Compare",
-            "op: Lt, value: Text(\"T\")",
-            "op: Gte, value: Text(\"S\")",
-            "id: TextCasefold",
-        ],
-        "direct UPPER(field) ordered text-range delete EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("access=FullScan"),
-        "direct UPPER(field) ordered text-range delete EXPLAIN must not fall back to full scan: {explain}",
-    );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            tokens,
+            &format!("{context} should preserve the shared expression index-range route"),
+        );
+        assert!(
+            !explain.contains("access=FullScan"),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
 }
 
 #[test]
-fn explain_sql_delete_direct_lower_text_range_preserves_index_range_route() {
+fn explain_json_sql_direct_text_range_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
-    )
-    .expect("direct LOWER(field) ordered text-range delete EXPLAIN should succeed");
+    for (sql, context) in [
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+            "direct UPPER(field) ordered text-range JSON EXPLAIN",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+            "direct LOWER(field) ordered text-range JSON EXPLAIN",
+        ),
+    ] {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "mode=Delete",
-            "access=IndexRange",
-            "predicate=And([Compare",
-            "op: Lt, value: Text(\"t\")",
-            "op: Gte, value: Text(\"s\")",
-            "id: TextCasefold",
-        ],
-        "direct LOWER(field) ordered text-range delete EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("access=FullScan"),
-        "direct LOWER(field) ordered text-range delete EXPLAIN must not fall back to full scan: {explain}",
-    );
-}
-
-#[test]
-fn explain_json_sql_direct_upper_text_range_preserves_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-    )
-    .expect("direct UPPER(field) ordered text-range JSON EXPLAIN should succeed");
-
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "direct UPPER(field) ordered text-range JSON EXPLAIN should be one JSON object payload",
-    );
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "\"mode\":{\"type\":\"Load\"",
-            "\"access\":{\"type\":\"IndexRange\"",
-            "\"predicate\":\"And([Compare",
-            "id: TextCasefold",
-        ],
-        "direct UPPER(field) ordered text-range JSON EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("\"type\":\"FullScan\""),
-        "direct UPPER(field) ordered text-range JSON EXPLAIN must not fall back to full scan: {explain}",
-    );
-}
-
-#[test]
-fn explain_json_sql_direct_lower_text_range_preserves_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
-    )
-    .expect("direct LOWER(field) ordered text-range JSON EXPLAIN should succeed");
-
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "direct LOWER(field) ordered text-range JSON EXPLAIN should be one JSON object payload",
-    );
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "\"mode\":{\"type\":\"Load\"",
-            "\"access\":{\"type\":\"IndexRange\"",
-            "\"predicate\":\"And([Compare",
-            "id: TextCasefold",
-        ],
-        "direct LOWER(field) ordered text-range JSON EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("\"type\":\"FullScan\""),
-        "direct LOWER(field) ordered text-range JSON EXPLAIN must not fall back to full scan: {explain}",
-    );
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &format!("{context} should preserve the shared expression index-range route"),
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
 }
 
 #[test]
@@ -522,65 +411,42 @@ fn explain_json_sql_direct_lower_equivalent_prefix_forms_preserve_index_range_ro
 }
 
 #[test]
-fn explain_json_sql_delete_direct_upper_text_range_preserves_index_range_route() {
+fn explain_json_sql_delete_direct_text_range_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
-    )
-    .expect("direct UPPER(field) ordered text-range JSON delete EXPLAIN should succeed");
+    for (sql, context) in [
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) ordered text-range JSON delete EXPLAIN",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) ordered text-range JSON delete EXPLAIN",
+        ),
+    ] {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "direct UPPER(field) ordered text-range JSON delete EXPLAIN should be one JSON object payload",
-    );
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "\"mode\":{\"type\":\"Delete\"",
-            "\"access\":{\"type\":\"IndexRange\"",
-            "\"predicate\":\"And([Compare",
-            "id: TextCasefold",
-        ],
-        "direct UPPER(field) ordered text-range JSON delete EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("\"type\":\"FullScan\""),
-        "direct UPPER(field) ordered text-range JSON delete EXPLAIN must not fall back to full scan: {explain}",
-    );
-}
-
-#[test]
-fn explain_json_sql_delete_direct_lower_text_range_preserves_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
-    )
-    .expect("direct LOWER(field) ordered text-range JSON delete EXPLAIN should succeed");
-
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "direct LOWER(field) ordered text-range JSON delete EXPLAIN should be one JSON object payload",
-    );
-    assert_explain_contains_tokens(
-        explain.as_str(),
-        &[
-            "\"mode\":{\"type\":\"Delete\"",
-            "\"access\":{\"type\":\"IndexRange\"",
-            "\"predicate\":\"And([Compare",
-            "id: TextCasefold",
-        ],
-        "direct LOWER(field) ordered text-range JSON delete EXPLAIN should preserve the shared expression index-range route",
-    );
-    assert!(
-        !explain.contains("\"type\":\"FullScan\""),
-        "direct LOWER(field) ordered text-range JSON delete EXPLAIN must not fall back to full scan: {explain}",
-    );
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &format!("{context} should preserve the shared expression index-range route"),
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
 }
 
 #[test]
@@ -716,23 +582,6 @@ fn explain_sql_identifier_normalization_matrix_matches_unqualified_output() {
 }
 
 #[test]
-fn explain_sql_plan_select_distinct_star_marks_distinct_true() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
-    )
-    .expect("EXPLAIN SELECT DISTINCT * should succeed");
-
-    assert!(
-        explain.contains("distinct=true"),
-        "logical explain text should preserve scalar distinct intent",
-    );
-}
-
-#[test]
 fn explain_sql_execution_select_distinct_star_returns_execution_descriptor_text() {
     reset_session_sql_store();
     let session = sql_session();
@@ -746,65 +595,6 @@ fn explain_sql_execution_select_distinct_star_returns_execution_descriptor_text(
     assert!(
         explain.contains("node_id=0"),
         "execution explain output should include the root descriptor node id",
-    );
-}
-
-#[test]
-fn explain_sql_json_returns_logical_plan_json() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN JSON should succeed");
-
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "logical explain JSON should render one JSON object payload",
-    );
-    assert!(
-        explain.contains("\"mode\":{\"type\":\"Load\""),
-        "logical explain JSON should expose structured query mode metadata",
-    );
-    assert!(
-        explain.contains("\"access\":"),
-        "logical explain JSON should include projected access metadata",
-    );
-}
-
-#[test]
-fn explain_sql_json_select_distinct_star_marks_distinct_true() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
-    )
-    .expect("EXPLAIN JSON SELECT DISTINCT * should succeed");
-
-    assert!(
-        explain.contains("\"distinct\":true"),
-        "logical explain JSON should preserve scalar distinct intent",
-    );
-}
-
-#[test]
-fn explain_sql_json_delete_returns_logical_delete_mode() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN JSON DELETE should succeed");
-
-    assert!(
-        explain.contains("\"mode\":{\"type\":\"Delete\""),
-        "logical explain JSON should expose delete query mode metadata",
     );
 }
 
@@ -848,47 +638,28 @@ fn explain_sql_grouped_top_level_distinct_matches_plain_grouped_output() {
 }
 
 #[test]
-fn explain_sql_projection_alias_matches_unaliased_plan_output() {
+fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();
-
-    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN should accept projection aliases");
-    let plain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    )
-    .expect("EXPLAIN should accept the unaliased projection");
-
-    assert_eq!(
-        aliased, plain,
-        "projection aliases should stay presentation-only and not affect EXPLAIN output",
-    );
-}
-
-#[test]
-fn explain_sql_order_by_field_alias_matches_canonical_plan_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 1",
-    )
-    .expect("EXPLAIN should accept ORDER BY field aliases");
-    let canonical = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 1",
-    )
-    .expect("EXPLAIN should accept the canonical field ORDER BY target");
-
-    assert_eq!(
-        aliased, canonical,
-        "ORDER BY field aliases should normalize away before EXPLAIN output is rendered",
-    );
+    for (aliased_sql, canonical_sql, context) in [
+        (
+            "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            "projection aliases",
+        ),
+        (
+            "EXPLAIN SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 1",
+            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 1",
+            "ORDER BY field aliases",
+        ),
+    ] {
+        assert_explain_alias_normalization_case::<SessionSqlEntity>(
+            &session,
+            aliased_sql,
+            canonical_sql,
+            context,
+        );
+    }
 }
 
 #[test]
@@ -922,21 +693,11 @@ fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
 fn explain_sql_order_by_lower_alias_matches_canonical_plan_output() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-
-    let aliased = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+    assert_explain_alias_normalization_case::<ExpressionIndexedSessionSqlEntity>(
         &session,
         "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
-    )
-    .expect("EXPLAIN should accept ORDER BY LOWER(field) aliases on the computed projection lane");
-    let canonical = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
-        &session,
         "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
-    )
-    .expect("EXPLAIN should accept the canonical LOWER(field) order target");
-
-    assert_eq!(
-        aliased, canonical,
-        "ORDER BY LOWER(field) aliases should normalize away before EXPLAIN output is rendered",
+        "ORDER BY LOWER(field) aliases",
     );
 }
 

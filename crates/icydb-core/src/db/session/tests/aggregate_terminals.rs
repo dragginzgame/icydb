@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn session_aggregate_projection_terminals_match_execute_projection() {
+fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -29,7 +29,7 @@ fn session_aggregate_projection_terminals_match_execute_projection() {
         .execute()
         .expect("session aggregate execute-projection baseline should succeed");
 
-    // Phase 2: compare every projection terminal against the execute baseline.
+    // Phase 2: compare the projection terminals against the execute baseline.
     let values = run_session_aggregate_projection_terminal(
         &session,
         SessionAggregateProjectionTerminal::ValuesBy,
@@ -60,6 +60,21 @@ fn session_aggregate_projection_terminals_match_execute_projection() {
         distinct_values,
         SessionAggregateResult::Values(vec![Value::Uint(30), Value::Uint(20), Value::Uint(10),]),
         "session distinct_values_by(rank) should preserve first-observed dedup order",
+    );
+
+    assert!(
+        load_window()
+            .first_value_by("rank")
+            .expect("session aggregate first_value_by(rank) should succeed")
+            == session_aggregate_first_value_by_rank(&expected),
+        "session aggregate first_value_by(rank) should match execute() projection order",
+    );
+    assert_eq!(
+        load_window()
+            .last_value_by("rank")
+            .expect("session aggregate last_value_by(rank) should succeed"),
+        session_aggregate_last_value_by_rank(&expected),
+        "session aggregate last_value_by(rank) should match execute() projection order",
     );
 }
 
@@ -364,52 +379,6 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
             "session ranked projection terminal should match ranked-row projection",
         );
     }
-}
-
-#[test]
-fn session_aggregate_terminal_value_projection_matches_execute_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_3511, 7, 10),
-            (8_3512, 7, 10),
-            (8_3513, 7, 20),
-            (8_3514, 7, 30),
-            (8_3515, 7, 40),
-            (8_3516, 8, 99),
-        ],
-    );
-    let load_window = || {
-        session
-            .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
-            .offset(1)
-            .limit(4)
-    };
-
-    let expected = load_window()
-        .execute()
-        .expect("baseline execute for first/last value projection should succeed");
-    let first = load_window()
-        .first_value_by("rank")
-        .expect("session aggregate first_value_by(rank) should succeed");
-    let last = load_window()
-        .last_value_by("rank")
-        .expect("session aggregate last_value_by(rank) should succeed");
-
-    assert_eq!(
-        first,
-        session_aggregate_first_value_by_rank(&expected),
-        "session aggregate first_value_by(rank) should match execute() projection order",
-    );
-    assert_eq!(
-        last,
-        session_aggregate_last_value_by_rank(&expected),
-        "session aggregate last_value_by(rank) should match execute() projection order",
-    );
 }
 
 #[test]

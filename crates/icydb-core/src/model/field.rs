@@ -139,6 +139,42 @@ pub struct FieldModel {
     pub(crate) storage_decode: FieldStorageDecode,
     /// Leaf payload codec used by slot readers and writers.
     pub(crate) leaf_codec: LeafCodec,
+    /// Insert-time generation contract admitted on reduced SQL write lanes.
+    pub(crate) insert_generation: Option<FieldInsertGeneration>,
+    /// Auto-managed write contract emitted for derive-owned system fields.
+    pub(crate) write_management: Option<FieldWriteManagement>,
+}
+
+///
+/// FieldInsertGeneration
+///
+/// FieldInsertGeneration declares whether one runtime field may be synthesized
+/// by the reduced SQL insert boundary when the user omits that field.
+/// This stays separate from typed-Rust `Default` behavior so write-time
+/// generation remains an explicit schema contract.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldInsertGeneration {
+    /// Generate one fresh `Ulid` value at insert time.
+    Ulid,
+}
+
+///
+/// FieldWriteManagement
+///
+/// FieldWriteManagement declares whether one runtime field is owned by the
+/// write boundary during insert or update synthesis.
+/// This keeps auto-managed system fields explicit in schema/runtime metadata
+/// instead of relying on literal field names in write paths.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldWriteManagement {
+    /// Fill only on insert when the row is first created.
+    CreatedAt,
+    /// Refresh on insert and every update.
+    UpdatedAt,
 }
 
 impl FieldModel {
@@ -178,12 +214,57 @@ impl FieldModel {
         storage_decode: FieldStorageDecode,
         nullable: bool,
     ) -> Self {
+        Self::generated_with_storage_decode_nullability_and_write_policies(
+            name,
+            kind,
+            storage_decode,
+            nullable,
+            None,
+            None,
+        )
+    }
+
+    /// Build one runtime field descriptor with an explicit decode contract, nullability,
+    /// and insert-time generation contract.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated_with_storage_decode_nullability_and_insert_generation(
+        name: &'static str,
+        kind: FieldKind,
+        storage_decode: FieldStorageDecode,
+        nullable: bool,
+        insert_generation: Option<FieldInsertGeneration>,
+    ) -> Self {
+        Self::generated_with_storage_decode_nullability_and_write_policies(
+            name,
+            kind,
+            storage_decode,
+            nullable,
+            insert_generation,
+            None,
+        )
+    }
+
+    /// Build one runtime field descriptor with explicit insert-generation and
+    /// write-management policies.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated_with_storage_decode_nullability_and_write_policies(
+        name: &'static str,
+        kind: FieldKind,
+        storage_decode: FieldStorageDecode,
+        nullable: bool,
+        insert_generation: Option<FieldInsertGeneration>,
+        write_management: Option<FieldWriteManagement>,
+    ) -> Self {
         Self {
             name,
             kind,
             nullable,
             storage_decode,
             leaf_codec: leaf_codec_for(kind, storage_decode),
+            insert_generation,
+            write_management,
         }
     }
 
@@ -215,6 +296,18 @@ impl FieldModel {
     #[must_use]
     pub const fn leaf_codec(&self) -> LeafCodec {
         self.leaf_codec
+    }
+
+    /// Return the reduced-SQL insert-time generation contract for this field.
+    #[must_use]
+    pub const fn insert_generation(&self) -> Option<FieldInsertGeneration> {
+        self.insert_generation
+    }
+
+    /// Return the write-boundary management contract for this field.
+    #[must_use]
+    pub const fn write_management(&self) -> Option<FieldWriteManagement> {
+        self.write_management
     }
 }
 

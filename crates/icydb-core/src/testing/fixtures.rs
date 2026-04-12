@@ -200,6 +200,36 @@ macro_rules! test_entity_schema {
     (@field_model $field_name:expr, $field_kind:expr) => {
         $crate::model::field::FieldModel::generated($field_name, $field_kind)
     };
+    (@field_model $field_name:expr, $field_kind:expr, @generated $field_generation:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $crate::model::field::FieldStorageDecode::ByKind,
+            false,
+            Some($field_generation),
+            None,
+        )
+    };
+    (@field_model $field_name:expr, $field_kind:expr, @managed $field_management:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $crate::model::field::FieldStorageDecode::ByKind,
+            false,
+            None,
+            Some($field_management),
+        )
+    };
+    (@field_model $field_name:expr, $field_kind:expr, @generated $field_generation:expr, @managed $field_management:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $crate::model::field::FieldStorageDecode::ByKind,
+            false,
+            Some($field_generation),
+            Some($field_management),
+        )
+    };
     (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr) => {
         $crate::model::field::FieldModel::generated_with_storage_decode(
             $field_name,
@@ -207,12 +237,42 @@ macro_rules! test_entity_schema {
             $field_decode,
         )
     };
+    (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr, @generated $field_generation:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $field_decode,
+            false,
+            Some($field_generation),
+            None,
+        )
+    };
+    (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr, @managed $field_management:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $field_decode,
+            false,
+            None,
+            Some($field_management),
+        )
+    };
+    (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr, @generated $field_generation:expr, @managed $field_management:expr) => {
+        $crate::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            $field_name,
+            $field_kind,
+            $field_decode,
+            false,
+            Some($field_generation),
+            Some($field_management),
+        )
+    };
     (
         ident = $entity:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? $(, @generated $field_generation:expr )? $(, @managed $field_management:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
     ) => {
         $crate::impl_test_entity_markers!($entity);
@@ -223,7 +283,7 @@ macro_rules! test_entity_schema {
             $pk_index,
             fields = [
                 $(
-                    $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)?)
+                    $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)? $(, @generated $field_generation)? $(, @managed $field_management)?)
                 ),+
             ],
             indexes = [ $( $index ),* ],
@@ -237,7 +297,7 @@ macro_rules! test_entity_schema {
         entity_name = $entity_name:expr,
         entity_tag = $entity_tag:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? $(, @generated $field_generation:expr )? $(, @managed $field_management:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         store = $store_ty:ty,
         canister = $canister_ty:ty,
@@ -247,7 +307,7 @@ macro_rules! test_entity_schema {
             id = $id_ty,
             entity_name = $entity_name,
             pk_index = $pk_index,
-            fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
+            fields = [ $( ($field_name, $field_kind $(, $field_decode )? $(, @generated $field_generation )? $(, @managed $field_management )? ) ),+ ],
             indexes = [ $( $index ),* ],
         }
 
@@ -267,7 +327,7 @@ macro_rules! test_entity_schema {
         entity_name = $entity_name:expr,
         entity_tag = $entity_tag:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? $(, @generated $field_generation:expr )? $(, @managed $field_management:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         store = $store_ty:ty,
         canister = $canister_ty:ty,
@@ -278,7 +338,7 @@ macro_rules! test_entity_schema {
             entity_name = $entity_name,
             entity_tag = $entity_tag,
             pk_index = $pk_index,
-            fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
+            fields = [ $( ($field_name, $field_kind $(, $field_decode )? $(, @generated $field_generation )? $(, @managed $field_management )? ) ),+ ],
             indexes = [ $( $index ),* ],
             store = $store_ty,
             canister = $canister_ty,

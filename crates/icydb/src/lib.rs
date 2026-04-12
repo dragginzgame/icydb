@@ -82,7 +82,8 @@ pub mod model {
 
     pub mod field {
         pub use icydb_core::model::{
-            EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength,
+            EnumVariantModel, FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
+            FieldWriteManagement, RelationStrength,
         };
     }
 

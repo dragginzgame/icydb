@@ -1,66 +1,7 @@
 use super::*;
 
 #[test]
-fn session_aggregate_bytes_matches_execute_window_persisted_payload_sum() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_951, 7, 10),
-            (8_952, 7, 20),
-            (8_953, 7, 35),
-            (8_954, 8, 99),
-            (8_955, 7, 50),
-        ],
-    );
-    let load_window = || {
-        session
-            .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
-            .offset(1)
-            .limit(2)
-    };
-
-    let expected_ids = load_window()
-        .execute()
-        .expect("baseline execute for session bytes parity should succeed")
-        .ids()
-        .map(|id| id.key())
-        .collect();
-    let expected_bytes = session_aggregate_persisted_payload_bytes_for_ids(expected_ids);
-    let actual_bytes = load_window()
-        .bytes()
-        .expect("session bytes terminal should succeed");
-
-    assert_eq!(
-        actual_bytes, expected_bytes,
-        "session bytes parity should match persisted payload byte sum of the effective window",
-    );
-}
-
-#[test]
-fn session_aggregate_bytes_empty_window_returns_zero() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(&session, &[(8_961, 7, 10), (8_962, 7, 20), (8_963, 8, 99)]);
-
-    let actual_bytes = session
-        .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(999))
-        .order_by("rank")
-        .bytes()
-        .expect("session bytes terminal should succeed for empty windows");
-
-    assert_eq!(
-        actual_bytes, 0,
-        "session bytes terminal should return zero for empty windows",
-    );
-}
-
-#[test]
-fn session_aggregate_bytes_by_matches_execute_window_serialized_field_sum() {
+fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -84,36 +25,63 @@ fn session_aggregate_bytes_by_matches_execute_window_serialized_field_sum() {
 
     let expected_response = load_window()
         .execute()
-        .expect("baseline execute for session bytes_by parity should succeed");
-    let expected_bytes =
-        session_aggregate_serialized_field_payload_bytes_for_rows(&expected_response, "rank");
-    let actual_bytes = load_window()
-        .bytes_by("rank")
-        .expect("session bytes_by(rank) terminal should succeed");
+        .expect("baseline execute for session bytes parity should succeed");
+    let expected_ids: Vec<_> = expected_response.ids().map(|id| id.key()).collect();
 
-    assert_eq!(
-        actual_bytes, expected_bytes,
-        "session bytes_by(rank) parity should match serialized field byte sum of the effective window",
-    );
+    for (actual_bytes, expected_bytes, context) in [
+        (
+            load_window()
+                .bytes()
+                .expect("session bytes terminal should succeed"),
+            session_aggregate_persisted_payload_bytes_for_ids(expected_ids),
+            "session bytes parity",
+        ),
+        (
+            load_window()
+                .bytes_by("rank")
+                .expect("session bytes_by(rank) terminal should succeed"),
+            session_aggregate_serialized_field_payload_bytes_for_rows(&expected_response, "rank"),
+            "session bytes_by(rank) parity",
+        ),
+    ] {
+        assert_eq!(
+            actual_bytes, expected_bytes,
+            "{context} should match the execute-window payload byte sum",
+        );
+    }
 }
 
 #[test]
-fn session_aggregate_bytes_by_empty_window_returns_zero() {
+fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(&session, &[(8_991, 7, 10), (8_992, 7, 20), (8_993, 8, 99)]);
 
-    let actual_bytes = session
-        .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(999))
-        .order_by("rank")
-        .bytes_by("rank")
-        .expect("session bytes_by(rank) terminal should succeed for empty windows");
-
-    assert_eq!(
-        actual_bytes, 0,
-        "session bytes_by(rank) terminal should return zero for empty windows",
-    );
+    for (actual_bytes, context) in [
+        (
+            session
+                .load::<SessionAggregateEntity>()
+                .filter(session_aggregate_group_predicate(999))
+                .order_by("rank")
+                .bytes()
+                .expect("session bytes terminal should succeed for empty windows"),
+            "session bytes terminal",
+        ),
+        (
+            session
+                .load::<SessionAggregateEntity>()
+                .filter(session_aggregate_group_predicate(999))
+                .order_by("rank")
+                .bytes_by("rank")
+                .expect("session bytes_by(rank) terminal should succeed for empty windows"),
+            "session bytes_by(rank) terminal",
+        ),
+    ] {
+        assert_eq!(
+            actual_bytes, 0,
+            "{context} should return zero for empty windows"
+        );
+    }
 }
 
 #[test]
@@ -161,7 +129,7 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
 }
 
 #[test]
-fn session_aggregate_explain_bytes_by_projects_terminal_metadata_for_filtered_shape() {
+fn session_aggregate_explain_bytes_by_metadata_matrix_projects_materialized_mode() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -174,7 +142,7 @@ fn session_aggregate_explain_bytes_by_projects_terminal_metadata_for_filtered_sh
         ],
     );
 
-    let descriptor = session
+    let filtered_descriptor = session
         .load::<SessionAggregateEntity>()
         .filter(Predicate::And(vec![
             session_aggregate_group_predicate(7),
@@ -187,36 +155,7 @@ fn session_aggregate_explain_bytes_by_projects_terminal_metadata_for_filtered_sh
         ]))
         .explain_bytes_by("rank")
         .expect("session bytes_by explain should succeed for filtered shapes");
-
-    assert_eq!(
-        descriptor.node_properties().get("terminal"),
-        Some(&Value::from("bytes_by")),
-        "session bytes_by explain should project the terminal label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("terminal_field"),
-        Some(&Value::from("rank")),
-        "session bytes_by explain should preserve the requested terminal field",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("terminal_projection_mode"),
-        Some(&Value::from("field_materialized")),
-        "filtered session bytes_by explain should project the current materialized mode label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("terminal_index_only"),
-        Some(&Value::from(false)),
-        "filtered session bytes_by explain should project index-only=false under current planner access",
-    );
-}
-
-#[test]
-fn session_aggregate_explain_bytes_by_projects_materialized_mode_for_strict_queries() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(&session, &[(8_911, 7, 20), (8_912, 7, 20), (8_913, 8, 30)]);
-
-    let descriptor = session
+    let strict_descriptor = session
         .load_with_consistency::<SessionAggregateEntity>(crate::db::MissingRowPolicy::Error)
         .filter(Predicate::And(vec![
             session_aggregate_group_predicate(7),
@@ -230,16 +169,38 @@ fn session_aggregate_explain_bytes_by_projects_materialized_mode_for_strict_quer
         .explain_bytes_by("rank")
         .expect("session bytes_by explain should succeed for strict load shapes");
 
-    assert_eq!(
-        descriptor.node_properties().get("terminal_projection_mode"),
-        Some(&Value::from("field_materialized")),
-        "strict session bytes_by explain should fail closed to materialized projection mode",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("terminal_index_only"),
-        Some(&Value::from(false)),
-        "strict session bytes_by explain should project index-only=false",
-    );
+    for (descriptor, expect_terminal_metadata, context) in [
+        (
+            &filtered_descriptor,
+            true,
+            "filtered session bytes_by explain",
+        ),
+        (&strict_descriptor, false, "strict session bytes_by explain"),
+    ] {
+        if expect_terminal_metadata {
+            assert_eq!(
+                descriptor.node_properties().get("terminal"),
+                Some(&Value::from("bytes_by")),
+                "{context} should project the terminal label",
+            );
+            assert_eq!(
+                descriptor.node_properties().get("terminal_field"),
+                Some(&Value::from("rank")),
+                "{context} should preserve the requested terminal field",
+            );
+        }
+
+        assert_eq!(
+            descriptor.node_properties().get("terminal_projection_mode"),
+            Some(&Value::from("field_materialized")),
+            "{context} should fail closed to materialized projection mode",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("terminal_index_only"),
+            Some(&Value::from(false)),
+            "{context} should project index-only=false",
+        );
+    }
 }
 
 #[test]

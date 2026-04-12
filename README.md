@@ -93,6 +93,7 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
+- Current branch work on the `0.76` line moves reduced SQL insert omission onto a schema-owned `generated(insert = "...")` field contract, so only schema-marked generated fields can be omitted during typed-dispatch inserts and ordinary `default = ...` values stay a typed-Rust construction concern.
 - Current branch work on the `0.76` line freezes the reduced SQL write-result boundary too: `RETURNING` stays unsupported on reduced SQL writes, so write results remain the existing typed-dispatch after-image payloads instead of growing a second output contract.
 - Current branch work on the `0.76` line adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
 - `0.76.6` widens the reduced SQL write lane with ordered-window `UPDATE`, write-lane aliases, and generated-key `Ulid` inserts while keeping mutation ownership on typed dispatch.
@@ -374,6 +375,9 @@ Typed-dispatch SQL write shapes:
 - `INSERT INTO entity (field, ...) VALUES (...)`
 - multi-row `INSERT ... VALUES (...), (...)`
 - positional `INSERT INTO entity VALUES (...)`
+- omitted insert columns only when the schema marks those fields `generated(insert = "...")`
+  (currently the admitted generated field family is single-value primitive
+  `Ulid`)
 - `INSERT INTO entity (...) SELECT field, ... FROM entity ...` on the same
   typed-dispatch entity lane
 - `UPDATE entity SET field = literal [, ...] WHERE <reduced predicate>`

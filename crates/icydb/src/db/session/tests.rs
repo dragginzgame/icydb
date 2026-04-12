@@ -37,13 +37,27 @@ pub struct FacadeSqlStore {}
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "crate::types::Ulid::generate"
+            default = "crate::types::Ulid::generate",
+            generated(insert = "crate::types::Ulid::generate")
         ),
         field(ident = "name", value(item(prim = "Text"))),
         field(ident = "age", value(item(prim = "Nat64")))
     )
 )]
 pub struct FacadeSqlEntity {}
+
+///
+/// FacadeSqlDefaultOnlyEntity
+///
+#[entity(
+    store = "FacadeSqlStore",
+    pk(field = "id"),
+    fields(
+        field(ident = "id", value(item(prim = "Nat64"))),
+        field(ident = "nickname", value(item(prim = "Text")), default = "\"guest\"")
+    )
+)]
+pub struct FacadeSqlDefaultOnlyEntity {}
 
 fn test_memory(id: u8, label: &str) -> VirtualMemory<DefaultMemoryImpl> {
     MemoryApi::bootstrap_owner_range(env!("CARGO_PKG_NAME"), 240, 250)
@@ -1264,6 +1278,80 @@ fn facade_execute_sql_projection_preserves_unsupported_runtime_contract() {
             "facade execute_sql_projection",
         );
     }
+}
+
+#[test]
+fn facade_execute_sql_dispatch_insert_omits_schema_generated_primary_key() {
+    let session = fresh_facade_session();
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31)",
+        )
+        .expect("facade execute_sql_dispatch should admit inserts that omit schema-generated ids");
+
+    let SqlQueryResult::Projection(rows) = payload else {
+        panic!("facade execute_sql_dispatch insert should return projection payload");
+    };
+    assert_eq!(
+        rows.columns,
+        vec![
+            "id".to_string(),
+            "name".to_string(),
+            "age".to_string(),
+            "created_at".to_string(),
+            "updated_at".to_string(),
+        ],
+        "facade insert projection should preserve entity field order, including managed timestamps",
+    );
+    assert_eq!(
+        rows.row_count, 1,
+        "facade insert projection should expose one inserted row",
+    );
+    assert_eq!(
+        rows.rows.len(),
+        1,
+        "facade insert projection should return one inserted row",
+    );
+    assert!(
+        !rows.rows[0][0].is_empty(),
+        "facade insert projection should synthesize a non-empty generated id",
+    );
+    assert_eq!(
+        rows.rows[0][1],
+        "Ada".to_string(),
+        "facade insert projection should preserve the inserted name",
+    );
+    assert_eq!(
+        rows.rows[0][2],
+        "31".to_string(),
+        "facade insert projection should preserve the inserted age",
+    );
+    assert!(
+        !rows.rows[0][3].is_empty(),
+        "facade insert projection should synthesize a created_at timestamp",
+    );
+    assert!(
+        !rows.rows[0][4].is_empty(),
+        "facade insert projection should synthesize an updated_at timestamp",
+    );
+}
+
+#[test]
+fn facade_execute_sql_dispatch_insert_rejects_omitted_default_only_field() {
+    let session = fresh_facade_session();
+    let err = session
+        .execute_sql_dispatch::<FacadeSqlDefaultOnlyEntity>(
+            "INSERT INTO FacadeSqlDefaultOnlyEntity (id) VALUES (1)",
+        )
+        .expect_err(
+            "facade execute_sql_dispatch should not treat default-only fields as SQL-omittable",
+        );
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("SQL INSERT requires explicit values for non-generated fields nickname"),
+        "facade insert should keep the default-only omission boundary explicit: {err_text}",
+    );
 }
 
 #[test]

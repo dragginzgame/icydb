@@ -9,7 +9,12 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "a", value(item(prim = "Int32")), default = 3),
     )
 )]
@@ -37,7 +42,12 @@ pub struct UnitKey {}
     name = "Potato",
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        default = "Ulid::generate",
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct RenamedEntity {}
 

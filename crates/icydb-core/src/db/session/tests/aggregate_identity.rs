@@ -223,10 +223,21 @@ fn session_aggregate_exists_not_exists_and_is_empty_share_early_stop_scan_budget
 }
 
 #[test]
-fn session_aggregate_primary_key_is_null_lowers_to_empty_access_without_scan() {
+fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and_or_parity() {
     reset_session_sql_store();
     let session = sql_session();
-    seed_session_aggregate_entities(&session, &[(8_411, 7, 10), (8_412, 7, 20), (8_413, 8, 30)]);
+    seed_session_aggregate_entities(
+        &session,
+        &[
+            (8_421, 7, 10),
+            (8_422, 7, 20),
+            (8_423, 7, 30),
+            (8_424, 8, 99),
+        ],
+    );
+
+    // Phase 1: require primary-key IS NULL to lower to an empty access path
+    // without consuming scan budget across the identity terminals.
     let null_pk_window = || {
         session
             .load::<SessionAggregateEntity>()
@@ -234,7 +245,6 @@ fn session_aggregate_primary_key_is_null_lowers_to_empty_access_without_scan() {
                 field: "id".to_string(),
             })
     };
-
     let (actual_count, count_rows_scanned) =
         capture_rows_scanned_for_entity(SessionAggregateEntity::PATH, || null_pk_window().count());
     let (actual_exists, exists_rows_scanned) =
@@ -260,21 +270,9 @@ fn session_aggregate_primary_key_is_null_lowers_to_empty_access_without_scan() {
     assert_eq!(count_rows_scanned, 0);
     assert_eq!(exists_rows_scanned, 0);
     assert_eq!(not_exists_rows_scanned, 0);
-}
 
-#[test]
-fn session_aggregate_primary_key_is_null_or_id_eq_matches_id_eq_branch_parity() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_421, 7, 10),
-            (8_422, 7, 20),
-            (8_423, 7, 30),
-            (8_424, 8, 99),
-        ],
-    );
+    // Phase 2: require one null-or-equality predicate to collapse onto the
+    // equality branch semantics when the null primary-key branch is impossible.
     let target = Value::Ulid(Ulid::from_u128(8_423));
     let eq_id_predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "id",
@@ -366,7 +364,7 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
 }
 
 #[test]
-fn session_aggregate_new_field_aggregates_match_execute_projection() {
+fn session_aggregate_field_aggregates_match_execute_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -380,7 +378,10 @@ fn session_aggregate_new_field_aggregates_match_execute_projection() {
             (8_316, 8, 99),
         ],
     );
-    let load_window = || {
+
+    // Phase 1: use the ordered execute window as the parity baseline for the
+    // newer rank-field aggregate identities.
+    let new_field_window = || {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
@@ -388,47 +389,34 @@ fn session_aggregate_new_field_aggregates_match_execute_projection() {
             .offset(1)
             .limit(4)
     };
-    let expected = load_window()
+    let new_field_expected = new_field_window()
         .execute()
         .expect("session aggregate new-field baseline execute should succeed");
 
     assert_eq!(
-        load_window()
+        new_field_window()
             .median_by("rank")
             .expect("session aggregate median_by(rank) should succeed")
             .map(|id| id.key()),
-        session_aggregate_expected_median_by_rank_id(&expected),
+        session_aggregate_expected_median_by_rank_id(&new_field_expected),
     );
     assert_eq!(
-        load_window()
+        new_field_window()
             .count_distinct_by("rank")
             .expect("session aggregate count_distinct_by(rank) should succeed"),
-        session_aggregate_expected_count_distinct_by_rank(&expected),
+        session_aggregate_expected_count_distinct_by_rank(&new_field_expected),
     );
     assert_eq!(
-        load_window()
+        new_field_window()
             .min_max_by("rank")
             .expect("session aggregate min_max_by(rank) should succeed")
             .map(|(min_id, max_id)| (min_id.key(), max_id.key())),
-        session_aggregate_expected_min_max_by_rank_ids(&expected),
-    );
-}
-
-#[test]
-fn session_aggregate_numeric_field_aggregates_match_execute_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_121, 7, 10),
-            (8_122, 7, 20),
-            (8_123, 7, 35),
-            (8_124, 8, 99),
-        ],
+        session_aggregate_expected_min_max_by_rank_ids(&new_field_expected),
     );
 
-    let expected_response = session
+    // Phase 2: reuse the same fixture to lock numeric field aggregates against
+    // the ordered execute projection contract.
+    let numeric_expected = session
         .load::<SessionAggregateEntity>()
         .filter(session_aggregate_group_predicate(7))
         .order_by("rank")
@@ -437,7 +425,7 @@ fn session_aggregate_numeric_field_aggregates_match_execute_projection() {
 
     let mut expected_sum = crate::types::Decimal::ZERO;
     let mut expected_count = 0u64;
-    for row in expected_response {
+    for row in numeric_expected {
         let rank =
             crate::types::Decimal::from_num(row.entity().rank).expect("rank decimal should build");
         expected_sum += rank;
@@ -511,7 +499,7 @@ fn session_aggregate_numeric_field_prepared_strategy_explain_projects_sum_shape(
 }
 
 #[test]
-fn session_aggregate_numeric_field_explain_uses_prepared_strategy_projection() {
+fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -531,6 +519,9 @@ fn session_aggregate_numeric_field_explain_uses_prepared_strategy_projection() {
     };
     let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
         .expect("rank field slot should resolve");
+
+    // Phase 1: require the public numeric aggregate explains to remain exact
+    // snapshots of the prepared strategy projection.
     let prepared_sum = session
         .explain_query_prepared_aggregate_terminal_with_visible_indexes(
             load_window().query(),
@@ -540,7 +531,7 @@ fn session_aggregate_numeric_field_explain_uses_prepared_strategy_projection() {
     let prepared_avg_distinct = session
         .explain_query_prepared_aggregate_terminal_with_visible_indexes(
             load_window().query(),
-            &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(rank_slot),
+            &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(rank_slot.clone()),
         )
         .expect("prepared numeric AVG DISTINCT explain should build");
     let public_sum = load_window()
@@ -558,29 +549,9 @@ fn session_aggregate_numeric_field_explain_uses_prepared_strategy_projection() {
         session_aggregate_terminal_plan_snapshot(&public_avg_distinct),
         session_aggregate_terminal_plan_snapshot(&prepared_avg_distinct)
     );
-}
 
-#[test]
-fn session_aggregate_projection_terminal_explain_uses_prepared_strategy_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_2321, 7, 10),
-            (8_2322, 7, 20),
-            (8_2323, 7, 20),
-            (8_2324, 8, 99),
-        ],
-    );
-    let load_window = || {
-        session
-            .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
-    };
-    let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
-        .expect("rank field slot should resolve");
+    // Phase 2: require the public projection terminals to remain exact
+    // renderings of the prepared projection strategies.
     let prepared_count_distinct = session
         .explain_query_prepared_projection_terminal_with_visible_indexes(
             load_window().query(),

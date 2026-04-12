@@ -35,7 +35,10 @@ use crate::{
             SqlStatement, SqlTextFunction, SqlUpdateStatement,
         },
     },
-    model::{entity::resolve_field_slot, field::FieldKind},
+    model::{
+        entity::resolve_field_slot,
+        field::{FieldInsertGeneration, FieldKind, FieldModel, FieldWriteManagement},
+    },
     traits::{CanisterKind, EntityKind, EntityValue},
     types::{Timestamp, Ulid},
     value::Value,
@@ -306,14 +309,32 @@ where
     })
 }
 
-// Synthesize one generated SQL primary-key literal when the narrowed write
-// lane owns that generation contract directly instead of requiring one
-// user-authored SQL column.
-fn sql_write_generated_primary_key_value<E>() -> Option<Value>
-where
-    E: EntityKind,
-{
-    matches!(E::MODEL.primary_key.kind(), FieldKind::Ulid).then(|| Value::Ulid(Ulid::generate()))
+// Synthesize one generated SQL insert literal from the schema-owned runtime
+// field contract instead of hard-coding generation at the SQL boundary.
+fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
+    field
+        .insert_generation()
+        .map(|FieldInsertGeneration::Ulid| Value::Ulid(Ulid::generate()))
+}
+
+// Synthesize one auto-managed SQL insert literal from schema-owned runtime
+// field metadata instead of relying on literal timestamp field names.
+fn sql_write_managed_insert_field_value(field: &FieldModel, now: &Value) -> Option<Value> {
+    match field.write_management() {
+        Some(FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt) => {
+            Some(now.clone())
+        }
+        None => None,
+    }
+}
+
+// Synthesize one auto-managed SQL update literal from schema-owned runtime
+// field metadata.
+fn sql_write_managed_update_field_value(field: &FieldModel, now: &Value) -> Option<Value> {
+    match field.write_management() {
+        Some(FieldWriteManagement::UpdatedAt) => Some(now.clone()),
+        Some(FieldWriteManagement::CreatedAt) | None => None,
+    }
 }
 
 // Normalize one reduced-SQL write literal onto the target entity field kind
@@ -338,20 +359,70 @@ where
     Ok(normalized)
 }
 
-// Mirror the derive-owned system timestamp contract on the structural SQL
-// write lane so schema-derived entities stay writable without exposing those
-// slots as required user-authored SQL columns.
-fn sql_write_system_timestamp_fields<E>() -> Option<(&'static str, &'static str)>
+// Reject explicit user-authored writes to schema-managed fields so reduced SQL
+// does not silently accept values that the write boundary will overwrite.
+fn reject_explicit_sql_write_to_managed_field<E>(
+    field_name: &str,
+    statement_kind: &str,
+) -> Result<(), QueryError>
 where
     E: EntityKind,
 {
-    if resolve_field_slot(E::MODEL, "created_at").is_some()
-        && resolve_field_slot(E::MODEL, "updated_at").is_some()
-    {
-        return Some(("created_at", "updated_at"));
+    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
+        return Ok(());
+    };
+    let field = &E::MODEL.fields()[field_slot];
+
+    if field.write_management().is_some() {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL {statement_kind} does not allow explicit writes to managed field '{field_name}' in this release"
+        )));
     }
 
-    None
+    Ok(())
+}
+
+// Determine whether one field may be omitted from reduced SQL INSERT because
+// the write lane owns its value synthesis contract.
+fn sql_insert_field_is_omittable(field: &FieldModel) -> bool {
+    if sql_write_generated_field_value(field).is_some() {
+        return true;
+    }
+
+    field.write_management().is_some()
+}
+
+// Reject explicit INSERT column lists that omit non-generated user fields so
+// reduced SQL does not silently consume typed-Rust defaults.
+fn validate_sql_insert_required_fields<E>(columns: &[String]) -> Result<(), QueryError>
+where
+    E: EntityKind,
+{
+    let missing_required_fields = E::MODEL
+        .fields()
+        .iter()
+        .filter(|field| !columns.iter().any(|column| column == field.name()))
+        .filter(|field| !sql_insert_field_is_omittable(field))
+        .map(FieldModel::name)
+        .collect::<Vec<_>>();
+
+    if missing_required_fields.is_empty() {
+        return Ok(());
+    }
+
+    if missing_required_fields.len() == 1
+        && missing_required_fields[0] == E::MODEL.primary_key.name()
+    {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL INSERT requires primary key column '{}' in this release",
+            E::MODEL.primary_key.name()
+        )));
+    }
+
+    Err(QueryError::unsupported_query(format!(
+        "SQL INSERT requires explicit values for non-generated fields {} in this release",
+        missing_required_fields.join(", ")
+    )))
 }
 
 // Resolve the effective INSERT column list for one reduced SQL write:
@@ -369,13 +440,7 @@ where
                 E::MODEL
                     .fields()
                     .iter()
-                    .filter(|field| {
-                        !matches!(
-                            sql_write_system_timestamp_fields::<E>(),
-                            Some((created_at, updated_at))
-                                if field.name() == created_at || field.name() == updated_at
-                        )
-                    })
+                    .filter(|field| field.write_management().is_none())
                     .count(),
             ),
             SqlProjection::Items(items) => Some(items.len()),
@@ -395,38 +460,25 @@ where
         return statement.columns.clone();
     }
 
-    let timestamp_fields = sql_write_system_timestamp_fields::<E>();
-
     let columns: Vec<String> = E::MODEL
         .fields()
         .iter()
-        .filter(|field| {
-            !matches!(
-                timestamp_fields,
-                Some((created_at, updated_at))
-                    if field.name() == created_at || field.name() == updated_at
-            )
-        })
+        .filter(|field| !sql_insert_field_is_omittable(field))
         .map(|field| field.name().to_string())
         .collect();
-
-    let pk_name = E::MODEL.primary_key.name;
-    if sql_write_generated_primary_key_value::<E>().is_none() {
-        return columns;
-    }
-
-    let generated_key_omitted_columns: Vec<String> = columns
+    let full_columns: Vec<String> = E::MODEL
+        .fields()
         .iter()
-        .filter(|field| field.as_str() != pk_name)
-        .cloned()
+        .filter(|field| field.write_management().is_none())
+        .map(|field| field.name().to_string())
         .collect();
     let first_width = sql_insert_source_width_hint::<E>(&statement.source);
 
-    if first_width == Some(generated_key_omitted_columns.len()) {
-        return generated_key_omitted_columns;
+    if first_width == Some(columns.len()) {
+        return columns;
     }
 
-    columns
+    full_columns
 }
 
 // Validate one INSERT tuple list against the resolved effective column list so
@@ -517,53 +569,62 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: resolve the required primary-key literal from the explicit
-        // INSERT column/value list, or synthesize one generated key when the
-        // narrowed SQL write lane owns that contract for this entity.
+        // INSERT column/value list, or synthesize one schema-generated value
+        // when the target field contract admits omission on insert.
         let pk_name = E::MODEL.primary_key.name;
-        let generated_pk = sql_write_generated_primary_key_value::<E>();
-        let (key, generated_pk_value) =
-            if let Some(pk_index) = columns.iter().position(|field| field == pk_name) {
-                let pk_value = values.get(pk_index).ok_or_else(|| {
-                    QueryError::invariant(
-                        "INSERT primary key column must align with one VALUES literal",
-                    )
-                })?;
-                (sql_write_key_from_literal::<E>(pk_value, pk_name)?, None)
-            } else if let Some(pk_value) = generated_pk {
-                (
-                    sql_write_key_from_literal::<E>(&pk_value, pk_name)?,
-                    Some(pk_value),
+        let generated_fields = E::MODEL
+            .fields()
+            .iter()
+            .filter(|field| !columns.iter().any(|column| column == field.name()))
+            .filter_map(|field| {
+                sql_write_generated_field_value(field).map(|value| (field.name(), value))
+            })
+            .collect::<Vec<_>>();
+        let key = if let Some(pk_index) = columns.iter().position(|field| field == pk_name) {
+            let pk_value = values.get(pk_index).ok_or_else(|| {
+                QueryError::invariant(
+                    "INSERT primary key column must align with one VALUES literal",
                 )
-            } else {
-                return Err(QueryError::unsupported_query(format!(
-                    "SQL INSERT requires primary key column '{pk_name}' in this release"
-                )));
-            };
+            })?;
+            sql_write_key_from_literal::<E>(pk_value, pk_name)?
+        } else if let Some((_, pk_value)) = generated_fields
+            .iter()
+            .find(|(field_name, _)| *field_name == pk_name)
+        {
+            sql_write_key_from_literal::<E>(pk_value, pk_name)?
+        } else {
+            return Err(QueryError::unsupported_query(format!(
+                "SQL INSERT requires primary key column '{pk_name}' in this release"
+            )));
+        };
 
         // Phase 2: lower the explicit column/value pairs onto the structural
         // patch program consumed by the shared save path.
         let mut patch = UpdatePatch::new();
-        if let Some(pk_value) = generated_pk_value {
+        for (field_name, generated_value) in &generated_fields {
             patch = patch
-                .set_field(E::MODEL, pk_name, pk_value)
+                .set_field(E::MODEL, field_name, generated_value.clone())
                 .map_err(QueryError::execute)?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
+            reject_explicit_sql_write_to_managed_field::<E>(field, "INSERT")?;
             let normalized = sql_write_value_for_field::<E>(field, value)?;
             patch = patch
                 .set_field(E::MODEL, field, normalized)
                 .map_err(QueryError::execute)?;
         }
 
-        // Phase 3: synthesize the derive-owned system timestamps when the
-        // target entity carries them, matching the typed write surface.
-        if let Some((created_at, updated_at)) = sql_write_system_timestamp_fields::<E>() {
-            let now = Value::Timestamp(Timestamp::now());
+        // Phase 3: synthesize the derive-emitted managed write fields,
+        // keeping SQL insert aligned with typed writes without keying off
+        // hard-coded timestamp field names.
+        let now = Value::Timestamp(Timestamp::now());
+        for field in E::MODEL.fields() {
+            let Some(value) = sql_write_managed_insert_field_value(field, &now) else {
+                continue;
+            };
+
             patch = patch
-                .set_field(E::MODEL, created_at, now.clone())
-                .map_err(QueryError::execute)?;
-            patch = patch
-                .set_field(E::MODEL, updated_at, now)
+                .set_field(E::MODEL, field.name(), value)
                 .map_err(QueryError::execute)?;
         }
 
@@ -586,6 +647,7 @@ impl<C: CanisterKind> DbSession<C> {
                     "SQL UPDATE does not allow primary key mutation for '{pk_name}' in this release"
                 )));
             }
+            reject_explicit_sql_write_to_managed_field::<E>(assignment.field.as_str(), "UPDATE")?;
             let normalized =
                 sql_write_value_for_field::<E>(assignment.field.as_str(), &assignment.value)?;
 
@@ -594,11 +656,16 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
 
-        // Phase 2: keep structural SQL UPDATE aligned with the derive-owned
-        // auto-updated timestamp contract when the entity carries that field.
-        if let Some((_, updated_at)) = sql_write_system_timestamp_fields::<E>() {
+        // Phase 2: keep structural SQL UPDATE aligned with schema-owned
+        // managed write metadata for auto-updated fields.
+        let now = Value::Timestamp(Timestamp::now());
+        for field in E::MODEL.fields() {
+            let Some(value) = sql_write_managed_update_field_value(field, &now) else {
+                continue;
+            };
+
             patch = patch
-                .set_field(E::MODEL, updated_at, Value::Timestamp(Timestamp::now()))
+                .set_field(E::MODEL, field.name(), value)
                 .map_err(QueryError::execute)?;
         }
 
@@ -761,6 +828,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let columns = sql_insert_columns::<E>(statement);
+        validate_sql_insert_required_fields::<E>(columns.as_slice())?;
         let source_rows = match &statement.source {
             SqlInsertSource::Values(values) => {
                 validate_sql_insert_value_tuple_lengths(columns.as_slice(), values.as_slice())?;

@@ -162,21 +162,31 @@ fn assert_indexed_grouped_ordered_public_case(
 }
 
 #[test]
-fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
+fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity", None)
-        .expect_err(
-            "execute_sql_grouped should keep computed text projection on the dispatch-owned lane",
-        );
+    for (sql, expected_message, context) in [
+        (
+            "SELECT TRIM(name) FROM SessionSqlEntity",
+            "execute_sql_grouped rejects computed text projection",
+            "computed text projection",
+        ),
+        (
+            "SELECT COUNT(*) FROM SessionSqlEntity",
+            "execute_sql_grouped rejects global aggregate SELECT",
+            "global aggregate execution",
+        ),
+    ] {
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+            .expect_err("grouped lane rejection matrix should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("execute_sql_grouped rejects computed text projection"),
-        "execute_sql_grouped should reject computed text projection with an actionable boundary message",
-    );
+        assert!(
+            err.to_string().contains(expected_message),
+            "{context} should preserve the actionable grouped-lane boundary message",
+        );
+    }
 }
 
 #[test]
@@ -239,27 +249,6 @@ fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent()
     assert!(
         query.has_grouping(),
         "grouped aggregate SQL projection lowering should produce grouped query intent",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_rejects_global_aggregate_execution_in_current_lane() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT COUNT(*) FROM SessionSqlEntity",
-            None,
-        )
-        .expect_err(
-            "execute_sql_grouped should keep global aggregate execution on the dedicated aggregate lane",
-        );
-
-    assert!(
-        err.to_string()
-            .contains("execute_sql_grouped rejects global aggregate SELECT"),
-        "execute_sql_grouped should preserve the dedicated aggregate-lane boundary message",
     );
 }
 
@@ -329,73 +318,6 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
 }
 
 #[test]
-fn query_from_sql_indexed_grouped_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*) \
-             FROM IndexedSessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_route_outcome"),
-        Some(&Value::from("materialized_fallback")),
-        "indexed grouped execution explain root should surface the grouped route outcome",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped execution explain root should surface the ordered grouped execution strategy",
-    );
-
-    let grouped_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
-    )
-    .expect(
-        "indexed grouped execution explain should emit an explicit ordered grouped aggregate node",
-    );
-    assert_eq!(
-        grouped_node
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped aggregate node should inherit the same no-fallback planner state",
-    );
-}
-
-#[test]
 fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_publicly() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -405,6 +327,15 @@ fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_
     );
 
     let cases = [
+        (
+            "ordered grouped COUNT(*)",
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            false,
+            false,
+        ),
         (
             "ordered grouped COUNT(field)",
             "SELECT name, COUNT(age) \
@@ -743,67 +674,6 @@ fn execute_sql_grouped_indexed_distinct_aggregate_matrix_preserves_ordered_group
 }
 
 #[test]
-fn query_from_sql_indexed_filtered_grouped_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
-            "SELECT name, COUNT(*) \
-             FROM IndexedSessionSqlEntity \
-             WHERE name = 'alpha' \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed filtered grouped explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed filtered grouped logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed filtered grouped execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed filtered grouped execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed filtered grouped execution explain root should surface the ordered grouped execution strategy",
-    );
-
-    let grouped_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
-    )
-    .expect("indexed filtered grouped execution explain should emit an explicit ordered grouped aggregate node");
-    assert_eq!(
-        grouped_node
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed filtered grouped aggregate node should inherit the same no-fallback planner state",
-    );
-}
-
-#[test]
 fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
 {
     reset_indexed_session_sql_store();
@@ -814,6 +684,16 @@ fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_order
     );
 
     let cases = [
+        (
+            "filtered ordered grouped COUNT(*)",
+            "SELECT name, COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'alpha' \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            false,
+            false,
+        ),
         (
             "filtered ordered grouped SUM(field)",
             "SELECT name, SUM(age) \

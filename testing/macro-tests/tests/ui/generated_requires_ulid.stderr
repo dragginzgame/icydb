@@ -1,0 +1,5 @@
+error: generated(insert = ...) currently supports only primitive Ulid fields
+  --> tests/ui/generated_requires_ulid.rs:25:21
+   |
+25 |             ident = "name",
+   |                     ^^^^^^
