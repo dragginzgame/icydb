@@ -13,21 +13,23 @@ mod surface;
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow, QueryError,
+        DbSession, PersistedRow, QueryError,
         executor::EntityAuthority,
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        sql::{
-            lowering::{
-                bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
-                prepare_sql_statement,
-            },
-            parser::{SqlStatement, parse_sql},
-        },
+        sql::parser::{SqlStatement, parse_sql},
     },
     traits::{CanisterKind, EntityKind, EntityValue},
+};
+
+#[cfg(test)]
+use crate::db::{
+    MissingRowPolicy, PagedGroupedExecutionWithTrace,
+    sql::lowering::{
+        bind_lowered_sql_query, lower_sql_command_from_prepared_statement, prepare_sql_statement,
+    },
 };
 
 use crate::db::session::sql::surface::sql_statement_route_from_statement;
