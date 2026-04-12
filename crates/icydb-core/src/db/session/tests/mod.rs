@@ -384,31 +384,7 @@ impl<C: crate::traits::CanisterKind> SessionSqlLegacyTestExt<C> for DbSession<C>
             ));
         }
 
-        // Keep the legacy grouped helper on the unified statement executor so
-        // grouped computed projection SQL still exercises the shipped grouped
-        // statement path without reintroducing the old runtime wrappers.
-        match self.execute_sql_statement::<E>(sql)? {
-            SqlStatementResult::Grouped {
-                rows, next_cursor, ..
-            } => Ok(PagedGroupedExecutionWithTrace::new(
-                rows,
-                next_cursor.map(String::into_bytes),
-                None,
-            )),
-            SqlStatementResult::Projection { .. } | SqlStatementResult::ProjectionText { .. } => {
-                Err(QueryError::unsupported_query(
-                    "execute_sql_grouped requires grouped SELECT",
-                ))
-            }
-            SqlStatementResult::Count { .. }
-            | SqlStatementResult::Explain(_)
-            | SqlStatementResult::Describe(_)
-            | SqlStatementResult::ShowIndexes(_)
-            | SqlStatementResult::ShowColumns(_)
-            | SqlStatementResult::ShowEntities(_) => Err(QueryError::unsupported_query(
-                "execute_sql_grouped only supports grouped row payloads",
-            )),
-        }
+        self.execute_grouped_sql_query_for_tests::<E>(sql, cursor_token)
     }
 }
 

@@ -13,13 +13,19 @@ mod surface;
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow, QueryError,
         executor::EntityAuthority,
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        sql::parser::{SqlStatement, parse_sql},
+        sql::{
+            lowering::{
+                bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
+                prepare_sql_statement,
+            },
+            parser::{SqlStatement, parse_sql},
+        },
     },
     traits::{CanisterKind, EntityKind, EntityValue},
 };
@@ -181,5 +187,75 @@ impl<C: CanisterKind> DbSession<C> {
         Self::ensure_sql_update_statement_supported(&parsed.statement)?;
 
         self.execute_sql_statement_parsed::<E>(&parsed)
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn execute_grouped_sql_query_for_tests<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let parsed = self.parse_sql_statement(sql)?;
+
+        // Keep grouped computed SQL on the same computed-projection plan used
+        // by the live statement executor while preserving grouped cursor
+        // behavior for the legacy session test helpers.
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+            let lowered = lower_sql_command_from_prepared_statement(
+                prepare_sql_statement(plan.cloned_base_statement(), E::MODEL.name())
+                    .map_err(QueryError::from_sql_lowering_error)?,
+                E::MODEL.primary_key.name,
+            )
+            .map_err(QueryError::from_sql_lowering_error)?;
+            let Some(query) = lowered.query().cloned() else {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped requires grouped SELECT",
+                ));
+            };
+            let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+                .map_err(QueryError::from_sql_lowering_error)?;
+
+            if !query.has_grouping() {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects scalar computed text projection",
+                ));
+            }
+
+            let execution = self.execute_grouped(&query, cursor_token)?;
+            let (rows, continuation_cursor, execution_trace) = execution.into_parts();
+            let rows =
+                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
+
+            return Ok(PagedGroupedExecutionWithTrace::new(
+                rows,
+                continuation_cursor,
+                execution_trace,
+            ));
+        }
+
+        let lowered = lower_sql_command_from_prepared_statement(
+            prepare_sql_statement(parsed.statement, E::MODEL.name())
+                .map_err(QueryError::from_sql_lowering_error)?,
+            E::MODEL.primary_key.name,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(query) = lowered.query().cloned() else {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped requires grouped SELECT",
+            ));
+        };
+        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)?;
+
+        if !query.has_grouping() {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped requires grouped SELECT",
+            ));
+        }
+
+        self.execute_grouped(&query, cursor_token)
     }
 }
