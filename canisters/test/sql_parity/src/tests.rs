@@ -3707,7 +3707,7 @@ mod tests {
 
         assert!(
             explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("OrderByAccessSatisfied")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
                 && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
@@ -3760,7 +3760,7 @@ mod tests {
 
         assert!(
             explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("OrderByAccessSatisfied")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
                 && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
@@ -3787,7 +3787,7 @@ mod tests {
 
         assert!(
             explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("OrderByAccessSatisfied")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
                 && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
@@ -3814,7 +3814,7 @@ mod tests {
 
         assert!(
             explain.contains("IndexRangeScan")
-                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("OrderByAccessSatisfied")
                 && explain.contains("GroupedAggregateOrderedMaterialized")
                 && explain.contains("grouped_plan_fallback_reason=Text(\"none\")")
                 && explain.contains("grouped_execution_mode=Text(\"ordered_materialized\")"),
