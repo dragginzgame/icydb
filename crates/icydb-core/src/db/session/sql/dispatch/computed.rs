@@ -8,13 +8,14 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
-        session::sql::SqlDispatchResult,
-        session::sql::computed_projection,
-        sql::lowering::{
-            LoweredSqlQuery, bind_lowered_sql_select_query_structural,
-            lower_sql_command_from_prepared_statement, prepare_sql_statement,
+        session::sql::{SqlDispatchResult, computed_projection},
+        sql::{
+            lowering::{
+                LoweredSqlQuery, bind_lowered_sql_select_query_structural,
+                lower_sql_command_from_prepared_statement, prepare_sql_statement,
+            },
+            parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlStatement},
         },
-        sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlStatement},
     },
     traits::CanisterKind,
 };
