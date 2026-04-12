@@ -162,7 +162,7 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
             "pub(crate) struct BudgetSafetyMetadata",
         ),
         (
-            "src/db/executor/mutation/save.rs",
+            "src/db/executor/mutation/save/mod.rs",
             "pub(crate) struct SaveExecutor",
         ),
     ];
