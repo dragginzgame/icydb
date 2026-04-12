@@ -87,6 +87,88 @@ fn assert_starts_with_equivalent_range_case(
     );
 }
 
+// Assert one composite `(a = ?, b range)` predicate lowers to the expected
+// shared range-index access shape.
+fn assert_composite_index_range_case(
+    label: &str,
+    predicate: Predicate,
+    expected_prefix: &[Value],
+    expected_lower: Bound<Value>,
+    expected_upper: Bound<Value>,
+) {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(
+        index.name(),
+        RANGE_INDEX_MODEL.name(),
+        "{label}: wrong index"
+    );
+    assert_eq!(prefix, expected_prefix, "{label}: wrong equality prefix");
+    assert_eq!(lower, &expected_lower, "{label}: wrong lower bound");
+    assert_eq!(upper, &expected_upper, "{label}: wrong upper bound");
+}
+
+// Assert one invalid composite range predicate stays fail-closed and does not
+// emit an index-range access path.
+fn assert_rejected_composite_index_range_case(label: &str, predicate: Predicate) {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+
+    assert!(
+        find_index_range(&plan).is_none(),
+        "{label}: invalid range shape must not emit an index-range access path",
+    );
+}
+
+// Assert two equivalent canonicalization inputs lower to the same expected
+// access plan after sorting, deduplication, and bounded rewrite passes.
+fn assert_equivalent_access_plan_case(
+    label: &str,
+    model_factory: fn() -> &'static EntityModel,
+    left: Predicate,
+    right: Predicate,
+    expected_plan: AccessPlan<Value>,
+) {
+    let model = model_factory();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let left_plan =
+        plan_access_for_test(model, schema, Some(&left)).expect("left plan should build");
+    let right_plan =
+        plan_access_for_test(model, schema, Some(&right)).expect("right plan should build");
+
+    assert_eq!(
+        left_plan, right_plan,
+        "{label}: equivalent predicates should canonicalize to identical access plans",
+    );
+    assert_eq!(
+        left_plan, expected_plan,
+        "{label}: canonicalized access plan drifted from the expected normalized shape",
+    );
+}
+
+// Assert one canonicalization input lowers to the expected normalized access
+// plan or fail-closed full-scan shape.
+fn assert_access_plan_case(
+    label: &str,
+    model_factory: fn() -> &'static EntityModel,
+    predicate: Predicate,
+    expected_plan: AccessPlan<Value>,
+) {
+    let model = model_factory();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan, expected_plan,
+        "{label}: canonicalized access plan drifted from the expected normalized shape",
+    );
+}
+
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
@@ -734,231 +816,210 @@ fn plan_access_starts_with_rejects_expression_index() {
 }
 
 #[test]
-fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate_a = compare_strict(
-        "tag",
-        CompareOp::In,
-        Value::List(vec![
-            Value::Text("beta".to_string()),
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ]),
-    );
-    let predicate_b = compare_strict(
-        "tag",
-        CompareOp::In,
-        Value::List(vec![
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ]),
-    );
-
-    let plan_a =
-        plan_access_for_test(model, schema, Some(&predicate_a)).expect("plan should build");
-    let plan_b =
-        plan_access_for_test(model, schema, Some(&predicate_b)).expect("plan should build");
-
-    assert_eq!(
-        plan_a, plan_b,
-        "equivalent secondary IN predicates should canonicalize to identical access plans",
-    );
-    assert_eq!(
-        plan_a,
-        AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: INDEX_MODEL,
-            values: vec![
-                Value::Text("alpha".to_string()),
-                Value::Text("beta".to_string()),
-            ],
-        }),
-        "secondary IN canonicalization should sort and deduplicate lookup values",
-    );
-}
-
-#[test]
-fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate_a = compare_strict(
-        "id",
-        CompareOp::In,
-        Value::List(vec![
-            Value::Ulid(Ulid::from_u128(3)),
-            Value::Ulid(Ulid::from_u128(1)),
-            Value::Ulid(Ulid::from_u128(3)),
-        ]),
-    );
-    let predicate_b = compare_strict(
-        "id",
-        CompareOp::In,
-        Value::List(vec![
-            Value::Ulid(Ulid::from_u128(1)),
-            Value::Ulid(Ulid::from_u128(3)),
-        ]),
-    );
-
-    let plan_a =
-        plan_access_for_test(model, schema, Some(&predicate_a)).expect("plan should build");
-    let plan_b =
-        plan_access_for_test(model, schema, Some(&predicate_b)).expect("plan should build");
-
-    assert_eq!(
-        plan_a, plan_b,
-        "equivalent primary-key IN predicates should canonicalize to identical access plans",
-    );
-    assert_eq!(
-        plan_a,
-        AccessPlan::path(AccessPath::ByKeys(vec![
-            Value::Ulid(Ulid::from_u128(1)),
-            Value::Ulid(Ulid::from_u128(3)),
-        ])),
-        "primary-key IN canonicalization should sort and deduplicate key lists",
-    );
-}
-
-#[test]
-fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_strict(
-        "tag",
-        CompareOp::In,
-        Value::List(vec![Value::Text("alpha".to_string())]),
-    );
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("alpha".to_string())],
-        }),
-    );
-}
-
-#[test]
-fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::Or(vec![
-        compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
-        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
-        compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: INDEX_MODEL,
-            values: vec![
-                Value::Text("alpha".to_string()),
-                Value::Text("beta".to_string()),
-            ],
-        }),
-        "same-field strict OR equality should canonicalize through bounded IN planning",
-    );
-}
-
-#[test]
-fn plan_access_text_casefold_or_eq_lowers_to_expression_index_multi_lookup() {
-    let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::Or(vec![
-        compare_text_casefold(
-            "email",
-            CompareOp::Eq,
-            Value::Text("alice@example.com".to_string()),
+fn plan_access_canonical_in_and_or_matrix() {
+    let cases = vec![
+        (
+            "secondary IN permutation and duplicates",
+            model_with_index as fn() -> &'static EntityModel,
+            compare_strict(
+                "tag",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Text("beta".to_string()),
+                    Value::Text("alpha".to_string()),
+                    Value::Text("beta".to_string()),
+                ]),
+            ),
+            compare_strict(
+                "tag",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Text("alpha".to_string()),
+                    Value::Text("beta".to_string()),
+                ]),
+            ),
+            AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: INDEX_MODEL,
+                values: vec![
+                    Value::Text("alpha".to_string()),
+                    Value::Text("beta".to_string()),
+                ],
+            }),
         ),
-        compare_text_casefold(
-            "email",
-            CompareOp::Eq,
-            Value::Text("BOB@example.com".to_string()),
+        (
+            "primary-key IN permutation and duplicates",
+            model_with_index as fn() -> &'static EntityModel,
+            compare_strict(
+                "id",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Ulid(Ulid::from_u128(3)),
+                    Value::Ulid(Ulid::from_u128(1)),
+                    Value::Ulid(Ulid::from_u128(3)),
+                ]),
+            ),
+            compare_strict(
+                "id",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Ulid(Ulid::from_u128(1)),
+                    Value::Ulid(Ulid::from_u128(3)),
+                ]),
+            ),
+            AccessPlan::path(AccessPath::ByKeys(vec![
+                Value::Ulid(Ulid::from_u128(1)),
+                Value::Ulid(Ulid::from_u128(3)),
+            ])),
         ),
-        compare_text_casefold(
-            "email",
-            CompareOp::Eq,
-            Value::Text("Bob@Example.Com".to_string()),
+        (
+            "secondary OR equality canonicalizes to bounded IN",
+            model_with_index as fn() -> &'static EntityModel,
+            Predicate::Or(vec![
+                compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
+                compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+                compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
+            ]),
+            compare_strict(
+                "tag",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Text("alpha".to_string()),
+                    Value::Text("beta".to_string()),
+                ]),
+            ),
+            AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: INDEX_MODEL,
+                values: vec![
+                    Value::Text("alpha".to_string()),
+                    Value::Text("beta".to_string()),
+                ],
+            }),
         ),
-    ]);
+        (
+            "text-casefold OR equality canonicalizes to expression IN",
+            model_with_expression_casefold_index as fn() -> &'static EntityModel,
+            Predicate::Or(vec![
+                compare_text_casefold(
+                    "email",
+                    CompareOp::Eq,
+                    Value::Text("alice@example.com".to_string()),
+                ),
+                compare_text_casefold(
+                    "email",
+                    CompareOp::Eq,
+                    Value::Text("BOB@example.com".to_string()),
+                ),
+                compare_text_casefold(
+                    "email",
+                    CompareOp::Eq,
+                    Value::Text("Bob@Example.Com".to_string()),
+                ),
+            ]),
+            compare_text_casefold(
+                "email",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Text("bob@example.com".to_string()),
+                    Value::Text("ALICE@example.com".to_string()),
+                    Value::Text("Bob@Example.Com".to_string()),
+                ]),
+            ),
+            AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: EXPRESSION_CASEFOLD_INDEX_MODEL,
+                values: vec![
+                    Value::Text("alice@example.com".to_string()),
+                    Value::Text("bob@example.com".to_string()),
+                ],
+            }),
+        ),
+        (
+            "primary-key OR equality canonicalizes to by-keys",
+            model_with_index as fn() -> &'static EntityModel,
+            Predicate::Or(vec![
+                compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
+                compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(1))),
+                compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
+            ]),
+            compare_strict(
+                "id",
+                CompareOp::In,
+                Value::List(vec![
+                    Value::Ulid(Ulid::from_u128(1)),
+                    Value::Ulid(Ulid::from_u128(3)),
+                ]),
+            ),
+            AccessPlan::path(AccessPath::ByKeys(vec![
+                Value::Ulid(Ulid::from_u128(1)),
+                Value::Ulid(Ulid::from_u128(3)),
+            ])),
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: EXPRESSION_CASEFOLD_INDEX_MODEL,
-            values: vec![
-                Value::Text("alice@example.com".to_string()),
-                Value::Text("bob@example.com".to_string()),
-            ],
-        }),
-        "same-field text-casefold OR equality should canonicalize through expression-index IN planning",
-    );
+    for (label, model_factory, left, right, expected_plan) in cases {
+        assert_equivalent_access_plan_case(label, model_factory, left, right, expected_plan);
+    }
 }
 
 #[test]
-fn plan_access_stability_primary_key_or_eq_lowers_to_by_keys() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::Or(vec![
-        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
-        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(1))),
-        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
-    ]);
+fn plan_access_in_normalization_matrix() {
+    let cases = vec![
+        (
+            "secondary IN singleton collapses to prefix",
+            model_with_index as fn() -> &'static EntityModel,
+            compare_strict(
+                "tag",
+                CompareOp::In,
+                Value::List(vec![Value::Text("alpha".to_string())]),
+            ),
+            AccessPlan::path(AccessPath::IndexPrefix {
+                index: INDEX_MODEL,
+                values: vec![Value::Text("alpha".to_string())],
+            }),
+        ),
+        (
+            "secondary OR with non-strict branch stays fail-closed",
+            model_with_index as fn() -> &'static EntityModel,
+            Predicate::Or(vec![
+                compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "tag",
+                    CompareOp::Eq,
+                    Value::Text("beta".to_string()),
+                    CoercionId::TextCasefold,
+                )),
+            ]),
+            AccessPlan::full_scan(),
+        ),
+        (
+            "secondary IN empty lowers to empty by-keys",
+            model_with_index as fn() -> &'static EntityModel,
+            compare_strict("tag", CompareOp::In, Value::List(Vec::new())),
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        ),
+        (
+            "secondary IN empty inside AND stays empty by-keys",
+            model_with_index as fn() -> &'static EntityModel,
+            Predicate::And(vec![
+                compare_strict("tag", CompareOp::In, Value::List(Vec::new())),
+                compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+            ]),
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        ),
+        (
+            "secondary IN mixed literal types stays fail-closed",
+            model_with_index as fn() -> &'static EntityModel,
+            compare_strict(
+                "tag",
+                CompareOp::In,
+                Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
+            ),
+            AccessPlan::full_scan(),
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::ByKeys(vec![
-            Value::Ulid(Ulid::from_u128(1)),
-            Value::Ulid(Ulid::from_u128(3)),
-        ])),
-        "same-field strict OR equality over primary key should canonicalize into ByKeys",
-    );
-}
-
-#[test]
-fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::Or(vec![
-        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "tag",
-            CompareOp::Eq,
-            Value::Text("beta".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::full_scan(),
-        "OR rewrite must remain fail-closed when any branch is non-strict",
-    );
-}
-
-#[test]
-fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-        "strict secondary IN [] should lower to an explicit empty by-keys access shape",
-    );
+    for (label, model_factory, predicate, expected_plan) in cases {
+        assert_access_plan_case(label, model_factory, predicate, expected_plan);
+    }
 }
 
 #[test]
@@ -985,43 +1046,6 @@ fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_fo
     assert_ne!(
         plan_from_empty_in, plan_from_false,
         "strict secondary IN [] and FALSE should remain distinct at direct access-planning boundary",
-    );
-}
-
-#[test]
-fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("tag", CompareOp::In, Value::List(Vec::new())),
-        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
-        "AND groups that include strict IN [] should collapse to one explicit empty access shape",
-    );
-}
-
-#[test]
-fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_strict(
-        "tag",
-        CompareOp::In,
-        Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
-    );
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert_eq!(
-        plan,
-        AccessPlan::full_scan(),
-        "strict IN pushdown must fail closed when any literal is schema-incompatible",
     );
 }
 
@@ -1178,26 +1202,6 @@ fn plan_access_ignores_non_strict_predicates() {
 }
 
 #[test]
-fn plan_access_emits_index_range_for_prefix_plus_range() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-        compare_strict("b", CompareOp::Lt, Value::Uint(200)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
-    assert_eq!(prefix, [Value::Uint(7)].as_slice());
-    assert_eq!(lower, &Bound::Included(Value::Uint(100)));
-    assert_eq!(upper, &Bound::Excluded(Value::Uint(200)));
-}
-
-#[test]
 fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let model = model_with_range_index();
     let schema = SchemaInfo::cached_for_entity_model(model);
@@ -1254,112 +1258,112 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
 }
 
 #[test]
-fn plan_access_emits_index_range_for_between_equivalent_bounds() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-        compare_strict("b", CompareOp::Lte, Value::Uint(200)),
-    ]);
+fn plan_access_composite_index_range_matrix() {
+    let edge_upper = u64::from(u32::MAX);
+    let cases = vec![
+        (
+            "prefix plus half-open range",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
+                compare_strict("b", CompareOp::Lt, Value::Uint(200)),
+            ]),
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        ),
+        (
+            "prefix plus closed range",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
+                compare_strict("b", CompareOp::Lte, Value::Uint(200)),
+            ]),
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Included(Value::Uint(200)),
+        ),
+        (
+            "edge half-open range",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gte, Value::Uint(0)),
+                compare_strict("b", CompareOp::Lt, Value::Uint(edge_upper)),
+            ]),
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(0)),
+            Bound::Excluded(Value::Uint(edge_upper)),
+        ),
+        (
+            "edge closed range",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gte, Value::Uint(0)),
+                compare_strict("b", CompareOp::Lte, Value::Uint(edge_upper)),
+            ]),
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(0)),
+            Bound::Included(Value::Uint(edge_upper)),
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
-    assert_eq!(prefix, [Value::Uint(7)].as_slice());
-    assert_eq!(lower, &Bound::Included(Value::Uint(100)));
-    assert_eq!(upper, &Bound::Included(Value::Uint(200)));
+    for (label, predicate, expected_prefix, expected_lower, expected_upper) in cases {
+        assert_composite_index_range_case(
+            label,
+            predicate,
+            &expected_prefix,
+            expected_lower,
+            expected_upper,
+        );
+    }
 }
 
 #[test]
-fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(0)),
-        compare_strict("b", CompareOp::Lt, Value::Uint(u64::from(u32::MAX))),
-    ]);
+fn plan_access_rejects_invalid_composite_range_shapes_matrix() {
+    let cases = vec![
+        (
+            "trailing equality after range",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
+                compare_strict("c", CompareOp::Eq, Value::Uint(3)),
+            ]),
+        ),
+        (
+            "missing prefix component",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("c", CompareOp::Gte, Value::Uint(100)),
+            ]),
+        ),
+        (
+            "range before prefix equality",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Gte, Value::Uint(7)),
+                compare_strict("b", CompareOp::Eq, Value::Uint(3)),
+            ]),
+        ),
+        (
+            "empty exclusive interval",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("b", CompareOp::Gt, Value::Uint(100)),
+                compare_strict("b", CompareOp::Lt, Value::Uint(100)),
+            ]),
+        ),
+        (
+            "non-strict numeric widen",
+            Predicate::And(vec![
+                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_numeric_widen("b", CompareOp::Gte, Value::Int(100)),
+                compare_numeric_widen("b", CompareOp::Lte, Value::Uint(200)),
+            ]),
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
-    assert_eq!(prefix, [Value::Uint(7)].as_slice());
-    assert_eq!(lower, &Bound::Included(Value::Uint(0)));
-    assert_eq!(upper, &Bound::Excluded(Value::Uint(u64::from(u32::MAX))));
-}
-
-#[test]
-fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(0)),
-        compare_strict("b", CompareOp::Lte, Value::Uint(u64::from(u32::MAX))),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
-    assert_eq!(prefix, [Value::Uint(7)].as_slice());
-    assert_eq!(lower, &Bound::Included(Value::Uint(0)));
-    assert_eq!(upper, &Bound::Included(Value::Uint(u64::from(u32::MAX))));
-}
-
-#[test]
-fn plan_access_rejects_trailing_equality_after_range() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-        compare_strict("c", CompareOp::Eq, Value::Uint(3)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert!(
-        find_index_range(&plan).is_none(),
-        "range path should be rejected when equality appears after range field"
-    );
-}
-
-#[test]
-fn plan_access_rejects_range_with_missing_prefix_component() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("c", CompareOp::Gte, Value::Uint(100)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert!(
-        find_index_range(&plan).is_none(),
-        "range path should be rejected when first non-equality component is skipped"
-    );
-}
-
-#[test]
-fn plan_access_rejects_range_before_prefix_equality() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Gte, Value::Uint(7)),
-        compare_strict("b", CompareOp::Eq, Value::Uint(3)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert!(
-        find_index_range(&plan).is_none(),
-        "range path should be rejected when equality appears after a leading range field"
-    );
+    for (label, predicate) in cases {
+        assert_rejected_composite_index_range_case(label, predicate);
+    }
 }
 
 #[test]
@@ -1422,39 +1426,5 @@ fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shap
     assert_eq!(
         plan_from_contradiction, plan_from_false,
         "contradictory conjunctions should canonicalize to the same access shape as false",
-    );
-}
-
-#[test]
-fn plan_access_rejects_empty_exclusive_interval() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gt, Value::Uint(100)),
-        compare_strict("b", CompareOp::Lt, Value::Uint(100)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert!(
-        find_index_range(&plan).is_none(),
-        "exclusive equal bounds should be rejected as empty interval"
-    );
-}
-
-#[test]
-fn plan_access_rejects_non_strict_numeric_widen_for_range_bounds() {
-    let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_numeric_widen("b", CompareOp::Gte, Value::Int(100)),
-        compare_numeric_widen("b", CompareOp::Lte, Value::Uint(200)),
-    ]);
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert!(
-        find_index_range(&plan).is_none(),
-        "non-strict numeric widen predicates must not compile into index range access paths"
     );
 }
