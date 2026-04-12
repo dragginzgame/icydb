@@ -234,6 +234,57 @@ fn assert_global_distinct_execution_strategy(label: &str, kind: AggregateKind, t
     );
 }
 
+// Assert one global DISTINCT grouped aggregate shape remains semantically
+// admissible without group keys.
+fn assert_global_distinct_accepts(label: &str, kind: AggregateKind, target_field: &str) {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind,
+            target_field: Some(target_field.to_string()),
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .unwrap_or_else(|_| panic!("{label} should be accepted"));
+}
+
+// Assert the semantic helper and aggregate-expression builder stay in lockstep
+// for supported global DISTINCT grouped aggregate kinds.
+fn assert_global_distinct_shape_helper_matches_expr(
+    label: &str,
+    kind: AggregateKind,
+    target_field: &str,
+) {
+    let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
+    let helper = global_distinct_group_spec_for_semantic_aggregate(kind, target_field, execution)
+        .unwrap_or_else(|_| panic!("{label}: helper shape should build"));
+    let builder = match kind {
+        AggregateKind::Count => GroupSpec::global_distinct_shape_from_aggregate_expr(
+            &crate::db::count_by(target_field).distinct(),
+            execution,
+        ),
+        AggregateKind::Sum => GroupSpec::global_distinct_shape_from_aggregate_expr(
+            &crate::db::sum(target_field).distinct(),
+            execution,
+        ),
+        AggregateKind::Avg => GroupSpec::global_distinct_shape_from_aggregate_expr(
+            &crate::db::avg(target_field).distinct(),
+            execution,
+        ),
+        _ => unreachable!("helper only covers supported grouped DISTINCT builder kinds"),
+    };
+
+    assert_eq!(
+        helper, builder,
+        "{label}: distinct shape helper must match aggregate-expression semantic path",
+    );
+}
+
 fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
     match err {
         PlanError::User(inner) => match inner.as_ref() {
@@ -291,98 +342,41 @@ fn grouped_plan_rejects_empty_group_fields() {
 }
 
 #[test]
-fn grouped_plan_accepts_global_distinct_count_field_without_group_keys() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: Some("tag".to_string()),
-            distinct: true,
-        }],
-    );
+fn grouped_plan_accepts_global_distinct_field_without_group_keys_matrix() {
+    let cases = [
+        (
+            "global grouped COUNT(distinct field)",
+            AggregateKind::Count,
+            "tag",
+        ),
+        (
+            "global grouped SUM(distinct field)",
+            AggregateKind::Sum,
+            "rank",
+        ),
+        (
+            "global grouped AVG(distinct field)",
+            AggregateKind::Avg,
+            "rank",
+        ),
+    ];
 
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("global grouped count(distinct field) should be accepted");
+    for (label, kind, target_field) in cases {
+        assert_global_distinct_accepts(label, kind, target_field);
+    }
 }
 
 #[test]
-fn grouped_plan_accepts_global_distinct_sum_field_without_group_keys() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Sum,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
+fn global_distinct_shape_helper_matches_aggregate_expr_path_matrix() {
+    let cases = [
+        ("count distinct shape", AggregateKind::Count, "tag"),
+        ("sum distinct shape", AggregateKind::Sum, "rank"),
+        ("avg distinct shape", AggregateKind::Avg, "rank"),
+    ];
 
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("global grouped sum(distinct field) should be accepted");
-}
-
-#[test]
-fn grouped_plan_accepts_global_distinct_avg_field_without_group_keys() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("global grouped avg(distinct field) should be accepted");
-}
-
-#[test]
-fn global_distinct_shape_helper_matches_aggregate_expr_path_for_count_sum_and_avg() {
-    let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
-
-    let helper_count =
-        global_distinct_group_spec_for_semantic_aggregate(AggregateKind::Count, "tag", execution)
-            .expect("count distinct helper shape should build");
-    let builder_count = GroupSpec::global_distinct_shape_from_aggregate_expr(
-        &crate::db::count_by("tag").distinct(),
-        execution,
-    );
-    assert_eq!(
-        helper_count, builder_count,
-        "count distinct shape helper must match aggregate-expression semantic path",
-    );
-
-    let helper_sum =
-        global_distinct_group_spec_for_semantic_aggregate(AggregateKind::Sum, "rank", execution)
-            .expect("sum distinct helper shape should build");
-    let builder_sum = GroupSpec::global_distinct_shape_from_aggregate_expr(
-        &crate::db::sum("rank").distinct(),
-        execution,
-    );
-    assert_eq!(
-        helper_sum, builder_sum,
-        "sum distinct shape helper must match aggregate-expression semantic path",
-    );
-
-    let helper_avg =
-        global_distinct_group_spec_for_semantic_aggregate(AggregateKind::Avg, "rank", execution)
-            .expect("avg distinct helper shape should build");
-    let builder_avg = GroupSpec::global_distinct_shape_from_aggregate_expr(
-        &crate::db::avg("rank").distinct(),
-        execution,
-    );
-    assert_eq!(
-        helper_avg, builder_avg,
-        "avg distinct shape helper must match aggregate-expression semantic path",
-    );
+    for (label, kind, target_field) in cases {
+        assert_global_distinct_shape_helper_matches_expr(label, kind, target_field);
+    }
 }
 
 #[test]
