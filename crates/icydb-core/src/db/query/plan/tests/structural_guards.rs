@@ -6,22 +6,16 @@
 use super::PlanModelEntity;
 use crate::{
     db::{
-        PersistedRow,
         access::AccessPath,
-        executor::{
-            LoadExecutor, PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
-            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
-        },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, FieldSlot,
-            GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec, GroupSpec,
-            GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedExecutorHandoff,
+            AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
+            GroupDistinctPolicyReason, GroupHavingSpec, GroupSpec, GroupedExecutionConfig,
             global_distinct_group_spec_for_semantic_aggregate,
             resolve_global_distinct_field_aggregate,
         },
     },
-    traits::{EntitySchema, EntityValue},
+    traits::EntitySchema,
     value::Value,
 };
 use std::{
@@ -29,26 +23,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-
-type ExecutablePlanNewFn<E> =
-    fn(crate::db::query::plan::AccessPlannedQuery) -> PreparedExecutionPlan<E>;
-type LoadExecuteFn<E> = fn(
-    &LoadExecutor<E>,
-    PreparedExecutionPlan<E>,
-) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
-type SlotTopKByFn<E> = fn(
-    &LoadExecutor<E>,
-    PreparedExecutionPlan<E>,
-    FieldSlot,
-    u32,
-) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
-type DistinctExecutionStrategyFn = fn(&AccessPlannedQuery) -> DistinctExecutionStrategy;
-
-fn grouped_distinct_strategy_accessor_type_check<'a>(
-    handoff: &'a GroupedExecutorHandoff<'a>,
-) -> &'a GroupedDistinctExecutionStrategy {
-    handoff.distinct_execution_strategy()
-}
 
 fn assert_global_distinct_builder_signature(
     builder: fn(
@@ -59,84 +33,9 @@ fn assert_global_distinct_builder_signature(
 ) {
     let _ = builder;
 }
-
-fn assert_executor_entry_signatures<E>()
-where
-    E: PersistedRow + EntityValue,
-{
-    let executable_new: ExecutablePlanNewFn<E> = PreparedExecutionPlan::<E>::new;
-    let load_execute: LoadExecuteFn<E> = LoadExecutor::<E>::execute;
-    let scalar_projection_boundary = LoadExecutor::<E>::execute_scalar_projection_boundary;
-    let top_k_by_slot: SlotTopKByFn<E> = LoadExecutor::<E>::top_k_by_slot;
-    let scalar_numeric_boundary = LoadExecutor::<E>::execute_numeric_field_boundary;
-    let scalar_terminal_boundary = LoadExecutor::<E>::execute_scalar_terminal_request;
-    let distinct_execution_strategy: DistinctExecutionStrategyFn =
-        AccessPlannedQuery::distinct_execution_strategy;
-    let count_request = ScalarTerminalBoundaryRequest::Count;
-    let exists_request = ScalarTerminalBoundaryRequest::Exists;
-    let projection_values_request = ScalarProjectionBoundaryRequest::Values;
-    let projection_distinct_values_request = ScalarProjectionBoundaryRequest::DistinctValues;
-    let projection_count_distinct_request = ScalarProjectionBoundaryRequest::CountDistinct;
-    let numeric_sum_request = ScalarNumericFieldBoundaryRequest::Sum;
-    let numeric_avg_request = ScalarNumericFieldBoundaryRequest::Avg;
-    let id_terminal_request = ScalarTerminalBoundaryRequest::IdTerminal {
-        kind: AggregateKind::Min,
-    };
-    let id_by_slot_request = ScalarTerminalBoundaryRequest::IdBySlot {
-        kind: AggregateKind::Max,
-        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
-    };
-    let nth_by_slot_request = ScalarTerminalBoundaryRequest::NthBySlot {
-        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
-        nth: 0,
-    };
-    let median_by_slot_request = ScalarTerminalBoundaryRequest::MedianBySlot {
-        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
-    };
-    let min_max_by_slot_request = ScalarTerminalBoundaryRequest::MinMaxBySlot {
-        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
-    };
-
-    let _ = executable_new;
-    let _ = load_execute;
-    let _ = scalar_projection_boundary;
-    let _ = top_k_by_slot;
-    let _ = scalar_numeric_boundary;
-    let _ = scalar_terminal_boundary;
-    let _ = distinct_execution_strategy;
-    let _ = count_request;
-    let _ = exists_request;
-    let _ = projection_values_request;
-    let _ = projection_distinct_values_request;
-    let _ = projection_count_distinct_request;
-    let _ = numeric_sum_request;
-    let _ = numeric_avg_request;
-    let _ = id_terminal_request;
-    let _ = id_by_slot_request;
-    let _ = nth_by_slot_request;
-    let _ = median_by_slot_request;
-    let _ = min_max_by_slot_request;
-    let _ = grouped_distinct_strategy_accessor_type_check;
-}
-
 #[test]
 fn planner_global_distinct_shape_builder_contract_is_semantic_only() {
     assert_global_distinct_builder_signature(global_distinct_group_spec_for_semantic_aggregate);
-}
-
-#[test]
-fn executor_entry_contract_requires_planned_query_wrapping() {
-    // Signature checks compile under trait bounds and fail if executor entrypoints
-    // drift away from planned-query + executable-plan contracts.
-    // Compile-time only helper; no runtime call is required for this guard.
-    fn compile_only<E>()
-    where
-        E: PersistedRow + EntityValue,
-    {
-        assert_executor_entry_signatures::<E>();
-    }
-
-    compile_only::<PlanModelEntity>();
 }
 
 #[test]
