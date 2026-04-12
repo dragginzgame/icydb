@@ -190,6 +190,12 @@ fn session_aggregate_take_matches_execute_prefix() {
     );
 }
 
+// This ranked-terminal parity test is intentionally table-shaped end to end.
+// Splitting it further would hide the ranked baseline and terminal checks.
+#[expect(
+    clippy::too_many_lines,
+    reason = "table-driven ranked terminal parity test"
+)]
 #[test]
 fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
     reset_session_sql_store();

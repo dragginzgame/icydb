@@ -1,5 +1,11 @@
 use super::*;
 
+// This temporal projection matrix keeps the semantic-type assertions and
+// projection-shape checks together so the temporal contract stays obvious.
+#[expect(
+    clippy::too_many_lines,
+    reason = "temporal projection matrix is intentionally exhaustive"
+)]
 #[test]
 fn session_temporal_projection_matrix_preserves_semantic_types() {
     reset_session_sql_store();

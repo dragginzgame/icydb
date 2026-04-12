@@ -1229,6 +1229,12 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
     }
 }
 
+// This grouped payload matrix is intentionally kept as one table-driven surface
+// contract so grouped dispatch labels, rows, and aliases stay audited together.
+#[expect(
+    clippy::too_many_lines,
+    reason = "grouped payload matrix coverage is table-driven"
+)]
 #[test]
 fn execute_sql_dispatch_grouped_payload_matrix() {
     let cases = [

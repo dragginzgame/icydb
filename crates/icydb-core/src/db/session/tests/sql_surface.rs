@@ -107,6 +107,12 @@ fn assert_sql_statement_route_case(
     );
 }
 
+// This query-surface matrix keeps every non-query statement rejection on one
+// outward contract table so the boundary stays easy to audit.
+#[expect(
+    clippy::too_many_lines,
+    reason = "query-surface rejection matrix is intentionally tabular"
+)]
 #[test]
 fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
     reset_session_sql_store();
@@ -442,6 +448,12 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     );
 }
 
+// This metadata/explain matrix keeps every non-owned statement rejection on
+// one outward surface contract instead of splitting the statement families.
+#[expect(
+    clippy::too_many_lines,
+    reason = "metadata and explain rejection matrix is intentionally tabular"
+)]
 #[test]
 fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
     reset_session_sql_store();
