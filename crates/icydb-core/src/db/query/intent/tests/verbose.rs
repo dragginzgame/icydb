@@ -1,5 +1,9 @@
 use super::support::*;
 
+type VerboseDiagnosticsMapBuilder = fn() -> BTreeMap<String, String>;
+type VerbosePushdownMatrixCase<'a> = (&'a str, VerboseDiagnosticsMapBuilder, &'a str, &'a str);
+type VerboseFallbackMatrixCase<'a> = (&'a str, VerboseDiagnosticsMapBuilder);
+
 #[test]
 fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {
     let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
@@ -811,7 +815,7 @@ fn assert_verbose_pushdown_reason_case(
 
 #[test]
 fn explain_execution_verbose_order_compatible_choice_matrix() {
-    let cases: &[(&str, fn() -> BTreeMap<String, String>, &str, &str)] = &[
+    let cases: &[VerbosePushdownMatrixCase<'_>] = &[
         (
             "prefix choice",
             deterministic_prefix_choice_diagnostics,
@@ -1094,7 +1098,7 @@ fn explain_execution_verbose_fallback_reason_matrix() {
 
 #[test]
 fn explain_execution_verbose_non_strict_fallback_precedence_matrix() {
-    let cases: &[(&str, fn() -> BTreeMap<String, String>)] = &[
+    let cases: &[VerboseFallbackMatrixCase<'_>] = &[
         (
             "non-strict ends-with",
             non_strict_ends_with_fallback_diagnostics,
