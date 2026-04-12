@@ -484,4 +484,38 @@ mod tests {
         assert_eq!(decoded.nickname, "\"guest\"".to_string());
         assert_eq!(decoded.note, None);
     }
+
+    #[test]
+    fn generated_persisted_row_sparse_defaults_converge_with_dense_slot_emission() {
+        let sparse_source = StructuredDefaultedEntityHarness {
+            id: Ulid::from_parts(714, 1),
+            nickname: "custom".to_string(),
+            note: Some("memo".to_string()),
+            ..Default::default()
+        };
+        let mut sparse_slots = capture_entity_slots(&sparse_source);
+
+        sparse_slots[1] = None;
+        sparse_slots[2] = None;
+
+        let decoded = decode_entity_from_captured_slots::<StructuredDefaultedEntityHarness>(
+            sparse_slots.as_slice(),
+        );
+        let expected = StructuredDefaultedEntityHarness {
+            id: sparse_source.id,
+            nickname: "\"guest\"".to_string(),
+            note: None,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            decoded, expected,
+            "sparse slot materialization should land on the same logical after-image as dense defaults",
+        );
+        assert_eq!(
+            capture_entity_slots(&decoded),
+            capture_entity_slots(&expected),
+            "sparse decoded entity should re-emit the same dense slot image as the equivalent full entity",
+        );
+    }
 }
