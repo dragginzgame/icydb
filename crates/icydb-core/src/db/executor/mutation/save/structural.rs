@@ -74,9 +74,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
 
         // Phase 0: reject authored values for insert-generated fields on every
-        // public structural lane. These fields are system-owned on authored
-        // writes: callers may omit them so the system can synthesize them, but
-        // may not author them directly during create or later rewrites.
+        // public structural lane. The one structural exception is the primary
+        // key slot: public structural writes already carry the authoritative
+        // key out of band, so a matching generated primary-key payload in the
+        // patch is redundant identity wiring rather than a second generated
+        // value source.
         if let Some(authored_patch) = authored_patch {
             Self::reject_explicit_generated_fields(mode, authored_patch, old_raw.as_ref())?;
         }
@@ -136,7 +138,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Reject structural patches that try to author schema insert-generated
     // fields directly. Public structural writes must not bypass system-owned
-    // generation on create or later rewrites.
+    // generation on create or later rewrites, except for the redundant primary
+    // key slot because the structural API already carries the authoritative
+    // key separately.
     fn reject_explicit_generated_fields(
         mode: MutationMode,
         patch: &UpdatePatch,
@@ -156,7 +160,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         for entry in patch.entries() {
             let field = &E::MODEL.fields()[entry.slot().index()];
-            if field.insert_generation().is_some() {
+            if field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name() {
                 return Err(InternalError::mutation_generated_field_explicit(
                     E::PATH,
                     field.name(),
