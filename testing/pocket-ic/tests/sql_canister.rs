@@ -2453,15 +2453,17 @@ const GENERATED_DISPATCH_ORDERED_PERF_CASES: &[(&str, &str, &str, u32)] = &[
     ),
 ];
 
-// Keep the typed-dispatch projection smoke cohort in one table so alias,
-// insert, and update shapes all stay on the same lightweight success contract.
-type TypedDispatchProjectionPerfCase<'a> = (&'a str, SqlPerfSurface, &'a str, &'a str, u32, u32);
+// Keep the typed-dispatch smoke cohort in one table so row-producing and
+// count-producing dispatch shapes both assert the `.14` outward contract
+// explicitly instead of assuming every typed dispatch payload is a projection.
+type TypedDispatchPerfCase<'a> = (&'a str, SqlPerfSurface, &'a str, &'a str, &'a str, u32, u32);
 
-const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_>] = &[
+const TYPED_DISPATCH_PERF_CASES: &[TypedDispatchPerfCase<'_>] = &[
     (
         "typed.dispatch.customer_account.lower_order_alias",
         SqlPerfSurface::TypedDispatchCustomerAccount,
         "SELECT LOWER(handle) AS normalized_handle, id FROM CustomerAccount WHERE active = true ORDER BY normalized_handle ASC, id ASC LIMIT 2",
+        "projection",
         "CustomerAccount",
         2,
         5,
@@ -2470,6 +2472,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.customer.table_alias",
         SqlPerfSurface::TypedDispatchCustomer,
         "SELECT customer.name FROM Customer customer WHERE customer.name = 'alice' ORDER BY customer.id ASC LIMIT 1",
+        "projection",
         "Customer",
         1,
         5,
@@ -2478,6 +2481,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.insert",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)",
+        "count",
         "SqlWriteProbe",
         1,
         1,
@@ -2486,6 +2490,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.insert_alias",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "INSERT INTO SqlWriteProbe s (id, name, age) VALUES (2, 'inserted-alias', 22)",
+        "count",
         "SqlWriteProbe",
         1,
         1,
@@ -2494,6 +2499,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.customer.generated_pk_insert",
         SqlPerfSurface::TypedDispatchCustomer,
         "INSERT INTO Customer (name, age) VALUES ('inserted-generated', 22)",
+        "count",
         "Customer",
         1,
         1,
@@ -2502,6 +2508,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.customer.insert_select_generated_pk",
         SqlPerfSurface::TypedDispatchCustomer,
         "INSERT INTO Customer (name, age) SELECT name, age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1",
+        "count",
         "Customer",
         1,
         1,
@@ -2510,6 +2517,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.customer.insert_select_computed_generated_pk",
         SqlPerfSurface::TypedDispatchCustomer,
         "INSERT INTO Customer (name, age) SELECT LOWER(name), age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1",
+        "count",
         "Customer",
         1,
         1,
@@ -2518,6 +2526,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.multi_insert",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)",
+        "count",
         "SqlWriteProbe",
         2,
         1,
@@ -2526,6 +2535,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.positional_insert",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "INSERT INTO SqlWriteProbe VALUES (2, 'positional', 22)",
+        "count",
         "SqlWriteProbe",
         1,
         1,
@@ -2534,6 +2544,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.update",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "UPDATE SqlWriteProbe SET name = 'updated', age = 22 WHERE id = 1",
+        "count",
         "SqlWriteProbe",
         1,
         5,
@@ -2542,6 +2553,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.update_alias",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "UPDATE SqlWriteProbe s SET s.name = 'updated-alias', s.age = 22 WHERE s.id = 1",
+        "count",
         "SqlWriteProbe",
         1,
         5,
@@ -2550,6 +2562,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.equality_predicate_update",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "UPDATE SqlWriteProbe SET name = 'updated-by-eq', age = 22 WHERE age = 21",
+        "count",
         "SqlWriteProbe",
         1,
         1,
@@ -2558,6 +2571,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.predicate_update",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21",
+        "count",
         "SqlWriteProbe",
         1,
         5,
@@ -2566,6 +2580,7 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         "typed.dispatch.sql_write_probe.ordered_window_update",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "UPDATE SqlWriteProbe SET name = 'updated-window', age = 22 WHERE id >= 1 ORDER BY id ASC LIMIT 1",
+        "count",
         "SqlWriteProbe",
         1,
         5,
@@ -3008,14 +3023,22 @@ fn assert_generated_dispatch_attribution_case(
     );
 }
 
-// Assert one typed-dispatch projection perf case against the shared positive
-// sample contract plus the common projection result surface.
-fn assert_typed_dispatch_projection_perf_case(
+// Assert one typed-dispatch perf case against the shared positive sample
+// contract and the explicit `.14` result-kind split.
+fn assert_typed_dispatch_perf_case(
     pic: &Pic,
     canister_id: Principal,
-    case: TypedDispatchProjectionPerfCase<'_>,
+    case: TypedDispatchPerfCase<'_>,
 ) {
-    let (label, surface, sql, expected_entity, expected_row_count, repeat_count) = case;
+    let (
+        label,
+        surface,
+        sql,
+        expected_result_kind,
+        expected_entity,
+        expected_row_count,
+        repeat_count,
+    ) = case;
 
     // Phase 1: request one typed-dispatch sample for the alias, insert, or
     // update shape under test.
@@ -3030,16 +3053,16 @@ fn assert_typed_dispatch_projection_perf_case(
         },
     );
 
-    // Phase 2: keep the shared projection result contract stable across the
-    // typed-dispatch smoke cohort.
+    // Phase 2: keep the mixed projection/count result contract stable across
+    // the typed-dispatch smoke cohort.
     assert_positive_perf_sample(label, &sample);
     assert!(
         sample.outcome.success,
         "{label} typed-dispatch perf sample must succeed: {sample:?}",
     );
     assert_eq!(
-        sample.outcome.result_kind, "projection",
-        "{label} typed-dispatch perf sample should emit the projection result kind",
+        sample.outcome.result_kind, expected_result_kind,
+        "{label} typed-dispatch perf sample should emit the expected result kind",
     );
     assert_eq!(
         sample.outcome.entity.as_deref(),
@@ -4705,10 +4728,10 @@ fn sql_canister_perf_typed_execute_sql_grouped_customer_matrix_surfaces_expected
 }
 
 #[test]
-fn sql_canister_perf_typed_dispatch_projection_matrix_surfaces_expected_values() {
+fn sql_canister_perf_typed_dispatch_matrix_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for case in TYPED_DISPATCH_PROJECTION_PERF_CASES.iter().copied() {
-            assert_typed_dispatch_projection_perf_case(pic, canister_id, case);
+        for case in TYPED_DISPATCH_PERF_CASES.iter().copied() {
+            assert_typed_dispatch_perf_case(pic, canister_id, case);
         }
     });
 }
