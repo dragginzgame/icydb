@@ -1134,13 +1134,11 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue + crate::traits::EntityKind,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Count { .. } => Err(unsupported_sql_dispatch_query_error(
-            "projection column dispatch only supports row-producing SQL dispatch statements",
-        )),
         SqlDispatchResult::Projection { columns, .. }
         | SqlDispatchResult::ProjectionText { columns, .. }
         | SqlDispatchResult::Grouped { columns, .. } => Ok(columns),
-        SqlDispatchResult::Explain(_)
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -1158,16 +1156,14 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Count { .. } => Err(unsupported_sql_dispatch_query_error(
-            "projection row dispatch only supports row-producing SQL dispatch statements",
-        )),
         SqlDispatchResult::Projection { rows, .. } => Ok(rows),
         SqlDispatchResult::ProjectionText { .. } | SqlDispatchResult::Grouped { .. } => {
             Err(unsupported_sql_dispatch_query_error(
                 "projection row dispatch only supports value-row SQL projection payloads",
             ))
         }
-        SqlDispatchResult::Explain(_)
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
