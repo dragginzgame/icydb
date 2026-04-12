@@ -30,6 +30,7 @@ See detailed breakdown:
 
 ## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
 
+- `0.77.1` finishes the SQL cleanup by deleting the last old lane-shaped SQL runtime wrappers from `icydb-core`, keeping only `execute_sql_query::<E>(...)` and `execute_sql_update::<E>(...)` as the live SQL executors while moving the remaining compatibility checks into test-only helpers.
 - `0.77.0` removes public SQL dispatch entirely, moves `query_from_sql(...)` behind the public boundary, keeps one single-entity SQL query executor plus one matching SQL mutation executor, and deletes the broad SQL parity canister/test scaffolding that only existed to exercise the old routed SQL surface.
 
 See detailed breakdown:
