@@ -24,6 +24,143 @@ fn execute_indexed_grouped_case(
         .collect()
 }
 
+// Execute one grouped SQL dispatch case and assert the grouped payload surface
+// stays stable across different projection shapes.
+fn assert_grouped_dispatch_payload_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_columns: &[&str],
+    expected_rows: &[(Value, Vec<Value>)],
+    expected_row_count: u32,
+    context: &str,
+) {
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{context} should execute through dispatch SQL: {err}"));
+
+    let SqlDispatchResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+    } = payload
+    else {
+        panic!("{context} should return grouped payload");
+    };
+
+    assert_eq!(
+        columns,
+        expected_columns
+            .iter()
+            .map(|column| (*column).to_string())
+            .collect::<Vec<_>>(),
+        "{context} should preserve grouped projection labels",
+    );
+    assert_eq!(
+        row_count, expected_row_count,
+        "{context} should report grouped row count",
+    );
+    assert!(
+        next_cursor.is_none(),
+        "{context} should not emit cursor for fully materialized page",
+    );
+
+    let actual_rows = rows
+        .iter()
+        .map(|row| (row.group_key()[0].clone(), row.aggregate_values().to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual_rows, expected_rows,
+        "{context} should preserve grouped row payload values",
+    );
+}
+
+// Execute one qualified-vs-unqualified grouped EXPLAIN pair and assert both
+// surfaces normalize onto the same public output.
+fn assert_grouped_qualified_identifier_explain_case(
+    session: &DbSession<SessionSqlCanister>,
+    qualified_sql: &str,
+    unqualified_sql: &str,
+    context: &str,
+) {
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(session, qualified_sql)
+        .unwrap_or_else(|err| panic!("{context} qualified SQL should succeed: {err}"));
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(session, unqualified_sql)
+        .unwrap_or_else(|err| panic!("{context} unqualified SQL should succeed: {err}"));
+
+    assert_eq!(
+        qualified, unqualified,
+        "{context} qualified grouped identifiers should normalize to the same public output",
+    );
+}
+
+// Assert one indexed grouped SQL explain/execution pair stays on the ordered
+// grouped public contract.
+fn assert_indexed_grouped_ordered_public_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+    expect_grouped_node_contract: bool,
+    expect_route_outcome: bool,
+) {
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
+    let explain = query
+        .explain()
+        .unwrap_or_else(|err| panic!("{context} logical explain should succeed: {err}"));
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: "ordered_group",
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .unwrap_or_else(|err| panic!("{context} execution explain should succeed: {err}"));
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "{context} execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("grouped_execution_mode"),
+        Some(&Value::from("ordered_materialized")),
+        "{context} execution explain root should surface the ordered grouped execution strategy",
+    );
+
+    if expect_route_outcome {
+        assert_eq!(
+            descriptor.node_properties().get("grouped_route_outcome"),
+            Some(&Value::from("materialized_fallback")),
+            "{context} execution explain root should surface the grouped route outcome",
+        );
+    }
+
+    if expect_grouped_node_contract {
+        let grouped_node = explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+        )
+        .unwrap_or_else(|| {
+            panic!("{context} should emit an explicit ordered grouped aggregate node")
+        });
+        assert_eq!(
+            grouped_node
+                .node_properties()
+                .get("grouped_plan_fallback_reason"),
+            Some(&Value::from("none")),
+            "{context} grouped aggregate node should inherit the same no-fallback planner state",
+        );
+    }
+}
+
 #[test]
 fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
     reset_session_sql_store();
@@ -259,8 +396,7 @@ fn query_from_sql_indexed_grouped_explain_and_execution_project_ordered_group_pu
 }
 
 #[test]
-fn query_from_sql_indexed_grouped_count_field_explain_and_execution_project_ordered_group_publicly()
-{
+fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_publicly() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(
@@ -268,278 +404,72 @@ fn query_from_sql_indexed_grouped_count_field_explain_and_execution_project_orde
         &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
     );
 
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+    let cases = [
+        (
+            "ordered grouped COUNT(field)",
             "SELECT name, COUNT(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped COUNT(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped COUNT(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped COUNT(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped COUNT(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped COUNT(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_grouped_sum_field_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "ordered grouped SUM(field)",
             "SELECT name, SUM(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped SUM(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped SUM(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped SUM(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_grouped_avg_field_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "ordered grouped AVG(field)",
             "SELECT name, AVG(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped AVG(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped AVG(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped AVG(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_grouped_min_field_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "ordered grouped MIN(field)",
             "SELECT name, MIN(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped MIN(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped MIN(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped MIN(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped MIN(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped MIN(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_grouped_max_field_explain_and_execution_project_ordered_group_publicly() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "ordered grouped MAX(field)",
             "SELECT name, MAX(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped MAX(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped MAX(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped MAX(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped MAX(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped MAX(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_grouped_mixed_count_and_sum_explain_and_execution_project_ordered_group_publicly()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "ordered grouped mixed COUNT(*) + SUM(field)",
             "SELECT name, COUNT(*), SUM(age) \
              FROM IndexedSessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed grouped mixed COUNT(*) + SUM(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed grouped mixed COUNT(*) + SUM(field) logical explain should succeed");
+            false,
+            false,
+        ),
+    ];
 
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed grouped mixed COUNT(*) + SUM(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should surface the ordered grouped execution strategy",
-    );
+    for (context, sql, expect_grouped_node_contract, expect_route_outcome) in cases {
+        assert_indexed_grouped_ordered_public_case(
+            &session,
+            sql,
+            context,
+            expect_grouped_node_contract,
+            expect_route_outcome,
+        );
+    }
 }
 
 // This is an intentionally table-driven grouped aggregate matrix. Keeping the
@@ -874,8 +804,8 @@ fn query_from_sql_indexed_filtered_grouped_explain_and_execution_project_ordered
 }
 
 #[test]
-fn query_from_sql_indexed_filtered_grouped_sum_field_explain_and_execution_project_ordered_group_publicly()
- {
+fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
+{
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(
@@ -883,92 +813,38 @@ fn query_from_sql_indexed_filtered_grouped_sum_field_explain_and_execution_proje
         &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
     );
 
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+    let cases = [
+        (
+            "filtered ordered grouped SUM(field)",
             "SELECT name, SUM(age) \
              FROM IndexedSessionSqlEntity \
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed filtered grouped SUM(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed filtered grouped SUM(field) logical explain should succeed");
-
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed filtered grouped SUM(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed filtered grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed filtered grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
-    );
-}
-
-#[test]
-fn query_from_sql_indexed_filtered_grouped_avg_field_explain_and_execution_project_ordered_group_publicly()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
-    );
-
-    let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+            false,
+            false,
+        ),
+        (
+            "filtered ordered grouped AVG(field)",
             "SELECT name, AVG(age) \
              FROM IndexedSessionSqlEntity \
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("indexed filtered grouped AVG(field) explain SQL query should lower");
-    let explain = query
-        .explain()
-        .expect("indexed filtered grouped AVG(field) logical explain should succeed");
+            false,
+            false,
+        ),
+    ];
 
-    assert!(matches!(
-        explain.grouping(),
-        ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
-            ..
-        }
-    ));
-
-    let descriptor = query
-        .explain_execution()
-        .expect("indexed filtered grouped AVG(field) execution explain should succeed");
-    assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_plan_fallback_reason"),
-        Some(&Value::from("none")),
-        "indexed filtered grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "indexed filtered grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
-    );
+    for (context, sql, expect_grouped_node_contract, expect_route_outcome) in cases {
+        assert_indexed_grouped_ordered_public_case(
+            &session,
+            sql,
+            context,
+            expect_grouped_node_contract,
+            expect_route_outcome,
+        );
+    }
 }
 
 #[test]
@@ -1512,120 +1388,85 @@ fn execute_sql_rejects_grouped_sql_intent_without_grouped_api() {
 }
 
 #[test]
-fn execute_sql_dispatch_returns_grouped_payload_for_grouped_sql_execution() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-c".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let payload = session
-        .execute_sql_dispatch::<SessionSqlEntity>(
+fn execute_sql_dispatch_grouped_payload_matrix() {
+    let cases = [
+        (
+            "dispatch grouped SQL",
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-        )
-        .expect("dispatch SQL API should execute grouped SQL through the unified surface");
-
-    let SqlDispatchResult::Grouped {
-        columns,
-        rows,
-        row_count,
-        next_cursor,
-    } = payload
-    else {
-        panic!("dispatch SQL API should return grouped payload for grouped SQL");
-    };
-
-    assert_eq!(
-        columns,
-        vec!["age".to_string(), "COUNT(*)".to_string()],
-        "dispatch grouped SQL should preserve grouped projection labels",
-    );
-    assert_eq!(
-        row_count, 2,
-        "dispatch grouped SQL should report grouped row count"
-    );
-    assert!(
-        next_cursor.is_none(),
-        "dispatch grouped SQL should not emit cursor for fully materialized page"
-    );
-    assert_eq!(rows[0].group_key(), [Value::Uint(20)]);
-    assert_eq!(rows[0].aggregate_values(), [Value::Uint(2)]);
-    assert_eq!(rows[1].group_key(), [Value::Uint(32)]);
-    assert_eq!(rows[1].aggregate_values(), [Value::Uint(1)]);
-}
-
-#[test]
-fn execute_sql_dispatch_returns_grouped_payload_for_grouped_computed_text_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_session_sql_entities(
-        &session,
-        &[
-            (" alpha ", 20),
-            (" alpha ", 21),
-            ("beta", 30),
-            ("gamma  ", 40),
-        ],
-    );
-
-    let payload = session
-        .execute_sql_dispatch::<SessionSqlEntity>(
+            vec!["age", "COUNT(*)"],
+            vec![
+                (Value::Uint(20), vec![Value::Uint(2)]),
+                (Value::Uint(32), vec![Value::Uint(1)]),
+            ],
+            2u32,
+        ),
+        (
+            "dispatch grouped computed SQL",
             "SELECT TRIM(name), COUNT(*) \
              FROM SessionSqlEntity \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-        )
-        .expect("dispatch SQL API should execute grouped computed SQL through the unified surface");
+            vec!["TRIM(name)", "COUNT(*)"],
+            vec![
+                (Value::from("alpha"), vec![Value::Uint(2)]),
+                (Value::from("beta"), vec![Value::Uint(1)]),
+                (Value::from("gamma"), vec![Value::Uint(1)]),
+            ],
+            3u32,
+        ),
+    ];
 
-    let SqlDispatchResult::Grouped {
-        columns,
-        rows,
-        row_count,
-        next_cursor,
-    } = payload
-    else {
-        panic!("dispatch SQL API should return grouped payload for grouped computed SQL");
-    };
+    for (context, sql, expected_columns, expected_rows, expected_row_count) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
 
-    assert_eq!(
-        columns,
-        vec!["TRIM(name)".to_string(), "COUNT(*)".to_string()],
-        "dispatch grouped computed SQL should expose computed grouped output labels",
-    );
-    assert_eq!(
-        row_count, 3,
-        "dispatch grouped computed SQL should report grouped row count",
-    );
-    assert!(
-        next_cursor.is_none(),
-        "dispatch grouped computed SQL should not emit cursor for fully materialized page",
-    );
-    assert_eq!(rows[0].group_key(), [Value::from("alpha")]);
-    assert_eq!(rows[0].aggregate_values(), [Value::Uint(2)]);
-    assert_eq!(rows[1].group_key(), [Value::from("beta")]);
-    assert_eq!(rows[1].aggregate_values(), [Value::Uint(1)]);
-    assert_eq!(rows[2].group_key(), [Value::from("gamma")]);
-    assert_eq!(rows[2].aggregate_values(), [Value::Uint(1)]);
+        match context {
+            "dispatch grouped SQL" => {
+                session
+                    .insert(SessionSqlEntity {
+                        id: Ulid::generate(),
+                        name: "aggregate-a".to_string(),
+                        age: 20,
+                    })
+                    .expect("seed insert should succeed");
+                session
+                    .insert(SessionSqlEntity {
+                        id: Ulid::generate(),
+                        name: "aggregate-b".to_string(),
+                        age: 20,
+                    })
+                    .expect("seed insert should succeed");
+                session
+                    .insert(SessionSqlEntity {
+                        id: Ulid::generate(),
+                        name: "aggregate-c".to_string(),
+                        age: 32,
+                    })
+                    .expect("seed insert should succeed");
+            }
+            "dispatch grouped computed SQL" => {
+                seed_session_sql_entities(
+                    &session,
+                    &[
+                        (" alpha ", 20),
+                        (" alpha ", 21),
+                        ("beta", 30),
+                        ("gamma  ", 40),
+                    ],
+                );
+            }
+            _ => unreachable!("grouped payload matrix is fixed"),
+        }
+
+        assert_grouped_dispatch_payload_case(
+            &session,
+            sql,
+            expected_columns.as_slice(),
+            expected_rows.as_slice(),
+            expected_row_count,
+            context,
+        );
+    }
 }
 
 #[test]
@@ -1812,91 +1653,58 @@ fn execute_sql_rejects_grouped_computed_projection_over_non_grouped_field() {
 }
 
 #[test]
-fn explain_sql_plan_grouped_qualified_identifiers_match_unqualified_output() {
+fn explain_sql_grouped_qualified_identifier_matrix_matches_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT SessionSqlEntity.age, COUNT(*) \
+    let cases = [
+        (
+            "grouped logical explain",
+            "EXPLAIN SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("qualified grouped EXPLAIN plan SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT age, COUNT(*) \
+            "EXPLAIN SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("unqualified grouped EXPLAIN plan SQL should succeed");
-
-    assert_eq!(
-        qualified, unqualified,
-        "qualified grouped identifiers should normalize to the same logical EXPLAIN plan output",
-    );
-}
-
-#[test]
-fn explain_sql_execution_grouped_qualified_identifiers_match_unqualified_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT SessionSqlEntity.age, COUNT(*) \
+        ),
+        (
+            "grouped execution explain",
+            "EXPLAIN EXECUTION SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("qualified grouped EXPLAIN execution SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+            "EXPLAIN EXECUTION SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("unqualified grouped EXPLAIN execution SQL should succeed");
-
-    assert_eq!(
-        qualified, unqualified,
-        "qualified grouped identifiers should normalize to the same execution EXPLAIN descriptor output",
-    );
-}
-
-#[test]
-fn explain_sql_json_grouped_qualified_identifiers_match_unqualified_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT SessionSqlEntity.age, COUNT(*) \
+        ),
+        (
+            "grouped json explain",
+            "EXPLAIN JSON SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("qualified grouped EXPLAIN JSON SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT age, COUNT(*) \
+            "EXPLAIN JSON SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("unqualified grouped EXPLAIN JSON SQL should succeed");
+        ),
+    ];
 
-    assert_eq!(
-        qualified, unqualified,
-        "qualified grouped identifiers should normalize to the same EXPLAIN JSON output",
-    );
+    for (context, qualified_sql, unqualified_sql) in cases {
+        assert_grouped_qualified_identifier_explain_case(
+            &session,
+            qualified_sql,
+            unqualified_sql,
+            context,
+        );
+    }
 }

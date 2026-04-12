@@ -211,117 +211,111 @@ fn assert_filtered_composite_covering_route(session: &DbSession<SessionSqlCanist
 }
 
 #[test]
-fn execute_sql_projection_filtered_equivalent_strict_prefix_forms_match_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn execute_sql_projection_filtered_strict_prefix_matrix_matches_guarded_rows() {
+    let cases = [
+        ("filtered simple asc", false, false),
+        ("filtered simple desc", false, true),
+        ("filtered composite asc", true, false),
+        ("filtered composite desc", true, true),
+    ];
 
-    seed_filtered_prefix_fixture(&session);
-    assert_filtered_prefix_projection_parity(
-        &session,
-        false,
-        vec![
-            vec![Value::Text("bravo".to_string())],
-            vec![Value::Text("bristle".to_string())],
-        ],
-    );
+    for (context, composite, desc) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+
+        match (composite, desc) {
+            (false, false) => {
+                seed_filtered_prefix_fixture(&session);
+                assert_filtered_prefix_projection_parity(
+                    &session,
+                    false,
+                    vec![
+                        vec![Value::Text("bravo".to_string())],
+                        vec![Value::Text("bristle".to_string())],
+                    ],
+                );
+            }
+            (false, true) => {
+                seed_filtered_prefix_fixture(&session);
+                assert_filtered_prefix_projection_parity(
+                    &session,
+                    true,
+                    vec![
+                        vec![Value::Text("bristle".to_string())],
+                        vec![Value::Text("bravo".to_string())],
+                    ],
+                );
+            }
+            (true, false) => {
+                seed_filtered_composite_prefix_fixture(&session);
+                assert_filtered_composite_prefix_projection_parity(
+                    &session,
+                    false,
+                    vec![
+                        vec![
+                            Value::Text("gold".to_string()),
+                            Value::Text("bravo".to_string()),
+                        ],
+                        vec![
+                            Value::Text("gold".to_string()),
+                            Value::Text("bristle".to_string()),
+                        ],
+                    ],
+                );
+            }
+            (true, true) => {
+                seed_filtered_composite_prefix_fixture(&session);
+                assert_filtered_composite_prefix_projection_parity(
+                    &session,
+                    true,
+                    vec![
+                        vec![
+                            Value::Text("gold".to_string()),
+                            Value::Text("bristle".to_string()),
+                        ],
+                        vec![
+                            Value::Text("gold".to_string()),
+                            Value::Text("bravo".to_string()),
+                        ],
+                    ],
+                );
+            }
+        }
+
+        let _ = context;
+    }
 }
 
 #[test]
-fn execute_sql_projection_filtered_equivalent_desc_strict_prefix_forms_match_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn session_explain_execution_filtered_strict_prefix_matrix_preserves_covering_route() {
+    let cases = [
+        ("filtered simple asc", false, false),
+        ("filtered simple desc", false, true),
+        ("filtered composite asc", true, false),
+        ("filtered composite desc", true, true),
+    ];
 
-    seed_filtered_prefix_fixture(&session);
-    assert_filtered_prefix_projection_parity(
-        &session,
-        true,
-        vec![
-            vec![Value::Text("bristle".to_string())],
-            vec![Value::Text("bravo".to_string())],
-        ],
-    );
-}
+    for (_context, composite, desc) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-#[test]
-fn session_explain_execution_filtered_equivalent_strict_prefix_forms_preserve_covering_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_prefix_fixture(&session);
-    assert_filtered_prefix_covering_route(&session, false);
-}
-
-#[test]
-fn session_explain_execution_filtered_equivalent_desc_strict_prefix_forms_preserve_covering_route()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_prefix_fixture(&session);
-    assert_filtered_prefix_covering_route(&session, true);
-}
-
-#[test]
-fn execute_sql_projection_filtered_composite_equivalent_strict_prefix_forms_match_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_composite_prefix_fixture(&session);
-    assert_filtered_composite_prefix_projection_parity(
-        &session,
-        false,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-        ],
-    );
-}
-
-#[test]
-fn execute_sql_projection_filtered_composite_equivalent_desc_strict_prefix_forms_match_guarded_rows()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_composite_prefix_fixture(&session);
-    assert_filtered_composite_prefix_projection_parity(
-        &session,
-        true,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
-            ],
-        ],
-    );
-}
-
-#[test]
-fn session_explain_execution_filtered_composite_equivalent_strict_prefix_forms_preserve_covering_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_composite_prefix_fixture(&session);
-    assert_filtered_composite_covering_route(&session, false);
-}
-
-#[test]
-fn session_explain_execution_filtered_composite_equivalent_desc_strict_prefix_forms_preserve_covering_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    seed_filtered_composite_prefix_fixture(&session);
-    assert_filtered_composite_covering_route(&session, true);
+        match (composite, desc) {
+            (false, false) => {
+                seed_filtered_prefix_fixture(&session);
+                assert_filtered_prefix_covering_route(&session, false);
+            }
+            (false, true) => {
+                seed_filtered_prefix_fixture(&session);
+                assert_filtered_prefix_covering_route(&session, true);
+            }
+            (true, false) => {
+                seed_filtered_composite_prefix_fixture(&session);
+                assert_filtered_composite_covering_route(&session, false);
+            }
+            (true, true) => {
+                seed_filtered_composite_prefix_fixture(&session);
+                assert_filtered_composite_covering_route(&session, true);
+            }
+        }
+    }
 }

@@ -23,9 +23,10 @@ pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+    SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.

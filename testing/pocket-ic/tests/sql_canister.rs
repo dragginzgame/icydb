@@ -2497,6 +2497,22 @@ const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_
         1,
     ),
     (
+        "typed.dispatch.customer.insert_select_generated_pk",
+        SqlPerfSurface::TypedDispatchCustomer,
+        "INSERT INTO Customer (name, age) SELECT name, age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1",
+        "Customer",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.customer.insert_select_computed_generated_pk",
+        SqlPerfSurface::TypedDispatchCustomer,
+        "INSERT INTO Customer (name, age) SELECT LOWER(name), age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1",
+        "Customer",
+        1,
+        1,
+    ),
+    (
         "typed.dispatch.sql_write_probe.multi_insert",
         SqlPerfSurface::TypedDispatchSqlWriteProbe,
         "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)",
@@ -6564,6 +6580,26 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "INSERT INTO Customer (name, age) VALUES ('inserted-generated', 22)"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.customer.insert_select_generated_pk",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
+                    sql: "INSERT INTO Customer (name, age) SELECT name, age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.customer.insert_select_computed_generated_pk",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
+                    sql: "INSERT INTO Customer (name, age) SELECT LOWER(name), age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 1,

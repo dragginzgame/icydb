@@ -1,171 +1,153 @@
 use super::*;
 
-#[test]
-fn execute_sql_aggregate_count_star_and_count_field_return_uint() {
-    reset_session_sql_store();
-    let session = sql_session();
+// Execute one aggregate SQL case and assert the scalar aggregate value stays
+// stable for that query spelling.
+fn assert_sql_aggregate_value_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected: Value,
+    context: &str,
+) {
+    let actual = session
+        .execute_sql_aggregate::<SessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{context} aggregate SQL should execute: {err}"));
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-b".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
+    assert_eq!(
+        actual, expected,
+        "{context} should preserve aggregate value"
+    );
+}
 
-    let count_rows = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("COUNT(*) SQL aggregate should execute");
-    let count_field = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT COUNT(age) FROM SessionSqlEntity")
-        .expect("COUNT(field) SQL aggregate should execute");
-    assert_eq!(count_rows, Value::Uint(2));
-    assert_eq!(count_field, Value::Uint(2));
+// Execute one global aggregate EXPLAIN case and assert the public surface keeps
+// the expected stable tokens.
+fn assert_global_aggregate_explain_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    tokens: &[&str],
+    require_json_object: bool,
+    context: &str,
+) {
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
+
+    if require_json_object {
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should render one JSON object payload",
+        );
+    }
+
+    assert_explain_contains_tokens(explain.as_str(), tokens, context);
 }
 
 #[test]
-fn execute_sql_aggregate_sum_with_table_qualified_field_executes() {
+fn execute_sql_aggregate_basic_value_matrix_matches_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
+    seed_session_sql_entities(&session, &[("aggregate-a", 20), ("aggregate-b", 32)]);
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-aggregate-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-aggregate-b".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
+    let cases = [
+        (
+            "count star",
+            "SELECT COUNT(*) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "count field",
+            "SELECT COUNT(age) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "sum",
+            "SELECT SUM(age) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(52u64)),
+        ),
+        (
+            "avg",
+            "SELECT AVG(age) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(26u64)),
+        ),
+        (
+            "min",
+            "SELECT MIN(age) FROM SessionSqlEntity",
+            Value::Uint(20),
+        ),
+        (
+            "max",
+            "SELECT MAX(age) FROM SessionSqlEntity",
+            Value::Uint(32),
+        ),
+        (
+            "qualified sum",
             "SELECT SUM(SessionSqlEntity.age) FROM SessionSqlEntity",
-        )
-        .expect("table-qualified aggregate SQL should execute");
-
-    assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
-}
-
-#[test]
-fn execute_sql_aggregate_distinct_field_qualifiers_return_expected_values() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-distinct-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-distinct-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-distinct-c".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let count = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
-        )
-        .expect("COUNT(DISTINCT field) SQL aggregate should execute");
-    let sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT SUM(DISTINCT age) FROM SessionSqlEntity")
-        .expect("SUM(DISTINCT field) SQL aggregate should execute");
-    let avg = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT AVG(DISTINCT age) FROM SessionSqlEntity")
-        .expect("AVG(DISTINCT field) SQL aggregate should execute");
-    let min = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MIN(DISTINCT age) FROM SessionSqlEntity")
-        .expect("MIN(DISTINCT field) SQL aggregate should execute");
-    let max = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MAX(DISTINCT age) FROM SessionSqlEntity")
-        .expect("MAX(DISTINCT field) SQL aggregate should execute");
-
-    assert_eq!(count, Value::Uint(2));
-    assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
-    assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(26u64)));
-    assert_eq!(min, Value::Uint(20));
-    assert_eq!(max, Value::Uint(32));
-}
-
-#[test]
-fn execute_sql_aggregate_sum_avg_min_max_return_expected_values() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "sumavg-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "sumavg-b".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT SUM(age) FROM SessionSqlEntity")
-        .expect("SUM(field) SQL aggregate should execute");
-    let avg = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT AVG(age) FROM SessionSqlEntity")
-        .expect("AVG(field) SQL aggregate should execute");
-    let min = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MIN(age) FROM SessionSqlEntity")
-        .expect("MIN(field) SQL aggregate should execute");
-    let max = session
-        .execute_sql_aggregate::<SessionSqlEntity>("SELECT MAX(age) FROM SessionSqlEntity")
-        .expect("MAX(field) SQL aggregate should execute");
-    let empty_sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
+            Value::Decimal(crate::types::Decimal::from(52u64)),
+        ),
+        (
+            "empty sum",
             "SELECT SUM(age) FROM SessionSqlEntity WHERE age < 0",
-        )
-        .expect("SUM(field) SQL aggregate empty-window execution should succeed");
-    let empty_min = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
+            Value::Null,
+        ),
+        (
+            "empty min",
             "SELECT MIN(age) FROM SessionSqlEntity WHERE age < 0",
-        )
-        .expect("MIN(field) SQL aggregate empty-window execution should succeed");
-    let empty_max = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
+            Value::Null,
+        ),
+        (
+            "empty max",
             "SELECT MAX(age) FROM SessionSqlEntity WHERE age < 0",
-        )
-        .expect("MAX(field) SQL aggregate empty-window execution should succeed");
+            Value::Null,
+        ),
+    ];
 
-    assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
-    assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(26u64)));
-    assert_eq!(min, Value::Uint(20));
-    assert_eq!(max, Value::Uint(32));
-    assert_eq!(empty_sum, Value::Null);
-    assert_eq!(empty_min, Value::Null);
-    assert_eq!(empty_max, Value::Null);
+    for (context, sql, expected) in cases {
+        assert_sql_aggregate_value_case(&session, sql, expected, context);
+    }
+}
+
+#[test]
+fn execute_sql_aggregate_distinct_value_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-distinct-a", 20),
+            ("aggregate-distinct-b", 20),
+            ("aggregate-distinct-c", 32),
+        ],
+    );
+
+    let cases = [
+        (
+            "distinct count",
+            "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "distinct sum",
+            "SELECT SUM(DISTINCT age) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(52u64)),
+        ),
+        (
+            "distinct avg",
+            "SELECT AVG(DISTINCT age) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(26u64)),
+        ),
+        (
+            "distinct min",
+            "SELECT MIN(DISTINCT age) FROM SessionSqlEntity",
+            Value::Uint(20),
+        ),
+        (
+            "distinct max",
+            "SELECT MAX(DISTINCT age) FROM SessionSqlEntity",
+            Value::Uint(32),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_sql_aggregate_value_case(&session, sql, expected, context);
+    }
 }
 
 #[test]
@@ -462,6 +444,10 @@ fn execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
             "execute_sql_aggregate rejects INSERT",
         ),
         (
+            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            "execute_sql_aggregate rejects INSERT",
+        ),
+        (
             "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
             "execute_sql_aggregate rejects UPDATE",
         ),
@@ -527,66 +513,40 @@ fn explain_sql_json_qualified_aggregate_matches_unqualified_output() {
 }
 
 #[test]
-fn explain_sql_plan_global_aggregate_returns_logical_plan_text() {
+fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
-    )
-    .expect("global aggregate SQL explain plan should succeed");
+    let cases = [
+        (
+            "logical aggregate explain",
+            "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
+            vec!["mode=Load", "access="],
+            false,
+        ),
+        (
+            "execution aggregate explain",
+            "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
+            vec!["AggregateCount execution_mode=", "node_id=0"],
+            false,
+        ),
+        (
+            "json aggregate explain",
+            "EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity",
+            vec!["\"mode\":{\"type\":\"Load\""],
+            true,
+        ),
+    ];
 
-    assert!(
-        explain.contains("mode=Load"),
-        "global aggregate SQL explain plan should project logical load mode",
-    );
-    assert!(
-        explain.contains("access="),
-        "global aggregate SQL explain plan should include logical access projection",
-    );
-}
-
-#[test]
-fn explain_sql_execution_global_aggregate_returns_execution_descriptor_text() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
-    )
-    .expect("global aggregate SQL explain execution should succeed");
-
-    assert!(
-        explain.contains("AggregateCount execution_mode="),
-        "global aggregate SQL explain execution should include aggregate terminal node heading",
-    );
-    assert!(
-        explain.contains("node_id=0"),
-        "global aggregate SQL explain execution should include root node id",
-    );
-}
-
-#[test]
-fn explain_sql_json_global_aggregate_returns_logical_plan_json() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity",
-    )
-    .expect("global aggregate SQL explain json should succeed");
-
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "global aggregate SQL explain json should render one JSON object payload",
-    );
-    assert!(
-        explain.contains("\"mode\":{\"type\":\"Load\""),
-        "global aggregate SQL explain json should expose logical query mode metadata",
-    );
+    for (context, sql, tokens, require_json_object) in cases {
+        assert_global_aggregate_explain_case(
+            &session,
+            sql,
+            tokens.as_slice(),
+            require_json_object,
+            context,
+        );
+    }
 }
 
 #[test]

@@ -436,18 +436,167 @@ fn execute_sql_dispatch_insert_requires_primary_key_column() {
 }
 
 #[test]
-fn execute_sql_dispatch_insert_rejects_insert_select() {
+fn execute_sql_dispatch_insert_select_with_generated_ulid_primary_key_copies_rows() {
     reset_session_sql_store();
     let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(1),
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) \
+         SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
+    )
+    .expect("SQL INSERT SELECT should copy one generated-key row on the typed dispatch lane");
+    let persisted = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY age ASC LIMIT 10",
+    )
+    .expect("post-insert-select SQL projection should succeed");
+
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(rows[0][0], Value::Ulid(_)));
+    assert_ne!(rows[0][0], Value::Ulid(Ulid::from_u128(1)));
+    assert_eq!(
+        rows[0][1..],
+        [Value::Text("Ada".to_string()), Value::Uint(21),],
+    );
+    assert_eq!(
+        persisted,
+        vec![
+            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_select_accepts_scalar_computed_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(1),
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) \
+         SELECT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
+    )
+    .expect("INSERT SELECT should reuse the admitted scalar computed-projection lane");
+    let persisted = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity ORDER BY name ASC LIMIT 10",
+    )
+    .expect("post-insert-select SQL projection should succeed");
+
+    assert!(
+        matches!(rows[0][0], Value::Ulid(_)),
+        "computed INSERT SELECT should still synthesize one generated Ulid primary key",
+    );
+    assert_eq!(
+        rows[0][1..],
+        [Value::Text("ada".to_string()), Value::Uint(21),],
+    );
+    assert_eq!(
+        persisted,
+        vec![
+            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+            vec![Value::Text("ada".to_string()), Value::Uint(21)],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_select_rejects_aggregate_source_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(1),
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
 
     let err = session
-        .execute_sql_dispatch::<SessionSqlWriteEntity>(
-            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
-             SELECT id, name, age FROM SessionSqlWriteEntity",
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name) \
+             SELECT COUNT(*) FROM SessionSqlEntity",
         )
-        .expect_err("SQL INSERT SELECT should stay fail-closed");
+        .expect_err("INSERT SELECT aggregate source should stay fail-closed");
 
-    assert_sql_unsupported_feature_detail(err, "INSERT ... SELECT");
+    assert!(
+        err.to_string()
+            .contains("SQL INSERT SELECT does not support aggregate source projection"),
+        "INSERT SELECT aggregate source should keep an actionable boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_select_rejects_grouped_source_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for (id, name, age) in [
+        (Ulid::from_u128(1), "Ada", 21_u64),
+        (Ulid::from_u128(2), "Bea", 22_u64),
+    ] {
+        session
+            .insert(SessionSqlEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("typed setup insert should succeed");
+    }
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT name, COUNT(*) FROM SessionSqlEntity GROUP BY name",
+        )
+        .expect_err("INSERT SELECT grouped source should stay fail-closed");
+
+    assert!(
+        err.to_string()
+            .contains("SQL INSERT SELECT requires scalar SELECT source"),
+        "INSERT SELECT grouped source should keep an actionable scalar-source boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_select_rejects_unsupported_computed_source_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(1),
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT DISTINCT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada'",
+        )
+        .expect_err("INSERT SELECT unsupported computed source shape should stay fail-closed");
+
+    assert!(
+        err.to_string()
+            .contains("computed SQL projection currently supports only scalar SELECT field lists"),
+        "INSERT SELECT unsupported computed source shape should keep the computed-lane boundary message",
+    );
 }
 
 #[test]

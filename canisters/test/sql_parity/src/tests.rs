@@ -8,7 +8,7 @@ mod tests {
     };
     use candid::encode_one;
     use icydb::{
-        db::{PersistedRow, response::PagedGroupedResponse},
+        db::{PersistedRow, response::PagedGroupedResponse, sql::SqlQueryRowsOutput},
         error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
         traits::EntityValue,
         types::Decimal,
@@ -252,6 +252,47 @@ mod tests {
         ensure_sql_test_memory_range();
         fixtures_load_default().expect("fixture reload before typed DELETE should succeed");
         let typed = test_db().execute_sql_dispatch::<Customer>(sql);
+
+        match (dispatch, typed) {
+            (Ok(dispatch), Ok(typed)) => {
+                assert_eq!(
+                    normalized_mutating_dispatch_payload(dispatch),
+                    normalized_mutating_dispatch_payload(typed),
+                    "{context}",
+                );
+            }
+            (Err(dispatch_err), Err(typed_err)) => {
+                assert_eq!(
+                    dispatch_err.kind(),
+                    typed_err.kind(),
+                    "{context}: error kind mismatch",
+                );
+                assert_eq!(
+                    dispatch_err.origin(),
+                    typed_err.origin(),
+                    "{context}: error origin mismatch",
+                );
+            }
+            (dispatch, typed) => {
+                panic!("{context}: dispatch={dispatch:?} typed={typed:?}");
+            }
+        }
+    }
+
+    // Compare one mutating SQL path across generated and typed dispatch for
+    // one explicit entity lane by reloading the deterministic fixture dataset
+    // before each execution.
+    fn assert_mutating_dispatch_result_matches_typed_as<E>(sql: &str, context: &str)
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before generated mutation should succeed");
+        let dispatch = sql_dispatch::query(sql);
+
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before typed mutation should succeed");
+        let typed = test_db().execute_sql_dispatch::<E>(sql);
 
         match (dispatch, typed) {
             (Ok(dispatch), Ok(typed)) => {
@@ -4390,6 +4431,69 @@ mod tests {
             "EXPLAIN DELETE FROM Customer ORDER BY id LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep EXPLAIN DELETE parity",
         );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_rejects_insert_select_while_typed_dispatch_accepts_it() {
+        reload_default_fixtures();
+
+        let sql = "INSERT INTO Customer (name, age) SELECT LOWER(name), age FROM Customer WHERE name = 'alice' ORDER BY id ASC LIMIT 1";
+        let dispatch =
+            dispatch_result_for_sql_unchecked(sql).expect_err("generated sql_dispatch should stay query-only for INSERT SELECT");
+        let typed = typed_result_for_sql_unchecked_as::<Customer>(sql)
+            .expect("typed execute_sql_dispatch should accept the narrowed INSERT SELECT lane");
+
+        assert_eq!(
+            dispatch.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+        );
+        assert_eq!(dispatch.origin(), ErrorOrigin::Query);
+        assert!(
+            dispatch
+                .message()
+                .contains("generated SQL query surface requires SELECT, DELETE, or EXPLAIN statement lanes"),
+            "generated sql_dispatch should keep the explicit query-only lane boundary",
+        );
+        assert_eq!(
+            normalized_mutating_dispatch_payload(typed),
+            SqlQueryResult::Projection(SqlQueryRowsOutput {
+                entity: "Customer".to_string(),
+                columns: vec![
+                    "id".to_string(),
+                    "name".to_string(),
+                    "age".to_string(),
+                    "created_at".to_string(),
+                    "updated_at".to_string(),
+                ],
+                rows: vec![vec![
+                    "<dynamic>".to_string(),
+                    "alice".to_string(),
+                    "31".to_string(),
+                    "<dynamic>".to_string(),
+                    "<dynamic>".to_string(),
+                ]],
+                row_count: 1,
+            }),
+            "typed execute_sql_dispatch should keep the admitted computed INSERT SELECT behavior while generated sql_dispatch stays query-only",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_insert_select_reject_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "INSERT INTO Customer (name, age) SELECT name, COUNT(*) FROM Customer GROUP BY name",
+                "typed execute_sql_dispatch and sql_dispatch should keep grouped INSERT SELECT fail-closed parity",
+            ),
+            (
+                "INSERT INTO Customer (name, age) SELECT DISTINCT LOWER(name), age FROM Customer WHERE name = 'alice'",
+                "typed execute_sql_dispatch and sql_dispatch should keep unsupported computed INSERT SELECT fail-closed parity",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            assert_mutating_dispatch_result_matches_typed_as::<Customer>(sql, context);
+        }
     }
 
     #[test]

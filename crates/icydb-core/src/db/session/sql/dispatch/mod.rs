@@ -27,10 +27,12 @@ use crate::{
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlQuery, SqlLoweringError,
             bind_lowered_sql_query, canonicalize_sql_predicate_for_model,
+            lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{
-            SqlAggregateCall, SqlAggregateKind, SqlInsertStatement, SqlOrderDirection,
-            SqlProjection, SqlSelectItem, SqlStatement, SqlTextFunction, SqlUpdateStatement,
+            SqlAggregateCall, SqlAggregateKind, SqlInsertSource, SqlInsertStatement,
+            SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
+            SqlStatement, SqlTextFunction, SqlUpdateStatement,
         },
     },
     model::{entity::resolve_field_slot, field::FieldKind},
@@ -356,6 +358,35 @@ where
 // explicit column lists pass through, while omitted-column-list INSERT uses
 // canonical user-authored model field order and leaves hidden timestamp
 // synthesis on the existing write path.
+fn sql_insert_source_width_hint<E>(source: &SqlInsertSource) -> Option<usize>
+where
+    E: EntityKind,
+{
+    match source {
+        SqlInsertSource::Values(values) => values.first().map(Vec::len),
+        SqlInsertSource::Select(select) => match &select.projection {
+            SqlProjection::All => Some(
+                E::MODEL
+                    .fields()
+                    .iter()
+                    .filter(|field| {
+                        !matches!(
+                            sql_write_system_timestamp_fields::<E>(),
+                            Some((created_at, updated_at))
+                                if field.name() == created_at || field.name() == updated_at
+                        )
+                    })
+                    .count(),
+            ),
+            SqlProjection::Items(items) => Some(items.len()),
+        },
+    }
+}
+
+// Resolve the effective INSERT column list for one reduced SQL write:
+// explicit column lists pass through, while omitted-column-list INSERT uses
+// canonical user-authored model field order and leaves hidden timestamp
+// synthesis on the existing write path.
 fn sql_insert_columns<E>(statement: &SqlInsertStatement) -> Vec<String>
 where
     E: EntityKind,
@@ -389,7 +420,7 @@ where
         .filter(|field| field.as_str() != pk_name)
         .cloned()
         .collect();
-    let first_width = statement.values.first().map(Vec::len);
+    let first_width = sql_insert_source_width_hint::<E>(&statement.source);
 
     if first_width == Some(generated_key_omitted_columns.len()) {
         return generated_key_omitted_columns;
@@ -400,7 +431,7 @@ where
 
 // Validate one INSERT tuple list against the resolved effective column list so
 // every VALUES tuple stays full-width and deterministic.
-fn validate_sql_insert_tuple_lengths(
+fn validate_sql_insert_value_tuple_lengths(
     columns: &[String],
     values: &[Vec<Value>],
 ) -> Result<(), QueryError> {
@@ -410,6 +441,23 @@ fn validate_sql_insert_tuple_lengths(
                 crate::db::sql::parser::SqlParseError::invalid_syntax(
                     "INSERT column list and VALUES tuple length must match",
                 ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+// Validate one projected `INSERT ... SELECT` row set against the resolved
+// effective column list so replayed structural inserts stay deterministic.
+fn validate_sql_insert_selected_rows(
+    columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<(), QueryError> {
+    for row in rows {
+        if row.len() != columns.len() {
+            return Err(QueryError::unsupported_query(
+                "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
             ));
         }
     }
@@ -609,6 +657,99 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(selector)
     }
 
+    // Validate and normalize the admitted `INSERT ... SELECT` source shape
+    // without widening the write lane into grouped, aggregate, or computed
+    // projection ownership.
+    fn sql_insert_select_source_statement<E>(
+        statement: &SqlInsertStatement,
+    ) -> Result<SqlSelectStatement, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let SqlInsertSource::Select(select) = statement.source.clone() else {
+            return Err(QueryError::invariant(
+                "INSERT SELECT source validation requires parsed SELECT source",
+            ));
+        };
+        let mut select = *select;
+        ensure_sql_write_entity_matches::<E>(select.entity.as_str())?;
+
+        if !select.group_by.is_empty() || !select.having.is_empty() {
+            return Err(QueryError::unsupported_query(
+                "SQL INSERT SELECT requires scalar SELECT source in this release",
+            ));
+        }
+
+        if let SqlProjection::Items(items) = &select.projection {
+            for item in items {
+                if matches!(item, SqlSelectItem::Aggregate(_)) {
+                    return Err(QueryError::unsupported_query(
+                        "SQL INSERT SELECT does not support aggregate source projection in this release",
+                    ));
+                }
+            }
+        }
+
+        let pk_name = E::MODEL.primary_key.name;
+        if select.order_by.is_empty() || !select.order_by.iter().any(|term| term.field == pk_name) {
+            select.order_by.push(SqlOrderTerm {
+                field: pk_name.to_string(),
+                direction: SqlOrderDirection::Asc,
+            });
+        }
+
+        Ok(select)
+    }
+
+    // Execute one admitted `INSERT ... SELECT` source query through the
+    // existing scalar SQL projection lane and return the projected value rows
+    // that will later feed the ordinary structural insert replay.
+    fn execute_sql_insert_select_source_rows<E>(
+        &self,
+        source: &SqlSelectStatement,
+    ) -> Result<Vec<Vec<Value>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: reuse the already-shipped scalar computed-projection lane
+        // when the source SELECT widens beyond plain fields but still fits the
+        // admitted session-owned text projection contract.
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(
+            &SqlStatement::Select(source.clone()),
+        )? {
+            let result = self.execute_computed_sql_projection_dispatch_for_authority(
+                plan,
+                EntityAuthority::for_type::<E>(),
+            )?;
+
+            return match result {
+                SqlDispatchResult::Projection { rows, .. } => Ok(rows),
+                other => Err(QueryError::invariant(format!(
+                    "INSERT SELECT computed source must produce projection rows, found {other:?}",
+                ))),
+            };
+        }
+
+        // Phase 2: keep the ordinary field-only source path on the shared
+        // scalar SQL projection lane.
+        let prepared = prepare_sql_statement(SqlStatement::Select(source.clone()), E::MODEL.name())
+            .map_err(QueryError::from_sql_lowering_error)?;
+        let lowered =
+            lower_sql_command_from_prepared_statement(prepared, E::MODEL.primary_key.name)
+                .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+            return Err(QueryError::invariant(
+                "INSERT SELECT source lowering must stay on the scalar SELECT query lane",
+            ));
+        };
+
+        let payload =
+            self.execute_lowered_sql_projection_core(select, EntityAuthority::for_type::<E>())?;
+        let (_, rows, _) = payload.into_parts();
+
+        Ok(rows)
+    }
+
     // Execute one narrow SQL INSERT statement through the existing structural
     // mutation path and project the returned after-image as one SQL row.
     fn execute_sql_insert_dispatch<E>(
@@ -620,10 +761,22 @@ impl<C: CanisterKind> DbSession<C> {
     {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let columns = sql_insert_columns::<E>(statement);
-        validate_sql_insert_tuple_lengths(columns.as_slice(), statement.values.as_slice())?;
-        let mut entities = Vec::with_capacity(statement.values.len());
+        let source_rows = match &statement.source {
+            SqlInsertSource::Values(values) => {
+                validate_sql_insert_value_tuple_lengths(columns.as_slice(), values.as_slice())?;
+                values.clone()
+            }
+            SqlInsertSource::Select(_) => {
+                let source = Self::sql_insert_select_source_statement::<E>(statement)?;
+                let rows = self.execute_sql_insert_select_source_rows::<E>(&source)?;
+                validate_sql_insert_selected_rows(columns.as_slice(), rows.as_slice())?;
 
-        for values in &statement.values {
+                rows
+            }
+        };
+        let mut entities = Vec::with_capacity(source_rows.len());
+
+        for values in &source_rows {
             let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
             let entity = self
                 .mutate_structural::<E>(key, patch, MutationMode::Insert)

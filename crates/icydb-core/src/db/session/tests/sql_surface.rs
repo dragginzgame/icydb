@@ -124,6 +124,10 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
             "query_from_sql must reject INSERT statements",
         ),
         (
+            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            "query_from_sql must reject INSERT statements",
+        ),
+        (
             "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
             "query_from_sql must reject UPDATE statements",
         ),
@@ -186,6 +190,10 @@ fn execute_sql_rejects_non_query_statement_lanes_matrix() {
             "execute_sql rejects INSERT",
         ),
         (
+            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            "execute_sql rejects INSERT",
+        ),
+        (
             "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
             "execute_sql rejects UPDATE",
         ),
@@ -223,6 +231,10 @@ fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
         ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "execute_sql_grouped rejects INSERT",
+        ),
+        (
+            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
             "execute_sql_grouped rejects INSERT",
         ),
         (

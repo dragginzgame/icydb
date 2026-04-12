@@ -254,19 +254,35 @@ pub(crate) struct SqlDeleteStatement {
 }
 
 ///
+/// SqlInsertSource
+///
+/// Canonical parsed reduced-SQL `INSERT` source.
+///
+/// This keeps the current write lane narrow while still distinguishing between
+/// literal tuple inserts and session-owned `INSERT ... SELECT` follow-ups.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlInsertSource {
+    Values(Vec<Vec<Value>>),
+    Select(Box<SqlSelectStatement>),
+}
+
+///
 /// SqlInsertStatement
 ///
 /// Canonical parsed `INSERT` statement shape for reduced SQL.
 ///
 /// This stays intentionally narrow in the current slice: one explicit column
-/// list and one or more literal `VALUES` tuples.
+/// list plus either one or more literal `VALUES` tuples or one scalar
+/// `SELECT` source handled later at the session boundary.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlInsertStatement {
     pub(crate) entity: String,
     pub(crate) columns: Vec<String>,
-    pub(crate) values: Vec<Vec<Value>>,
+    pub(crate) source: SqlInsertSource,
 }
 
 ///

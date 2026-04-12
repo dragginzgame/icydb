@@ -6,10 +6,10 @@
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
-    SqlUpdateStatement, parse_sql,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -1139,11 +1139,11 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
-            values: vec![vec![
+            source: SqlInsertSource::Values(vec![vec![
                 Value::Int(7),
                 Value::Text("Ada".to_string()),
                 Value::Int(21),
-            ]],
+            ]]),
         }),
     );
 }
@@ -1159,7 +1159,7 @@ fn parse_insert_statement_with_multiple_values_tuples() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
-            values: vec![
+            source: SqlInsertSource::Values(vec![
                 vec![
                     Value::Int(7),
                     Value::Text("Ada".to_string()),
@@ -1170,7 +1170,7 @@ fn parse_insert_statement_with_multiple_values_tuples() {
                     Value::Text("Bea".to_string()),
                     Value::Int(22)
                 ],
-            ],
+            ]),
         }),
     );
 }
@@ -1311,21 +1311,93 @@ fn parse_insert_statement_without_column_list_parses() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            values: vec![vec![Value::Int(1)]],
+            source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
         }),
     );
 }
 
 #[test]
-fn parse_insert_statement_rejects_insert_select() {
-    let err = parse_sql("INSERT INTO users (id, name) SELECT id, name FROM other")
-        .expect_err("insert-select should stay fail-closed");
+fn parse_insert_statement_with_field_only_select_source_parses() {
+    let statement = parse_sql(
+        "INSERT INTO users (name, age) SELECT name, age FROM users WHERE age >= 21 ORDER BY id ASC LIMIT 1",
+    )
+    .expect("insert-select should parse");
 
     assert_eq!(
-        err,
-        SqlParseError::UnsupportedFeature {
-            feature: "INSERT ... SELECT",
-        }
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
+                entity: "users".to_string(),
+                projection: SqlProjection::Items(vec![
+                    SqlSelectItem::Field("name".to_string()),
+                    SqlSelectItem::Field("age".to_string()),
+                ]),
+                projection_aliases: vec![None, None],
+                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                ))),
+                distinct: false,
+                group_by: Vec::new(),
+                having: Vec::new(),
+                order_by: vec![SqlOrderTerm {
+                    field: "id".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                }],
+                limit: Some(1),
+                offset: None,
+            })),
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_with_computed_select_source_parses() {
+    let statement = parse_sql(
+        "INSERT INTO users (name, age) \
+         SELECT LOWER(name), age FROM users WHERE age >= 21 ORDER BY id ASC LIMIT 1",
+    )
+    .expect("insert-select with one admitted computed source projection should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
+                entity: "users".to_string(),
+                projection: SqlProjection::Items(vec![
+                    SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                        function: SqlTextFunction::Lower,
+                        field: "name".to_string(),
+                        literal: None,
+                        literal2: None,
+                        literal3: None,
+                    }),
+                    SqlSelectItem::Field("age".to_string()),
+                ]),
+                projection_aliases: vec![None, None],
+                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                ))),
+                distinct: false,
+                group_by: Vec::new(),
+                having: Vec::new(),
+                order_by: vec![SqlOrderTerm {
+                    field: "id".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                }],
+                limit: Some(1),
+                offset: None,
+            })),
+        }),
     );
 }
 
@@ -1339,7 +1411,10 @@ fn parse_insert_statement_accepts_single_table_alias() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string()],
-            values: vec![vec![Value::Int(1), Value::Text("Ada".to_string())]],
+            source: SqlInsertSource::Values(vec![vec![
+                Value::Int(1),
+                Value::Text("Ada".to_string()),
+            ]]),
         }),
     );
 }
@@ -1354,7 +1429,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            values: vec![vec![Value::Int(1)]],
+            source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
         }),
     );
 }
@@ -1382,7 +1457,7 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec![],
-            values: vec![
+            source: SqlInsertSource::Values(vec![
                 vec![
                     Value::Int(1),
                     Value::Text("Ada".to_string()),
@@ -1393,7 +1468,7 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
                     Value::Text("Bea".to_string()),
                     Value::Int(22)
                 ],
-            ],
+            ]),
         }),
     );
 }

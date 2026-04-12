@@ -83,8 +83,8 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.76.5`
-- Latest tagged release in this repo: `v0.76.5`
+- Workspace version on `main`: `0.76.6`
+- Latest tagged release in this repo: `v0.76.6`
 - Changelog: `CHANGELOG.md`
 - Detailed `0.76.x` notes: `docs/changelog/0.76.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
@@ -93,6 +93,8 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
+- Current branch work on the `0.76` line adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
+- `0.76.6` widens the reduced SQL write lane with ordered-window `UPDATE`, write-lane aliases, and generated-key `Ulid` inserts while keeping mutation ownership on typed dispatch.
 - `0.76.5` broadens the reduced SQL write lane so typed-dispatch `UPDATE ... WHERE ...` can target rows selected by the admitted reduced predicate surface, and single-table aliases now work on that narrowed `UPDATE` path.
 - `0.76.4` adds single-table aliases for `SELECT` and `DELETE`, plus typed-dispatch `INSERT` widening for multi-row and positional `VALUES` forms.
 - `0.76.3` introduces the first reduced SQL write surface on typed dispatch with narrow `INSERT` and `UPDATE` support while keeping mutation ownership session-local.
@@ -371,6 +373,8 @@ Typed-dispatch SQL write shapes:
 - `INSERT INTO entity (field, ...) VALUES (...)`
 - multi-row `INSERT ... VALUES (...), (...)`
 - positional `INSERT INTO entity VALUES (...)`
+- `INSERT INTO entity (...) SELECT field, ... FROM entity ...` on the same
+  typed-dispatch entity lane
 - `UPDATE entity SET field = literal [, ...] WHERE <reduced predicate>`
 - `UPDATE ... WHERE ... ORDER BY ... LIMIT/OFFSET`
 
@@ -394,7 +398,6 @@ Out of scope and fail-closed by design:
 - joins/subqueries/CTEs
 - quoted identifiers
 - window functions
-- `INSERT ... SELECT`
 - non-typed-dispatch SQL writes through `execute_sql(...)` / `query_from_sql(...)`
 - `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
 

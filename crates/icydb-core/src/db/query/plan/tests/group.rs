@@ -37,6 +37,9 @@ const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
     IndexModel::generated("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
 
+type GroupedCaseBuilder = fn() -> AccessPlannedQuery;
+type GroupedPlanErrorCase<'a> = (&'a str, GroupedCaseBuilder, fn(&GroupPlanError) -> bool);
+
 crate::test_entity! {
     ident = PlanValidateGroupedEntity,
     id = Ulid,
@@ -285,6 +288,268 @@ fn assert_global_distinct_shape_helper_matches_expr(
     );
 }
 
+// Assert one grouped semantic shape is rejected with the expected grouped-plan
+// error contract.
+fn assert_grouped_semantics_error_case(
+    label: &str,
+    grouped: &AccessPlannedQuery,
+    predicate: fn(&GroupPlanError) -> bool,
+) {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let err = validate_group_query_semantics(schema, model, grouped)
+        .expect_err(&format!("{label} should be rejected"));
+
+    assert!(
+        is_group_plan_error(&err, predicate),
+        "{label}: grouped semantic error contract drifted",
+    );
+}
+
+fn grouped_global_distinct_sum_non_numeric_target_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("tag".to_string()),
+            distinct: true,
+        }],
+    )
+}
+
+fn grouped_global_distinct_unsupported_kind_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Exists,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    )
+}
+
+fn grouped_global_distinct_mixed_aggregate_shape_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![
+            GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: Some("tag".to_string()),
+                distinct: true,
+            },
+            GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            },
+        ],
+    )
+}
+
+fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
+    grouped_plan_with_having(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    )
+}
+
+fn is_global_distinct_sum_target_not_numeric(err: &GroupPlanError) -> bool {
+    matches!(
+        err,
+        GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
+            if *index == 0 && field == "tag"
+    )
+}
+
+fn is_distinct_aggregate_kind_unsupported_exists(err: &GroupPlanError) -> bool {
+    matches!(
+        err,
+        GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
+            if *index == 0 && kind == "Exists"
+    )
+}
+
+fn is_global_distinct_shape_unsupported(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::GlobalDistinctAggregateShapeUnsupported)
+}
+
+fn grouped_unknown_group_field_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["missing_group_field"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
+fn grouped_duplicate_group_field_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank", "rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
+fn grouped_distinct_without_adjacency_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
+fn grouped_order_prefix_misaligned_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+            Some(1),
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
+fn grouped_order_without_limit_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan_with_order_and_distinct(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
+fn is_unknown_group_field_missing(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::UnknownGroupField { field } if field == "missing_group_field")
+}
+
+fn is_duplicate_group_field_rank(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::DuplicateGroupField { field } if field == "rank")
+}
+
+fn is_distinct_adjacency_required(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::DistinctAdjacencyEligibilityRequired)
+}
+
+fn is_order_prefix_not_aligned(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::OrderPrefixNotAlignedWithGroupKeys)
+}
+
+fn is_order_requires_limit(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::OrderRequiresLimit)
+}
+
+fn grouped_distinct_exists_terminal_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Exists,
+            target_field: None,
+            distinct: true,
+        }],
+    )
+}
+
+fn grouped_distinct_max_field_terminal_case() -> AccessPlannedQuery {
+    grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Max,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    )
+}
+
+fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
+    grouped_plan_with_having(
+        load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(0),
+            }],
+        }),
+    )
+}
+
+fn is_distinct_aggregate_kind_unsupported_exists_terminal(err: &GroupPlanError) -> bool {
+    matches!(
+        err,
+        GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
+            if *index == 0 && kind == "Exists"
+    )
+}
+
+fn is_distinct_max_field_target_unsupported(err: &GroupPlanError) -> bool {
+    matches!(
+        err,
+        GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }
+            if *index == 0 && kind == "Max" && field == "rank"
+    )
+}
+
+fn is_distinct_having_unsupported(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::DistinctHavingUnsupported)
+}
+
 fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
     match err {
         PlanError::User(inner) => match inner.as_ref() {
@@ -464,236 +729,70 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
 }
 
 #[test]
-fn grouped_plan_rejects_global_distinct_sum_non_numeric_target() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Sum,
-            target_field: Some("tag".to_string()),
-            distinct: true,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("global grouped sum(distinct non-numeric) should fail");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
-            if *index == 0 && field == "tag"
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_global_distinct_unsupported_kind() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Exists,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("global grouped distinct should reject unsupported aggregate kinds");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-            if *index == 0 && kind == "Exists"
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![
-            GroupAggregateSpec {
-                kind: AggregateKind::Count,
-                target_field: Some("tag".to_string()),
-                distinct: true,
-            },
-            GroupAggregateSpec {
-                kind: AggregateKind::Count,
-                target_field: None,
-                distinct: false,
-            },
-        ],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("global grouped distinct shape should reject mixed aggregate list");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::GlobalDistinctAggregateShapeUnsupported
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan_with_having(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        Vec::new(),
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("global DISTINCT grouped aggregate shape must reject HAVING");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::GlobalDistinctAggregateShapeUnsupported
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_unknown_group_field() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["missing_group_field"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("unknown group field must fail");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::UnknownGroupField { field } if field == "missing_group_field"
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_duplicate_group_field() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank", "rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("duplicate group field must fail");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DuplicateGroupField { field } if field == "rank"
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_distinct_without_adjacency_proof() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("grouped distinct should fail without ordered-group adjacency eligibility");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DistinctAdjacencyEligibilityRequired
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan_with_order_distinct_and_limit(
-            AccessPlan::path(AccessPath::FullScan),
-            Some(OrderSpec {
-                fields: vec![
-                    ("tag".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            false,
-            Some(1),
+fn grouped_plan_rejects_global_distinct_invalid_shape_matrix() {
+    let cases: &[GroupedPlanErrorCase<'_>] = &[
+        (
+            "global DISTINCT SUM non-numeric target",
+            grouped_global_distinct_sum_non_numeric_target_case,
+            is_global_distinct_sum_target_not_numeric,
         ),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-    );
+        (
+            "global DISTINCT unsupported kind",
+            grouped_global_distinct_unsupported_kind_case,
+            is_distinct_aggregate_kind_unsupported_exists,
+        ),
+        (
+            "global DISTINCT mixed aggregate shape",
+            grouped_global_distinct_mixed_aggregate_shape_case,
+            is_global_distinct_shape_unsupported,
+        ),
+        (
+            "global DISTINCT with HAVING clause",
+            grouped_global_distinct_with_having_clause_case,
+            is_global_distinct_shape_unsupported,
+        ),
+    ];
 
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("grouped order should fail when grouped-key prefix is missing");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
-    )));
+    for (label, build_grouped, check_error) in cases.iter().copied() {
+        let grouped = build_grouped();
+        assert_grouped_semantics_error_case(label, &grouped, check_error);
+    }
 }
 
 #[test]
-fn grouped_plan_rejects_order_without_limit() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan_with_order_and_distinct(
-            AccessPlan::path(AccessPath::FullScan),
-            Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            false,
+fn grouped_plan_rejects_validation_shape_matrix() {
+    let cases: &[GroupedPlanErrorCase<'_>] = &[
+        (
+            "unknown group field",
+            grouped_unknown_group_field_case,
+            is_unknown_group_field_missing,
         ),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-    );
+        (
+            "duplicate group field",
+            grouped_duplicate_group_field_case,
+            is_duplicate_group_field_rank,
+        ),
+        (
+            "distinct without adjacency proof",
+            grouped_distinct_without_adjacency_case,
+            is_distinct_adjacency_required,
+        ),
+        (
+            "order prefix misaligned with group keys",
+            grouped_order_prefix_misaligned_case,
+            is_order_prefix_not_aligned,
+        ),
+        (
+            "order without limit",
+            grouped_order_without_limit_case,
+            is_order_requires_limit,
+        ),
+    ];
 
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("grouped order should fail when LIMIT is omitted");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::OrderRequiresLimit
-    )));
+    for (label, build_grouped, check_error) in cases.iter().copied() {
+        let grouped = build_grouped();
+        assert_grouped_semantics_error_case(label, &grouped, check_error);
+    }
 }
 
 #[test]
@@ -891,29 +990,6 @@ fn grouped_plan_accepts_grouped_v1_aggregate_terminal_matrix() {
 }
 
 #[test]
-fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Exists,
-            target_field: None,
-            distinct: true,
-        }],
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("distinct exists should be rejected until grouped distinct support expands");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-            if *index == 0 && kind == "Exists"
-    )));
-}
-
-#[test]
 fn grouped_plan_accepts_distinct_field_aggregate_terminal_matrix() {
     let cases = [
         ("distinct COUNT(field)", AggregateKind::Count),
@@ -927,55 +1003,29 @@ fn grouped_plan_accepts_distinct_field_aggregate_terminal_matrix() {
 }
 
 #[test]
-fn grouped_plan_rejects_distinct_max_field_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Max,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
+fn grouped_plan_rejects_distinct_terminal_shape_matrix() {
+    let cases: &[GroupedPlanErrorCase<'_>] = &[
+        (
+            "distinct EXISTS terminal",
+            grouped_distinct_exists_terminal_case,
+            is_distinct_aggregate_kind_unsupported_exists_terminal,
+        ),
+        (
+            "distinct MAX(field) terminal",
+            grouped_distinct_max_field_terminal_case,
+            is_distinct_max_field_target_unsupported,
+        ),
+        (
+            "grouped HAVING with DISTINCT",
+            grouped_having_with_distinct_case,
+            is_distinct_having_unsupported,
+        ),
+    ];
 
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("distinct MAX(field) grouped terminals should remain rejected");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }
-            if *index == 0 && kind == "Max" && field == "rank"
-    )));
-}
-
-#[test]
-fn grouped_plan_rejects_having_with_distinct() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan_with_having(
-        load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-        }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(0),
-            }],
-        }),
-    );
-
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("grouped having with distinct should be rejected");
-    assert!(is_group_plan_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::DistinctHavingUnsupported
-    )));
+    for (label, build_grouped, check_error) in cases.iter().copied() {
+        let grouped = build_grouped();
+        assert_grouped_semantics_error_case(label, &grouped, check_error);
+    }
 }
 
 #[test]

@@ -12,9 +12,9 @@ use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
         SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-        SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
-        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-        SqlTextFunctionCall, SqlUpdateStatement,
+        SqlInsertSource, SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlSelectItem,
+        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
     },
 };
 use crate::value::Value;
@@ -303,17 +303,20 @@ impl Parser {
         } else {
             Vec::new()
         };
-        if self.peek_keyword(Keyword::Select) {
-            return Err(SqlParseError::unsupported_feature("INSERT ... SELECT"));
-        }
-        self.expect_identifier_keyword("VALUES")?;
-        let values =
-            self.parse_insert_values_tuples((!columns.is_empty()).then_some(columns.len()))?;
+        let source = if self.eat_keyword(Keyword::Select) {
+            SqlInsertSource::Select(Box::new(self.parse_select_statement()?))
+        } else {
+            self.expect_identifier_keyword("VALUES")?;
+            let values =
+                self.parse_insert_values_tuples((!columns.is_empty()).then_some(columns.len()))?;
+
+            SqlInsertSource::Values(values)
+        };
 
         Ok(SqlInsertStatement {
             entity,
             columns,
-            values,
+            source,
         })
     }
 

@@ -1,5 +1,24 @@
 use super::*;
 
+// Execute one identifier-normalization EXPLAIN pair and assert both spellings
+// collapse onto the same public output.
+fn assert_explain_identifier_normalization_case(
+    session: &DbSession<SessionSqlCanister>,
+    lhs_sql: &str,
+    rhs_sql: &str,
+    context: &str,
+) {
+    let lhs = dispatch_explain_sql::<SessionSqlEntity>(session, lhs_sql)
+        .unwrap_or_else(|err| panic!("{context} left-hand SQL should succeed: {err}"));
+    let rhs = dispatch_explain_sql::<SessionSqlEntity>(session, rhs_sql)
+        .unwrap_or_else(|err| panic!("{context} right-hand SQL should succeed: {err}"));
+
+    assert_eq!(
+        lhs, rhs,
+        "{context} identifier spelling should normalize to the same EXPLAIN output",
+    );
+}
+
 #[test]
 fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     reset_session_sql_store();
@@ -651,87 +670,49 @@ fn explain_json_sql_delete_direct_lower_equivalent_prefix_forms_preserve_index_r
 }
 
 #[test]
-fn explain_sql_plan_qualified_identifiers_match_unqualified_output() {
+fn explain_sql_identifier_normalization_matrix_matches_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT * \
+    let cases = [
+        (
+            "logical explain qualified identifiers",
+            "EXPLAIN SELECT * \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-    )
-    .expect("qualified EXPLAIN plan SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT * \
+            "EXPLAIN SELECT * \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              ORDER BY age DESC LIMIT 1",
-    )
-    .expect("unqualified EXPLAIN plan SQL should succeed");
-
-    assert_eq!(
-        qualified, unqualified,
-        "qualified identifiers should normalize to the same logical EXPLAIN plan output",
-    );
-}
-
-#[test]
-fn explain_sql_execution_qualified_identifiers_match_unqualified_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT SessionSqlEntity.name \
+        ),
+        (
+            "execution explain qualified identifiers",
+            "EXPLAIN EXECUTION SELECT SessionSqlEntity.name \
              FROM SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-    )
-    .expect("qualified EXPLAIN execution SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT name \
+            "EXPLAIN EXECUTION SELECT name \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              ORDER BY age DESC LIMIT 1",
-    )
-    .expect("unqualified EXPLAIN execution SQL should succeed");
-
-    assert_eq!(
-        qualified, unqualified,
-        "qualified identifiers should normalize to the same execution EXPLAIN descriptor output",
-    );
-}
-
-#[test]
-fn explain_sql_table_alias_identifiers_match_unqualified_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT alias.name \
+        ),
+        (
+            "execution explain table alias identifiers",
+            "EXPLAIN EXECUTION SELECT alias.name \
              FROM SessionSqlEntity alias \
              WHERE alias.age >= 21 \
              ORDER BY alias.age DESC LIMIT 1",
-    )
-    .expect("table-alias EXPLAIN execution SQL should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT name \
+            "EXPLAIN EXECUTION SELECT name \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              ORDER BY age DESC LIMIT 1",
-    )
-    .expect("unqualified EXPLAIN execution SQL should succeed");
+        ),
+    ];
 
-    assert_eq!(
-        aliased, unqualified,
-        "single-table alias identifiers should normalize to the same execution EXPLAIN descriptor output",
-    );
+    for (context, lhs_sql, rhs_sql) in cases {
+        assert_explain_identifier_normalization_case(&session, lhs_sql, rhs_sql, context);
+    }
 }
 
 #[test]
