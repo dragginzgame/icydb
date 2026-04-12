@@ -68,7 +68,7 @@ fn assert_projection_matches_entity_rows(
     shape: CoveringProjectionShape,
     context: &str,
 ) {
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(session, sql)
+    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
     let entity_rows = session
         .execute_sql::<IndexedSessionSqlEntity>(sql)
@@ -192,8 +192,9 @@ fn execute_sql_projection_order_only_filtered_covering_query_returns_guarded_row
     // Phase 2: require the projection lane to return only the guarded active
     // subset under the order-only `ORDER BY name, id` shape.
     let sql = "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY name ASC, id ASC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect("filtered order-only covering projection query should execute");
+    let projected_rows =
+        statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+            .expect("filtered order-only covering projection query should execute");
 
     assert_eq!(
         projected_rows,

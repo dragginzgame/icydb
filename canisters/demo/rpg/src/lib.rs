@@ -32,14 +32,10 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 }
 
 /// Execute one Character-only reduced SQL query against the demo canister.
-///
-/// This endpoint is intentionally hard-bound to `Character`: it accepts SQL
-/// text for local demo/debugging convenience, but it does not route text SQL
-/// onto arbitrary entity types.
 #[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_entity_sql::<Character>(sql.as_str())
+    db().execute_sql_query::<Character>(sql.as_str())
 }
 
 canic_cdk::export_candid!();

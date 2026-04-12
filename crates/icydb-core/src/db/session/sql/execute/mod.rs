@@ -1,8 +1,8 @@
-//! Module: db::session::sql::dispatch
-//! Responsibility: session-owned SQL dispatch entrypoints that bind lowered SQL
+//! Module: db::session::sql::execute
+//! Responsibility: session-owned SQL execution entrypoints that bind lowered SQL
 //! commands onto structural planning, execution, and outward result shaping.
 //! Does not own: SQL parsing or executor runtime internals.
-//! Boundary: centralizes authority-aware SQL dispatch classification and result packaging.
+//! Boundary: centralizes authority-aware SQL execution classification and result packaging.
 
 mod computed;
 mod lowered;
@@ -16,7 +16,7 @@ use crate::{
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
-            SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+            SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
             aggregate::parsed_requires_dedicated_sql_aggregate_lane,
             computed_projection,
             projection::{
@@ -47,7 +47,7 @@ use crate::{
 };
 
 #[cfg(feature = "perf-attribution")]
-pub use lowered::LoweredSqlDispatchExecutorAttribution;
+pub use lowered::LoweredSqlStatementExecutorAttribution;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlGroupingSurface {
@@ -92,7 +92,7 @@ fn sql_projection_labels_from_select_statement(
 }
 
 // Render one grouped SELECT item into the public grouped-column label used by
-// unified dispatch results.
+// unified SQL statement results.
 fn grouped_sql_projection_item_label(item: &SqlSelectItem) -> String {
     match item {
         SqlSelectItem::Field(field) => field.clone(),
@@ -109,7 +109,7 @@ fn grouped_sql_projection_item_label(item: &SqlSelectItem) -> String {
 
 // Keep the dedicated SQL aggregate lane on parser-owned outward labels
 // without reopening alias semantics in lowering or runtime strategy state.
-fn sql_aggregate_dispatch_label_override(statement: &SqlStatement) -> Option<String> {
+fn sql_aggregate_statement_label_override(statement: &SqlStatement) -> Option<String> {
     let SqlStatement::Select(select) = statement else {
         return None;
     };
@@ -155,7 +155,7 @@ const fn grouped_sql_text_function_name(function: SqlTextFunction) -> &'static s
 }
 
 // Keep typed SQL write routes on the same entity-match contract used by
-// lowered query dispatch, without widening write statements into lowering.
+// lowered query execution, without widening write statements into lowering.
 fn ensure_sql_write_entity_matches<E>(sql_entity: &str) -> Result<(), QueryError>
 where
     E: EntityKind,
@@ -441,7 +441,7 @@ fn validate_sql_insert_selected_rows(
 impl<C: CanisterKind> DbSession<C> {
     // Project one typed SQL write after-image into one outward SQL row using
     // the persisted model field order.
-    fn sql_write_dispatch_row<E>(entity: E) -> Result<Vec<Value>, QueryError>
+    fn sql_write_statement_row<E>(entity: E) -> Result<Vec<Value>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -450,7 +450,7 @@ impl<C: CanisterKind> DbSession<C> {
         for index in 0..E::MODEL.fields().len() {
             let value = entity.get_value_by_index(index).ok_or_else(|| {
                 QueryError::invariant(
-                    "SQL write dispatch projection row must include every declared field",
+                    "SQL write statement projection row must include every declared field",
                 )
             })?;
             row.push(value);
@@ -459,21 +459,21 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(row)
     }
 
-    // Render one or more typed entities returned by SQL write dispatch as one
+    // Render one or more typed entities returned by SQL write execution as one
     // projection payload so write statements reuse the same outward result
-    // family as row-producing SELECT and DELETE dispatch.
-    fn sql_write_dispatch_projection<E>(entities: Vec<E>) -> Result<SqlDispatchResult, QueryError>
+    // family as row-producing SELECT and DELETE statements.
+    fn sql_write_statement_projection<E>(entities: Vec<E>) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let columns = projection_labels_from_fields(E::MODEL.fields());
         let rows = entities
             .into_iter()
-            .map(Self::sql_write_dispatch_row)
+            .map(Self::sql_write_statement_row)
             .collect::<Result<Vec<_>, _>>()?;
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
 
-        Ok(SqlDispatchResult::Projection {
+        Ok(SqlStatementResult::Projection {
             columns,
             rows,
             row_count,
@@ -483,45 +483,45 @@ impl<C: CanisterKind> DbSession<C> {
     // Package one write after-image batch according to the traditional SQL
     // mutation result contract: count-only when no `RETURNING` clause is
     // present, row payload only when the authored SQL explicitly asks for it.
-    fn sql_write_dispatch_result<E>(
+    fn sql_write_statement_result<E>(
         entities: Vec<E>,
         returning: Option<&SqlReturningProjection>,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
 
         match returning {
-            None => Ok(SqlDispatchResult::Count { row_count }),
+            None => Ok(SqlStatementResult::Count { row_count }),
             Some(returning) => {
-                let SqlDispatchResult::Projection {
+                let SqlStatementResult::Projection {
                     columns,
                     rows,
                     row_count,
-                } = Self::sql_write_dispatch_projection(entities)?
+                } = Self::sql_write_statement_projection(entities)?
                 else {
                     return Err(QueryError::invariant(
                         "SQL write projection helper must emit value-row projection payload",
                     ));
                 };
 
-                Self::sql_returning_dispatch_projection(columns, rows, row_count, returning)
+                Self::sql_returning_statement_projection(columns, rows, row_count, returning)
             }
         }
     }
 
     // Narrow one row-producing write payload down to the admitted `RETURNING`
-    // projection shape so write dispatch can keep explicit field-list
+    // projection shape so write execution can keep explicit field-list
     // ownership without reopening the full scalar SELECT projection surface.
-    fn sql_returning_dispatch_projection(
+    fn sql_returning_statement_projection(
         columns: Vec<String>,
         rows: Vec<Vec<Value>>,
         row_count: u32,
         returning: &SqlReturningProjection,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         match returning {
-            SqlReturningProjection::All => Ok(SqlDispatchResult::Projection {
+            SqlReturningProjection::All => Ok(SqlStatementResult::Projection {
                 columns,
                 rows,
                 row_count,
@@ -555,7 +555,7 @@ impl<C: CanisterKind> DbSession<C> {
                     projected_rows.push(projected);
                 }
 
-                Ok(SqlDispatchResult::Projection {
+                Ok(SqlStatementResult::Projection {
                     columns: fields.clone(),
                     rows: projected_rows,
                     row_count,
@@ -764,13 +764,13 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(plan) = computed_projection::computed_sql_projection_plan(
             &SqlStatement::Select(source.clone()),
         )? {
-            let result = self.execute_computed_sql_projection_dispatch_for_authority(
+            let result = self.execute_computed_sql_projection_statement_for_authority(
                 plan,
                 EntityAuthority::for_type::<E>(),
             )?;
 
             return match result {
-                SqlDispatchResult::Projection { rows, .. } => Ok(rows),
+                SqlStatementResult::Projection { rows, .. } => Ok(rows),
                 other => Err(QueryError::invariant(format!(
                     "INSERT SELECT computed source must produce projection rows, found {other:?}",
                 ))),
@@ -799,10 +799,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one narrow SQL INSERT statement through the existing structural
     // mutation path and project the returned after-image as one SQL row.
-    fn execute_sql_insert_dispatch<E>(
+    fn execute_sql_insert_statement<E>(
         &self,
         statement: &SqlInsertStatement,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -840,16 +840,16 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(entity);
         }
 
-        Self::sql_write_dispatch_result(entities, statement.returning.as_ref())
+        Self::sql_write_statement_result(entities, statement.returning.as_ref())
     }
 
     // Execute one reduced SQL UPDATE statement by selecting deterministic
     // target rows first and then replaying one shared structural patch onto
     // each matched primary key.
-    fn execute_sql_update_dispatch<E>(
+    fn execute_sql_update_statement<E>(
         &self,
         statement: &SqlUpdateStatement,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -876,11 +876,11 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(updated);
         }
 
-        Self::sql_write_dispatch_result(entities, statement.returning.as_ref())
+        Self::sql_write_statement_result(entities, statement.returning.as_ref())
     }
 
     // Build the shared structural SQL projection execution inputs once so
-    // value-row and rendered-row dispatch surfaces only differ in final packaging.
+    // value-row and rendered-row statement surfaces only differ in final packaging.
     fn prepare_structural_sql_projection_execution(
         &self,
         query: StructuralQuery,
@@ -920,7 +920,10 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one typed SQL delete query while keeping the row payload on the
     // typed delete executor boundary that still owns non-runtime-hook delete
     // commit-window application.
-    fn execute_typed_sql_delete<E>(&self, query: &Query<E>) -> Result<SqlDispatchResult, QueryError>
+    fn execute_typed_sql_delete<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -941,21 +944,21 @@ impl<C: CanisterKind> DbSession<C> {
             rows,
             row_count,
         )
-        .into_dispatch_result())
+        .into_statement_result())
     }
 
     // Execute one typed SQL delete query and return only the affected-row
-    // count so bare dispatch DELETE matches traditional SQL result semantics.
+    // count so bare DELETE matches traditional SQL result semantics.
     fn execute_typed_sql_delete_count<E>(
         &self,
         query: &Query<E>,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let row_count = self.execute_delete_count(query)?;
 
-        Ok(SqlDispatchResult::Count { row_count })
+        Ok(SqlStatementResult::Count { row_count })
     }
 
     // Execute one typed SQL delete query and project only the explicit
@@ -964,11 +967,11 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         returning: &SqlReturningProjection,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let SqlDispatchResult::Projection {
+        let SqlStatementResult::Projection {
             columns,
             rows,
             row_count,
@@ -979,12 +982,12 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         };
 
-        Self::sql_returning_dispatch_projection(columns, rows, row_count, returning)
+        Self::sql_returning_statement_projection(columns, rows, row_count, returning)
     }
 
     // Lower one parsed SQL query/explain route once for one resolved authority
-    // and preserve grouped-column metadata for grouped SELECT dispatch.
-    fn lowered_sql_query_dispatch_inputs_for_authority(
+    // and preserve grouped-column metadata for grouped SELECT execution.
+    fn lowered_sql_query_statement_inputs_for_authority(
         parsed: &SqlParsedStatement,
         authority: EntityAuthority,
         unsupported_message: &'static str,
@@ -1004,46 +1007,46 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one parsed SQL query route through the shared aggregate,
-    // computed-projection, and lowered query lane so typed and generated
-    // dispatch only differ at the final SELECT/DELETE packaging boundary.
-    fn dispatch_sql_query_route_for_authority(
+    // computed-projection, and lowered query lane so every single-entity SQL
+    // statement surface only differs at the final SELECT/DELETE packaging boundary.
+    fn execute_sql_query_route_for_authority(
         &self,
         parsed: &SqlParsedStatement,
         authority: EntityAuthority,
         unsupported_message: &'static str,
-        dispatch_select: impl FnOnce(
+        execute_select: impl FnOnce(
             &Self,
             LoweredSelectShape,
             EntityAuthority,
             bool,
             Option<Vec<String>>,
-        ) -> Result<SqlDispatchResult, QueryError>,
-        dispatch_delete: impl FnOnce(
+        ) -> Result<SqlStatementResult, QueryError>,
+        execute_delete: impl FnOnce(
             &Self,
             LoweredBaseQueryShape,
             EntityAuthority,
-        ) -> Result<SqlDispatchResult, QueryError>,
-    ) -> Result<SqlDispatchResult, QueryError> {
+        ) -> Result<SqlStatementResult, QueryError>,
+    ) -> Result<SqlStatementResult, QueryError> {
         // Phase 1: keep aggregate and computed projection classification on the
-        // shared parsed route so both dispatch surfaces honor the same lane split.
+        // shared parsed route so all statement surfaces honor the same lane split.
         if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
             let command =
                 Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
 
-            return self.execute_sql_aggregate_dispatch_for_authority(
+            return self.execute_sql_aggregate_statement_for_authority(
                 command,
                 authority,
-                sql_aggregate_dispatch_label_override(&parsed.statement),
+                sql_aggregate_statement_label_override(&parsed.statement),
             );
         }
 
         if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
-            return self.execute_computed_sql_projection_dispatch_for_authority(plan, authority);
+            return self.execute_computed_sql_projection_statement_for_authority(plan, authority);
         }
 
         // Phase 2: lower the remaining query route once, then let the caller
         // decide only the final outward result packaging.
-        let (query, projection_columns) = Self::lowered_sql_query_dispatch_inputs_for_authority(
+        let (query, projection_columns) = Self::lowered_sql_query_statement_inputs_for_authority(
             parsed,
             authority,
             unsupported_message,
@@ -1052,28 +1055,28 @@ impl<C: CanisterKind> DbSession<C> {
 
         match query {
             LoweredSqlQuery::Select(select) => {
-                dispatch_select(self, select, authority, grouped_surface, projection_columns)
+                execute_select(self, select, authority, grouped_surface, projection_columns)
             }
-            LoweredSqlQuery::Delete(delete) => dispatch_delete(self, delete, authority),
+            LoweredSqlQuery::Delete(delete) => execute_delete(self, delete, authority),
         }
     }
 
     // Execute one parsed SQL EXPLAIN route through the shared computed-
-    // projection and lowered explain lanes so typed and generated dispatch do
+    // projection and lowered explain lanes so the single-entity SQL executor does
     // not duplicate the same explain classification tree.
-    fn dispatch_sql_explain_route_for_authority(
+    fn execute_sql_explain_route_for_authority(
         &self,
         parsed: &SqlParsedStatement,
         authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         // Phase 1: keep computed-projection explain ownership on the same
         // parsed route boundary as the shared query lane.
         if let Some((mode, plan)) =
             computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
         {
             return self
-                .explain_computed_sql_projection_dispatch_for_authority(mode, plan, authority)
-                .map(SqlDispatchResult::Explain);
+                .explain_computed_sql_projection_statement_for_authority(mode, plan, authority)
+                .map(SqlStatementResult::Explain);
         }
 
         // Phase 2: lower once for execution/logical explain and preserve the
@@ -1085,11 +1088,11 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(explain) =
             self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
         {
-            return Ok(SqlDispatchResult::Explain(explain));
+            return Ok(SqlStatementResult::Explain(explain));
         }
 
         self.explain_lowered_sql_for_authority(&lowered, authority)
-            .map(SqlDispatchResult::Explain)
+            .map(SqlStatementResult::Explain)
     }
 
     // Validate that one SQL-derived query intent matches the grouped/scalar
@@ -1109,42 +1112,42 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one reduced SQL statement into one unified SQL dispatch payload.
+    /// Execute one reduced SQL statement into one unified SQL statement payload.
     #[cfg(test)]
-    pub(in crate::db) fn execute_sql_dispatch<E>(
+    pub(in crate::db) fn execute_sql_statement<E>(
         &self,
         sql: &str,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
 
-        self.execute_sql_dispatch_parsed::<E>(&parsed)
+        self.execute_sql_statement_parsed::<E>(&parsed)
     }
 
     /// Execute one parsed reduced SQL statement into one unified SQL payload.
-    pub(in crate::db) fn execute_sql_dispatch_parsed<E>(
+    pub(in crate::db) fn execute_sql_statement_parsed<E>(
         &self,
         parsed: &SqlParsedStatement,
-    ) -> Result<SqlDispatchResult, QueryError>
+    ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match parsed.route() {
-            SqlStatementRoute::Query { .. } => self.dispatch_sql_query_route_for_authority(
+            SqlStatementRoute::Query { .. } => self.execute_sql_query_route_for_authority(
                 parsed,
                 EntityAuthority::for_type::<E>(),
-                "execute_sql_dispatch accepts SELECT or DELETE only",
+                "execute_sql_statement accepts SELECT or DELETE only",
                 |session, select, authority, grouped_surface, projection_columns| {
                     if grouped_surface {
                         let columns = projection_columns.ok_or_else(|| {
                             QueryError::unsupported_query(
-                                "grouped SQL dispatch requires explicit grouped projection items",
+                                "grouped SQL statement execution requires explicit grouped projection items",
                             )
                         })?;
 
-                        return session.execute_lowered_sql_grouped_dispatch_select_core(
+                        return session.execute_lowered_sql_grouped_statement_select_core(
                             select, authority, columns,
                         );
                     }
@@ -1154,10 +1157,10 @@ impl<C: CanisterKind> DbSession<C> {
                         let (_, rows, row_count) = payload.into_parts();
 
                         return Ok(SqlProjectionPayload::new(columns, rows, row_count)
-                            .into_dispatch_result());
+                            .into_statement_result());
                     }
 
-                    Ok(payload.into_dispatch_result())
+                    Ok(payload.into_statement_result())
                 },
                 |session, delete, _authority| {
                     let SqlStatement::Delete(statement) = &parsed.statement else {
@@ -1186,7 +1189,7 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 };
 
-                self.execute_sql_insert_dispatch::<E>(statement)
+                self.execute_sql_insert_statement::<E>(statement)
             }
             SqlStatementRoute::Update { .. } => {
                 let SqlStatement::Update(statement) = &parsed.statement else {
@@ -1195,21 +1198,21 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 };
 
-                self.execute_sql_update_dispatch::<E>(statement)
+                self.execute_sql_update_statement::<E>(statement)
             }
             SqlStatementRoute::Explain { .. } => self
-                .dispatch_sql_explain_route_for_authority(parsed, EntityAuthority::for_type::<E>()),
+                .execute_sql_explain_route_for_authority(parsed, EntityAuthority::for_type::<E>()),
             SqlStatementRoute::Describe { .. } => {
-                Ok(SqlDispatchResult::Describe(self.describe_entity::<E>()))
+                Ok(SqlStatementResult::Describe(self.describe_entity::<E>()))
             }
             SqlStatementRoute::ShowIndexes { .. } => {
-                Ok(SqlDispatchResult::ShowIndexes(self.show_indexes::<E>()))
+                Ok(SqlStatementResult::ShowIndexes(self.show_indexes::<E>()))
             }
             SqlStatementRoute::ShowColumns { .. } => {
-                Ok(SqlDispatchResult::ShowColumns(self.show_columns::<E>()))
+                Ok(SqlStatementResult::ShowColumns(self.show_columns::<E>()))
             }
             SqlStatementRoute::ShowEntities => {
-                Ok(SqlDispatchResult::ShowEntities(self.show_entities()))
+                Ok(SqlStatementResult::ShowEntities(self.show_entities()))
             }
         }
     }

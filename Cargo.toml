@@ -7,7 +7,6 @@ members = [
     "canisters/audit/ten_simple",
     "canisters/demo/rpg",
     "canisters/test/sql",
-    "canisters/test/sql_parity",
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-core",
@@ -24,7 +23,6 @@ members = [
     "schema/demo/rpg",
     "schema/test/fixtures",
     "schema/test/sql",
-    "schema/test/sql_parity",
     "testing/macro-tests",
     "testing/pocket-ic",
     "testing/wasm-helpers",
@@ -67,7 +65,6 @@ icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
-icydb-testing-test-sql-parity-fixtures = { path = "schema/test/sql_parity" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
 icydb-utils = { path = "crates/icydb-utils", version = "0.77.0" }
 num-bigint = "0.4"

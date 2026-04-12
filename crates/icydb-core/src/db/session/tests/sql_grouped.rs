@@ -24,9 +24,9 @@ fn execute_indexed_grouped_case(
         .collect()
 }
 
-// Execute one grouped SQL dispatch case and assert the grouped payload surface
+// Execute one grouped SQL statement execution case and assert the grouped payload surface
 // stays stable across different projection shapes.
-fn assert_grouped_dispatch_payload_case(
+fn assert_grouped_statement_payload_case(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     expected_columns: &[&str],
@@ -35,10 +35,10 @@ fn assert_grouped_dispatch_payload_case(
     context: &str,
 ) {
     let payload = session
-        .execute_sql_dispatch::<SessionSqlEntity>(sql)
-        .unwrap_or_else(|err| panic!("{context} should execute through dispatch SQL: {err}"));
+        .execute_sql_statement::<SessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("{context} should execute through statement SQL: {err}"));
 
-    let SqlDispatchResult::Grouped {
+    let SqlStatementResult::Grouped {
         columns,
         rows,
         row_count,
@@ -83,9 +83,9 @@ fn assert_grouped_qualified_identifier_explain_case(
     unqualified_sql: &str,
     context: &str,
 ) {
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(session, qualified_sql)
+    let qualified = statement_explain_sql::<SessionSqlEntity>(session, qualified_sql)
         .unwrap_or_else(|err| panic!("{context} qualified SQL should succeed: {err}"));
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(session, unqualified_sql)
+    let unqualified = statement_explain_sql::<SessionSqlEntity>(session, unqualified_sql)
         .unwrap_or_else(|err| panic!("{context} unqualified SQL should succeed: {err}"));
 
     assert_eq!(
@@ -863,15 +863,15 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = dispatch_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
     )
-    .expect_err("projection row helper should reject grouped dispatch payloads");
+    .expect_err("projection row helper should reject grouped statement payloads");
 
     assert!(
         err.to_string()
-            .contains("projection row dispatch only supports value-row SQL projection payloads"),
+            .contains("projection row statement only supports value-row SQL projection payloads"),
         "projection row helper must preserve its value-row-only contract for grouped payloads",
     );
 }
@@ -1204,16 +1204,16 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
 }
 
 // This grouped payload matrix is intentionally kept as one table-driven surface
-// contract so grouped dispatch labels, rows, and aliases stay audited together.
+// contract so grouped statement labels, rows, and aliases stay audited together.
 #[expect(
     clippy::too_many_lines,
     reason = "grouped payload matrix coverage is table-driven"
 )]
 #[test]
-fn execute_sql_dispatch_grouped_payload_matrix() {
+fn execute_sql_statement_grouped_payload_matrix() {
     let cases = [
         (
-            "dispatch grouped SQL",
+            "statement grouped SQL",
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
             vec!["age", "COUNT(*)"],
             vec![
@@ -1224,7 +1224,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
             false,
         ),
         (
-            "dispatch grouped aliased computed SQL",
+            "statement grouped aliased computed SQL",
             "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
              FROM SessionSqlEntity \
              GROUP BY name \
@@ -1239,7 +1239,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
             false,
         ),
         (
-            "dispatch grouped computed SQL",
+            "statement grouped computed SQL",
             "SELECT TRIM(name), COUNT(*) \
              FROM SessionSqlEntity \
              GROUP BY name \
@@ -1262,7 +1262,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
         let session = sql_session();
 
         match context {
-            "dispatch grouped SQL" => {
+            "statement grouped SQL" => {
                 session
                     .insert(SessionSqlEntity {
                         id: Ulid::generate(),
@@ -1285,7 +1285,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
                     })
                     .expect("seed insert should succeed");
             }
-            "dispatch grouped aliased computed SQL" | "dispatch grouped computed SQL" => {
+            "statement grouped aliased computed SQL" | "statement grouped computed SQL" => {
                 seed_session_sql_entities(
                     &session,
                     &[
@@ -1299,7 +1299,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
             _ => unreachable!("grouped payload matrix is fixed"),
         }
 
-        assert_grouped_dispatch_payload_case(
+        assert_grouped_statement_payload_case(
             &session,
             sql,
             expected_columns.as_slice(),

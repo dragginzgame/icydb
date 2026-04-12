@@ -121,11 +121,11 @@ impl QueryError {
         Self::from_sql_lowering_error(SqlLoweringError::Parse(err))
     }
 
-    /// Construct one unsupported query-lane SQL dispatch error.
+    /// Construct one unsupported query-lane SQL statement error.
     #[cfg(feature = "sql")]
-    pub(crate) fn unsupported_query_lane_dispatch() -> Self {
+    pub(crate) fn unsupported_query_lane_sql_statement() -> Self {
         Self::unsupported_query(
-            "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+            "query-lane SQL execution only accepts SELECT, DELETE, and EXPLAIN statements",
         )
     }
 

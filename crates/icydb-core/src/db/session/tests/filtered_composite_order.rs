@@ -119,7 +119,7 @@ fn execute_sql_projection_filtered_composite_order_only_matrix_returns_guarded_r
         // Phase 2: require the projection lane to return only the guarded
         // equality-prefix subset under that ordered `handle, id` suffix shape.
         let projected_rows =
-            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(

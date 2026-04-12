@@ -97,7 +97,7 @@ fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() 
     // serial)` rows as the entity lane for a direct composite covering query.
     let sql = "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
     let projected_rows =
-        dispatch_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
             .expect("multi-component covering projection query should execute");
     let entity_rows = session
         .execute_sql::<CompositeIndexedSessionSqlEntity>(sql)

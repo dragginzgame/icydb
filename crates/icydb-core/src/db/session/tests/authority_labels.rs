@@ -65,7 +65,7 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
                 .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
         }
 
-        let surface = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let surface = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         if let Some(token) = required_token {
@@ -147,7 +147,7 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
 }
 
 #[test]
-fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_building_index_becomes_planner_invisible()
+fn execute_sql_statement_explain_execution_secondary_covering_order_field_building_index_becomes_planner_invisible()
  {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -167,7 +167,7 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_buildin
     }
     mark_indexed_session_sql_index_building();
 
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
         &session,
         "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
     )
@@ -188,7 +188,7 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_buildin
         "building indexes must not leave legacy secondary covering labels behind once they are planner-invisible: {explain}",
     );
 
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
     )

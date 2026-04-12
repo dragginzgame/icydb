@@ -30,7 +30,7 @@ See detailed breakdown:
 
 ## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
 
-- `0.77.0` removes public SQL dispatch entirely, keeps reduced SQL as a narrower typed query/introspection surface, moves the demo SQL forwarder onto one explicit single-entity helper, and trims the dead internal generated-dispatch scaffolding that only existed to support the old public SQL route.
+- `0.77.0` removes public SQL dispatch entirely, keeps `query_from_sql(...)` as the typed lowering helper, keeps one explicit single-entity SQL debug executor for demo/smoke canisters, and deletes the broad SQL parity canister/test scaffolding that only existed to exercise the old routed SQL surface.
 
 See detailed breakdown:
 [docs/changelog/0.77.md](docs/changelog/0.77.md)

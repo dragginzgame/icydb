@@ -379,18 +379,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_test_sql_parity"
-version = "0.77.0"
-dependencies = [
- "candid",
- "canic-cdk",
- "icydb",
- "icydb-core",
- "icydb-testing-test-sql-parity-fixtures",
- "serde",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1532,15 +1520,6 @@ version = "0.77.0"
 dependencies = [
  "candid",
  "icydb",
-]
-
-[[package]]
-name = "icydb-testing-test-sql-parity-fixtures"
-version = "0.77.0"
-dependencies = [
- "candid",
- "icydb",
- "serde",
 ]
 
 [[package]]

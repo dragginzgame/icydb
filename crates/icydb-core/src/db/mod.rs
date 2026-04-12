@@ -127,7 +127,7 @@ pub use schema::{
 pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
-    DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+    DbSession, SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
     debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]

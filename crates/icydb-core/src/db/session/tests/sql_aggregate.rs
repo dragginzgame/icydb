@@ -27,7 +27,7 @@ fn assert_global_aggregate_explain_case(
     require_json_object: bool,
     context: &str,
 ) {
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(session, sql)
+    let explain = statement_explain_sql::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
 
     if require_json_object {
@@ -223,7 +223,7 @@ fn execute_sql_aggregate_window_matrix_returns_expected_values() {
 }
 
 #[test]
-fn execute_sql_dispatch_global_aggregate_payload_matrix_preserves_projection_labels() {
+fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -231,19 +231,19 @@ fn execute_sql_dispatch_global_aggregate_payload_matrix_preserves_projection_lab
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
             vec!["COUNT(*)".to_string()],
-            "plain global aggregate dispatch payload",
+            "plain global aggregate statement payload",
         ),
         (
             "SELECT COUNT(*) AS total_rows FROM SessionSqlEntity",
             vec!["total_rows".to_string()],
-            "aliased global aggregate dispatch payload",
+            "aliased global aggregate statement payload",
         ),
     ] {
         let payload = session
-            .execute_sql_dispatch::<SessionSqlEntity>(sql)
+            .execute_sql_statement::<SessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-        let SqlDispatchResult::Projection {
+        let SqlStatementResult::Projection {
             columns,
             rows,
             row_count,
@@ -433,7 +433,7 @@ fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
             "execute_sql_aggregate unknown target field",
         ),
         (
-            dispatch_explain_sql::<SessionSqlEntity>(
+            statement_explain_sql::<SessionSqlEntity>(
                 &session,
                 "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
             )
@@ -493,14 +493,14 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
         );
     }
 
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+    let qualified = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21",
     )
     .expect("qualified global aggregate EXPLAIN JSON should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+    let unqualified = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
     )

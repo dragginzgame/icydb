@@ -42,9 +42,9 @@ fn assert_projection_columns_and_rows(
     expected_rows: ProjectedRows,
     context: &str,
 ) {
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(session, sql)
+    let columns = statement_projection_columns::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(session, sql)
+    let rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
 
     assert_eq!(
@@ -69,7 +69,7 @@ fn assert_projection_columns(
     expected_columns: &[&str],
     context: &str,
 ) {
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(session, sql)
+    let columns = statement_projection_columns::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
 
     assert_eq!(
@@ -92,9 +92,9 @@ fn assert_projection_alias_matches_canonical<E>(
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
 {
-    let aliased_rows = dispatch_projection_rows::<E>(session, aliased_sql)
+    let aliased_rows = statement_projection_rows::<E>(session, aliased_sql)
         .unwrap_or_else(|err| panic!("{context} aliased SQL should execute: {err:?}"));
-    let canonical_rows = dispatch_projection_rows::<E>(session, canonical_sql)
+    let canonical_rows = statement_projection_rows::<E>(session, canonical_sql)
         .unwrap_or_else(|err| panic!("{context} canonical SQL should execute: {err:?}"));
 
     assert_eq!(
@@ -203,7 +203,7 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = dispatch_projection_rows::<SessionSqlEntity>(
+    let err = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 2",
     )
@@ -238,7 +238,7 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
         })
         .expect("seed insert should succeed");
 
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
+    let response = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
     )
@@ -260,7 +260,7 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     clippy::too_many_lines,
     reason = "table-driven computed projection matrix"
 )]
-fn execute_sql_projection_computed_function_matrix_dispatches_from_session_boundary() {
+fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -392,7 +392,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
         })
         .expect("seed insert should succeed");
 
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
+    let response = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
     )
@@ -454,7 +454,7 @@ fn execute_sql_projection_qualified_identifier_matrix_executes() {
             "table-alias projection SQL",
         ),
     ] {
-        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         assert_eq!(rows.len(), 1, "{context} should return one row");
@@ -497,7 +497,7 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
         ],
     );
 
-    let projection = dispatch_projection_rows::<SessionSqlEntity>(
+    let projection = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1 RETURNING *",
     )
@@ -604,7 +604,7 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
 
         seed_session_sql_entities(&session, &seed_rows);
 
-        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
 
         if expect_pk_rows {
@@ -681,7 +681,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
 
     // Phase 3: assert projected row payloads for each SQL input.
     for (sql, expected_rows) in cases {
-        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
             .expect("projection matrix SQL execution should succeed");
         let actual_rows = response;
 

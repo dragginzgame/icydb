@@ -55,7 +55,7 @@ fn sql_users() -> Vec<SqlTestUser> {
 #[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_entity_sql::<SqlTestUser>(sql.as_str())
+    db().execute_sql_query::<SqlTestUser>(sql.as_str())
 }
 
 canic_cdk::export_candid!();

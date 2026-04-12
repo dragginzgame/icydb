@@ -33,8 +33,10 @@ fn execute_sql_delete_returning_name_age_rows(
 ) -> NameAgeRows {
     let returning_sql = format!("{sql} RETURNING name, age");
 
-    dispatch_projection_rows::<SessionSqlEntity>(session, returning_sql.as_str())
-        .unwrap_or_else(|err| panic!("DELETE SQL dispatch should execute with RETURNING: {err:?}"))
+    statement_projection_rows::<SessionSqlEntity>(session, returning_sql.as_str())
+        .unwrap_or_else(|err| {
+            panic!("DELETE SQL statement execution should execute with RETURNING: {err:?}")
+        })
         .into_iter()
         .map(|row| {
             let [Value::Text(name), Value::Uint(age)] = row.as_slice() else {
@@ -51,16 +53,18 @@ fn remaining_session_name_age_rows(session: &DbSession<SessionSqlCanister>) -> N
     execute_sql_name_age_rows(session, "SELECT * FROM SessionSqlEntity ORDER BY age ASC")
 }
 
-// Run one SQL DELETE statement through unified dispatch and return only the
+// Run one SQL DELETE statement through unified statement and return only the
 // affected-row count from the traditional mutation result surface.
-fn execute_sql_dispatch_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
+fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
     let payload = session
-        .execute_sql_dispatch::<SessionSqlEntity>(sql)
-        .unwrap_or_else(|err| panic!("DELETE SQL dispatch should execute: {err:?}"));
+        .execute_sql_statement::<SessionSqlEntity>(sql)
+        .unwrap_or_else(|err| panic!("DELETE SQL statement execution should execute: {err:?}"));
 
     match payload {
-        SqlDispatchResult::Count { row_count } => row_count,
-        other => panic!("DELETE SQL dispatch should return count payload, got {other:?}"),
+        SqlStatementResult::Count { row_count } => row_count,
+        other => {
+            panic!("DELETE SQL statement execution should return count payload, got {other:?}")
+        }
     }
 }
 
@@ -164,30 +168,27 @@ fn fluent_delete_returns_count_without_materializing_deleted_rows() {
 }
 
 #[test]
-fn execute_sql_dispatch_delete_returns_count_without_returning() {
+fn execute_sql_statement_delete_returns_count_without_returning() {
     reset_session_sql_store();
     let session = sql_session();
     seed_delete_minor_fixture(&session);
 
-    let row_count = execute_sql_dispatch_delete_count(
+    let row_count = execute_sql_statement_delete_count(
         &session,
         "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1",
     );
     let remaining = remaining_session_name_age_rows(&session);
 
-    assert_eq!(
-        row_count, 1,
-        "bare dispatch DELETE should return affected-row count"
-    );
+    assert_eq!(row_count, 1, "bare DELETE should return affected-row count");
     assert_eq!(
         remaining,
         vec![("second-minor".to_string(), 17), ("adult".to_string(), 42)],
-        "bare dispatch DELETE should still apply the ordered delete window",
+        "bare DELETE should still apply the ordered delete window",
     );
 }
 
 #[test]
-fn execute_sql_dispatch_delete_returning_projection_matrix_projects_deleted_rows() {
+fn execute_sql_statement_delete_returning_projection_matrix_projects_deleted_rows() {
     for (sql, expect_full_row, context) in [
         (
             "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1 RETURNING name, age",
@@ -204,7 +205,7 @@ fn execute_sql_dispatch_delete_returning_projection_matrix_projects_deleted_rows
         let session = sql_session();
         seed_delete_minor_fixture(&session);
 
-        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should return deleted rows: {err:?}"));
         let remaining = remaining_session_name_age_rows(&session);
 

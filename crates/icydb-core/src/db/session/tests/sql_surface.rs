@@ -299,7 +299,7 @@ fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages
 
     let execute_err = session
         .execute_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
-        .expect_err("execute_sql should keep computed text projection on the dispatch-owned lane");
+        .expect_err("execute_sql should keep computed text projection on the statement-owned lane");
     assert!(
         execute_err
             .to_string()
@@ -415,15 +415,15 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     let session = sql_session();
 
     let describe_from_sql =
-        dispatch_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
+        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
             .expect("describe_sql should succeed");
     let show_indexes_from_sql =
-        dispatch_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
+        statement_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
             .expect("show_indexes_sql should succeed");
     let show_columns_from_sql =
-        dispatch_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("show_columns_sql should succeed");
-    let show_entities_from_sql = dispatch_show_entities_sql(&session, "SHOW ENTITIES")
+    let show_entities_from_sql = statement_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
 
     assert_eq!(
@@ -482,7 +482,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "describe_sql should reject SHOW ENTITIES statements",
             ),
         ],
-        |sql| dispatch_describe_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_describe_sql::<SessionSqlEntity>(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -507,7 +507,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_indexes_sql should reject SHOW ENTITIES statements",
             ),
         ],
-        |sql| dispatch_show_indexes_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_show_indexes_sql::<SessionSqlEntity>(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -532,7 +532,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_columns_sql should reject SHOW ENTITIES statements",
             ),
         ],
-        |sql| dispatch_show_columns_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_show_columns_sql::<SessionSqlEntity>(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -557,7 +557,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_entities_sql should reject SHOW COLUMNS statements",
             ),
         ],
-        |sql| dispatch_show_entities_sql(&session, sql),
+        |sql| statement_show_entities_sql(&session, sql),
     );
     assert_sql_surface_rejects_statement_lanes(
         &[
@@ -578,7 +578,7 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "explain_sql should reject SHOW ENTITIES statements",
             ),
         ],
-        |sql| dispatch_explain_sql::<SessionSqlEntity>(&session, sql),
+        |sql| statement_explain_sql::<SessionSqlEntity>(&session, sql),
     );
 }
 
@@ -599,7 +599,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         session.execute_sql::<SessionSqlEntity>(sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        statement_projection_rows::<SessionSqlEntity>(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         session.execute_sql_grouped::<SessionSqlEntity>(sql, None)
@@ -609,7 +609,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         let explain_sql = format!("EXPLAIN {sql}");
-        dispatch_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
+        statement_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
     });
     assert_specific_sql_unsupported_feature_detail(
         "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
@@ -626,13 +626,13 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         session.execute_sql::<SessionSqlEntity>(sql),
         "execute_sql should reject INSERT lane even when RETURNING is present",
     );
-    let returning_rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
-        .expect("dispatch should admit INSERT RETURNING");
+    let returning_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+        .expect("statement execution should admit INSERT RETURNING");
     assert_eq!(returning_rows.len(), 1);
     assert_eq!(returning_rows[0].len(), 1);
     assert!(
         matches!(returning_rows[0][0], Value::Ulid(_)),
-        "dispatch INSERT RETURNING should project the requested generated id",
+        "statement INSERT RETURNING should project the requested generated id",
     );
     assert_unsupported_sql_surface_result(
         session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
@@ -654,18 +654,19 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         session.execute_sql::<SessionSqlEntity>(update_returning_sql),
         "execute_sql should reject UPDATE lane even when RETURNING is present",
     );
-    let updated_rows = dispatch_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
-        .expect("dispatch should admit UPDATE RETURNING");
+    let updated_rows =
+        statement_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
+            .expect("statement execution should admit UPDATE RETURNING");
     assert_eq!(updated_rows.len(), 1);
     assert_eq!(updated_rows[0].len(), 2);
     assert!(
         matches!(updated_rows[0][0], Value::Ulid(_)),
-        "dispatch UPDATE RETURNING should project the requested generated id",
+        "statement UPDATE RETURNING should project the requested generated id",
     );
     assert_eq!(
         updated_rows[0][1],
         Value::Uint(22),
-        "dispatch UPDATE RETURNING should project the updated scalar field",
+        "statement UPDATE RETURNING should project the updated scalar field",
     );
     assert_unsupported_sql_surface_result(
         session.execute_sql_grouped::<SessionSqlEntity>(update_returning_sql, None),
@@ -725,52 +726,52 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
 }
 
 #[test]
-fn execute_entity_sql_admits_supported_single_entity_read_shapes() {
+fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
 
     let scalar = session
-        .execute_entity_sql::<SessionSqlEntity>(
+        .execute_sql_statement::<SessionSqlEntity>(
             "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
         )
-        .expect("execute_entity_sql should admit scalar SELECT");
-    let SqlDispatchResult::Projection {
+        .expect("execute_sql_statement should admit scalar SELECT");
+    let SqlStatementResult::Projection {
         columns,
         rows,
         row_count,
     } = scalar
     else {
-        panic!("execute_entity_sql scalar SELECT should emit projection rows");
+        panic!("execute_sql_statement scalar SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
     assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
     assert_eq!(row_count, 1);
 
     let grouped = session
-        .execute_entity_sql::<SessionSqlEntity>(
+        .execute_sql_statement::<SessionSqlEntity>(
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
         )
-        .expect("execute_entity_sql should admit grouped SELECT");
-    let SqlDispatchResult::Grouped {
+        .expect("execute_sql_statement should admit grouped SELECT");
+    let SqlStatementResult::Grouped {
         columns, row_count, ..
     } = grouped
     else {
-        panic!("execute_entity_sql grouped SELECT should emit grouped rows");
+        panic!("execute_sql_statement grouped SELECT should emit grouped rows");
     };
     assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
     assert_eq!(row_count, 2);
 
     let aggregate = session
-        .execute_entity_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("execute_entity_sql should admit global aggregate SELECT");
-    let SqlDispatchResult::Projection {
+        .execute_sql_statement::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect("execute_sql_statement should admit global aggregate SELECT");
+    let SqlStatementResult::Projection {
         columns,
         rows,
         row_count,
     } = aggregate
     else {
-        panic!("execute_entity_sql aggregate SELECT should emit projection rows");
+        panic!("execute_sql_statement aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
     assert_eq!(rows, vec![vec![Value::Uint(3)]]);
@@ -778,42 +779,42 @@ fn execute_entity_sql_admits_supported_single_entity_read_shapes() {
 }
 
 #[test]
-fn execute_entity_sql_admits_supported_single_entity_mutation_shapes() {
+fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
 
     let insert = session
-        .execute_entity_sql::<SessionSqlWriteEntity>(
+        .execute_sql_statement::<SessionSqlWriteEntity>(
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
         )
-        .expect("execute_entity_sql should admit INSERT");
-    let SqlDispatchResult::Count { row_count } = insert else {
-        panic!("execute_entity_sql INSERT should emit count payload");
+        .expect("execute_sql_statement should admit INSERT");
+    let SqlStatementResult::Count { row_count } = insert else {
+        panic!("execute_sql_statement INSERT should emit count payload");
     };
     assert_eq!(row_count, 1);
 
     let update = session
-        .execute_entity_sql::<SessionSqlWriteEntity>(
+        .execute_sql_statement::<SessionSqlWriteEntity>(
             "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
         )
-        .expect("execute_entity_sql should admit UPDATE");
-    let SqlDispatchResult::Count { row_count } = update else {
-        panic!("execute_entity_sql UPDATE should emit count payload");
+        .expect("execute_sql_statement should admit UPDATE");
+    let SqlStatementResult::Count { row_count } = update else {
+        panic!("execute_sql_statement UPDATE should emit count payload");
     };
     assert_eq!(row_count, 1);
 
     let delete = session
-        .execute_entity_sql::<SessionSqlWriteEntity>(
+        .execute_sql_statement::<SessionSqlWriteEntity>(
             "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
         )
-        .expect("execute_entity_sql should admit DELETE RETURNING");
-    let SqlDispatchResult::Projection {
+        .expect("execute_sql_statement should admit DELETE RETURNING");
+    let SqlStatementResult::Projection {
         columns,
         rows,
         row_count,
     } = delete
     else {
-        panic!("execute_entity_sql DELETE RETURNING should emit projection rows");
+        panic!("execute_sql_statement DELETE RETURNING should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
     assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);

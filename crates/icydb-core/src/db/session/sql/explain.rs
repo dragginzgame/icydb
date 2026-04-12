@@ -62,7 +62,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Err(QueryError::unsupported_query(
-            "shared EXPLAIN dispatch could not classify lowered SQL shape",
+            "shared EXPLAIN execution could not classify lowered SQL shape",
         ))
     }
 

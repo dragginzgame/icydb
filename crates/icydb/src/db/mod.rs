@@ -38,13 +38,9 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-#[cfg(feature = "sql")]
-pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
 #[doc(hidden)]
 pub use icydb_core::error::InternalError;
 pub use response::{MutationResult, PagedResponse, ProjectionResponse, Response};
-#[cfg(feature = "sql")]
-pub use session::SqlParsedStatement;
 #[doc(hidden)]
 pub use session::generated::execute_generated_storage_report;
 pub use session::{

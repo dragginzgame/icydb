@@ -13,7 +13,7 @@ use crate::{
             compare_numeric_or_strict_order,
         },
         session::sql::surface::sql_statement_route_from_statement,
-        session::sql::{SqlDispatchResult, SqlParsedStatement, SqlStatementRoute},
+        session::sql::{SqlParsedStatement, SqlStatementResult, SqlStatementRoute},
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
             SqlGlobalAggregateCommand, SqlGlobalAggregateCommandCore,
@@ -79,7 +79,7 @@ const fn unsupported_sql_aggregate_grouped_message() -> &'static str {
 
 impl<C: CanisterKind> DbSession<C> {
     // Build the canonical SQL aggregate label projected by the prepared
-    // aggregate strategy so unified dispatch rows stay parser-stable.
+    // aggregate strategy so unified statement rows stay parser-stable.
     pub(in crate::db::session::sql) fn sql_scalar_aggregate_label(
         strategy: &PreparedSqlScalarAggregateStrategy,
     ) -> String {
@@ -127,7 +127,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Reduce one structural aggregate field projection into canonical aggregate
-    // value semantics for the unified SQL dispatch/query surface.
+    // value semantics for the unified SQL statement/query surface.
     fn reduce_structural_sql_aggregate_field_values(
         values: Vec<Value>,
         strategy: &PreparedSqlScalarAggregateStrategy,
@@ -165,7 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                     let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
                         QueryError::invariant(
-                            "numeric SQL aggregate dispatch encountered non-numeric projected value",
+                            "numeric SQL aggregate statement encountered non-numeric projected value",
                         )
                     })?;
                     sum = Some(sum.map_or(decimal, |current| add_decimal_terms(current, decimal)));
@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 compare_numeric_or_strict_order(&value, current).ok_or_else(
                                     || {
                                         QueryError::invariant(
-                                            "extrema SQL aggregate dispatch encountered incomparable projected values",
+                                            "extrema SQL aggregate statement encountered incomparable projected values",
                                         )
                                     },
                                 )?;
@@ -265,13 +265,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one generic-free prepared SQL aggregate command through the
     // structural SQL projection path and package the result as one row-shaped
-    // dispatch payload for unified SQL loops.
-    pub(in crate::db::session::sql) fn execute_sql_aggregate_dispatch_for_authority(
+    // statement payload for unified SQL loops.
+    pub(in crate::db::session::sql) fn execute_sql_aggregate_statement_for_authority(
         &self,
         command: SqlGlobalAggregateCommandCore,
         authority: crate::db::executor::EntityAuthority,
         label_override: Option<String>,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         let model = authority.model();
         let strategy = command
             .prepared_scalar_strategy_with_model(model)
@@ -308,7 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
 
-        Ok(SqlDispatchResult::Projection {
+        Ok(SqlStatementResult::Projection {
             columns: vec![label],
             rows: vec![vec![value]],
             row_count: 1,
@@ -316,7 +316,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Compile one already-parsed SQL aggregate statement into the shared
-    // generic-free aggregate command used by unified dispatch/query surfaces.
+    // generic-free aggregate command used by unified statement/query surfaces.
     pub(in crate::db::session::sql) fn compile_sql_aggregate_command_core_for_authority(
         parsed: &SqlParsedStatement,
         authority: crate::db::executor::EntityAuthority,
@@ -330,7 +330,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Require one resolved target slot from a prepared field-target SQL
-    // aggregate strategy before dispatching into execution families.
+    // aggregate strategy before executing against the supported families.
     fn prepared_sql_scalar_target_slot_required(
         strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
         message: &'static str,
@@ -524,40 +524,40 @@ impl<C: CanisterKind> DbSession<C> {
         // DISTINCT field aggregates reuse the existing structural projection +
         // reduction lane so SQL deduplicates aggregate inputs before folding.
         if strategy.is_distinct() {
-            let dispatch = compile_sql_global_aggregate_command_core_from_prepared(
+            let statement = compile_sql_global_aggregate_command_core_from_prepared(
                 prepared,
                 E::MODEL,
                 MissingRowPolicy::Ignore,
             )
             .map_err(QueryError::from_sql_lowering_error)?;
             let authority = crate::db::executor::EntityAuthority::for_type::<E>();
-            let SqlDispatchResult::Projection { rows, .. } =
-                self.execute_sql_aggregate_dispatch_for_authority(dispatch, authority, None)?
+            let SqlStatementResult::Projection { rows, .. } =
+                self.execute_sql_aggregate_statement_for_authority(statement, authority, None)?
             else {
                 return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate dispatch must finalize as one projection row",
+                    "DISTINCT SQL aggregate statement must finalize as one projection row",
                 ));
             };
             let Some(mut row) = rows.into_iter().next() else {
                 return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate dispatch must emit one projection row",
+                    "DISTINCT SQL aggregate statement must emit one projection row",
                 ));
             };
             if row.len() != 1 {
                 return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate dispatch must emit exactly one projected value",
+                    "DISTINCT SQL aggregate statement must emit exactly one projected value",
                 ));
             }
             let value = row.pop().ok_or_else(|| {
                 QueryError::invariant(
-                    "DISTINCT SQL aggregate dispatch must emit exactly one projected value",
+                    "DISTINCT SQL aggregate statement must emit exactly one projected value",
                 )
             })?;
 
             return Ok(value);
         }
 
-        // Then dispatch through one prepared typed-scalar aggregate strategy so
+        // Then execute one prepared typed-scalar aggregate strategy so
         // SQL aggregate execution and SQL aggregate explain consume the same
         // behavioral source instead of matching raw terminal variants twice.
         self.execute_prepared_sql_scalar_aggregate(&command)

@@ -61,17 +61,17 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
 
     // Phase 2: prove the direct spelling stays aligned with the established
     // strict LIKE and explicit text-range paths on both public lanes.
-    let projection_direct_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_direct_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
     )
     .expect("direct STARTS_WITH projection should execute");
-    let projection_like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_like_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
     )
     .expect("strict LIKE prefix projection should execute");
-    let projection_range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let projection_range_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC",
     )
@@ -160,7 +160,7 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
 
-    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let like_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
     )
@@ -178,7 +178,7 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
     ];
 
     for (sql, context) in cases {
-        let actual_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        let actual_rows = statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(
@@ -267,7 +267,7 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
             let session = indexed_sql_session();
             seed_direct_starts_with_fixture(&session);
 
-            let deleted_names = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+            let deleted_names = statement_projection_rows::<IndexedSessionSqlEntity>(
                 &session,
                 format!("{sql} RETURNING name").as_str(),
             )

@@ -161,7 +161,7 @@ fn execute_sql_projection_expression_order_matrix_matches_entity_rows() {
         ),
     ] {
         let projected_rows =
-            dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
         let entity_rows = session
             .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)

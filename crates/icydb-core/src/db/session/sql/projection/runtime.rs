@@ -39,7 +39,7 @@ use std::cell::RefCell;
 /// Generic-free SQL projection row payload emitted by executor-owned structural
 /// projection execution helpers.
 /// Keeps SQL row materialization out of typed `ProjectionResponse<E>` so SQL
-/// dispatch can render value rows without reintroducing entity-specific ids.
+/// SQL execution can render value rows without reintroducing entity-specific ids.
 ///
 
 #[cfg(feature = "sql")]
@@ -69,7 +69,7 @@ impl SqlProjectionRows {
 /// executor path into structural prepare, scalar runtime, projection
 /// materialization, and final row-payload packaging.
 /// This lets perf harnesses separate fixed executor setup from the terminal
-/// fast path without reopening the session or dispatch layers above it.
+/// fast path without reopening the session or SQL layers above it.
 ///
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]

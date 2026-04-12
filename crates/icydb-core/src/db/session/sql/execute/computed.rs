@@ -1,14 +1,14 @@
-//! Module: db::session::sql::dispatch::computed
-//! Responsibility: session-owned dispatch helpers for the bounded computed SQL
+//! Module: db::session::sql::execute::computed
+//! Responsibility: session-owned statement helpers for the bounded computed SQL
 //! projection surface that stays outside generic structural planning.
 //! Does not own: generic projection planning or executor projection semantics.
-//! Boundary: keeps computed select-list dispatch isolated from the structural SQL lane.
+//! Boundary: keeps computed select-list statement execution isolated from the structural SQL lane.
 
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
-        session::sql::{SqlDispatchResult, computed_projection},
+        session::sql::{SqlStatementResult, computed_projection},
         sql::{
             lowering::{
                 LoweredSqlQuery, bind_lowered_sql_select_query_structural,
@@ -22,13 +22,13 @@ use crate::{
 
 impl<C: CanisterKind> DbSession<C> {
     // Execute one supported computed SQL projection for one already-resolved
-    // dynamic authority so both typed and generated SQL dispatch stay on the
+    // dynamic authority so every single-entity SQL statement surface stays on the
     // same computed-projection execution path.
-    pub(in crate::db::session::sql::dispatch) fn execute_computed_sql_projection_dispatch_for_authority(
+    pub(in crate::db::session::sql::execute) fn execute_computed_sql_projection_statement_for_authority(
         &self,
         plan: computed_projection::SqlComputedProjectionPlan,
         authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         // Phase 1: lower the rewritten field-only base query through the
         // shared SQL preparation/lowering path for the resolved dynamic model.
         let lowered = lower_sql_command_from_prepared_statement(
@@ -46,12 +46,12 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 2: execute the base query through the existing scalar or
         // grouped lane, then apply only the outward computed transform.
         if plan.is_grouped() {
-            let grouped = self.execute_lowered_sql_grouped_dispatch_select_core(
+            let grouped = self.execute_lowered_sql_grouped_statement_select_core(
                 select,
                 authority,
                 plan.output_labels(),
             )?;
-            let SqlDispatchResult::Grouped {
+            let SqlStatementResult::Grouped {
                 columns,
                 rows,
                 row_count,
@@ -59,13 +59,13 @@ impl<C: CanisterKind> DbSession<C> {
             } = grouped
             else {
                 return Err(QueryError::invariant(
-                    "grouped computed SQL projection did not produce grouped dispatch payload",
+                    "grouped computed SQL projection did not produce grouped statement payload",
                 ));
             };
             let rows =
                 computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
 
-            return Ok(SqlDispatchResult::Grouped {
+            return Ok(SqlStatementResult::Grouped {
                 columns,
                 rows,
                 row_count,
@@ -83,13 +83,13 @@ impl<C: CanisterKind> DbSession<C> {
         let projected =
             computed_projection::apply_computed_sql_projection_payload(base_payload, &plan)?;
 
-        Ok(projected.into_dispatch_result())
+        Ok(projected.into_statement_result())
     }
 
     // Render one supported computed SQL projection explain for one already-
-    // resolved dynamic authority so both typed and generated EXPLAIN dispatch
+    // resolved dynamic authority so every single-entity EXPLAIN statement
     // stay on the same computed-projection explain path.
-    pub(in crate::db::session::sql::dispatch) fn explain_computed_sql_projection_dispatch_for_authority(
+    pub(in crate::db::session::sql::execute) fn explain_computed_sql_projection_statement_for_authority(
         &self,
         mode: SqlExplainMode,
         plan: computed_projection::SqlComputedProjectionPlan,

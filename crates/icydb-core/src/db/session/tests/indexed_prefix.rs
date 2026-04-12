@@ -108,17 +108,17 @@ fn execute_sql_projection_indexed_prefix_matrix_matches_covering_rows() {
 
     // Phase 2: materialize the shared accepted spellings and require them to
     // preserve the same canonical covering result set.
-    let strict_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let strict_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC, id ASC",
     )
     .expect("strict indexed LIKE projection should execute");
-    let casefold_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let casefold_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC, id ASC",
     )
     .expect("casefold LIKE projection should execute");
-    let range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+    let range_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC, id ASC",
     )
@@ -181,7 +181,7 @@ fn execute_sql_entity_indexed_prefix_matrix_matches_projection_rows() {
 
     for (context, projection_sql, entity_sql) in cases {
         let projected_rows =
-            dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, projection_sql)
+            statement_projection_rows::<IndexedSessionSqlEntity>(&session, projection_sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
         let entity_rows = session
             .execute_sql::<IndexedSessionSqlEntity>(entity_sql)

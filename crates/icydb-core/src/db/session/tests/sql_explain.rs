@@ -8,9 +8,9 @@ fn assert_explain_identifier_normalization_case(
     rhs_sql: &str,
     context: &str,
 ) {
-    let lhs = dispatch_explain_sql::<SessionSqlEntity>(session, lhs_sql)
+    let lhs = statement_explain_sql::<SessionSqlEntity>(session, lhs_sql)
         .unwrap_or_else(|err| panic!("{context} left-hand SQL should succeed: {err}"));
-    let rhs = dispatch_explain_sql::<SessionSqlEntity>(session, rhs_sql)
+    let rhs = statement_explain_sql::<SessionSqlEntity>(session, rhs_sql)
         .unwrap_or_else(|err| panic!("{context} right-hand SQL should succeed: {err}"));
 
     assert_eq!(
@@ -29,9 +29,9 @@ fn assert_explain_alias_normalization_case<E>(
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
 {
-    let aliased = dispatch_explain_sql::<E>(session, aliased_sql)
+    let aliased = statement_explain_sql::<E>(session, aliased_sql)
         .unwrap_or_else(|err| panic!("{context} aliased SQL should succeed: {err}"));
-    let canonical = dispatch_explain_sql::<E>(session, canonical_sql)
+    let canonical = statement_explain_sql::<E>(session, canonical_sql)
         .unwrap_or_else(|err| panic!("{context} canonical SQL should succeed: {err}"));
 
     assert_eq!(
@@ -50,9 +50,9 @@ fn assert_explain_equivalence_case<E>(
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
 {
-    let left = dispatch_explain_sql::<E>(session, left_sql)
+    let left = statement_explain_sql::<E>(session, left_sql)
         .unwrap_or_else(|err| panic!("{context} left SQL should succeed: {err}"));
-    let right = dispatch_explain_sql::<E>(session, right_sql)
+    let right = statement_explain_sql::<E>(session, right_sql)
         .unwrap_or_else(|err| panic!("{context} right SQL should succeed: {err}"));
 
     assert_eq!(
@@ -67,7 +67,7 @@ fn assert_explain_json_index_range_case(
     tokens: &[&str],
     context: &str,
 ) {
-    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(session, sql)
+    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
     assert!(
@@ -115,7 +115,7 @@ fn explain_sql_plan_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN plan query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN plan matrix query should succeed");
         assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
     }
@@ -147,7 +147,7 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN EXECUTION query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN EXECUTION matrix query should succeed");
         assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
     }
@@ -187,7 +187,7 @@ fn explain_sql_json_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN JSON query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN JSON matrix query should succeed");
         assert!(
             explain.starts_with('{') && explain.ends_with('}'),
@@ -224,7 +224,7 @@ fn explain_sql_delete_rejection_matrix_preserves_unsupported_feature_detail() {
             "EXPLAIN JSON JOIN",
         ),
     ] {
-        let err = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+        let err = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect_err("unsupported EXPLAIN feature should stay fail-closed");
 
         assert!(
@@ -268,9 +268,9 @@ fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
     // Phase 2: assert the logical plan text remains the same across both
     // spellings, proving the accepted direct family reuses the same delete path.
     for (direct_sql, like_sql, context) in cases {
-        let direct = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, direct_sql)
+        let direct = statement_explain_sql::<IndexedSessionSqlEntity>(&session, direct_sql)
             .expect("direct STARTS_WITH delete EXPLAIN should succeed");
-        let like = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, like_sql)
+        let like = statement_explain_sql::<IndexedSessionSqlEntity>(&session, like_sql)
             .expect("LIKE delete EXPLAIN should succeed");
 
         assert_eq!(
@@ -311,7 +311,7 @@ fn explain_sql_delete_direct_text_range_matrix_preserves_index_range_route() {
             "direct LOWER(field) ordered text-range delete EXPLAIN",
         ),
     ] {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         assert_explain_contains_tokens(
@@ -341,7 +341,7 @@ fn explain_json_sql_direct_text_range_matrix_preserves_index_range_route() {
             "direct LOWER(field) ordered text-range JSON EXPLAIN",
         ),
     ] {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         assert!(
@@ -423,7 +423,7 @@ fn explain_json_sql_delete_direct_text_range_matrix_preserves_index_range_route(
             "direct LOWER(field) ordered text-range JSON delete EXPLAIN",
         ),
     ] {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         assert!(
@@ -553,7 +553,7 @@ fn explain_sql_distinct_surface_matrix_returns_expected_tokens() {
             "logical explain distinct scalar projection",
         ),
     ] {
-        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
         assert_explain_contains_tokens(explain.as_str(), tokens, context);
     }
@@ -597,7 +597,7 @@ fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
+    let err = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 1",
     )
@@ -624,11 +624,11 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let scalar_explain = dispatch_explain_sql::<SessionSqlEntity>(
+    let scalar_explain = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age LIMIT 1",
     )
-    .expect("EXPLAIN should support computed text projection on the narrowed dispatch lane");
+    .expect("EXPLAIN should support computed text projection on the narrowed statement lane");
     assert!(
         scalar_explain.contains("mode=Load"),
         "computed text projection explain should still render the base load plan",
@@ -665,7 +665,7 @@ fn explain_sql_rejects_non_explain_statements() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = dispatch_explain_sql::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
+    let err = statement_explain_sql::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
         .expect_err("explain_sql must reject non-EXPLAIN statements");
 
     assert!(

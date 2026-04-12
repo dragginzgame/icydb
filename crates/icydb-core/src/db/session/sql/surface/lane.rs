@@ -1,6 +1,6 @@
 //! Module: db::session::sql::surface::lane
 //! Responsibility: classify lowered SQL commands into the canonical session
-//! lane kinds used by dispatch and explain entrypoint guards.
+//! lane kinds used by statement and explain entrypoint guards.
 //! Does not own: detailed route classification or command execution.
 //! Boundary: provides the narrow lane taxonomy for session SQL gate checks.
 

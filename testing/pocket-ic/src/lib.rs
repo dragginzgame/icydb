@@ -8,8 +8,6 @@ use std::{
 
 const DEMO_RPG_CANISTER_NAME: &str = "demo_rpg";
 const DEMO_RPG_CANISTER_PACKAGE: &str = "canister_demo_rpg";
-const SQL_PARITY_CANISTER_NAME: &str = "sql_parity";
-const SQL_PARITY_CANISTER_PACKAGE: &str = "canister_test_sql_parity";
 const MINIMAL_CANISTER_NAME: &str = "minimal";
 const MINIMAL_CANISTER_PACKAGE: &str = "canister_audit_minimal";
 const ONE_SIMPLE_CANISTER_NAME: &str = "one_simple";
@@ -24,7 +22,6 @@ const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
 const DEMO_RPG_WASM_PROFILE_ENV: &str = "DEMO_RPG_WASM_PROFILE";
 const CANISTER_SQL_MODE_ENV: &str = "ICYDB_CANISTER_SQL_MODE";
-const CANISTER_PERF_ATTRIBUTION_ENV: &str = "ICYDB_CANISTER_PERF_ATTRIBUTION";
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -48,14 +45,13 @@ fn canister_wasm_path(workspace_root: &Path, profile: &str, package_name: &str) 
 fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
     match canister_name {
         DEMO_RPG_CANISTER_NAME => Ok(DEMO_RPG_CANISTER_PACKAGE),
-        SQL_PARITY_CANISTER_NAME => Ok(SQL_PARITY_CANISTER_PACKAGE),
         MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
         ONE_SIMPLE_CANISTER_NAME => Ok(ONE_SIMPLE_CANISTER_PACKAGE),
         ONE_COMPLEX_CANISTER_NAME => Ok(ONE_COMPLEX_CANISTER_PACKAGE),
         TEN_SIMPLE_CANISTER_NAME => Ok(TEN_SIMPLE_CANISTER_PACKAGE),
         TEN_COMPLEX_CANISTER_NAME => Ok(TEN_COMPLEX_CANISTER_PACKAGE),
         _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{SQL_PARITY_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
+            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
         )),
     }
 }
@@ -111,21 +107,6 @@ fn selected_canister_sql_enabled() -> Result<bool, String> {
         "off" | "sql-off" | "disabled" => Ok(false),
         other => Err(format!(
             "invalid {CANISTER_SQL_MODE_ENV} value '{other}', expected 'on'/'sql-on' or 'off'/'sql-off'"
-        )),
-    }
-}
-
-fn selected_canister_perf_attribution_enabled() -> Result<bool, String> {
-    let Some(explicit_mode) = env::var_os(CANISTER_PERF_ATTRIBUTION_ENV) else {
-        return Ok(false);
-    };
-
-    let normalized = explicit_mode.to_string_lossy().to_ascii_lowercase();
-    match normalized.as_str() {
-        "on" | "enabled" | "true" => Ok(true),
-        "off" | "disabled" | "false" => Ok(false),
-        other => Err(format!(
-            "invalid {CANISTER_PERF_ATTRIBUTION_ENV} value '{other}', expected 'on'/'enabled'/'true' or 'off'/'disabled'/'false'"
         )),
     }
 }
@@ -196,7 +177,6 @@ fn build_canister_package(
 ) -> Result<PathBuf, String> {
     let root = workspace_root();
     let sql_enabled = selected_canister_sql_enabled()?;
-    let perf_attribution_enabled = selected_canister_perf_attribution_enabled()?;
     let mut cargo = Command::new("cargo");
 
     // Phase 1: configure the wasm cargo build request.
@@ -209,9 +189,6 @@ fn build_canister_package(
     ]);
     if !sql_enabled {
         cargo.arg("--no-default-features");
-    }
-    if perf_attribution_enabled && package_name == SQL_PARITY_CANISTER_PACKAGE {
-        cargo.args(["--features", "perf-attribution"]);
     }
     if profile == "release" {
         cargo.arg("--release");

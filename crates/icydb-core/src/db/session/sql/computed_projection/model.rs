@@ -14,7 +14,7 @@ use crate::{
 ///
 /// Session-owned transform taxonomy for the narrow computed SQL projection
 /// lane.
-/// This stays local to SQL dispatch so the first `0.66` text bundle does not
+/// This stays local to SQL execution so the first `0.66` text bundle does not
 /// reopen generic planner/executor expression ownership.
 ///
 
@@ -171,7 +171,7 @@ impl SqlComputedProjectionItem {
 ///
 /// SqlComputedProjectionPlan
 ///
-/// Narrow session-owned execution plan for computed SQL projection dispatch.
+/// Narrow session-owned execution plan for computed SQL projection execution.
 /// This rewrites one supported computed projection into a base field-only
 /// select, then applies the requested transforms after structural row loading.
 ///

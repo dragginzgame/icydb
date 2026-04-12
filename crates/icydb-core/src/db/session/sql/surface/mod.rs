@@ -2,13 +2,13 @@
 //! Responsibility: classify lowered SQL commands onto the supported session SQL
 //! surfaces and route families.
 //! Does not own: execution, planning, or result shaping once a surface is chosen.
-//! Boundary: keeps lane and route classification together above dispatch entrypoints.
+//! Boundary: keeps lane and route classification together above SQL entrypoints.
 
 mod lane;
 mod route;
 
 pub use crate::db::session::sql::surface::route::{
-    SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+    SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
 };
 
 pub(in crate::db::session::sql) use crate::db::session::sql::surface::{

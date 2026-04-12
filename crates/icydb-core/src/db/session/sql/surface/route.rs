@@ -1,6 +1,6 @@
 //! Module: db::session::sql::surface::route
 //! Responsibility: classify lowered SQL command results into the outward SQL
-//! route/result families returned by session dispatch entrypoints.
+//! route/result families returned by session SQL entrypoints.
 //! Does not own: SQL lane selection or executor/planner behavior.
 //! Boundary: keeps outward SQL route taxonomy separate from execution internals.
 
@@ -30,9 +30,9 @@ pub enum SqlStatementRoute {
     ShowEntities,
 }
 
-/// Unified SQL dispatch payload returned by shared SQL lane execution.
+/// Unified SQL statement payload returned by shared SQL lane execution.
 #[derive(Debug)]
-pub enum SqlDispatchResult {
+pub enum SqlStatementResult {
     Count {
         row_count: u32,
     },
@@ -64,7 +64,7 @@ pub enum SqlDispatchResult {
 ///
 /// Opaque parsed SQL statement envelope with stable route metadata.
 /// This allows callers to parse once and reuse parsed authority across route
-/// classification and typed dispatch lowering.
+/// classification and typed SQL lowering.
 ///
 
 #[derive(Clone, Debug)]
@@ -126,7 +126,7 @@ impl SqlParsedStatement {
             | LoweredSqlLaneKind::ShowIndexes
             | LoweredSqlLaneKind::ShowColumns
             | LoweredSqlLaneKind::ShowEntities => {
-                Err(QueryError::unsupported_query_lane_dispatch())
+                Err(QueryError::unsupported_query_lane_sql_statement())
             }
         }
     }

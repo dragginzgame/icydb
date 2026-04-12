@@ -165,7 +165,7 @@ struct SessionSqlEntity {
 /// SessionSqlWriteEntity
 ///
 /// Numeric-key SQL write fixture used to lock reduced `INSERT` / `UPDATE`
-/// dispatch semantics against literal-addressable primary keys.
+/// statement semantics against literal-addressable primary keys.
 ///
 
 #[derive(
@@ -981,7 +981,7 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
     let session = indexed_sql_session();
 
     assert_eq!(
-        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
             "SHOW INDEXES IndexedSessionSqlEntity",
         )
@@ -995,7 +995,7 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
 
     mark_indexed_session_sql_index_building();
     assert_eq!(
-        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
             "SHOW INDEXES IndexedSessionSqlEntity",
         )
@@ -1009,7 +1009,7 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
 
     mark_indexed_session_sql_index_dropping();
     assert_eq!(
-        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+        statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
             "SHOW INDEXES IndexedSessionSqlEntity",
         )
@@ -1118,7 +1118,7 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
     );
 }
 
-fn unsupported_sql_dispatch_query_error(message: &'static str) -> QueryError {
+fn unsupported_sql_statement_query_error(message: &'static str) -> QueryError {
     QueryError::execute(crate::error::InternalError::classified(
         ErrorClass::Unsupported,
         ErrorOrigin::Query,
@@ -1126,71 +1126,71 @@ fn unsupported_sql_dispatch_query_error(message: &'static str) -> QueryError {
     ))
 }
 
-fn dispatch_projection_columns<E>(
+fn statement_projection_columns<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<String>, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue + crate::traits::EntityKind,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Projection { columns, .. }
-        | SqlDispatchResult::ProjectionText { columns, .. }
-        | SqlDispatchResult::Grouped { columns, .. } => Ok(columns),
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Explain(_)
-        | SqlDispatchResult::Describe(_)
-        | SqlDispatchResult::ShowIndexes(_)
-        | SqlDispatchResult::ShowColumns(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "projection column dispatch only supports row-producing SQL dispatch statements",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::Projection { columns, .. }
+        | SqlStatementResult::ProjectionText { columns, .. }
+        | SqlStatementResult::Grouped { columns, .. } => Ok(columns),
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Explain(_)
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "projection column SQL only supports row-producing SQL statements",
         )),
     }
 }
 
-fn dispatch_projection_rows<E>(
+fn statement_projection_rows<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<Vec<Value>>, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Projection { rows, .. } => Ok(rows),
-        SqlDispatchResult::ProjectionText { .. } | SqlDispatchResult::Grouped { .. } => {
-            Err(unsupported_sql_dispatch_query_error(
-                "projection row dispatch only supports value-row SQL projection payloads",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::Projection { rows, .. } => Ok(rows),
+        SqlStatementResult::ProjectionText { .. } | SqlStatementResult::Grouped { .. } => {
+            Err(unsupported_sql_statement_query_error(
+                "projection row SQL only supports value-row SQL projection payloads",
             ))
         }
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Explain(_)
-        | SqlDispatchResult::Describe(_)
-        | SqlDispatchResult::ShowIndexes(_)
-        | SqlDispatchResult::ShowColumns(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "projection row dispatch only supports row-producing SQL dispatch statements",
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Explain(_)
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "projection row SQL only supports row-producing SQL statements",
         )),
     }
 }
 
-fn dispatch_explain_sql<E>(
+fn statement_explain_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<String, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Explain(explain) => Ok(explain),
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Projection { .. }
-        | SqlDispatchResult::ProjectionText { .. }
-        | SqlDispatchResult::Grouped { .. }
-        | SqlDispatchResult::Describe(_)
-        | SqlDispatchResult::ShowIndexes(_)
-        | SqlDispatchResult::ShowColumns(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "EXPLAIN dispatch requires an EXPLAIN statement",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::Explain(explain) => Ok(explain),
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Projection { .. }
+        | SqlStatementResult::ProjectionText { .. }
+        | SqlStatementResult::Grouped { .. }
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "EXPLAIN SQL requires an EXPLAIN statement",
         )),
     }
 }
@@ -1213,80 +1213,80 @@ fn session_verbose_diagnostics_map(verbose: &str) -> BTreeMap<String, String> {
     diagnostics
 }
 
-fn dispatch_describe_sql<E>(
+fn statement_describe_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<EntitySchemaDescription, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Describe(description) => Ok(description),
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Projection { .. }
-        | SqlDispatchResult::ProjectionText { .. }
-        | SqlDispatchResult::Grouped { .. }
-        | SqlDispatchResult::Explain(_)
-        | SqlDispatchResult::ShowIndexes(_)
-        | SqlDispatchResult::ShowColumns(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "DESCRIBE dispatch requires a DESCRIBE statement",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::Describe(description) => Ok(description),
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Projection { .. }
+        | SqlStatementResult::ProjectionText { .. }
+        | SqlStatementResult::Grouped { .. }
+        | SqlStatementResult::Explain(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "DESCRIBE SQL requires a DESCRIBE statement",
         )),
     }
 }
 
-fn dispatch_show_indexes_sql<E>(
+fn statement_show_indexes_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<String>, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Projection { .. }
-        | SqlDispatchResult::ProjectionText { .. }
-        | SqlDispatchResult::Grouped { .. }
-        | SqlDispatchResult::Explain(_)
-        | SqlDispatchResult::Describe(_)
-        | SqlDispatchResult::ShowColumns(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "SHOW INDEXES dispatch requires a SHOW INDEXES statement",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::ShowIndexes(indexes) => Ok(indexes),
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Projection { .. }
+        | SqlStatementResult::ProjectionText { .. }
+        | SqlStatementResult::Grouped { .. }
+        | SqlStatementResult::Explain(_)
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowColumns(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "SHOW INDEXES SQL requires a SHOW INDEXES statement",
         )),
     }
 }
 
-fn dispatch_show_columns_sql<E>(
+fn statement_show_columns_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<EntityFieldDescription>, QueryError>
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::ShowColumns(columns) => Ok(columns),
-        SqlDispatchResult::Count { .. }
-        | SqlDispatchResult::Projection { .. }
-        | SqlDispatchResult::ProjectionText { .. }
-        | SqlDispatchResult::Grouped { .. }
-        | SqlDispatchResult::Explain(_)
-        | SqlDispatchResult::Describe(_)
-        | SqlDispatchResult::ShowIndexes(_)
-        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
-            "SHOW COLUMNS dispatch requires a SHOW COLUMNS statement",
+    match session.execute_sql_statement::<E>(sql)? {
+        SqlStatementResult::ShowColumns(columns) => Ok(columns),
+        SqlStatementResult::Count { .. }
+        | SqlStatementResult::Projection { .. }
+        | SqlStatementResult::ProjectionText { .. }
+        | SqlStatementResult::Grouped { .. }
+        | SqlStatementResult::Explain(_)
+        | SqlStatementResult::Describe(_)
+        | SqlStatementResult::ShowIndexes(_)
+        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
+            "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
         )),
     }
 }
 
-fn dispatch_show_entities_sql(
+fn statement_show_entities_sql(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
 ) -> Result<Vec<String>, QueryError> {
     let route = session.sql_statement_route(sql)?;
     if !route.is_show_entities() {
-        return Err(unsupported_sql_dispatch_query_error(
-            "SHOW ENTITIES dispatch requires a SHOW ENTITIES statement",
+        return Err(unsupported_sql_statement_query_error(
+            "SHOW ENTITIES SQL requires a SHOW ENTITIES statement",
         ));
     }
 

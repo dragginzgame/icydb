@@ -1,6 +1,6 @@
 //! Module: db::session::sql::projection
 //! Responsibility: session-owned SQL projection labels and payload shaping
-//! helpers used by SQL dispatch result construction.
+//! helpers used by SQL statement result construction.
 //! Does not own: shared projection validation or scalar execution mechanics.
 //! Boundary: keeps outward SQL projection naming, payload types, and
 //! SQL-specific row shaping together.

@@ -1,12 +1,12 @@
 //! Module: db::session::sql
-//! Responsibility: session-owned SQL dispatch, explain, projection, and
+//! Responsibility: session-owned SQL execution, explain, projection, and
 //! surface-classification helpers above lowered SQL commands.
 //! Does not own: SQL parsing or structural executor runtime behavior.
 //! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
 mod aggregate;
 mod computed_projection;
-mod dispatch;
+mod execute;
 mod explain;
 mod projection;
 mod surface;
@@ -16,7 +16,6 @@ use crate::{
         DbSession, EntityResponse, GroupedTextCursorPageWithTrace, MissingRowPolicy,
         PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
         executor::EntityAuthority,
-        identifiers_tail_match,
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
@@ -45,11 +44,11 @@ pub use crate::db::session::sql::projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 pub use crate::db::session::sql::surface::{
-    SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+    SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
 };
 #[cfg(feature = "perf-attribution")]
 pub use crate::db::{
-    session::sql::dispatch::LoweredSqlDispatchExecutorAttribution,
+    session::sql::execute::LoweredSqlStatementExecutorAttribution,
     session::sql::projection::SqlProjectionTextExecutorAttribution,
 };
 
@@ -143,9 +142,23 @@ const fn unsupported_sql_returning_surface_message(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Enforce that one single-entity SQL endpoint stays hard-bound to the
-    // typed entity `E` instead of silently reusing unrelated entity names.
-    fn ensure_entity_sql_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
+    // Resolve planner-visible indexes and build one execution-ready
+    // structural plan at the session SQL boundary.
+    pub(in crate::db::session::sql) fn build_structural_plan_with_visible_indexes_for_authority(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<(VisibleIndexes<'_>, AccessPlannedQuery), QueryError> {
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
+
+        Ok((visible_indexes, plan))
+    }
+
+    // Enforce that the public SQL executor stays hard-bound to the typed
+    // entity `E` instead of silently reusing unrelated entity names.
+    fn ensure_sql_query_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -162,28 +175,14 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(());
         };
 
-        if identifiers_tail_match(sql_entity, E::MODEL.name()) {
+        if crate::db::identifiers_tail_match(sql_entity, E::MODEL.name()) {
             return Ok(());
         }
 
         Err(QueryError::unsupported_query(format!(
-            "execute_entity_sql only supports entity '{}', but received '{sql_entity}'",
+            "execute_sql_query only supports entity '{}', but received '{sql_entity}'",
             E::MODEL.name()
         )))
-    }
-
-    // Resolve planner-visible indexes and build one execution-ready
-    // structural plan at the session SQL boundary.
-    pub(in crate::db::session::sql) fn build_structural_plan_with_visible_indexes_for_authority(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<(VisibleIndexes<'_>, AccessPlannedQuery), QueryError> {
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
-
-        Ok((visible_indexes, plan))
     }
 
     // Lower one parsed SQL statement onto the structural query lane while
@@ -263,7 +262,7 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
             .map_err(QueryError::from_sql_lowering_error)?;
-        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
+        Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Grouped)?;
 
         Ok(query)
     }
@@ -280,7 +279,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Parse one reduced SQL statement into canonical routing metadata.
     ///
-    /// This method is the SQL dispatch authority for entity/surface routing
+    /// This method is the SQL statement authority for entity/surface routing
     /// outside typed-entity lowering paths.
     pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, QueryError> {
         let parsed = self.parse_sql_statement(sql)?;
@@ -323,25 +322,24 @@ impl<C: CanisterKind> DbSession<C> {
             SqlComputedProjectionSurface::ExecuteSql,
             SqlAggregateSurface::ExecuteSql,
         )?;
-        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Scalar)?;
+        Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Scalar)?;
 
         self.execute_query(&query)
     }
 
     /// Execute one single-entity reduced SQL statement.
     ///
-    /// This helper is intentionally hard-bound to `E` and exists for canister
-    /// endpoints that want one tiny SQL forwarder without reviving dynamic
-    /// entity dispatch or typed-entity SQL result decoding.
-    pub fn execute_entity_sql<E>(&self, sql: &str) -> Result<SqlDispatchResult, QueryError>
+    /// This is the one broad public SQL executor. It stays hard-bound to `E`
+    /// and returns SQL-shaped statement output instead of typed entities.
+    pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
 
-        Self::ensure_entity_sql_route_matches::<E>(parsed.route())?;
+        Self::ensure_sql_query_route_matches::<E>(parsed.route())?;
 
-        self.execute_sql_dispatch_parsed::<E>(&parsed)
+        self.execute_sql_statement_parsed::<E>(&parsed)
     }
 
     /// Execute one reduced SQL grouped `SELECT` statement and return grouped rows.
@@ -389,7 +387,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlComputedProjectionSurface::ExecuteSqlGrouped,
             SqlAggregateSurface::ExecuteSqlGrouped,
         )?;
-        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
+        Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Grouped)?;
 
         self.execute_grouped(&query, cursor_token)
     }
@@ -436,7 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlComputedProjectionSurface::ExecuteSqlGrouped,
             SqlAggregateSurface::ExecuteSqlGrouped,
         )?;
-        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
+        Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Grouped)?;
 
         self.execute_grouped_text_cursor(&query, cursor_token)
     }

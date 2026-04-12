@@ -4,10 +4,7 @@ pub mod load;
 mod macros;
 
 #[cfg(feature = "sql")]
-use crate::db::{
-    SqlStatementRoute,
-    sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text},
-};
+use crate::db::sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text};
 use crate::{
     db::{
         EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
@@ -94,41 +91,10 @@ impl UpdatePatch {
 }
 
 ///
-/// SqlParsedStatement
-///
-/// Opaque parsed SQL statement envelope exposed by the facade.
-/// Use this to parse once and reuse one canonical route+statement contract
-/// across dynamic dispatch and typed execution.
-///
-#[cfg(feature = "sql")]
-pub struct SqlParsedStatement {
-    inner: core::db::SqlParsedStatement,
-}
-
-#[cfg(feature = "sql")]
-impl SqlParsedStatement {
-    #[must_use]
-    const fn from_core(inner: core::db::SqlParsedStatement) -> Self {
-        Self { inner }
-    }
-
-    /// Borrow canonical route metadata for this parsed SQL statement.
-    #[must_use]
-    pub const fn route(&self) -> &SqlStatementRoute {
-        self.inner.route()
-    }
-
-    #[must_use]
-    pub const fn is_mutation(&self) -> bool {
-        self.inner.is_mutation()
-    }
-}
-
-///
 /// DbSession
 ///
-/// Public facade for session-scoped query execution, narrow typed SQL helpers,
-/// and structural mutation policy.
+/// Public facade for session-scoped query execution, typed SQL lowering, and
+/// structural mutation policy.
 /// Wraps the core session and converts core results and errors into the
 /// outward-facing `icydb` response surface.
 ///
@@ -207,48 +173,14 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Build one typed query intent from one reduced SQL statement.
+    /// Execute one reduced SQL query against one concrete entity type.
     #[cfg(feature = "sql")]
-    pub fn query_from_sql<E>(&self, sql: &str) -> Result<Query<E>, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.query_from_sql::<E>(sql)?)
-    }
-
-    /// Parse one reduced SQL statement into canonical route metadata.
-    #[cfg(feature = "sql")]
-    pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, Error> {
-        let parsed = self.parse_sql_statement(sql)?;
-
-        Ok(parsed.route().clone())
-    }
-
-    /// Parse one reduced SQL statement into one reusable parsed envelope.
-    #[cfg(feature = "sql")]
-    pub fn parse_sql_statement(&self, sql: &str) -> Result<SqlParsedStatement, Error> {
-        Ok(SqlParsedStatement::from_core(
-            self.inner.parse_sql_statement(sql)?,
-        ))
-    }
-
-    /// Execute one reduced SQL `SELECT` statement.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
+    pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::response_from_core(self.inner.execute_sql::<E>(sql)?))
-    }
-
-    /// Execute one single-entity reduced SQL read/introspection statement.
-    #[cfg(feature = "sql")]
-    pub fn execute_entity_sql<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        Ok(crate::db::sql::sql_query_result_from_dispatch(
-            self.inner.execute_entity_sql::<E>(sql)?,
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_query::<E>(sql)?,
             E::MODEL.name().to_string(),
         ))
     }
@@ -345,36 +277,6 @@ impl<C: CanisterKind> DbSession<C> {
         execution_trace: Option<core::db::ExecutionTrace>,
     ) -> PagedGroupedResponse {
         PagedGroupedResponse::new(rows, next_cursor, execution_trace)
-    }
-
-    /// Execute one reduced SQL global aggregate `SELECT` statement.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<crate::value::Value, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        Ok(self.inner.execute_sql_aggregate::<E>(sql)?)
-    }
-
-    /// Execute one reduced SQL grouped `SELECT` statement with optional continuation cursor.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql_grouped<E>(
-        &self,
-        sql: &str,
-        cursor_token: Option<&str>,
-    ) -> Result<PagedGroupedResponse, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (rows, next_cursor, execution_trace) = self
-            .inner
-            .execute_sql_grouped_text_cursor::<E>(sql, cursor_token)?;
-
-        Ok(Self::paged_grouped_response(
-            rows,
-            next_cursor,
-            execution_trace,
-        ))
     }
 
     #[must_use]

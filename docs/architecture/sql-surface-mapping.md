@@ -9,7 +9,7 @@ This file is intentionally implementation-facing.
 ## Why This File Exists
 
 IcyDB still supports reduced SQL parsing and execution, but it no longer keeps
-SQL dispatch as a separate public product surface.
+route-parsing/lane-sharded SQL helpers as a separate public product surface.
 
 The main contract should answer:
 
@@ -43,12 +43,7 @@ Legend:
 
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|
-| `parse_sql_statement` / `sql_statement_route` | route only | route only | route only | route only | route only | route only | route only | route only | route only |
-| `query_from_sql` | yes | yes | no | no | partial | no | no | no | no |
-| `execute_sql` | yes | no | no | no | no | no | no | no | no |
-| `execute_sql_grouped` | no | yes | no | partial | no | no | no | no | no |
-| `execute_sql_aggregate` | no | no | yes | no | no | no | no | no | no |
-| `execute_entity_sql::<E>` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `execute_sql_query::<E>` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no |
 
 ## What Is Already Stable
@@ -70,13 +65,12 @@ Representative evidence:
 This is the part of the SQL surface that already behaves like one canonical
 query/runtime model with multiple frontends.
 
-The strongest current SQL debug surface is now:
+The strongest public SQL execution surface is now:
 
-- `execute_entity_sql::<E>(...)`
+- `execute_sql_query::<E>(...)`
 
 It stays single-entity and SQL-shaped, but it executes every currently
-supported single-entity SQL statement family instead of rejecting shapes just
-because they landed on one of the narrower legacy wrappers.
+admitted single-entity SQL statement family through one outward entrypoint.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
@@ -87,52 +81,26 @@ These surfaces share one public row/projection payload family.
 
 ## Where The Surface Is Still Split
 
-### Scalar Projection Result Shape
-
-Scalar field-list SQL projection is language-level support, but not all
-surfaces expose it the same way.
-
-- `query_from_sql` lowers it into canonical projection intent
-- `execute_sql` still returns `EntityResponse<E>` rows rather than
-  projection-shaped rows
-
-Representative evidence:
-
-- `crates/icydb-core/src/db/session/tests/sql_surface.rs`
-- `crates/icydb-core/src/db/session/tests/sql_projection.rs`
-- `crates/icydb-core/src/db/query/intent/query.rs`
-
 ### Computed Text Projection
 
 Computed text projection is shipped, but it is session-owned rather than part
 of the shared canonical query lane.
-
-- `query_from_sql` rejects it
-- `execute_sql` rejects it
-- `execute_sql_grouped` admits grouped computed projection only
 
 Representative evidence:
 
 - `crates/icydb-core/src/db/session/sql/computed_projection/plan.rs`
 - `crates/icydb-core/src/db/session/tests/sql_surface.rs`
 - `crates/icydb-core/src/db/session/tests/sql_projection.rs`
-- `crates/icydb-core/src/db/session/tests/sql_grouped.rs`
 
 ### Global Aggregate `SELECT`
 
-Global aggregate SQL is admitted by the language contract, but execution still
-uses a dedicated aggregate lane.
-
-- `query_from_sql` rejects it
-- `execute_sql` rejects it
-- `execute_sql_grouped` rejects it
-- `execute_sql_aggregate` owns it directly
+Global aggregate SQL is admitted by the language contract.
+Canonical lowering still rejects it, but the public SQL executor runs it.
 
 Representative evidence:
 
 - `crates/icydb-core/src/db/session/sql/mod.rs`
 - `crates/icydb-core/src/db/sql/lowering/aggregate.rs`
-- `crates/icydb-core/src/db/session/tests/sql_aggregate.rs`
 
 ### Mutation Ownership
 
@@ -141,17 +109,6 @@ The canonical public write owners are still:
 - typed `create(...)`, `insert(...)`, `update(...)`, and `replace(...)`
 - typed `*_returning...` helpers for row-returning mutation outcomes
 - fluent `delete::<E>()` and `delete::<E>().returning...`
-
-But the dedicated SQL debug surface:
-
-- `execute_entity_sql::<E>(...)`
-
-also executes the currently admitted single-entity mutation shapes and returns
-SQL-shaped count/projection payloads.
-
-The older SQL helper shards still reject mutation execution and should be
-treated as narrower legacy wrappers rather than as the canonical SQL debug
-entrypoint.
 
 Representative evidence:
 
@@ -185,4 +142,4 @@ The public rule is:
 - non-returning writes use `MutationResult`
 
 That rule is owned by typed/fluent public APIs rather than by a separate SQL
-dispatch envelope.
+result envelope.

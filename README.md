@@ -96,10 +96,10 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
-- `0.77.0` removes the old generated canister `sql_dispatch` surface, keeps reduced SQL as a narrower typed read/introspection surface, and moves canister SQL helpers onto explicit canister-owned query functions where they are still needed.
-- `0.76.14` admits `INSERT ... RETURNING`, `UPDATE ... RETURNING`, and `DELETE ... RETURNING` on the unified typed dispatch lane, while bare dispatch mutations still keep their simpler count-first result shape.
+- `0.77.0` removes the old generated canister SQL router, keeps reduced SQL as a narrower typed read/introspection surface, and moves canister SQL helpers onto explicit canister-owned query functions where they are still needed.
+- `0.76.14` admits `INSERT ... RETURNING`, `UPDATE ... RETURNING`, and `DELETE ... RETURNING` on the unified entity-bound SQL lane, while bare SQL mutations still keep their simpler count-first result shape.
 - `0.76.12` adds authored typed write shapes per entity, so generated fields and managed timestamps are structurally absent from caller-authored create payloads instead of being rejected only after full entity construction.
-- `0.76.10` keeps reduced SQL defaults explicit by widening `generated(insert = \"...\")` only to a small schema-owned allowlist, so typed-dispatch inserts can synthesize `Timestamp::now` and `Ulid::generate` without turning ordinary Rust defaults into hidden SQL behavior.
+- `0.76.10` keeps reduced SQL defaults explicit by widening `generated(insert = \"...\")` only to a small schema-owned allowlist, so entity-bound SQL inserts can synthesize `Timestamp::now` and `Ulid::generate` without turning ordinary Rust defaults into hidden SQL behavior.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
 
 ---
@@ -221,35 +221,23 @@ pub fn explain_users_named_ann() -> Result<String, icydb::Error> {
 }
 ```
 
-### Execute reduced SQL (same planner/executor path)
+### Execute reduced SQL queries
 
 ```rust
 use icydb::prelude::*;
 
-let projected = db!().execute_sql_projection::<User>(
+let rows = db!().execute_sql_query::<User>(
     "SELECT id, name FROM User WHERE LOWER(name) LIKE 'ann%' ORDER BY id LIMIT 25",
-)?;
-
-let grouped = db!().execute_sql_grouped::<User>(
-    "SELECT name, COUNT(id) FROM User GROUP BY name ORDER BY name LIMIT 10",
-    None,
 )?;
 ```
 
 ### Reduced SQL In Rust
 
-With the `sql` feature enabled, IcyDB keeps a narrow typed SQL surface for:
+With the `sql` feature enabled, IcyDB keeps one Rust-side SQL entrypoint:
 
-- `query_from_sql(...)` when you want to lower one SQL `SELECT` or typed
-  `DELETE` intent into the canonical query model
-- `parse_sql_statement(...)` and `sql_statement_route(...)` when you need
-  route metadata
-- `execute_sql(...)` for scalar `SELECT`
-- `execute_sql_grouped(...)` for grouped `SELECT`
-- `execute_sql_aggregate(...)` for constrained global aggregates
+- `execute_sql_query::<E>(...)` for the supported single-entity SQL subset
 
-Typed/fluent APIs own public mutation behavior. There is no generated canister
-`sql_dispatch` module anymore.
+Typed/fluent APIs still own the main Rust-side product surface.
 
 ---
 
@@ -322,12 +310,9 @@ in one atomic transaction is out of scope for the current surface.
 
 Executable SQL entrypoints:
 
-- `execute_sql` for entity-shaped `SELECT`
-- `execute_sql_grouped` for constrained grouped aggregates
-- `execute_sql_aggregate` for constrained global aggregates
-- `parse_sql_statement` / `sql_statement_route` for route metadata only
+- `execute_sql_query::<E>(...)` for the supported single-entity SQL subset
 
-Public mutation shapes are typed/fluent, not SQL-dispatch:
+Public typed/fluent mutation shapes remain:
 
 - `create(...)`, `insert(...)`, `update(...)`, `replace(...)`
 - `create_returning...`, `insert_returning...`, `update_returning...`
@@ -365,14 +350,12 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
 - `canisters/audit/*` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
-- `canisters/demo/rpg` — the broad SQL RPG demo plus perf/integration canister surface.
-- `canisters/test/sql` — the lightweight SQL smoke-test canister surface.
-- `canisters/test/sql_parity` — the broad SQL-vs-typed/fluent parity and explain canister surface.
+- `canisters/demo/rpg` — the Character fixture/demo canister surface.
+- `canisters/test/sql` — the lightweight SQL fixture smoke-test canister surface.
 - `schema/audit/*` — matching audit schema fixtures used by the wasm footprint matrix.
 - `schema/demo/rpg` — the broad demo canister schema surface.
 - `schema/test/fixtures` — shared schema fixtures for macro/e2e test harnesses.
-- `schema/test/sql` — the lightweight SQL smoke-test fixture surface.
-- `schema/test/sql_parity` — the broad SQL parity test-canister fixture surface.
+- `schema/test/sql` — the lightweight SQL fixture surface.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
 - `testing/wasm-helpers` — shared schema and audit helper macros for the wasm audit canisters.
@@ -387,8 +370,7 @@ the schema surface they need.
 
 - `schema/demo/rpg` holds the broad demo canister schema surface.
 - `schema/test/fixtures` holds shared schema fixtures used by macro/e2e test harnesses.
-- `schema/test/sql` holds the lightweight SQL smoke-test fixture surface.
-- `schema/test/sql_parity` holds the broad SQL parity test-canister fixture surface.
+- `schema/test/sql` holds the lightweight SQL fixture surface.
 - `schema/demo/rpg/src/fixtures` holds deterministic RPG fixture datasets shared by demo and test canisters.
 - `schema/audit/minimal`, `schema/audit/one_simple`, `schema/audit/one_complex`, `schema/audit/ten_simple`, and `schema/audit/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
 - `testing/wasm-helpers` holds shared schema and helper macros used across those audit canisters.

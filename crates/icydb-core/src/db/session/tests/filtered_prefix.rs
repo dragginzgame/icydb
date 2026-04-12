@@ -102,7 +102,7 @@ fn assert_filtered_prefix_projection_parity(
     let mut rows = Vec::new();
     for (context, sql) in filtered_prefix_queries(desc) {
         rows.push(
-            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(session, sql)
+            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}")),
         );
     }
@@ -152,7 +152,7 @@ fn assert_filtered_composite_prefix_projection_parity(
     let mut rows = Vec::new();
     for (context, sql) in filtered_composite_prefix_queries(desc) {
         rows.push(
-            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(session, sql)
+            statement_projection_rows::<FilteredIndexedSessionSqlEntity>(session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}")),
         );
     }

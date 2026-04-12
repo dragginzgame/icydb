@@ -22,7 +22,7 @@ use crate::{
 
 // Resolve one computed-projection `ORDER BY <alias>` onto the already-shipped
 // order target family before this lane rewrites the base projection to plain
-// fields. This keeps computed dispatch alias-neutral once the base statement
+// fields. This keeps computed execution alias-neutral once the base statement
 // enters shared SQL lowering.
 fn rewrite_computed_projection_order_aliases(
     select: &SqlSelectStatement,
@@ -217,7 +217,7 @@ fn computed_sql_projection_text_function_item(
 }
 
 // Render one grouped aggregate output label for the session-owned computed
-// projection lane so grouped dispatch and grouped direct execution keep the
+// projection lane so grouped SQL execution and grouped direct execution keep the
 // same outward column contract.
 fn computed_sql_grouped_aggregate_label(aggregate: &SqlAggregateCall) -> String {
     let kind = match aggregate.kind {

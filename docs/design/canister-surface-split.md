@@ -2,30 +2,19 @@
 
 ## Purpose
 
-This note tracks the current split between the broad SQL demo surface, the
-broad RPG test surface, the lightweight SQL smoke-test surface, and the grouped
-wasm-audit fixtures.
+This note tracks the current split between the demo SQL surface, the lightweight
+SQL smoke-test surface, and the grouped wasm-audit fixtures.
 
 ## Current Ownership
 
-`canisters/demo/rpg` currently owns the broad demo and perf-harness role:
+`canisters/demo/rpg` currently owns the Character-only demo role:
 
 - public demo query/update entrypoints
-- perf and attribution harness entrypoints
-
-`canisters/test/sql_parity` owns the broad SQL parity and explain-test role:
-
-- generated-vs-typed parity across `User`, `Character`, and `ActiveUser`
-- explain-route and witness-mode locks
-- direct `LOWER(...)` / `UPPER(...)` route parity
-- broad expected-row snapshots
 
 `canisters/test/sql` owns the lightweight smoke-test surface:
 
 - generated actor surface stability
-- `SHOW ENTITIES` parity
-- one deterministic projection parity query
-- one deterministic `EXPLAIN EXECUTION` parity query
+- basic fixture coverage
 
 `canisters/audit/*` and `schema/audit/*` own the wasm-size and footprint audit
 fixtures:
@@ -41,11 +30,9 @@ fixtures:
 The filesystem layout is now category-owned:
 
 - `canisters/demo/rpg`
-- `canisters/test/sql_parity`
 - `canisters/test/sql`
 - `canisters/audit/*`
 - `schema/demo/rpg`
-- `schema/test/sql_parity`
 - `schema/test/fixtures`
 - `schema/audit/*`
 

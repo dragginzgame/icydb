@@ -4,7 +4,7 @@
 //! endpoint-friendly row payloads; parsing and execution stay in `icydb-core`.
 
 use candid::CandidType;
-use icydb_core::db::{GroupedRow, SqlDispatchResult};
+use icydb_core::db::{GroupedRow, SqlStatementResult};
 use serde::Deserialize;
 
 use crate::{
@@ -151,16 +151,16 @@ impl SqlQueryResult {
     }
 }
 
-pub(crate) fn sql_query_result_from_dispatch(
-    result: SqlDispatchResult,
+pub(crate) fn sql_query_result_from_statement(
+    result: SqlStatementResult,
     entity_name: String,
 ) -> SqlQueryResult {
     match result {
-        SqlDispatchResult::Count { row_count } => SqlQueryResult::Count {
+        SqlStatementResult::Count { row_count } => SqlQueryResult::Count {
             entity: entity_name,
             row_count,
         },
-        SqlDispatchResult::Projection {
+        SqlStatementResult::Projection {
             columns,
             rows,
             row_count,
@@ -179,7 +179,7 @@ pub(crate) fn sql_query_result_from_dispatch(
                 SqlProjectionRows::new(columns, rows, row_count),
             ))
         }
-        SqlDispatchResult::ProjectionText {
+        SqlStatementResult::ProjectionText {
             columns,
             rows,
             row_count,
@@ -187,7 +187,7 @@ pub(crate) fn sql_query_result_from_dispatch(
             entity_name,
             SqlProjectionRows::new(columns, rows, row_count),
         )),
-        SqlDispatchResult::Grouped {
+        SqlStatementResult::Grouped {
             columns,
             rows,
             row_count,
@@ -199,20 +199,20 @@ pub(crate) fn sql_query_result_from_dispatch(
             row_count,
             next_cursor,
         )),
-        SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
+        SqlStatementResult::Explain(explain) => SqlQueryResult::Explain {
             entity: entity_name,
             explain,
         },
-        SqlDispatchResult::Describe(description) => SqlQueryResult::Describe(description),
-        SqlDispatchResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
+        SqlStatementResult::Describe(description) => SqlQueryResult::Describe(description),
+        SqlStatementResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
             entity: entity_name,
             indexes,
         },
-        SqlDispatchResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
+        SqlStatementResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
             entity: entity_name,
             columns,
         },
-        SqlDispatchResult::ShowEntities(entities) => SqlQueryResult::ShowEntities { entities },
+        SqlStatementResult::ShowEntities(entities) => SqlQueryResult::ShowEntities { entities },
     }
 }
 
