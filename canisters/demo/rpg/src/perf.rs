@@ -7,8 +7,8 @@ use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
     db::{
-        EntityAuthority, PersistedRow, SqlStatementRoute, identifiers_tail_match,
-        sql::SqlQueryResult,
+        EntityAuthority, MutationResult, PersistedRow, SqlStatementRoute, identifiers_tail_match,
+        sql::{SqlDispatchResponse, SqlQueryResult},
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::EntityValue,
@@ -393,7 +393,9 @@ where
 
     let (total_local_instructions, outcome) = measure_surface_call(|| {
         db().execute_sql_dispatch::<E>(sql)
-            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+            .map_or_else(outcome_from_error, |payload| {
+                outcome_from_typed_sql_dispatch_result::<E>(payload)
+            })
     });
     let attributed_core = parse_local_instructions.saturating_add(core_dispatch_total);
     let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
@@ -425,7 +427,9 @@ where
 {
     measure_surface_call(|| {
         db().execute_sql_dispatch::<E>(sql)
-            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+            .map_or_else(outcome_from_error, |payload| {
+                outcome_from_typed_sql_dispatch_result::<E>(payload)
+            })
     })
 }
 
@@ -450,8 +454,27 @@ fn checked_perf_count(count: usize, label: &str) -> u32 {
     u32::try_from(count).unwrap_or_else(|_| panic!("perf harness {label} exceeds u32"))
 }
 
+// This perf harness intentionally keeps the full dynamic SQL result mapping in
+// one place so outcome classification stays easy to audit beside the measured
+// surface set.
+#[expect(
+    clippy::too_many_lines,
+    reason = "perf outcome mapping stays table-local"
+)]
 fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
     match result {
+        SqlQueryResult::Count { entity, row_count } => SqlPerfOutcome {
+            success: true,
+            result_kind: "count".to_string(),
+            entity: Some(entity),
+            row_count: Some(row_count),
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: None,
+            error_origin: None,
+            error_message: None,
+        },
         SqlQueryResult::Projection(rows) => SqlPerfOutcome {
             success: true,
             result_kind: "projection".to_string(),
@@ -547,6 +570,62 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+        },
+    }
+}
+
+fn outcome_from_typed_sql_dispatch_result<E>(result: SqlDispatchResponse<E>) -> SqlPerfOutcome
+where
+    E: PersistedRow<Canister = DemoRpgCanister> + EntityValue,
+{
+    match result {
+        SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) => SqlPerfOutcome {
+            success: true,
+            result_kind: "count".to_string(),
+            entity: Some(E::MODEL.name().to_string()),
+            row_count: Some(row_count),
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: None,
+            error_origin: None,
+            error_message: None,
+        },
+        SqlDispatchResponse::Projection(rows) => {
+            outcome_from_sql_query_result(SqlQueryResult::Projection(rows))
+        }
+        SqlDispatchResponse::Grouped(rows) => {
+            outcome_from_sql_query_result(SqlQueryResult::Grouped(rows))
+        }
+        SqlDispatchResponse::Explain { entity, explain } => {
+            outcome_from_sql_query_result(SqlQueryResult::Explain { entity, explain })
+        }
+        SqlDispatchResponse::Describe(description) => {
+            outcome_from_sql_query_result(SqlQueryResult::Describe(description))
+        }
+        SqlDispatchResponse::ShowIndexes { entity, indexes } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowIndexes { entity, indexes })
+        }
+        SqlDispatchResponse::ShowColumns { entity, columns } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowColumns { entity, columns })
+        }
+        SqlDispatchResponse::ShowEntities { entities } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowEntities { entities })
+        }
+        SqlDispatchResponse::Mutation(_) => SqlPerfOutcome {
+            success: false,
+            result_kind: "unsupported_mutation_shape".to_string(),
+            entity: Some(E::MODEL.name().to_string()),
+            row_count: None,
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: Some("Runtime(Unsupported)".to_string()),
+            error_origin: Some("Query".to_string()),
+            error_message: Some(
+                "typed SQL dispatch demo perf helper should only see count mutation payloads"
+                    .to_string(),
+            ),
         },
     }
 }

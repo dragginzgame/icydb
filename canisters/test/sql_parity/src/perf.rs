@@ -9,14 +9,12 @@ use icydb::db::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutor
 use icydb::{
     Error,
     db::{
-        EntityAuthority, ExplainExecutionNodeDescriptor, GroupedCountFoldMetrics, PersistedRow,
-        RowCheckMetrics, SqlProjectionMaterializationMetrics, SqlStatementRoute,
+        EntityAuthority, ExplainExecutionNodeDescriptor, GroupedCountFoldMetrics, MutationResult,
+        PersistedRow, RowCheckMetrics, SqlProjectionMaterializationMetrics, SqlStatementRoute,
         StructuralReadMetrics, identifiers_tail_match,
         query::Predicate,
-        response::{
-            PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
-        },
-        sql::SqlQueryResult,
+        response::{PagedGroupedResponse, PagedResponse, Response},
+        sql::{SqlDispatchResponse, SqlQueryResult},
         with_grouped_count_fold_metrics, with_row_check_metrics,
         with_sql_projection_materialization_metrics, with_structural_read_metrics,
     },
@@ -776,7 +774,9 @@ where
     // cost above the attributed core path to the outer wrapper.
     let (total_local_instructions, outcome) = measure_surface_call(|| {
         db().execute_sql_dispatch::<E>(sql)
-            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+            .map_or_else(outcome_from_error, |payload| {
+                outcome_from_typed_sql_dispatch_result::<E>(payload)
+            })
     });
     let attributed_core = parse_local_instructions.saturating_add(core_dispatch_total);
     let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
@@ -992,7 +992,7 @@ fn measure_typed_update_customer() -> (u64, SqlPerfOutcome) {
         Ok(_) => {
             return measure_surface_call(|| {
                 db().update(updated)
-                    .map_or_else(outcome_from_error, outcome_from_write_response)
+                    .map_or_else(outcome_from_error, outcome_from_mutation_result::<Customer>)
             });
         }
         Err(err) => outcome_from_error(err),
@@ -1013,7 +1013,7 @@ fn measure_fluent_delete_perf_customer_count() -> (u64, SqlPerfOutcome) {
                     ))
                     .order_by("id")
                     .limit(1)
-                    .execute_count_only()
+                    .count()
                     .map_or_else(outcome_from_error, outcome_from_delete_count)
             });
         }
@@ -1026,14 +1026,14 @@ fn measure_fluent_delete_perf_customer_count() -> (u64, SqlPerfOutcome) {
 fn measure_typed_insert_many_atomic_customer(batch_size: u32) -> (u64, SqlPerfOutcome) {
     measure_surface_call(|| {
         db().insert_many_atomic(perf_insert_customer_batch(batch_size))
-            .map_or_else(outcome_from_error, outcome_from_write_batch_response)
+            .map_or_else(outcome_from_error, outcome_from_mutation_result::<Customer>)
     })
 }
 
 fn measure_typed_insert_many_non_atomic_customer(batch_size: u32) -> (u64, SqlPerfOutcome) {
     measure_surface_call(|| {
         db().insert_many_non_atomic(perf_insert_customer_batch(batch_size))
-            .map_or_else(outcome_from_error, outcome_from_write_batch_response)
+            .map_or_else(outcome_from_error, outcome_from_mutation_result::<Customer>)
     })
 }
 
@@ -1045,7 +1045,9 @@ where
 {
     measure_surface_call(|| {
         db().execute_sql_dispatch::<E>(sql)
-            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+            .map_or_else(outcome_from_error, |payload| {
+                outcome_from_typed_sql_dispatch_result::<E>(payload)
+            })
     })
 }
 
@@ -1207,7 +1209,7 @@ fn measure_once(
         }),
         SqlPerfSurface::TypedInsertCustomer => measure_surface_call(|| {
             db().insert(perf_insert_customer())
-                .map_or_else(outcome_from_error, outcome_from_write_response)
+                .map_or_else(outcome_from_error, outcome_from_mutation_result::<Customer>)
         }),
         SqlPerfSurface::TypedInsertManyAtomicCustomer10 => {
             measure_typed_insert_many_atomic_customer(10)
@@ -1232,7 +1234,7 @@ fn measure_once(
             db().delete::<Customer>()
                 .order_by("id")
                 .limit(1)
-                .execute_count_only()
+                .count()
                 .map_or_else(outcome_from_error, outcome_from_delete_count)
         }),
         SqlPerfSurface::FluentDeletePerfCustomerCount => {
@@ -1387,6 +1389,22 @@ fn checked_perf_count(count: usize, label: &str) -> u32 {
 #[allow(clippy::too_many_lines)]
 fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
     match result {
+        SqlQueryResult::Count { entity, row_count } => SqlPerfOutcome {
+            success: true,
+            result_kind: "count".to_string(),
+            entity: Some(entity),
+            row_count: Some(row_count),
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: None,
+            error_origin: None,
+            error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
+            row_check_metrics: None,
+            grouped_count_fold_metrics: None,
+        },
         SqlQueryResult::Projection(rows) => SqlPerfOutcome {
             success: true,
             result_kind: "projection".to_string(),
@@ -1596,33 +1614,79 @@ fn outcome_from_value(result: Value) -> SqlPerfOutcome {
     }
 }
 
-fn outcome_from_write_response(result: WriteResponse<Customer>) -> SqlPerfOutcome {
-    let _ = result.id();
-
-    SqlPerfOutcome {
-        success: true,
-        result_kind: "write_response".to_string(),
-        entity: Some("Customer".to_string()),
-        row_count: Some(1),
-        detail_count: None,
-        has_cursor: None,
-        rendered_value: None,
-        error_kind: None,
-        error_origin: None,
-        error_message: None,
-        structural_read_metrics: None,
-        projection_materialization_metrics: None,
-        row_check_metrics: None,
-        grouped_count_fold_metrics: None,
+fn outcome_from_typed_sql_dispatch_result<E>(result: SqlDispatchResponse<E>) -> SqlPerfOutcome
+where
+    E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+{
+    match result {
+        SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) => SqlPerfOutcome {
+            success: true,
+            result_kind: "count".to_string(),
+            entity: Some(E::MODEL.name().to_string()),
+            row_count: Some(row_count),
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: None,
+            error_origin: None,
+            error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
+            row_check_metrics: None,
+            grouped_count_fold_metrics: None,
+        },
+        SqlDispatchResponse::Projection(rows) => {
+            outcome_from_sql_query_result(SqlQueryResult::Projection(rows))
+        }
+        SqlDispatchResponse::Grouped(rows) => {
+            outcome_from_sql_query_result(SqlQueryResult::Grouped(rows))
+        }
+        SqlDispatchResponse::Explain { entity, explain } => {
+            outcome_from_sql_query_result(SqlQueryResult::Explain { entity, explain })
+        }
+        SqlDispatchResponse::Describe(description) => {
+            outcome_from_sql_query_result(SqlQueryResult::Describe(description))
+        }
+        SqlDispatchResponse::ShowIndexes { entity, indexes } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowIndexes { entity, indexes })
+        }
+        SqlDispatchResponse::ShowColumns { entity, columns } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowColumns { entity, columns })
+        }
+        SqlDispatchResponse::ShowEntities { entities } => {
+            outcome_from_sql_query_result(SqlQueryResult::ShowEntities { entities })
+        }
+        SqlDispatchResponse::Mutation(_) => SqlPerfOutcome {
+            success: false,
+            result_kind: "unsupported_mutation_shape".to_string(),
+            entity: Some(E::MODEL.name().to_string()),
+            row_count: None,
+            detail_count: None,
+            has_cursor: None,
+            rendered_value: None,
+            error_kind: Some("Runtime(Unsupported)".to_string()),
+            error_origin: Some("Query".to_string()),
+            error_message: Some(
+                "typed SQL dispatch perf helper should only see count mutation payloads"
+                    .to_string(),
+            ),
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
+            row_check_metrics: None,
+            grouped_count_fold_metrics: None,
+        },
     }
 }
 
-fn outcome_from_write_batch_response(result: WriteBatchResponse<Customer>) -> SqlPerfOutcome {
+fn outcome_from_mutation_result<E>(result: MutationResult<E>) -> SqlPerfOutcome
+where
+    E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+{
     SqlPerfOutcome {
         success: true,
-        result_kind: "write_batch_response".to_string(),
-        entity: Some("Customer".to_string()),
-        row_count: Some(checked_perf_count(result.len(), "write batch row count")),
+        result_kind: "mutation_result".to_string(),
+        entity: Some(E::MODEL.name().to_string()),
+        row_count: Some(result.row_count()),
         detail_count: None,
         has_cursor: None,
         rendered_value: None,

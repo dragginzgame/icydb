@@ -65,7 +65,10 @@ fn sql_users() -> Vec<SqlTestUser> {
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::{SqlQueryResult, SqlTestUser, db, fixtures_load_default, sql_dispatch};
-    use icydb::db::{MutationResult, sql::SqlDispatchResponse};
+    use icydb::{
+        db::{MutationResult, sql::SqlDispatchResponse},
+        traits::EntitySchema,
+    };
     use icydb_testing_test_sql_fixtures::sql::SqlTestCanister;
 
     const SQL_TEST_MEMORY_MIN: u8 = 155;

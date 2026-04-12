@@ -10,7 +10,7 @@ mod tests {
     use icydb::{
         db::{
             MutationResult, PersistedRow, response::PagedGroupedResponse,
-            sql::{SqlDispatchResponse, SqlQueryRowsOutput},
+            sql::SqlDispatchResponse,
         },
         error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
         traits::EntityValue,
@@ -94,6 +94,15 @@ mod tests {
                 panic!("typed SQL parity helper should only see count mutations")
             }
         }
+    }
+
+    fn unchecked_typed_dispatch_result_for_sql_as_query_result<E>(
+        payload: Result<SqlDispatchResponse<E>, icydb::Error>,
+    ) -> Result<SqlQueryResult, icydb::Error>
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        payload.map(typed_dispatch_result_for_sql_as_query_result::<E>)
     }
 
     fn reload_default_fixtures() {
@@ -292,7 +301,9 @@ mod tests {
 
         ensure_sql_test_memory_range();
         fixtures_load_default().expect("fixture reload before typed DELETE should succeed");
-        let typed = test_db().execute_sql_dispatch::<Customer>(sql);
+        let typed = unchecked_typed_dispatch_result_for_sql_as_query_result::<Customer>(
+            test_db().execute_sql_dispatch::<Customer>(sql),
+        );
 
         match (dispatch, typed) {
             (Ok(dispatch), Ok(typed)) => {
@@ -333,7 +344,9 @@ mod tests {
 
         ensure_sql_test_memory_range();
         fixtures_load_default().expect("fixture reload before typed mutation should succeed");
-        let typed = test_db().execute_sql_dispatch::<E>(sql);
+        let typed = unchecked_typed_dispatch_result_for_sql_as_query_result::<E>(
+            test_db().execute_sql_dispatch::<E>(sql),
+        );
 
         match (dispatch, typed) {
             (Ok(dispatch), Ok(typed)) => {
@@ -659,7 +672,7 @@ mod tests {
             .execute_sql_dispatch::<Customer>(sql)
             .expect("typed execute_sql_dispatch should succeed");
         let typed_explain = match typed_explain_payload {
-            SqlQueryResult::Explain { explain, .. } => explain,
+            SqlDispatchResponse::Explain { explain, .. } => explain,
             other => panic!(
                 "typed execute_sql_dispatch should return explain payload for EXPLAIN SQL: {other:?}"
             ),
@@ -704,7 +717,7 @@ mod tests {
             .expect("typed execute_sql_dispatch should support SHOW ENTITIES");
 
         match payload {
-            SqlQueryResult::ShowEntities { entities } => {
+            SqlDispatchResponse::ShowEntities { entities } => {
                 assert!(
                     entities.contains(&"Customer".to_string()),
                     "SHOW ENTITIES should include Customer fixture entity",
@@ -4497,25 +4510,11 @@ mod tests {
         );
         assert_eq!(
             normalized_mutating_dispatch_payload(typed),
-            SqlQueryResult::Projection(SqlQueryRowsOutput {
+            SqlQueryResult::Count {
                 entity: "Customer".to_string(),
-                columns: vec![
-                    "id".to_string(),
-                    "name".to_string(),
-                    "age".to_string(),
-                    "created_at".to_string(),
-                    "updated_at".to_string(),
-                ],
-                rows: vec![vec![
-                    "<dynamic>".to_string(),
-                    "alice".to_string(),
-                    "31".to_string(),
-                    "<dynamic>".to_string(),
-                    "<dynamic>".to_string(),
-                ]],
                 row_count: 1,
-            }),
-            "typed execute_sql_dispatch should keep the admitted computed INSERT SELECT behavior while generated sql_dispatch stays query-only",
+            },
+            "typed execute_sql_dispatch should keep the admitted computed INSERT SELECT behavior count-first while generated sql_dispatch stays query-only",
         );
     }
 
