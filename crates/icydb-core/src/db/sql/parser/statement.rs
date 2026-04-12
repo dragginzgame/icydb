@@ -97,9 +97,12 @@ impl Parser {
         if self.eat_keyword(Keyword::Entities) {
             return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
         }
+        if self.eat_keyword(Keyword::Tables) {
+            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
+        }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
         ))
     }
 

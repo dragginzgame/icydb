@@ -5,11 +5,12 @@
 //! Boundary: consumes structural pages from the executor and performs the
 //! SQL-specific value/text shaping above that boundary.
 
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+use crate::value::ValueEnum;
 use crate::{
     db::{Db, query::plan::AccessPlannedQuery},
     error::InternalError,
     traits::CanisterKind,
-    value::ValueEnum,
 };
 use crate::{
     db::{
@@ -57,35 +58,6 @@ impl SqlProjectionRows {
 
     #[must_use]
     pub(in crate::db) fn into_parts(self) -> (Vec<Vec<Value>>, u32) {
-        (self.rows, self.row_count)
-    }
-}
-
-///
-/// SqlProjectionTextRows
-///
-/// Generic-free SQL projection row payload emitted directly as rendered text.
-/// This keeps the SQL dispatch fast path narrow: executor-owned direct
-/// covering reads can skip `Value` row materialization while structural callers
-/// continue using the existing `SqlProjectionRows` contract.
-///
-
-#[cfg(feature = "sql")]
-#[derive(Debug)]
-pub(in crate::db) struct SqlProjectionTextRows {
-    rows: Vec<Vec<String>>,
-    row_count: u32,
-}
-
-#[cfg(feature = "sql")]
-impl SqlProjectionTextRows {
-    #[must_use]
-    pub(in crate::db) const fn new(rows: Vec<Vec<String>>, row_count: u32) -> Self {
-        Self { rows, row_count }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<Vec<String>>, u32) {
         (self.rows, self.row_count)
     }
 }
@@ -141,7 +113,7 @@ pub(in crate::db) fn attribute_sql_projection_text_rows_for_canister<C>(
     debug: bool,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
-) -> Result<(SqlProjectionTextExecutorAttribution, SqlProjectionTextRows), InternalError>
+) -> Result<SqlProjectionTextExecutorAttribution, InternalError>
 where
     C: CanisterKind,
 {
@@ -177,31 +149,23 @@ where
 
     // Phase 4: package the rendered rows onto the stable SQL projection text
     // payload boundary.
-    let (result_rows_local_instructions, projected) = measure_structural_result(|| {
-        let row_count = u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX);
-
-        Ok::<SqlProjectionTextRows, InternalError>(SqlProjectionTextRows::new(
-            rendered_rows,
-            row_count,
-        ))
+    let (result_rows_local_instructions, row_count) = measure_structural_result(|| {
+        Ok::<u32, InternalError>(u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX))
     });
-    let projected = projected?;
+    let _row_count = row_count?;
 
     let total_local_instructions = prepare_projection_local_instructions
         .saturating_add(scalar_runtime_local_instructions)
         .saturating_add(materialize_projection_local_instructions)
         .saturating_add(result_rows_local_instructions);
 
-    Ok((
-        SqlProjectionTextExecutorAttribution {
-            prepare_projection: prepare_projection_local_instructions,
-            scalar_runtime: scalar_runtime_local_instructions,
-            materialize_projection: materialize_projection_local_instructions,
-            result_rows: result_rows_local_instructions,
-            total: total_local_instructions,
-        },
-        projected,
-    ))
+    Ok(SqlProjectionTextExecutorAttribution {
+        prepare_projection: prepare_projection_local_instructions,
+        scalar_runtime: scalar_runtime_local_instructions,
+        materialize_projection: materialize_projection_local_instructions,
+        result_rows: result_rows_local_instructions,
+        total: total_local_instructions,
+    })
 }
 
 #[cfg(feature = "sql")]
@@ -228,33 +192,6 @@ where
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
-}
-
-/// Execute one scalar load plan through the shared structural SQL projection
-/// path and return rendered projection text rows.
-#[cfg(feature = "sql")]
-pub(in crate::db) fn execute_sql_projection_text_rows_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<SqlProjectionTextRows, InternalError>
-where
-    C: CanisterKind,
-{
-    let row_layout = authority.row_layout();
-    let prepared_projection = prepare_projection_shape_from_plan(row_layout.field_count(), &plan);
-
-    // Execute the canonical scalar runtime and render the resulting structural
-    // page at the SQL text boundary without staging another payload adapter.
-    let page =
-        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan.clone())?;
-    let projected = project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
-    let projected = finalize_sql_projection_rows(&plan, projected)?;
-    let rendered_rows = render_projected_sql_rows_text(projected);
-    let row_count = u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX);
-
-    Ok(SqlProjectionTextRows::new(rendered_rows, row_count))
 }
 
 #[cfg(feature = "sql")]
@@ -307,7 +244,7 @@ fn shape_structural_sql_projection_page<T>(
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_value_text(value: &Value) -> String {
     match value {
         Value::Account(v) => v.to_string(),
@@ -337,7 +274,7 @@ fn render_sql_projection_value_text(value: &Value) -> String {
     }
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_projected_sql_rows_text(rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
     rows.into_iter()
         .map(|row| {
@@ -348,7 +285,7 @@ fn render_projected_sql_rows_text(rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
         .collect()
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_blob(bytes: &[u8]) -> String {
     let mut rendered = String::from("0x");
     rendered.push_str(sql_projection_hex_encode(bytes).as_str());
@@ -356,7 +293,7 @@ fn render_sql_projection_blob(bytes: &[u8]) -> String {
     rendered
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_duration(millis: u64) -> String {
     let mut rendered = millis.to_string();
     rendered.push_str("ms");
@@ -364,7 +301,7 @@ fn render_sql_projection_duration(millis: u64) -> String {
     rendered
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_list(items: &[Value]) -> String {
     let mut rendered = String::from("[");
 
@@ -381,7 +318,7 @@ fn render_sql_projection_list(items: &[Value]) -> String {
     rendered
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_map(entries: &[(Value, Value)]) -> String {
     let mut rendered = String::from("{");
 
@@ -400,7 +337,7 @@ fn render_sql_projection_map(entries: &[(Value, Value)]) -> String {
     rendered
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn sql_projection_hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len().saturating_mul(2));
@@ -412,7 +349,7 @@ fn sql_projection_hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 fn render_sql_projection_enum(value: &ValueEnum) -> String {
     let mut rendered = String::new();
     if let Some(path) = value.path() {

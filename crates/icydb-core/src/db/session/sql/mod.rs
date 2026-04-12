@@ -16,6 +16,7 @@ use crate::{
         DbSession, EntityResponse, GroupedTextCursorPageWithTrace, MissingRowPolicy,
         PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
         executor::EntityAuthority,
+        identifiers_tail_match,
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
@@ -64,13 +65,11 @@ const fn unsupported_sql_computed_projection_message(
 ) -> &'static str {
     match surface {
         SqlComputedProjectionSurface::QueryFrom => {
-            "query_from_sql does not accept computed text projection; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept computed text projection"
         }
-        SqlComputedProjectionSurface::ExecuteSql => {
-            "execute_sql rejects computed text projection; use execute_sql_dispatch(...)"
-        }
+        SqlComputedProjectionSurface::ExecuteSql => "execute_sql rejects computed text projection",
         SqlComputedProjectionSurface::ExecuteSqlGrouped => {
-            "execute_sql_grouped rejects computed text projection; use execute_sql_dispatch(...)"
+            "execute_sql_grouped rejects scalar computed text projection"
         }
     }
 }
@@ -81,22 +80,22 @@ const fn unsupported_sql_write_surface_message(
 ) -> &'static str {
     match (surface, statement) {
         (SqlSurface::QueryFrom, SqlStatement::Insert(_)) => {
-            "query_from_sql rejects INSERT; use execute_sql_dispatch(...)"
+            "query_from_sql rejects INSERT; use create(...) or insert(...)"
         }
         (SqlSurface::QueryFrom, SqlStatement::Update(_)) => {
-            "query_from_sql rejects UPDATE; use execute_sql_dispatch(...)"
+            "query_from_sql rejects UPDATE; use update(...)"
         }
         (SqlSurface::ExecuteSql, SqlStatement::Insert(_)) => {
-            "execute_sql rejects INSERT; use execute_sql_dispatch(...)"
+            "execute_sql rejects INSERT; use create(...) or insert(...)"
         }
         (SqlSurface::ExecuteSql, SqlStatement::Update(_)) => {
-            "execute_sql rejects UPDATE; use execute_sql_dispatch(...)"
+            "execute_sql rejects UPDATE; use update(...)"
         }
         (SqlSurface::ExecuteSqlGrouped, SqlStatement::Insert(_)) => {
-            "execute_sql_grouped rejects INSERT; use execute_sql_dispatch(...)"
+            "execute_sql_grouped rejects INSERT; use create(...) or insert(...)"
         }
         (SqlSurface::ExecuteSqlGrouped, SqlStatement::Update(_)) => {
-            "execute_sql_grouped rejects UPDATE; use execute_sql_dispatch(...)"
+            "execute_sql_grouped rejects UPDATE; use update(...)"
         }
         (SqlSurface::Explain, SqlStatement::Insert(_) | SqlStatement::Update(_)) => {
             "explain_sql requires EXPLAIN"
@@ -120,13 +119,13 @@ const fn unsupported_sql_returning_surface_message(
 ) -> &'static str {
     match (surface, statement) {
         (SqlSurface::QueryFrom, SqlStatement::Delete(_)) => {
-            "query_from_sql rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+            "query_from_sql rejects DELETE RETURNING; use delete::<E>().returning..."
         }
         (SqlSurface::ExecuteSql, SqlStatement::Delete(_)) => {
-            "execute_sql rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+            "execute_sql rejects DELETE RETURNING; use delete::<E>().returning..."
         }
         (SqlSurface::ExecuteSqlGrouped, SqlStatement::Delete(_)) => {
-            "execute_sql_grouped rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+            "execute_sql_grouped rejects DELETE RETURNING; use delete::<E>().returning..."
         }
         (SqlSurface::Explain, SqlStatement::Delete(_)) => "explain_sql requires EXPLAIN",
         (
@@ -144,6 +143,35 @@ const fn unsupported_sql_returning_surface_message(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Enforce that one single-entity SQL endpoint stays hard-bound to the
+    // typed entity `E` instead of silently reusing unrelated entity names.
+    fn ensure_entity_sql_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let Some(sql_entity) = (match route {
+            SqlStatementRoute::Query { entity }
+            | SqlStatementRoute::Insert { entity }
+            | SqlStatementRoute::Update { entity }
+            | SqlStatementRoute::Explain { entity }
+            | SqlStatementRoute::Describe { entity }
+            | SqlStatementRoute::ShowIndexes { entity }
+            | SqlStatementRoute::ShowColumns { entity } => Some(entity.as_str()),
+            SqlStatementRoute::ShowEntities => None,
+        }) else {
+            return Ok(());
+        };
+
+        if identifiers_tail_match(sql_entity, E::MODEL.name()) {
+            return Ok(());
+        }
+
+        Err(QueryError::unsupported_query(format!(
+            "execute_entity_sql only supports entity '{}', but received '{sql_entity}'",
+            E::MODEL.name()
+        )))
+    }
+
     // Resolve planner-visible indexes and build one execution-ready
     // structural plan at the session SQL boundary.
     pub(in crate::db::session::sql) fn build_structural_plan_with_visible_indexes_for_authority(
@@ -286,7 +314,7 @@ impl<C: CanisterKind> DbSession<C> {
         let parsed = self.parse_sql_statement(sql)?;
         if matches!(&parsed.statement, SqlStatement::Delete(_)) {
             return Err(QueryError::unsupported_query(
-                "execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()",
+                "execute_sql rejects DELETE; use delete::<E>()",
             ));
         }
         let query = Self::query_from_sql_parsed::<E>(
@@ -298,6 +326,46 @@ impl<C: CanisterKind> DbSession<C> {
         Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Scalar)?;
 
         self.execute_query(&query)
+    }
+
+    /// Execute one single-entity reduced SQL read/introspection statement.
+    ///
+    /// This helper is intentionally hard-bound to `E` and exists for canister
+    /// endpoints that want one tiny SQL forwarder without reviving dynamic
+    /// entity dispatch.
+    pub fn execute_entity_sql<E>(&self, sql: &str) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let parsed = self.parse_sql_statement(sql)?;
+
+        Self::ensure_entity_sql_route_matches::<E>(parsed.route())?;
+
+        match &parsed.statement {
+            SqlStatement::Delete(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_entity_sql rejects DELETE; use delete::<E>()",
+                ));
+            }
+            SqlStatement::Insert(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_entity_sql rejects INSERT; use create(...) or insert(...)",
+                ));
+            }
+            SqlStatement::Update(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_entity_sql rejects UPDATE; use update(...)",
+                ));
+            }
+            SqlStatement::Select(_)
+            | SqlStatement::Explain(_)
+            | SqlStatement::Describe(_)
+            | SqlStatement::ShowIndexes(_)
+            | SqlStatement::ShowColumns(_)
+            | SqlStatement::ShowEntities(_) => {}
+        }
+
+        self.execute_sql_dispatch_parsed::<E>(&parsed)
     }
 
     /// Execute one reduced SQL grouped `SELECT` statement and return grouped rows.
@@ -313,7 +381,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         if matches!(&parsed.statement, SqlStatement::Delete(_)) {
             return Err(QueryError::unsupported_query(
-                "execute_sql_grouped rejects DELETE; use execute_sql_dispatch(...)",
+                "execute_sql_grouped rejects DELETE; use delete::<E>()",
             ));
         }
 
@@ -364,7 +432,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         if matches!(&parsed.statement, SqlStatement::Delete(_)) {
             return Err(QueryError::unsupported_query(
-                "execute_sql_grouped rejects DELETE; use execute_sql_dispatch(...)",
+                "execute_sql_grouped rejects DELETE; use delete::<E>()",
             ));
         }
 

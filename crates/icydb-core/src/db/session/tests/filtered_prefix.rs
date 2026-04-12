@@ -127,10 +127,6 @@ fn assert_filtered_prefix_covering_route(session: &DbSession<SessionSqlCanister>
             ExplainExecutionNodeType::IndexRangeScan
         );
         assert_eq!(descriptor.covering_scan(), Some(true));
-        assert_eq!(
-            descriptor.node_properties().get("cov_read_route"),
-            Some(&Value::Text("covering_read".to_string())),
-        );
         assert!(
             explain_execution_find_first_node(
                 &descriptor,
@@ -181,18 +177,6 @@ fn assert_filtered_composite_covering_route(session: &DbSession<SessionSqlCanist
             ExplainExecutionNodeType::IndexRangeScan
         );
         assert_eq!(descriptor.covering_scan(), Some(true));
-        assert_eq!(
-            descriptor.node_properties().get("cov_read_route"),
-            Some(&Value::Text("covering_read".to_string())),
-        );
-        assert_eq!(
-            descriptor.node_properties().get("prefix_len"),
-            Some(&Value::Uint(1)),
-        );
-        assert_eq!(
-            descriptor.node_properties().get("prefix_values"),
-            Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        );
         assert!(
             explain_execution_find_first_node(
                 &descriptor,

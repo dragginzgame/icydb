@@ -1,30 +1,25 @@
 # IcyDB SQL Subset Contract
 
-This document defines the supported IcyDB SQL language boundary.
-It is a product contract for the admitted single-entity SQL subset.
+This document defines the current supported public IcyDB SQL boundary.
 Anything not stated here is outside the supported SQL surface and must fail
 closed.
 
-This document defines the admitted SQL language, not per-entrypoint
-availability. A statement family may be part of the supported SQL subset even
-when some public surfaces intentionally do not expose it. Public-surface
-availability and lane mapping live in
-`docs/architecture/sql-surface-mapping.md`.
+This contract is about the public SQL frontend that remains after the
+`sql_dispatch` removal.
 
 ## Scope
 
 - Applies to IcyDB SQL parsing, lowering, validation, and execution semantics.
 - Applies only to single-entity statements.
-- Defines the admitted SQL shapes, not the internal execution lanes.
+- Defines the admitted public SQL shapes, not internal parser route metadata.
 - Does not define storage internals, planner heuristics, or canister ABI shape.
 
 ## Core Rule
 
-Every admitted SQL statement targets exactly one entity.
+Every admitted executable SQL statement targets exactly one entity.
 
 IcyDB SQL is a constrained single-entity language for:
 
-- CRUD over one entity
 - filtering
 - ordering
 - pagination
@@ -35,10 +30,10 @@ IcyDB SQL is a constrained single-entity language for:
 
 IcyDB SQL is not a general-purpose relational SQL engine.
 
-`INSERT` and `UPDATE` are first-class parts of this SQL subset contract.
-They are not provisional or documentation-only statement families.
+Typed and fluent APIs are the canonical public mutation surfaces.
+SQL text is now a read/introspection surface plus a typed query-lowering helper.
 
-## Supported Statements
+## Supported Public SQL Statements
 
 ### `SELECT`
 
@@ -49,58 +44,7 @@ Supported `SELECT` families are:
 - global aggregate loads with exactly one aggregate projection terminal and no
   `GROUP BY`
 - grouped aggregate loads
-- narrow computed projection loads
-
-### `INSERT`
-
-Supported shape:
-
-```sql
-INSERT INTO entity [(column, ...)] VALUES (...), (...), ...
-```
-
-Contract rules:
-
-- exactly one target entity
-- one or more `VALUES` tuples
-- explicit primary-key value is required
-- omitted column list uses canonical entity field order
-- `INSERT ... SELECT` is not supported
-
-### `UPDATE`
-
-Supported shape:
-
-```sql
-UPDATE entity [alias]
-SET field = literal, ...
-WHERE predicate
-[ORDER BY ...]
-[LIMIT n]
-[OFFSET n]
-```
-
-Contract rules:
-
-- `WHERE` is required
-- primary-key mutation is not supported
-- ordered/windowed update selection is supported
-- if `ORDER BY` is omitted and a bounded update window is requested, the matched
-  set is resolved in primary-key order for determinism
-
-### `DELETE`
-
-Supported shape:
-
-```sql
-DELETE FROM entity [alias]
-[WHERE predicate]
-[ORDER BY ...]
-[LIMIT n]
-[OFFSET n]
-```
-
-`DELETE` is a single-entity delete with optional ordered windowing.
+- narrow computed projection loads on the grouped SQL lane only
 
 ### `EXPLAIN`
 
@@ -113,8 +57,8 @@ Supported shapes:
 - `EXPLAIN JSON SELECT ...`
 - `EXPLAIN JSON DELETE ...`
 
-`EXPLAIN` is not part of write execution and does not widen the admitted SQL
-statement families.
+`EXPLAIN` is an operational SQL surface.
+It does not imply public SQL mutation execution.
 
 ### Introspection
 
@@ -124,6 +68,27 @@ Supported commands:
 - `SHOW INDEXES entity`
 - `SHOW COLUMNS entity`
 - `SHOW ENTITIES`
+- `SHOW TABLES`
+
+## Non-Supported Public SQL Mutation Execution
+
+Public SQL execution no longer owns:
+
+- `INSERT`
+- `UPDATE`
+- `DELETE`
+- `RETURNING`
+
+Those behaviors now belong to typed/fluent APIs:
+
+- `create(...)`, `insert(...)`, `update(...)`, `replace(...)`
+- `create_returning...`, `insert_returning...`, `update_returning...`
+- `delete::<E>()`
+- `delete::<E>().returning...`
+
+`query_from_sql(...)` may still lower `DELETE` intent into one canonical query
+model, but that is a typed lowering helper, not a public SQL mutation
+execution contract.
 
 ## Entity Naming And Aliases
 
@@ -137,7 +102,6 @@ Examples:
 
 - `SELECT * FROM Customer c`
 - `SELECT c.name FROM Customer AS c`
-- `UPDATE Customer c SET c.age = 42 WHERE c.id = 1`
 
 No statement may introduce more than one entity binding.
 
@@ -216,162 +180,3 @@ Narrow casefolded predicate forms are also supported:
 
 - `LOWER(field) LIKE 'prefix%'`
 - `UPPER(field) LIKE 'PREFIX%'`
-- `STARTS_WITH(LOWER(field), 'prefix')`
-- `STARTS_WITH(UPPER(field), 'PREFIX')`
-- ordered text bounds over `LOWER(field)` / `UPPER(field)`
-
-Unsupported predicate forms include:
-
-- `LIKE` patterns beyond trailing-prefix `%`
-- generic SQL function predicates
-- nested function predicates such as `STARTS_WITH(TRIM(name), 'A')`
-
-## Ordering And Pagination
-
-Supported scalar order targets are:
-
-- plain fields
-- `LOWER(field)`
-- `UPPER(field)`
-- admitted `ORDER BY <alias>` rewrites onto those same targets
-
-Supported pagination clauses are:
-
-- `LIMIT`
-- `OFFSET`
-
-Scalar `SELECT`, `DELETE`, `UPDATE`, and global aggregate queries may use
-ordered window semantics.
-
-## Grouped Queries
-
-Grouped SQL is supported with these rules:
-
-- `GROUP BY` requires at least one grouped key
-- grouped projection must list grouped keys first
-- grouped projection must include at least one aggregate output
-- `HAVING` is supported only on grouped queries
-- grouped `ORDER BY`, when present, must start with the grouped-key prefix
-- grouped `ORDER BY` requires `LIMIT`
-
-Top-level `SELECT DISTINCT` on grouped queries is admitted but does not widen
-grouped semantics. Contractually, grouped `SELECT DISTINCT` is treated as the
-same grouped query shape as the equivalent non-`DISTINCT` grouped statement.
-
-## Aggregates
-
-Supported aggregate functions are:
-
-- `COUNT(*)`
-- `COUNT(field)`
-- `SUM(field)`
-- `AVG(field)`
-- `MIN(field)`
-- `MAX(field)`
-
-Global aggregate `DISTINCT` is supported for admitted field-target aggregate
-forms.
-
-Grouped aggregates support admitted field-target terminals, including shipped
-grouped `DISTINCT` aggregate forms where grouped policy allows them.
-
-## `HAVING`
-
-`HAVING` is supported only for grouped queries.
-
-Admitted `HAVING` forms are compare clauses over:
-
-- grouped key fields
-- declared aggregate outputs
-
-Admitted operators are:
-
-- comparison operators
-- `IS NULL`
-- `IS NOT NULL`
-
-`HAVING` boolean composition is intentionally narrow:
-
-- `AND` is supported
-- `OR` and `NOT` are not supported
-
-Grouped `HAVING` with grouped `DISTINCT` remains outside the supported subset.
-
-## Narrow Computed Expression Surface
-
-IcyDB SQL supports a narrow built-in text-function surface in projection
-position:
-
-- `TRIM(field)`
-- `LTRIM(field)`
-- `RTRIM(field)`
-- `LOWER(field)`
-- `UPPER(field)`
-- `LENGTH(field)`
-- `LEFT(field, n)`
-- `RIGHT(field, n)`
-- `STARTS_WITH(field, text)`
-- `ENDS_WITH(field, text)`
-- `CONTAINS(field, text)`
-- `POSITION(text, field)`
-- `REPLACE(field, from, to)`
-- `SUBSTRING(field, start [, length])`
-
-Grouped computed projection is limited to:
-
-- grouped fields
-- admitted text functions over grouped fields
-- aggregate outputs after those grouped items
-
-This expression surface is intentionally narrow and does not imply support for
-general SQL expression trees.
-
-## Rejected Features
-
-The following are outside the contract and must fail closed:
-
-- joins
-- subselects
-- common table expressions
-- set operations such as `UNION`, `INTERSECT`, and `EXCEPT`
-- window functions
-- multi-statement SQL input
-- quoted identifiers
-- generic SQL function namespaces beyond the admitted aggregate and text forms
-- multi-entity mutation or query semantics
-
-## Lowering Contract
-
-For admitted SQL shapes, IcyDB guarantees:
-
-- single-entity normalization
-- alias-neutral lowering
-- schema-qualified and alias-qualified identifiers normalize to the same
-  canonical entity-field semantics
-- equivalent admitted SQL and equivalent typed/fluent query shapes are expected
-  to converge on the same canonical predicate/order/group semantics
-
-This contract does not guarantee that every public entrypoint exposes every
-admitted SQL shape. The normative question answered here is whether a shape is
-part of the supported SQL language. The separate surface-mapping note answers
-which entrypoints expose that shape today.
-
-## Error Contract
-
-Outside the listed subset, IcyDB SQL must fail closed.
-
-Unsupported SQL shapes must not:
-
-- silently widen into broader semantics
-- fall back to approximate behavior
-- reinterpret multi-entity SQL as single-entity SQL
-
-Errors may be raised at parse, lowering, validation, or execution boundaries,
-but the statement must remain rejected.
-
-## Stability Note
-
-This document defines the intended stable single-entity SQL boundary.
-
-If an admitted shape is removed, widened, or re-scoped, this document must be
-updated in the same change.

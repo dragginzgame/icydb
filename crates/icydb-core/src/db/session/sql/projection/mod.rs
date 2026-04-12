@@ -23,7 +23,5 @@ pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
         sql_projection_rows_from_kernel_rows,
     },
     payload::SqlProjectionPayload,
-    runtime::{
-        execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
-    },
+    runtime::execute_sql_projection_rows_for_canister,
 };

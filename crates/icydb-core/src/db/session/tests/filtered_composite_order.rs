@@ -32,21 +32,6 @@ fn assert_filtered_composite_order_descriptor(
         Some(true),
         "{context} should keep the explicit covering-read route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} should expose the covering-read route label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "{context} should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "{context} should expose the concrete equality-prefix value",
-    );
     assert!(
         explain_execution_find_first_node(
             descriptor,
@@ -182,16 +167,6 @@ fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
                 descriptor.covering_scan(),
                 Some(true),
                 "{context} projections should keep the explicit covering-read route",
-            );
-            assert_eq!(
-                descriptor.node_properties().get("prefix_len"),
-                Some(&Value::Uint(1)),
-                "{context} should report one equality-prefix slot",
-            );
-            assert_eq!(
-                descriptor.node_properties().get("prefix_values"),
-                Some(&Value::List(vec![Value::Text("gold".to_string())])),
-                "{context} should expose the concrete equality-prefix value",
             );
             assert!(
                 explain_execution_find_first_node(

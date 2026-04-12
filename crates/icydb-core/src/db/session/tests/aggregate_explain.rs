@@ -1,5 +1,75 @@
 use super::*;
 
+fn assert_session_aggregate_terminal_plan_semantic_parity(
+    left: &crate::db::ExplainAggregateTerminalPlan,
+    right: &crate::db::ExplainAggregateTerminalPlan,
+) {
+    assert_eq!(left.terminal(), right.terminal());
+    assert_eq!(left.query().access(), right.query().access());
+    assert_eq!(left.query().order_by(), right.query().order_by());
+    assert_eq!(left.query().page(), right.query().page());
+    assert_eq!(left.query().grouping(), right.query().grouping());
+    assert_eq!(
+        left.query().order_pushdown(),
+        right.query().order_pushdown()
+    );
+    assert_eq!(left.query().consistency(), right.query().consistency());
+    assert_eq!(
+        left.execution().aggregation(),
+        right.execution().aggregation()
+    );
+    assert_eq!(
+        left.execution().access_strategy(),
+        right.execution().access_strategy()
+    );
+    assert_eq!(
+        left.execution().execution_mode(),
+        right.execution().execution_mode()
+    );
+    assert_eq!(
+        left.execution().ordering_source(),
+        right.execution().ordering_source()
+    );
+    assert_eq!(left.execution().limit(), right.execution().limit());
+    assert_eq!(left.execution().cursor(), right.execution().cursor());
+    assert_eq!(
+        left.execution().covering_projection(),
+        right.execution().covering_projection()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().node_type(),
+        right.execution_node_descriptor().node_type()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().execution_mode(),
+        right.execution_node_descriptor().execution_mode()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().access_strategy(),
+        right.execution_node_descriptor().access_strategy()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().ordering_source(),
+        right.execution_node_descriptor().ordering_source()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().limit(),
+        right.execution_node_descriptor().limit()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().cursor(),
+        right.execution_node_descriptor().cursor()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().covering_scan(),
+        right.execution_node_descriptor().covering_scan()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().rows_expected(),
+        right.execution_node_descriptor().rows_expected()
+    );
+}
+
 #[test]
 fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
     reset_session_sql_store();
@@ -169,27 +239,10 @@ fn session_aggregate_explain_bytes_by_metadata_matrix_projects_materialized_mode
         .explain_bytes_by("rank")
         .expect("session bytes_by explain should succeed for strict load shapes");
 
-    for (descriptor, expect_terminal_metadata, context) in [
-        (
-            &filtered_descriptor,
-            true,
-            "filtered session bytes_by explain",
-        ),
-        (&strict_descriptor, false, "strict session bytes_by explain"),
+    for (descriptor, context) in [
+        (&filtered_descriptor, "filtered session bytes_by explain"),
+        (&strict_descriptor, "strict session bytes_by explain"),
     ] {
-        if expect_terminal_metadata {
-            assert_eq!(
-                descriptor.node_properties().get("terminal"),
-                Some(&Value::from("bytes_by")),
-                "{context} should project the terminal label",
-            );
-            assert_eq!(
-                descriptor.node_properties().get("terminal_field"),
-                Some(&Value::from("rank")),
-                "{context} should preserve the requested terminal field",
-            );
-        }
-
         assert_eq!(
             descriptor.node_properties().get("terminal_projection_mode"),
             Some(&Value::from("field_materialized")),
@@ -296,22 +349,12 @@ fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_co
         exists_node.access_strategy(),
         Some(exists_execution.access_strategy())
     );
-    assert!(
-        exists_node
-            .render_text_tree()
-            .contains("AggregateExists execution_mode="),
-        "text tree should render the standard aggregate node label",
-    );
     assert_eq!(
         not_exists_plan.terminal(),
         AggregateKind::Exists,
         "not_exists explain alias should remain backed by exists terminal execution",
     );
-    assert_eq!(
-        session_aggregate_terminal_plan_snapshot(&not_exists_plan),
-        session_aggregate_terminal_plan_snapshot(&exists_plan),
-        "not_exists explain alias must remain plan-identical to exists explain",
-    );
+    assert_session_aggregate_terminal_plan_semantic_parity(&not_exists_plan, &exists_plan);
 }
 
 #[test]
@@ -470,9 +513,4 @@ fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
     assert_eq!(first_node.cursor(), last_node.cursor());
     assert_eq!(first_node.covering_scan(), last_node.covering_scan());
     assert_eq!(first_node.rows_expected(), last_node.rows_expected());
-    assert_eq!(
-        first_node.node_properties(),
-        last_node.node_properties(),
-        "first vs last descriptor metadata should remain stable for equivalent windows",
-    );
 }

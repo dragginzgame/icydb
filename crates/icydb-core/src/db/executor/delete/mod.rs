@@ -5,8 +5,6 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::terminal::{KernelRow, RowDecoder};
-#[cfg(feature = "sql")]
-use crate::db::schema::commit_schema_fingerprint_for_model;
 use crate::{
     db::{
         Db,
@@ -565,83 +563,6 @@ where
     } else {
         commit_delete_row_ops_with_window::<E>(db, row_ops, apply_phase)
     }
-}
-
-// Prepare one structural delete execution state from runtime-hook authority
-// once the typed dispatch shell has already resolved the concrete entity.
-#[cfg(feature = "sql")]
-fn prepare_delete_execution_state_for_runtime_hooks<C>(
-    db: &Db<C>,
-    authority: EntityAuthority,
-    logical_plan: AccessPlannedQuery,
-) -> Result<PreparedDeleteExecutionState, InternalError>
-where
-    C: CanisterKind,
-{
-    let hooks = db.runtime_hook_for_entity_path(authority.entity_path())?;
-    let authority = DeleteExecutionAuthority {
-        entity: authority,
-        schema_fingerprint: commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),
-    };
-    let index_prefix_specs = crate::db::access::lower_index_prefix_specs(
-        authority.entity.entity_tag(),
-        &logical_plan.access,
-    )?;
-    let index_range_specs = crate::db::access::lower_index_range_specs(
-        authority.entity.entity_tag(),
-        &logical_plan.access,
-    )?;
-
-    prepare_delete_execution_state(
-        authority,
-        logical_plan,
-        index_prefix_specs,
-        index_range_specs,
-    )
-}
-
-// Apply delete commit ops through the structural runtime-hook commit window.
-#[cfg(feature = "sql")]
-fn apply_delete_commit_window_for_path<C>(
-    db: &Db<C>,
-    authority: EntityAuthority,
-    row_ops: Vec<CommitRowOp>,
-    apply_phase: &'static str,
-) -> Result<(), InternalError>
-where
-    C: CanisterKind,
-{
-    commit_delete_row_ops_with_window_for_path(db, authority.entity_path(), row_ops, apply_phase)
-}
-
-/// Execute one structural delete plan for canister dispatch.
-///
-/// This keeps lowered delete routing on resolved authority once the
-/// entity path has already been resolved by the canister dispatch surface.
-#[inline(never)]
-#[cfg(feature = "sql")]
-pub(in crate::db) fn execute_structural_delete_projection_for_canister<C>(
-    db: &Db<C>,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<DeleteProjection, InternalError>
-where
-    C: CanisterKind,
-{
-    // Phase 1: lower structural delete authority and reusable execution state
-    // from the runtime hook table once the route has been fixed.
-    let prepared = prepare_delete_execution_state_for_runtime_hooks(db, authority, plan)?;
-    let store =
-        db.with_store_registry(|reg| reg.try_get_store(prepared.authority.entity.store_path()))?;
-
-    // Phase 2: execute the shared structural delete core and commit
-    // through the runtime-hook path-only bridge.
-    execute_structural_delete_projection_core(
-        db,
-        store,
-        &prepared,
-        apply_delete_commit_window_for_path::<C>,
-    )
 }
 
 ///

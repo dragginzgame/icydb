@@ -129,8 +129,6 @@ pub use error::Error;
 // This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
 pub mod __macro {
-    #[cfg(feature = "sql")]
-    pub use crate::db::execute_generated_sql_query;
     pub use crate::db::execute_generated_storage_report;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::LoweredSqlCommand;

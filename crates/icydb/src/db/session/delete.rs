@@ -40,8 +40,8 @@ enum DeleteReturningSelection {
 ///
 /// Session-bound fluent wrapper for typed delete queries that explicitly
 /// request deleted rows. This keeps fluent `DELETE ... RETURNING` on the same
-/// outward projection contract as SQL dispatch instead of inventing a second
-/// row-returning result family.
+/// outward projection contract as the typed write-returning helpers instead of
+/// inventing a second row-returning result family.
 ///
 
 pub struct SessionDeleteReturningQuery<'a, E: PersistedRow> {

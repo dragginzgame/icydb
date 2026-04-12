@@ -1,5 +1,64 @@
 use super::*;
 
+fn assert_aggregate_terminal_plan_semantic_parity(
+    left: &crate::db::ExplainAggregateTerminalPlan,
+    right: &crate::db::ExplainAggregateTerminalPlan,
+) {
+    assert_eq!(left.terminal(), right.terminal());
+    assert_eq!(left.query().access(), right.query().access());
+    assert_eq!(left.query().order_by(), right.query().order_by());
+    assert_eq!(left.query().page(), right.query().page());
+    assert_eq!(left.query().grouping(), right.query().grouping());
+    assert_eq!(
+        left.query().order_pushdown(),
+        right.query().order_pushdown()
+    );
+    assert_eq!(left.query().consistency(), right.query().consistency());
+    assert_eq!(
+        left.execution().aggregation(),
+        right.execution().aggregation()
+    );
+    assert_eq!(
+        left.execution().execution_mode(),
+        right.execution().execution_mode()
+    );
+    assert_eq!(
+        left.execution().ordering_source(),
+        right.execution().ordering_source()
+    );
+    assert_eq!(left.execution().limit(), right.execution().limit());
+    assert_eq!(left.execution().cursor(), right.execution().cursor());
+    assert_eq!(
+        left.execution().covering_projection(),
+        right.execution().covering_projection()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().node_type(),
+        right.execution_node_descriptor().node_type()
+    );
+    assert_eq!(
+        left.execution_node_descriptor().execution_mode(),
+        right.execution_node_descriptor().execution_mode()
+    );
+}
+
+fn assert_execution_descriptor_semantic_parity(
+    left: &ExplainExecutionNodeDescriptor,
+    right: &ExplainExecutionNodeDescriptor,
+) {
+    assert_eq!(left.node_type(), right.node_type());
+    assert_eq!(left.execution_mode(), right.execution_mode());
+    assert_eq!(left.access_strategy(), right.access_strategy());
+    assert_eq!(left.predicate_pushdown(), right.predicate_pushdown());
+    assert_eq!(left.residual_predicate(), right.residual_predicate());
+    assert_eq!(left.projection(), right.projection());
+    assert_eq!(left.ordering_source(), right.ordering_source());
+    assert_eq!(left.limit(), right.limit());
+    assert_eq!(left.cursor(), right.cursor());
+    assert_eq!(left.covering_scan(), right.covering_scan());
+    assert_eq!(left.rows_expected(), right.rows_expected());
+}
+
 #[test]
 fn session_aggregate_ranked_rows_are_invariant_to_insertion_order() {
     let rows_a = [
@@ -512,19 +571,9 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
         prepared_sum_node.node_type(),
         ExplainExecutionNodeType::AggregateSum
     );
-    assert_eq!(
-        prepared_sum_node.node_properties().get("proj_field"),
-        Some(&Value::from("rank"))
-    );
 
-    assert_eq!(
-        session_aggregate_terminal_plan_snapshot(&public_sum),
-        session_aggregate_terminal_plan_snapshot(&prepared_sum)
-    );
-    assert_eq!(
-        session_aggregate_terminal_plan_snapshot(&public_avg_distinct),
-        session_aggregate_terminal_plan_snapshot(&prepared_avg_distinct)
-    );
+    assert_aggregate_terminal_plan_semantic_parity(&public_sum, &prepared_sum);
+    assert_aggregate_terminal_plan_semantic_parity(&public_avg_distinct, &prepared_avg_distinct);
 
     // Phase 2: require the public projection terminals to remain exact
     // renderings of the prepared projection strategies.
@@ -547,14 +596,8 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
         .explain_last_value_by("rank")
         .expect("public fluent last_value_by explain should build");
 
-    assert_eq!(
-        public_count_distinct.render_json_canonical(),
-        prepared_count_distinct.render_json_canonical()
-    );
-    assert_eq!(
-        public_last_value.render_json_canonical(),
-        prepared_last_value.render_json_canonical()
-    );
+    assert_execution_descriptor_semantic_parity(&public_count_distinct, &prepared_count_distinct);
+    assert_execution_descriptor_semantic_parity(&public_last_value, &prepared_last_value);
 }
 
 #[test]

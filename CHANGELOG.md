@@ -28,6 +28,15 @@ See detailed breakdown:
 
 ---
 
+## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
+
+- `0.77.0` removes public SQL dispatch entirely, keeps reduced SQL as a narrower typed query/introspection surface, moves the demo SQL forwarder onto one explicit single-entity helper, and trims the dead internal generated-dispatch scaffolding that only existed to support the old public SQL route.
+
+See detailed breakdown:
+[docs/changelog/0.77.md](docs/changelog/0.77.md)
+
+---
+
 ## [0.75.x] 🧭 - 2026-04-10 - Cleanup & Audits
 
 - `0.75.8` keeps the cleanup line moving by simplifying relation validation around one shared strong-relation model, renaming the prepared execution-plan boundary to match its actual role, flattening a few more grouped aggregate/runtime helper layers, and trimming stale hidden exports and tiny helper modules across the build, schema, and facade crates without changing query behavior.

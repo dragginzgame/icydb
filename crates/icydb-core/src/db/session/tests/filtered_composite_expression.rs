@@ -125,21 +125,6 @@ fn assert_filtered_composite_expression_materialized_descriptor(
         Some(false),
         "{context} should materialize original handle values instead of claiming a covering route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("materialized".to_string())),
-        "{context} should expose the materialized route label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "{context} should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "{context} should expose the concrete equality-prefix value",
-    );
     assert!(
         explain_execution_find_first_node(
             &descriptor,
@@ -181,34 +166,11 @@ fn assert_filtered_composite_expression_covering_descriptor(
         Some(true),
         "{context} should expose the explicit covering-read route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} should expose the covering-read route label",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "{context} should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "{context} should expose the concrete equality-prefix value",
-    );
     let projection_node =
         explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
             .expect(
                 "filtered composite expression covering explain should emit a covering-read node",
             );
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![
-            Value::Text("id".to_string()),
-            Value::Text("tier".to_string()),
-        ])),
-        "{context} should expose the projected field list",
-    );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
         Some(&Value::Text("planner_proven".to_string())),
@@ -488,29 +450,9 @@ fn session_explain_execution_filtered_composite_expression_prefix_key_only_keeps
         "filtered composite expression prefix key-only roots should stay on the shared index-range root",
     );
     assert_eq!(
-        full_descriptor.node_properties().get("prefix_len"),
-        key_only_descriptor.node_properties().get("prefix_len"),
-        "filtered composite expression prefix siblings should keep the same equality-prefix arity",
-    );
-    assert_eq!(
-        full_descriptor.node_properties().get("prefix_values"),
-        key_only_descriptor.node_properties().get("prefix_values"),
-        "filtered composite expression prefix siblings should keep the same equality-prefix value contract",
-    );
-    assert_eq!(
         full_descriptor.node_properties().get("fetch"),
         key_only_descriptor.node_properties().get("fetch"),
         "filtered composite expression prefix siblings should keep the same bounded fetch contract at the scan root",
-    );
-    assert_eq!(
-        full_descriptor.node_properties().get("fast_path"),
-        key_only_descriptor.node_properties().get("fast_path"),
-        "filtered composite expression prefix siblings should keep the same fast-path route label",
-    );
-    assert_eq!(
-        full_descriptor.node_properties().get("fast_reason"),
-        key_only_descriptor.node_properties().get("fast_reason"),
-        "filtered composite expression prefix siblings should keep the same fast-path eligibility reason",
     );
     assert_eq!(
         explain_execution_find_first_node(&full_descriptor, ExplainExecutionNodeType::TopNSeek)

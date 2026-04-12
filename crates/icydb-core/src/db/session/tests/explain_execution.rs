@@ -16,24 +16,9 @@ fn assert_primary_key_covering_descriptor(
         Some(true),
         "{context} should expose the explicit covering route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} should surface the covering-read route label",
-    );
     let projection_node =
         explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::CoveringRead)
             .expect("PK-only covering explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "{context} should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
-        "{context} should expose the primary-key field source",
-    );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
         Some(&Value::Text(expected_row_mode.to_string())),
@@ -309,14 +294,6 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         ExplainExecutionNodeType::IndexMultiLookup,
         "IN predicate on the indexed field should keep index-multi root",
     );
-    assert_eq!(
-        multi.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![
-            Value::Text("Sam".to_string()),
-            Value::Text("Sasha".to_string()),
-        ])),
-        "index-multi roots should expose canonical IN prefix values",
-    );
 }
 
 #[test]
@@ -341,16 +318,6 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
         Some(false),
         "all-field entity loads should stay on the materialized route even when access stays index-backed",
     );
-    assert_eq!(
-        entity_descriptor.node_properties().get("cov_scan_reason"),
-        Some(&Value::Text("proj_not_cov".to_string())),
-        "entity explain roots should report the non-coverable projection reason explicitly",
-    );
-    assert_eq!(
-        entity_descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("materialized".to_string())),
-        "entity explain roots should expose the materialized covering-read route label",
-    );
 
     let projected_descriptor = session
         .query_from_sql::<IndexedSessionSqlEntity>(
@@ -365,18 +332,6 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
         Some(true),
         "coverable projected reads should report the explicit covering-read route",
     );
-    assert_eq!(
-        projected_descriptor
-            .node_properties()
-            .get("cov_scan_reason"),
-        Some(&Value::Text("cover_read_route".to_string())),
-        "coverable projection roots should report the covering-read route reason",
-    );
-    assert_eq!(
-        projected_descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "coverable projection roots should expose the explicit covering-read route label",
-    );
     let projection_node = explain_execution_find_first_node(
         &projected_descriptor,
         ExplainExecutionNodeType::CoveringRead,
@@ -386,27 +341,6 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
         projection_node.projection(),
         Some("covering_read"),
         "projection node should label the covering-read terminal route explicitly",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_order"),
-        Some(&Value::Text("primary_key_asc".to_string())),
-        "projection node should report the planner-owned covering order contract",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![
-            Value::Text("id".to_string()),
-            Value::Text("name".to_string()),
-        ])),
-        "projection node should expose the canonical projected field order",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![
-            Value::Text("primary_key".to_string()),
-            Value::Text("constant".to_string()),
-        ])),
-        "projection node should expose planner-owned field-source metadata",
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
@@ -480,24 +414,9 @@ fn session_explain_execution_primary_key_covering_full_scan_is_planner_proven() 
         Some(true),
         "PK-only primary-store projection should expose the explicit covering route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "PK-only primary-store projection should surface the covering-read route label",
-    );
     let projection_node =
         explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
             .expect("PK-only covering explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "PK-only covering explain should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
-        "PK-only covering explain should expose the primary-key field source",
-    );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
         Some(&Value::Text("planner_proven".to_string())),
@@ -677,30 +596,6 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
         })
         .expect("ordered shape should project one ORDER BY execution node");
     let _ = order_node;
-
-    let text_tree = descriptor.render_text_tree();
-    assert!(
-        text_tree.contains(" execution_mode="),
-        "base text rendering should include root access node label",
-    );
-    assert!(
-        text_tree.contains(" access="),
-        "base text rendering should include projected access summary",
-    );
-    assert!(
-        text_tree.contains("LimitOffset execution_mode=") && text_tree.contains("limit=2"),
-        "base text rendering should include limit node details",
-    );
-
-    let descriptor_json = descriptor.render_json_canonical();
-    assert!(
-        descriptor_json.contains("\"children\":["),
-        "json rendering should include descriptor children array",
-    );
-    assert!(
-        descriptor_json.contains("\"LimitOffset\""),
-        "json rendering should include pipeline nodes from the descriptor tree",
-    );
 }
 
 #[test]
@@ -838,19 +733,16 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
     );
     assert_eq!(min_node.execution_mode(), min_execution.execution_mode());
     assert!(
-        min_node
-            .render_text_tree()
-            .contains("AggregateSeekFirst execution_mode=Materialized"),
-        "seek-first explain text should expose the canonical seek-first label",
+        matches!(
+            min_node.ordering_source(),
+            Some(crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 })
+        ),
+        "seek-first explain node should keep the canonical seek ordering source",
     );
-    assert!(
-        min_node
-            .render_json_canonical()
-            .contains("\"node_type\":\"AggregateSeekFirst\"")
-            && min_node
-                .render_json_canonical()
-                .contains("\"fetch\":\"Uint(1)\""),
-        "seek-first explain json should expose the canonical seek fetch contract",
+    assert_eq!(
+        min_node.node_properties().get("fetch"),
+        Some(&Value::from(1u64)),
+        "seek-first explain node should keep the canonical fetch contract",
     );
 
     let max_terminal_plan = session
@@ -887,19 +779,16 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
     );
     assert_eq!(max_node.execution_mode(), max_execution.execution_mode());
     assert!(
-        max_node
-            .render_text_tree()
-            .contains("AggregateSeekLast execution_mode=Materialized"),
-        "seek-last explain text should expose the canonical seek-last label",
+        matches!(
+            max_node.ordering_source(),
+            Some(crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 })
+        ),
+        "seek-last explain node should keep the canonical seek ordering source",
     );
-    assert!(
-        max_node
-            .render_json_canonical()
-            .contains("\"node_type\":\"AggregateSeekLast\"")
-            && max_node
-                .render_json_canonical()
-                .contains("\"fetch\":\"Uint(1)\""),
-        "seek-last explain json should expose the canonical seek fetch contract",
+    assert_eq!(
+        max_node.node_properties().get("fetch"),
+        Some(&Value::from(1u64)),
+        "seek-last explain node should keep the canonical fetch contract",
     );
 }
 

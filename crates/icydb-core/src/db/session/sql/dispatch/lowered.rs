@@ -14,29 +14,13 @@ use crate::db::session::sql::{
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
-        executor::{
-            EntityAuthority, delete::execute_structural_delete_projection_for_canister,
-            pipeline::execute_initial_grouped_rows_for_canister,
-        },
+        executor::{EntityAuthority, pipeline::execute_initial_grouped_rows_for_canister},
         query::intent::StructuralQuery,
-        session::sql::{
-            SqlDispatchResult,
-            projection::{
-                SqlProjectionPayload, projection_labels_from_fields,
-                sql_projection_rows_from_kernel_rows,
-            },
-            surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
-        },
-        sql::lowering::{
-            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlQuery,
-            bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
-        },
+        session::sql::{SqlDispatchResult, projection::SqlProjectionPayload},
+        sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
     },
     traits::CanisterKind,
-    value::Value,
 };
-
-type SqlQuerySurfaceRowParts = (Vec<String>, Vec<Vec<Value>>, u32);
 
 ///
 /// LoweredSqlDispatchExecutorAttribution
@@ -131,23 +115,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    // Execute one lowered SQL SELECT command entirely through the shared
-    // structural projection path and package it for the generated query
-    // surface when the terminal short path can prove rendered SQL rows
-    // directly.
-    #[inline(never)]
-    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_text_core(
-        &self,
-        select: LoweredSelectShape,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        self.execute_lowered_sql_select_with(
-            select,
-            authority,
-            Self::execute_structural_sql_projection_text,
-        )
-    }
-
     #[cfg(feature = "perf-attribution")]
     #[doc(hidden)]
     pub fn attribute_lowered_sql_dispatch_query_for_authority(
@@ -183,17 +150,15 @@ impl<C: CanisterKind> DbSession<C> {
         });
         let columns = columns?;
 
-        let (projection_executor, projected) =
+        let projection_executor =
             attribute_sql_projection_text_rows_for_canister(&self.db, self.debug, authority, plan)
                 .map_err(QueryError::execute)?;
 
         let (dispatch_result_local_instructions, dispatch_result) = measure_dispatch_result(|| {
-            let (rows, row_count) = projected.into_parts();
-
             Ok::<SqlDispatchResult, QueryError>(SqlDispatchResult::ProjectionText {
                 columns,
-                rows,
-                row_count,
+                rows: Vec::new(),
+                row_count: 0,
             })
         });
         let _dispatch_result = dispatch_result?;
@@ -252,94 +217,5 @@ impl<C: CanisterKind> DbSession<C> {
             row_count,
             next_cursor,
         })
-    }
-
-    // Execute one lowered SQL DELETE command through the shared structural
-    // delete projection path and keep the outward boundary in row-parts form.
-    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_delete_projection_core(
-        &self,
-        delete: &LoweredBaseQueryShape,
-        authority: EntityAuthority,
-    ) -> Result<SqlQuerySurfaceRowParts, QueryError> {
-        let structural = bind_lowered_sql_delete_query_structural(
-            authority.model(),
-            delete.clone(),
-            MissingRowPolicy::Ignore,
-        );
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
-        let deleted = execute_structural_delete_projection_for_canister(&self.db, authority, plan)
-            .map_err(QueryError::execute)?;
-        let (rows, row_count) = deleted.into_parts();
-        let rows = sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
-
-        Ok((
-            projection_labels_from_fields(authority.fields()),
-            rows,
-            row_count,
-        ))
-    }
-
-    // Execute one lowered SQL DELETE command and return only the affected-row
-    // count for surfaces that intentionally follow traditional SQL mutation
-    // result semantics unless `RETURNING` is present.
-    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_delete_count_core(
-        &self,
-        delete: &LoweredBaseQueryShape,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        let (_, _, row_count) =
-            self.execute_lowered_sql_delete_projection_core(delete, authority)?;
-
-        Ok(SqlDispatchResult::Count { row_count })
-    }
-
-    // Execute one lowered SQL DELETE command through the shared structural
-    // delete projection path and package it for the general dispatch surface.
-    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_delete_core(
-        &self,
-        delete: &LoweredBaseQueryShape,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        self.execute_lowered_sql_delete_projection_core(delete, authority)
-            .map(|(columns, rows, row_count)| {
-                SqlProjectionPayload::new(columns, rows, row_count).into_dispatch_result()
-            })
-    }
-
-    /// Execute one already-lowered shared SQL query shape for resolved authority.
-    #[doc(hidden)]
-    pub fn execute_lowered_sql_dispatch_query_for_authority(
-        &self,
-        lowered: LoweredSqlCommand,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        self.execute_lowered_sql_dispatch_query_text_core(lowered, authority)
-    }
-
-    // Execute one lowered SQL query command for the generated query surface,
-    // which may keep rendered SQL projection rows when the terminal short path
-    // can prove them directly.
-    fn execute_lowered_sql_dispatch_query_text_core(
-        &self,
-        lowered: LoweredSqlCommand,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        let lane = session_sql_lane(&lowered);
-        let Some(query) = lowered.into_query() else {
-            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
-                SqlSurface::QueryFrom,
-                lane,
-            )));
-        };
-
-        match query {
-            LoweredSqlQuery::Select(select) => {
-                self.execute_lowered_sql_dispatch_select_text_core(select, authority)
-            }
-            LoweredSqlQuery::Delete(delete) => {
-                self.execute_lowered_sql_dispatch_delete_core(&delete, authority)
-            }
-        }
     }
 }

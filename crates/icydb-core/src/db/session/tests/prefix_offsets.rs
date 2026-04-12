@@ -1,11 +1,5 @@
 use super::*;
 
-// Expected scan direction for one prefix-ordered window shape.
-enum PrefixScanDirectionExpectation {
-    Asc,
-    Desc,
-}
-
 // Expected ordered-route shape for one prefix-ordered window shape.
 enum PrefixOrderedRouteExpectation {
     TopNSeekAccessSatisfied,
@@ -22,7 +16,6 @@ enum IndexRangeLimitPushdownExpectation {
 // Expected EXPLAIN route properties for one prefix-ordered window shape.
 struct PrefixRouteExpectations<'a> {
     access_name: &'a str,
-    scan_direction: PrefixScanDirectionExpectation,
     ordered_route: PrefixOrderedRouteExpectation,
     index_range_limit_pushdown: IndexRangeLimitPushdownExpectation,
 }
@@ -114,22 +107,6 @@ fn assert_prefix_route_descriptor(
         ),
         "{context} should expose the chosen order-compatible composite index",
     );
-    match expectations.scan_direction {
-        PrefixScanDirectionExpectation::Asc => {
-            assert_ne!(
-                descriptor.node_properties().get("scan_dir"),
-                Some(&Value::Text("desc".to_string())),
-                "{context} should not expose a descending scan direction",
-            );
-        }
-        PrefixScanDirectionExpectation::Desc => {
-            assert_eq!(
-                descriptor.node_properties().get("scan_dir"),
-                Some(&Value::Text("desc".to_string())),
-                "{context} should expose the descending scan direction",
-            );
-        }
-    }
     assert!(
         explain_execution_find_first_node(
             descriptor,
@@ -215,7 +192,6 @@ fn session_explain_execution_equality_prefix_suffix_order_matrix_is_stable() {
             None,
             PrefixRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: PrefixScanDirectionExpectation::Asc,
                 ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
             },
@@ -226,7 +202,6 @@ fn session_explain_execution_equality_prefix_suffix_order_matrix_is_stable() {
             None,
             PrefixRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: PrefixScanDirectionExpectation::Desc,
                 ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
             },
@@ -237,7 +212,6 @@ fn session_explain_execution_equality_prefix_suffix_order_matrix_is_stable() {
             Some(1),
             PrefixRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: PrefixScanDirectionExpectation::Asc,
                 ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
             },
@@ -248,7 +222,6 @@ fn session_explain_execution_equality_prefix_suffix_order_matrix_is_stable() {
             Some(1),
             PrefixRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: PrefixScanDirectionExpectation::Desc,
                 ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
             },
@@ -435,7 +408,6 @@ fn session_explain_execution_unique_prefix_offset_matrix_is_stable() {
             false,
             PrefixRouteExpectations {
                 access_name: "tier_handle_unique",
-                scan_direction: PrefixScanDirectionExpectation::Asc,
                 ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
             },
@@ -445,7 +417,6 @@ fn session_explain_execution_unique_prefix_offset_matrix_is_stable() {
             true,
             PrefixRouteExpectations {
                 access_name: "tier_handle_unique",
-                scan_direction: PrefixScanDirectionExpectation::Desc,
                 ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
                 index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
             },

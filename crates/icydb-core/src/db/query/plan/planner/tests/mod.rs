@@ -321,7 +321,7 @@ fn assert_order_compatible_prefix_choice(
     model: &EntityModel,
     predicate: &Predicate,
     order: &[(&str, OrderDirection)],
-    expected_index_name: &str,
+    expected_index_fields: &[&str],
     expected_values: &[Value],
     context: &str,
 ) {
@@ -342,9 +342,9 @@ fn assert_order_compatible_prefix_choice(
     };
 
     assert_eq!(
-        index.name(),
-        expected_index_name,
-        "{context} should keep the order-compatible index when rank ties",
+        index.fields(),
+        expected_index_fields,
+        "{context} should keep one order-compatible prefix route when rank ties",
     );
     assert_eq!(
         values, expected_values,
@@ -362,7 +362,7 @@ fn assert_order_compatible_range_choice(
     model: &EntityModel,
     predicate: &Predicate,
     order: &[(&str, OrderDirection)],
-    expected_index_name: &str,
+    expected_index_fields: &[&str],
     expected_prefix_values: &[Value],
     expected_lower: Bound<Value>,
     expected_upper: Bound<Value>,
@@ -385,9 +385,9 @@ fn assert_order_compatible_range_choice(
     };
 
     assert_eq!(
-        spec.index().name(),
-        expected_index_name,
-        "{context} should keep the order-compatible range index when rank ties",
+        spec.index().fields(),
+        expected_index_fields,
+        "{context} should keep one order-compatible range route when rank ties",
     );
     assert_eq!(
         spec.prefix_values(),
@@ -401,7 +401,7 @@ fn assert_order_compatible_range_choice(
 fn assert_order_compatible_order_only_choice(
     model: &EntityModel,
     order: &[(&str, OrderDirection)],
-    expected_index_name: &str,
+    expected_index_fields: &[&str],
     context: &str,
 ) {
     let schema = SchemaInfo::cached_for_entity_model(model);
@@ -417,9 +417,9 @@ fn assert_order_compatible_order_only_choice(
     };
 
     assert_eq!(
-        spec.index().name(),
-        expected_index_name,
-        "{context} should keep the order-compatible fallback index when rank ties",
+        spec.index().fields(),
+        expected_index_fields,
+        "{context} should keep one order-compatible fallback route when rank ties",
     );
     assert!(spec.prefix_values().is_empty());
     assert_eq!(spec.lower(), &Bound::Unbounded);
@@ -580,7 +580,7 @@ fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie()
         &PLANNER_RANKING_MODEL,
         &predicate,
         &[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)],
-        "z_tier_handle_idx",
+        &["tier", "handle"],
         &[Value::Text("gold".to_string())],
         "ranking test prefix predicate",
     );
@@ -610,7 +610,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
             ("label", OrderDirection::Asc),
             ("id", OrderDirection::Asc),
         ],
-        "z_tier_score_label_idx",
+        &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
         Bound::Excluded(Value::Uint(10)),
         Bound::Unbounded,
@@ -642,7 +642,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
             ("label", OrderDirection::Desc),
             ("id", OrderDirection::Desc),
         ],
-        "z_tier_score_label_idx",
+        &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
         Bound::Excluded(Value::Uint(10)),
         Bound::Unbounded,
@@ -670,7 +670,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
         &PLANNER_RANGE_RANKING_MODEL,
         &predicate,
         &[("label", OrderDirection::Asc), ("id", OrderDirection::Asc)],
-        "z_tier_score_label_idx",
+        &["tier", "score", "label"],
         &[Value::Text("gold".to_string()), Value::Uint(20)],
         "equality-prefix suffix-order predicate",
     );
@@ -699,7 +699,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
             ("label", OrderDirection::Desc),
             ("id", OrderDirection::Desc),
         ],
-        "z_tier_score_label_idx",
+        &["tier", "score", "label"],
         &[Value::Text("gold".to_string()), Value::Uint(20)],
         "descending equality-prefix suffix-order predicate",
     );
@@ -710,7 +710,7 @@ fn planner_order_only_selection_prefers_order_compatible_index_over_name_order_t
     assert_order_compatible_order_only_choice(
         &PLANNER_ORDER_ONLY_RANKING_MODEL,
         &[("alpha", OrderDirection::Asc), ("id", OrderDirection::Asc)],
-        "z_alpha_idx",
+        &["alpha"],
         "order-only ranking fallback",
     );
 }
@@ -724,7 +724,7 @@ fn planner_composite_order_only_selection_prefers_order_compatible_index_over_na
             ("handle", OrderDirection::Asc),
             ("id", OrderDirection::Asc),
         ],
-        "z_tier_handle_idx",
+        &["tier", "handle"],
         "composite order-only ranking fallback",
     );
 }
@@ -739,7 +739,7 @@ fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_ov
             ("handle", OrderDirection::Desc),
             ("id", OrderDirection::Desc),
         ],
-        "z_tier_handle_idx",
+        &["tier", "handle"],
         "descending composite order-only ranking fallback",
     );
 }

@@ -16,7 +16,9 @@
 Use this when working inside this repo against the demo SQL canister surface.
 The demo code now lives under `canisters/demo/rpg`, but the default local DFX
 canister name is still `demo_rpg`, which is what `scripts/dev/sql.sh` talks
-to unless you override `--canister`.
+to unless you override `--canister`. The demo SQL endpoint is intentionally
+hard-bound to the `Character` entity; it does not route SQL text across
+multiple entity types.
 
 1. Initialize the SQL harness (deploy + erase fixtures + load defaults):
 
@@ -238,61 +240,20 @@ let grouped = db!().execute_sql_grouped::<User>(
 )?;
 ```
 
-### Expose SQL endpoints in your canister (generated dispatch)
+### Reduced SQL In Rust
 
-When the `sql` feature is enabled, `icydb::start!()` generates a `sql_dispatch`
-module for your canister schema. Use it to expose a small SQL API without
-hand-written per-entity routing:
+With the `sql` feature enabled, IcyDB keeps a narrow typed SQL surface for:
 
-```rust
-use ic_cdk::query;
+- `query_from_sql(...)` when you want to lower one SQL `SELECT` or typed
+  `DELETE` intent into the canonical query model
+- `parse_sql_statement(...)` and `sql_statement_route(...)` when you need
+  route metadata
+- `execute_sql(...)` for scalar `SELECT`
+- `execute_sql_grouped(...)` for grouped `SELECT`
+- `execute_sql_aggregate(...)` for constrained global aggregates
 
-icydb::start!();
-
-#[cfg(feature = "sql")]
-use icydb::db::sql::SqlQueryResult;
-
-#[cfg(feature = "sql")]
-#[query]
-fn sql_entities() -> Vec<String> {
-    sql_dispatch::entities()
-}
-
-#[cfg(feature = "sql")]
-#[query]
-fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    sql_dispatch::query(sql.as_str())
-}
-```
-
-When `sql` is disabled, omit these endpoints and use the typed query APIs only.
-
-What each endpoint returns:
-
-- `sql_entities`: supported SQL entity names for this canister.
-- `query`: one typed `SqlQueryResult` enum payload:
-  - `Count { entity, row_count }` for bare mutation statements
-  - `Projection(SqlQueryRowsOutput)`
-  - `Explain { entity, explain }`
-  - `Describe(EntitySchemaDescription)`
-  - `ShowIndexes { entity, indexes }`
-  - `ShowColumns { entity, columns }`
-  - `ShowEntities { entities }` for `SHOW ENTITIES` and `SHOW TABLES`
-
-Dispatch behavior:
-
-- Routing is keyed by the parsed SQL entity name.
-- Unknown entities fail immediately with one deterministic unsupported-entity error listing supported entities.
-- `EXPLAIN` follows execution parity: invalid/non-executable queries are rejected (for example unordered `LIMIT/OFFSET`).
-
-Example calls:
-
-```bash
-dfx canister call <canister> sql_entities
-dfx canister call <canister> query '("SHOW TABLES")'
-dfx canister call <canister> query '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
-dfx canister call <canister> query '("EXPLAIN SELECT id, name FROM User ORDER BY id LIMIT 5")'
-```
+Typed/fluent APIs own public mutation behavior. There is no generated canister
+`sql_dispatch` module anymore.
 
 ---
 
@@ -361,53 +322,39 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.76 Line)
+## Reduced SQL Scope (Current 0.77 Line)
 
 Executable SQL entrypoints:
 
 - `execute_sql` for entity-shaped `SELECT`
-- `execute_sql_projection` for projection-shaped `SELECT`
-- `execute_sql_dispatch` for one typed `SqlDispatchResponse<E>` envelope:
-  - row-producing `SELECT`, mutation `... RETURNING`, fluent delete returning, and typed `create/insert/update` returning use the same projection payload family
-  - non-returning `INSERT` / `UPDATE` / `DELETE` use the mutation-result family
 - `execute_sql_grouped` for constrained grouped aggregates
 - `execute_sql_aggregate` for constrained global aggregates
-- `explain_sql` for `EXPLAIN` wrappers over executable reduced SQL
+- `parse_sql_statement` / `sql_statement_route` for route metadata only
 
-Typed-dispatch SQL write shapes:
+Public mutation shapes are typed/fluent, not SQL-dispatch:
 
-- `INSERT INTO entity (field, ...) VALUES (...)`
-- multi-row `INSERT ... VALUES (...), (...)`
-- positional `INSERT INTO entity VALUES (...)`
-- omitted insert columns only when the schema marks those fields `generated(insert = "...")`
-  (currently the admitted generated field family is single-value primitive
-  `Ulid`)
-- `INSERT INTO entity (...) SELECT field, ... FROM entity ...` on the same
-  typed-dispatch entity lane
-- `UPDATE entity SET field = literal [, ...] WHERE <reduced predicate>`
-- `UPDATE ... WHERE ... ORDER BY ... LIMIT/OFFSET`
+- `create(...)`, `insert(...)`, `update(...)`, `replace(...)`
+- `create_returning...`, `insert_returning...`, `update_returning...`
+- `delete::<E>()`
+- `delete::<E>().returning...`
 
 Single-table aliases are admitted on the reduced SQL lane for:
 
 - `SELECT`
-- `DELETE`
-- typed-dispatch `INSERT`
-- typed-dispatch `UPDATE`
 
-Dedicated SQL introspection commands through unified dispatch:
+Dedicated typed/session introspection helpers:
 
-- `DESCRIBE <entity>`
-- `SHOW INDEXES <entity>`
-- `SHOW COLUMNS <entity>`
-- `SHOW ENTITIES`
-- `SHOW TABLES`
+- `describe_entity::<E>()`
+- `show_indexes::<E>()`
+- `show_columns::<E>()`
+- `show_entities()`
 
 Out of scope and fail-closed by design:
 
 - joins/subqueries/CTEs
 - quoted identifiers
 - window functions
-- non-typed-dispatch SQL writes through `execute_sql(...)` / `query_from_sql(...)`
+- public SQL mutation execution
 - `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
 
 ---

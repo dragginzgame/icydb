@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
-    let cases = [
+    let explain_cases = [
         (
             "secondary non-covering explain",
             vec![
@@ -15,17 +15,6 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
             Some("cov_read_route=Text(\"materialized\")"),
         ),
         (
-            "secondary non-covering descriptor json",
-            vec![
-                (9_223_u128, "alice", 10_u64),
-                (9_224, "bob", 20),
-                (9_225, "carol", 30),
-            ],
-            false,
-            "SELECT age FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
-            None,
-        ),
-        (
             "secondary covering explain",
             vec![
                 (9_226_u128, "alice", 10_u64),
@@ -36,6 +25,19 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
             "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
             Some("existing_row_mode=Text(\"planner_proven\")"),
         ),
+    ];
+    let descriptor_cases = [
+        (
+            "secondary non-covering descriptor json",
+            vec![
+                (9_223_u128, "alice", 10_u64),
+                (9_224, "bob", 20),
+                (9_225, "carol", 30),
+            ],
+            false,
+            "SELECT age FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+            false,
+        ),
         (
             "secondary covering descriptor json",
             vec![
@@ -43,13 +45,12 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
                 (9_230, "bob", 20),
                 (9_231, "carol", 30),
             ],
-            false,
             "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
-            Some("\"existing_row_mode\":\"Text(\\\"planner_proven\\\")\""),
+            true,
         ),
     ];
 
-    for (context, seed_rows, explain_text, sql, required_token) in cases {
+    for (context, seed_rows, sql, required_token) in explain_cases {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
 
@@ -63,12 +64,8 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
                 .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
         }
 
-        let surface = if explain_text {
-            dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-                .unwrap_or_else(|err| panic!("{context} should execute: {err}"))
-        } else {
-            store_backed_execution_descriptor_json_for_sql::<IndexedSessionSqlEntity>(&session, sql)
-        };
+        let surface = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         if let Some(token) = required_token {
             assert!(
@@ -86,6 +83,64 @@ fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
             !surface.contains("witness_validated")
                 && !surface.contains("storage_existence_witness"),
             "{context} must not surface legacy authority labels: {surface}",
+        );
+    }
+
+    for (context, seed_rows, sql, expect_covering) in descriptor_cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+
+        for (id, name, age) in seed_rows {
+            session
+                .insert(IndexedSessionSqlEntity {
+                    id: Ulid::from_u128(id),
+                    name: name.to_string(),
+                    age,
+                })
+                .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
+        }
+
+        let descriptor =
+            store_backed_execution_descriptor_for_sql::<IndexedSessionSqlEntity>(&session, sql);
+
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(expect_covering),
+            "{context} should preserve the typed covering-route contract",
+        );
+        if expect_covering {
+            let projection_node = explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::CoveringRead,
+            )
+            .unwrap_or_else(|| panic!("{context} should emit a covering-read node"));
+            assert_eq!(
+                projection_node.node_properties().get("existing_row_mode"),
+                Some(&Value::from("planner_proven")),
+                "{context} should preserve planner-proven existing-row mode",
+            );
+        } else {
+            assert!(
+                explain_execution_find_first_node(
+                    &descriptor,
+                    ExplainExecutionNodeType::CoveringRead,
+                )
+                .is_none(),
+                "{context} should stay off the covering-read route",
+            );
+        }
+
+        let descriptor_json = descriptor.render_json_canonical();
+        assert!(
+            !descriptor_json.contains("authority_decision")
+                && !descriptor_json.contains("authority_reason")
+                && !descriptor_json.contains("index_state"),
+            "{context} should stay off the removed authority-label json surface: {descriptor_json}",
+        );
+        assert!(
+            !descriptor_json.contains("witness_validated")
+                && !descriptor_json.contains("storage_existence_witness"),
+            "{context} must not surface legacy authority labels in descriptor json: {descriptor_json}",
         );
     }
 }

@@ -4,11 +4,11 @@
 //! endpoint-friendly row payloads; parsing and execution stay in `icydb-core`.
 
 use candid::CandidType;
+use icydb_core::db::{GroupedRow, SqlDispatchResult};
 use serde::Deserialize;
 
 use crate::{
-    db::{EntityFieldDescription, EntitySchemaDescription, response::MutationResult},
-    traits::EntityKind,
+    db::{EntityFieldDescription, EntitySchemaDescription},
     value::{Value, ValueEnum},
 };
 
@@ -95,37 +95,6 @@ pub struct SqlGroupedRowsOutput {
     pub next_cursor: Option<String>,
 }
 
-///
-/// SqlDispatchResponse
-///
-/// Unified typed SQL dispatch payload.
-/// Read statements keep their existing projection/grouped/metadata families,
-/// while mutation statements converge on `MutationResult<E>` so typed Rust
-/// write APIs no longer expose a separate SQL-only result shape.
-///
-#[derive(Debug)]
-pub enum SqlDispatchResponse<E: EntityKind> {
-    Mutation(MutationResult<E>),
-    Projection(SqlQueryRowsOutput),
-    Grouped(SqlGroupedRowsOutput),
-    Explain {
-        entity: String,
-        explain: String,
-    },
-    Describe(EntitySchemaDescription),
-    ShowIndexes {
-        entity: String,
-        indexes: Vec<String>,
-    },
-    ShowColumns {
-        entity: String,
-        columns: Vec<EntityFieldDescription>,
-    },
-    ShowEntities {
-        entities: Vec<String>,
-    },
-}
-
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
@@ -182,6 +151,71 @@ impl SqlQueryResult {
     }
 }
 
+pub(crate) fn sql_query_result_from_dispatch(
+    result: SqlDispatchResult,
+    entity_name: String,
+) -> SqlQueryResult {
+    match result {
+        SqlDispatchResult::Count { row_count } => SqlQueryResult::Count {
+            entity: entity_name,
+            row_count,
+        },
+        SqlDispatchResult::Projection {
+            columns,
+            rows,
+            row_count,
+        } => {
+            let rows = rows
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|value| render_value_text(&value))
+                        .collect::<Vec<String>>()
+                })
+                .collect::<Vec<Vec<String>>>();
+
+            SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+                entity_name,
+                SqlProjectionRows::new(columns, rows, row_count),
+            ))
+        }
+        SqlDispatchResult::ProjectionText {
+            columns,
+            rows,
+            row_count,
+        } => SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+            entity_name,
+            SqlProjectionRows::new(columns, rows, row_count),
+        )),
+        SqlDispatchResult::Grouped {
+            columns,
+            rows,
+            row_count,
+            next_cursor,
+        } => SqlQueryResult::Grouped(sql_grouped_rows_output(
+            entity_name,
+            columns,
+            rows,
+            row_count,
+            next_cursor,
+        )),
+        SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
+            entity: entity_name,
+            explain,
+        },
+        SqlDispatchResult::Describe(description) => SqlQueryResult::Describe(description),
+        SqlDispatchResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
+            entity: entity_name,
+            indexes,
+        },
+        SqlDispatchResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
+            entity: entity_name,
+            columns,
+        },
+        SqlDispatchResult::ShowEntities(entities) => SqlQueryResult::ShowEntities { entities },
+    }
+}
+
 #[cfg_attr(doc, doc = "Render one value into a shell-friendly stable text form.")]
 #[must_use]
 pub fn render_value_text(value: &Value) -> String {
@@ -210,6 +244,33 @@ pub fn render_value_text(value: &Value) -> String {
         Value::UintBig(v) => v.to_string(),
         Value::Ulid(v) => v.to_string(),
         Value::Unit => "()".to_string(),
+    }
+}
+
+fn sql_grouped_rows_output(
+    entity_name: String,
+    columns: Vec<String>,
+    rows: Vec<GroupedRow>,
+    row_count: u32,
+    next_cursor: Option<String>,
+) -> SqlGroupedRowsOutput {
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            row.group_key()
+                .iter()
+                .chain(row.aggregate_values().iter())
+                .map(render_value_text)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    SqlGroupedRowsOutput {
+        entity: entity_name,
+        columns,
+        rows,
+        row_count,
+        next_cursor,
     }
 }
 

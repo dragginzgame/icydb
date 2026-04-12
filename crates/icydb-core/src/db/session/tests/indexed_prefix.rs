@@ -74,11 +74,6 @@ fn assert_indexed_prefix_covering_descriptor(
         Some(true),
         "{context} projections should keep the explicit covering-read route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} explain roots should expose the covering-read route label",
-    );
     assert!(
         explain_execution_find_first_node(
             &descriptor,

@@ -1,5 +1,4 @@
 use super::*;
-use crate::db::EntityAuthority;
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
 // statement lanes that belong to some other surface.
@@ -231,29 +230,6 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
         &grouped_cases,
         |sql| session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
         "execute_sql_grouped",
-    );
-}
-
-#[test]
-fn generated_query_surface_rejects_unsupported_entity_with_supported_list() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let attempt = session.execute_generated_query_surface_sql(
-        "SELECT * FROM SessionSqlWriteEntity",
-        &[EntityAuthority::for_type::<SessionSqlEntity>()],
-    );
-    let err = attempt
-        .into_result()
-        .expect_err("generated query surface should reject entities outside the authority table");
-    let err_text = err.to_string();
-
-    assert!(
-        err_text.contains("query endpoint does not support entity 'SessionSqlWriteEntity'"),
-        "generated query surface should name the unsupported entity: {err_text}",
-    );
-    assert!(
-        err_text.contains("supported: SessionSqlEntity"),
-        "generated query surface should keep the supported-entity list explicit: {err_text}",
     );
 }
 
@@ -663,6 +639,39 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "execute_sql_aggregate should reject INSERT lane even when RETURNING is present",
     );
 
+    let update_returning_sql =
+        "UPDATE SessionSqlEntity SET age = 22 WHERE name = 'Ada' RETURNING id, age";
+
+    assert_unsupported_sql_surface_result(
+        session.query_from_sql::<SessionSqlEntity>(update_returning_sql),
+        "query_from_sql should reject UPDATE lane even when RETURNING is present",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql::<SessionSqlEntity>(update_returning_sql),
+        "execute_sql should reject UPDATE lane even when RETURNING is present",
+    );
+    let updated_rows = dispatch_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
+        .expect("dispatch should admit UPDATE RETURNING");
+    assert_eq!(updated_rows.len(), 1);
+    assert_eq!(updated_rows[0].len(), 2);
+    assert!(
+        matches!(updated_rows[0][0], Value::Ulid(_)),
+        "dispatch UPDATE RETURNING should project the requested generated id",
+    );
+    assert_eq!(
+        updated_rows[0][1],
+        Value::Uint(22),
+        "dispatch UPDATE RETURNING should project the updated scalar field",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_grouped::<SessionSqlEntity>(update_returning_sql, None),
+        "execute_sql_grouped should reject UPDATE lane even when RETURNING is present",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_aggregate::<SessionSqlEntity>(update_returning_sql),
+        "execute_sql_aggregate should reject UPDATE lane even when RETURNING is present",
+    );
+
     let delete_returning_sql =
         "DELETE FROM SessionSqlEntity WHERE age > 20 ORDER BY age ASC LIMIT 1 RETURNING id";
 
@@ -673,8 +682,8 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert!(
         query_from_err
             .to_string()
-            .contains("DELETE RETURNING; use execute_sql_dispatch(...)"),
-        "query_from_sql should preserve explicit DELETE RETURNING dispatch guidance",
+            .contains("DELETE RETURNING; use delete::<E>().returning..."),
+        "query_from_sql should preserve explicit DELETE RETURNING guidance",
     );
 
     let execute_sql_err = session
@@ -684,8 +693,8 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert!(
         execute_sql_err
             .to_string()
-            .contains("execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()"),
-        "execute_sql should preserve explicit dispatch/fluent delete guidance",
+            .contains("execute_sql rejects DELETE; use delete::<E>()"),
+        "execute_sql should preserve explicit fluent delete guidance",
     );
 
     let grouped_err = session

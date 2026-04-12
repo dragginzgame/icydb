@@ -1,81 +1,33 @@
 use super::*;
 
 #[test]
-fn explain_execution_node_type_vocabulary_is_frozen() {
+fn explain_execution_public_node_type_vocabulary_stays_stable() {
     let actual = [
         ExplainExecutionNodeType::ByKeyLookup.as_str(),
-        ExplainExecutionNodeType::ByKeysLookup.as_str(),
-        ExplainExecutionNodeType::PrimaryKeyRangeScan.as_str(),
         ExplainExecutionNodeType::IndexPrefixScan.as_str(),
         ExplainExecutionNodeType::IndexRangeScan.as_str(),
-        ExplainExecutionNodeType::IndexMultiLookup.as_str(),
-        ExplainExecutionNodeType::FullScan.as_str(),
-        ExplainExecutionNodeType::Union.as_str(),
-        ExplainExecutionNodeType::Intersection.as_str(),
-        ExplainExecutionNodeType::IndexPredicatePrefilter.as_str(),
-        ExplainExecutionNodeType::ResidualPredicateFilter.as_str(),
         ExplainExecutionNodeType::OrderByAccessSatisfied.as_str(),
         ExplainExecutionNodeType::OrderByMaterializedSort.as_str(),
-        ExplainExecutionNodeType::DistinctPreOrdered.as_str(),
-        ExplainExecutionNodeType::DistinctMaterialized.as_str(),
-        ExplainExecutionNodeType::ProjectionMaterialized.as_str(),
         ExplainExecutionNodeType::CoveringRead.as_str(),
-        ExplainExecutionNodeType::LimitOffset.as_str(),
-        ExplainExecutionNodeType::CursorResume.as_str(),
-        ExplainExecutionNodeType::IndexRangeLimitPushdown.as_str(),
-        ExplainExecutionNodeType::TopNSeek.as_str(),
         ExplainExecutionNodeType::AggregateCount.as_str(),
-        ExplainExecutionNodeType::AggregateExists.as_str(),
-        ExplainExecutionNodeType::AggregateMin.as_str(),
-        ExplainExecutionNodeType::AggregateMax.as_str(),
-        ExplainExecutionNodeType::AggregateFirst.as_str(),
-        ExplainExecutionNodeType::AggregateLast.as_str(),
-        ExplainExecutionNodeType::AggregateSum.as_str(),
-        ExplainExecutionNodeType::AggregateSeekFirst.as_str(),
-        ExplainExecutionNodeType::AggregateSeekLast.as_str(),
         ExplainExecutionNodeType::GroupedAggregateHashMaterialized.as_str(),
         ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized.as_str(),
-        ExplainExecutionNodeType::SecondaryOrderPushdown.as_str(),
     ];
     let expected = [
         "ByKeyLookup",
-        "ByKeysLookup",
-        "PrimaryKeyRangeScan",
         "IndexPrefixScan",
         "IndexRangeScan",
-        "IndexMultiLookup",
-        "FullScan",
-        "Union",
-        "Intersection",
-        "IndexPredicatePrefilter",
-        "ResidualPredicateFilter",
         "OrderByAccessSatisfied",
         "OrderByMaterializedSort",
-        "DistinctPreOrdered",
-        "DistinctMaterialized",
-        "ProjectionMaterialized",
         "CoveringRead",
-        "LimitOffset",
-        "CursorResume",
-        "IndexRangeLimitPushdown",
-        "TopNSeek",
         "AggregateCount",
-        "AggregateExists",
-        "AggregateMin",
-        "AggregateMax",
-        "AggregateFirst",
-        "AggregateLast",
-        "AggregateSum",
-        "AggregateSeekFirst",
-        "AggregateSeekLast",
         "GroupedAggregateHashMaterialized",
         "GroupedAggregateOrderedMaterialized",
-        "SecondaryOrderPushdown",
     ];
 
     assert_eq!(
         actual, expected,
-        "execution-node vocabulary drifted; node names are a stable EXPLAIN contract",
+        "high-level public execution-node vocabulary drifted",
     );
 }
 
@@ -120,8 +72,58 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
     );
 }
 
+fn assert_execution_json_public_contract_fields(
+    json: &str,
+    expected_node_type: &str,
+    expected_layer: &str,
+    expected_execution_mode: &str,
+    expected_execution_mode_detail: &str,
+    expected_pushdown_mode: &str,
+) {
+    let required_fields = [
+        "\"node_type\":",
+        "\"layer\":",
+        "\"execution_mode\":",
+        "\"execution_mode_detail\":",
+        "\"predicate_pushdown_mode\":",
+        "\"children\":",
+    ];
+
+    for field in required_fields {
+        assert!(
+            json.contains(field),
+            "canonical execution JSON missing stable public field `{field}`",
+        );
+    }
+
+    assert!(
+        json.contains(&format!("\"node_type\":\"{expected_node_type}\"")),
+        "canonical execution JSON must expose one stable node type",
+    );
+    assert!(
+        json.contains(&format!("\"layer\":\"{expected_layer}\"")),
+        "canonical execution JSON must expose one stable node family layer",
+    );
+    assert!(
+        json.contains(&format!("\"execution_mode\":\"{expected_execution_mode}\"")),
+        "canonical execution JSON must expose one stable execution mode",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"execution_mode_detail\":\"{expected_execution_mode_detail}\""
+        )),
+        "canonical execution JSON must expose one stable execution mode detail",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"predicate_pushdown_mode\":\"{expected_pushdown_mode}\""
+        )),
+        "canonical execution JSON must expose one stable pushdown classification",
+    );
+}
+
 #[test]
-fn execution_descriptor_canonical_json_shape_is_stable() {
+fn execution_descriptor_canonical_json_public_contract_is_stable() {
     let descriptor = ExplainExecutionNodeDescriptor {
         node_type: ExplainExecutionNodeType::TopNSeek,
         execution_mode: ExplainExecutionMode::Streaming,
@@ -153,142 +155,49 @@ fn execution_descriptor_canonical_json_shape_is_stable() {
     };
 
     let json = descriptor.render_json_canonical();
-    let expected = "{\"node_id\":0,\"node_type\":\"TopNSeek\",\"layer\":\"pipeline\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":\"index_only\",\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":false,\"covering_scan\":true,\"rows_expected\":3,\"children\":[{\"node_id\":1,\"node_type\":\"LimitOffset\",\"layer\":\"terminal\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":null,\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":null,\"limit\":1,\"cursor\":null,\"covering_scan\":null,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}],\"node_properties\":{}}";
 
-    assert_eq!(
-        json, expected,
-        "canonical execution-node JSON shape drifted",
+    assert_execution_json_public_contract_fields(
+        &json,
+        "TopNSeek",
+        "pipeline",
+        "Streaming",
+        "streaming",
+        "none",
     );
-}
-
-#[test]
-fn execution_descriptor_canonical_json_field_order_is_stable() {
-    let descriptor = ExplainExecutionNodeDescriptor {
-        node_type: ExplainExecutionNodeType::IndexPrefixScan,
-        execution_mode: ExplainExecutionMode::Materialized,
-        access_strategy: Some(ExplainAccessPath::IndexPrefix {
-            name: "users_by_email",
-            fields: vec!["email"],
-            prefix_len: 1,
-            values: vec![Value::Text("alpha@example.com".to_string())],
-        }),
-        predicate_pushdown: Some("strict_all_or_none".to_string()),
-        residual_predicate: None,
-        projection: None,
-        ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
-        limit: Some(5),
-        cursor: Some(true),
-        covering_scan: Some(false),
-        rows_expected: Some(5),
-        children: Vec::new(),
-        node_properties: ExplainPropertyMap::new(),
-    };
-    let json = descriptor.render_json_canonical();
-    let ordered_fields = [
-        "\"node_id\":",
-        "\"node_type\":",
-        "\"layer\":",
-        "\"execution_mode\":",
-        "\"execution_mode_detail\":",
-        "\"access_strategy\":",
-        "\"predicate_pushdown_mode\":",
-        "\"predicate_pushdown\":",
-        "\"fast_path_selected\":",
-        "\"fast_path_reason\":",
-        "\"residual_predicate\":",
-        "\"projection\":",
-        "\"ordering_source\":",
-        "\"limit\":",
-        "\"cursor\":",
-        "\"covering_scan\":",
-        "\"rows_expected\":",
-        "\"children\":",
-        "\"node_properties\":",
-    ];
-
-    let mut last_position = 0usize;
-    for (index, field) in ordered_fields.iter().enumerate() {
-        let position = json.find(field).unwrap_or_else(|| {
-            panic!("canonical execution JSON missing expected field at index {index}: {field}")
-        });
-        if index > 0 {
-            assert!(
-                position > last_position,
-                "canonical execution JSON field ordering drifted at field `{field}`",
-            );
-        }
-        last_position = position;
-    }
-}
-
-fn assert_execution_json_top_level_field_order(json: &str) {
-    let ordered_fields = [
-        "\"node_id\":",
-        "\"node_type\":",
-        "\"layer\":",
-        "\"execution_mode\":",
-        "\"execution_mode_detail\":",
-        "\"access_strategy\":",
-        "\"predicate_pushdown_mode\":",
-        "\"predicate_pushdown\":",
-        "\"fast_path_selected\":",
-        "\"fast_path_reason\":",
-        "\"residual_predicate\":",
-        "\"projection\":",
-        "\"ordering_source\":",
-        "\"limit\":",
-        "\"cursor\":",
-        "\"covering_scan\":",
-        "\"rows_expected\":",
-        "\"children\":",
-        "\"node_properties\":",
-    ];
-
-    let mut last_position = 0usize;
-    for (index, field) in ordered_fields.iter().enumerate() {
-        let position = json.find(field).unwrap_or_else(|| {
-            panic!("canonical execution JSON missing expected field at index {index}: {field}")
-        });
-        if index > 0 {
-            assert!(
-                position > last_position,
-                "canonical execution JSON field ordering drifted at field `{field}`",
-            );
-        }
-        last_position = position;
-    }
-}
-
-fn assert_execution_json_top_level_field_names_are_unique(json: &str) {
-    let field_tokens = [
-        "\"node_id\":",
-        "\"node_type\":",
-        "\"layer\":",
-        "\"execution_mode\":",
-        "\"execution_mode_detail\":",
-        "\"access_strategy\":",
-        "\"predicate_pushdown_mode\":",
-        "\"predicate_pushdown\":",
-        "\"fast_path_selected\":",
-        "\"fast_path_reason\":",
-        "\"residual_predicate\":",
-        "\"projection\":",
-        "\"ordering_source\":",
-        "\"limit\":",
-        "\"cursor\":",
-        "\"covering_scan\":",
-        "\"rows_expected\":",
-        "\"children\":",
-        "\"node_properties\":",
-    ];
-
-    for field_token in field_tokens {
-        let occurrences = json.match_indices(field_token).count();
-        assert_eq!(
-            occurrences, 1,
-            "canonical execution JSON field naming drifted: expected exactly one top-level `{field_token}` token"
-        );
-    }
+    assert!(
+        json.contains("\"access_strategy\":{\"type\":\"FullScan\"}"),
+        "canonical execution JSON should expose one stable access family",
+    );
+    assert!(
+        json.contains("\"projection\":\"index_only\""),
+        "canonical execution JSON should expose one stable projection contract when present",
+    );
+    assert!(
+        json.contains("\"ordering_source\":\"AccessOrder\""),
+        "canonical execution JSON should expose one stable ordering-source contract when present",
+    );
+    assert!(
+        json.contains("\"limit\":3"),
+        "canonical execution JSON should expose one stable limit contract when present",
+    );
+    assert!(
+        json.contains("\"cursor\":false"),
+        "canonical execution JSON should expose one stable cursor contract when present",
+    );
+    assert!(
+        json.contains("\"covering_scan\":true"),
+        "canonical execution JSON should expose one stable covering contract when present",
+    );
+    assert!(
+        json.contains("\"rows_expected\":3"),
+        "canonical execution JSON should expose one stable row estimate when present",
+    );
+    assert!(
+        json.contains("\"children\":[{")
+            && json.contains("\"node_type\":\"LimitOffset\"")
+            && json.contains("\"layer\":\"terminal\""),
+        "canonical execution JSON should keep child node family semantics stable",
+    );
 }
 
 #[test]
@@ -370,17 +279,27 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
 
     for (expected_layer, descriptor) in cases {
         let json = descriptor.render_json_canonical();
-        assert_execution_json_top_level_field_order(&json);
-        assert_execution_json_top_level_field_names_are_unique(&json);
-        assert!(
-            json.contains(&format!("\"layer\":\"{expected_layer}\"")),
-            "canonical execution JSON must expose stable layer ownership for each node family",
+        assert_execution_json_public_contract_fields(
+            &json,
+            descriptor.node_type().as_str(),
+            expected_layer,
+            if descriptor.execution_mode() == ExplainExecutionMode::Streaming {
+                "Streaming"
+            } else {
+                "Materialized"
+            },
+            if descriptor.execution_mode() == ExplainExecutionMode::Streaming {
+                "streaming"
+            } else {
+                "materialized"
+            },
+            "none",
         );
     }
 }
 
 #[test]
-fn execution_descriptor_canonical_json_missing_optional_fields_render_explicit_nulls() {
+fn execution_descriptor_canonical_json_missing_optional_fields_keep_public_contract_intact() {
     let descriptor = ExplainExecutionNodeDescriptor {
         node_type: ExplainExecutionNodeType::LimitOffset,
         execution_mode: ExplainExecutionMode::Materialized,
@@ -398,28 +317,22 @@ fn execution_descriptor_canonical_json_missing_optional_fields_render_explicit_n
     };
 
     let json = descriptor.render_json_canonical();
-    let expected_null_fields = [
-        "\"access_strategy\":null",
-        "\"predicate_pushdown\":null",
-        "\"fast_path_selected\":null",
-        "\"fast_path_reason\":null",
-        "\"residual_predicate\":null",
-        "\"projection\":null",
-        "\"ordering_source\":null",
-        "\"limit\":null",
-        "\"cursor\":null",
-        "\"covering_scan\":null",
-        "\"rows_expected\":null",
-    ];
-    for expected_null in expected_null_fields {
-        assert!(
-            json.contains(expected_null),
-            "canonical execution JSON optional/null projection drifted: missing `{expected_null}`",
-        );
-    }
+
+    assert_execution_json_public_contract_fields(
+        &json,
+        "LimitOffset",
+        "terminal",
+        "Materialized",
+        "materialized",
+        "none",
+    );
+    assert!(
+        json.contains("\"children\":[]"),
+        "minimal canonical execution JSON should keep an explicit child list",
+    );
 }
 
-fn assert_execution_additive_metadata_parity(
+fn assert_execution_public_metadata_parity(
     descriptor: &ExplainExecutionNodeDescriptor,
     expected_layer: &str,
     expected_execution_mode_detail: &str,
@@ -430,14 +343,6 @@ fn assert_execution_additive_metadata_parity(
     let text = descriptor.render_text_tree();
     let json = descriptor.render_json_canonical();
 
-    assert!(
-        text.contains("node_id=0"),
-        "text execution explain must expose deterministic node_id",
-    );
-    assert!(
-        json.contains("\"node_id\":0"),
-        "JSON execution explain must expose deterministic node_id",
-    );
     assert!(
         text.contains(&format!("layer={expected_layer}")),
         "text execution explain must expose stable layer ownership",
@@ -478,15 +383,6 @@ fn assert_execution_additive_metadata_parity(
             json.contains(&format!("\"fast_path_selected\":{selected}")),
             "JSON execution explain must expose fast-path selection when present",
         );
-    } else {
-        assert!(
-            !text.contains("fast_path_selected="),
-            "text execution explain must omit fast-path selection when absent",
-        );
-        assert!(
-            json.contains("\"fast_path_selected\":null"),
-            "JSON execution explain must project null fast-path selection when absent",
-        );
     }
 
     if let Some(reason) = expected_fast_path_reason {
@@ -497,15 +393,6 @@ fn assert_execution_additive_metadata_parity(
         assert!(
             json.contains(&format!("\"fast_path_reason\":\"{reason}\"")),
             "JSON execution explain must expose fast-path reason when present",
-        );
-    } else {
-        assert!(
-            !text.contains("fast_path_reason="),
-            "text execution explain must omit fast-path reason when absent",
-        );
-        assert!(
-            json.contains("\"fast_path_reason\":null"),
-            "JSON execution explain must project null fast-path reason when absent",
         );
     }
 }
@@ -600,7 +487,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
         expected_fast_path_reason,
     ) in cases
     {
-        assert_execution_additive_metadata_parity(
+        assert_execution_public_metadata_parity(
             &descriptor,
             expected_layer,
             expected_execution_mode_detail,

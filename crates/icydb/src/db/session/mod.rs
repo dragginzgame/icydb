@@ -3,16 +3,10 @@ pub(crate) mod generated;
 pub mod load;
 mod macros;
 
-#[cfg(all(test, feature = "sql"))]
-mod tests;
-
 #[cfg(feature = "sql")]
 use crate::db::{
     SqlStatementRoute,
-    sql::{
-        SqlDispatchResponse, SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult,
-        SqlQueryRowsOutput, render_value_text,
-    },
+    sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text},
 };
 use crate::{
     db::{
@@ -133,8 +127,8 @@ impl SqlParsedStatement {
 ///
 /// DbSession
 ///
-/// Public facade for session-scoped query execution, SQL dispatch, and
-/// structural mutation policy.
+/// Public facade for session-scoped query execution, narrow typed SQL helpers,
+/// and structural mutation policy.
 /// Wraps the core session and converts core results and errors into the
 /// outward-facing `icydb` response surface.
 ///
@@ -156,13 +150,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind,
     {
         MutationResult::from_entity(entity)
-    }
-
-    const fn mutation_count<E>(row_count: u32) -> MutationResult<E>
-    where
-        E: EntityKind,
-    {
-        MutationResult::from_count(row_count)
     }
 
     fn mutation_entities<E>(inner: icydb_core::db::WriteBatchResponse<E>) -> MutationResult<E>
@@ -254,212 +241,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::response_from_core(self.inner.execute_sql::<E>(sql)?))
     }
 
-    /// Execute one reduced SQL statement and return one unified SQL payload.
+    /// Execute one single-entity reduced SQL read/introspection statement.
     #[cfg(feature = "sql")]
-    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlDispatchResponse<E>, Error>
+    pub fn execute_entity_sql<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let parsed = self.parse_sql_statement(sql)?;
-
-        self.execute_sql_dispatch_parsed::<E>(&parsed)
-    }
-
-    /// Execute one parsed reduced SQL statement and return one unified SQL payload.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql_dispatch_parsed<E>(
-        &self,
-        parsed: &SqlParsedStatement,
-    ) -> Result<SqlDispatchResponse<E>, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
-
-        Ok(Self::map_typed_sql_dispatch_result::<E>(
-            result,
+        Ok(crate::db::sql::sql_query_result_from_dispatch(
+            self.inner.execute_entity_sql::<E>(sql)?,
             E::MODEL.name().to_string(),
         ))
-    }
-
-    #[cfg(feature = "sql")]
-    pub(crate) fn map_dynamic_sql_dispatch_result(
-        result: core::db::SqlDispatchResult,
-        entity_name: String,
-    ) -> SqlQueryResult {
-        match result {
-            core::db::SqlDispatchResult::Count { row_count } => SqlQueryResult::Count {
-                entity: entity_name,
-                row_count,
-            },
-            core::db::SqlDispatchResult::Projection {
-                columns,
-                rows,
-                row_count,
-            } => {
-                let rows = Self::projection_rows_from_values(columns, rows, row_count);
-
-                Self::projection_sql_query_result(entity_name, rows)
-            }
-            core::db::SqlDispatchResult::ProjectionText {
-                columns,
-                rows,
-                row_count,
-            } => Self::projection_sql_query_result(
-                entity_name,
-                SqlProjectionRows::new(columns, rows, row_count),
-            ),
-            core::db::SqlDispatchResult::Grouped {
-                columns,
-                rows,
-                row_count,
-                next_cursor,
-            } => SqlQueryResult::Grouped(SqlGroupedRowsOutput {
-                entity: entity_name,
-                columns,
-                rows: Self::grouped_rows_from_values(rows),
-                row_count,
-                next_cursor,
-            }),
-            core::db::SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
-                entity: entity_name,
-                explain,
-            },
-            core::db::SqlDispatchResult::Describe(description) => {
-                SqlQueryResult::Describe(description)
-            }
-            core::db::SqlDispatchResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
-                entity: entity_name,
-                indexes,
-            },
-            core::db::SqlDispatchResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
-                entity: entity_name,
-                columns,
-            },
-            core::db::SqlDispatchResult::ShowEntities(entities) => {
-                SqlQueryResult::ShowEntities { entities }
-            }
-        }
-    }
-
-    #[cfg(feature = "sql")]
-    fn projection_sql_query_result(entity_name: String, rows: SqlProjectionRows) -> SqlQueryResult {
-        SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
-    }
-
-    #[cfg(feature = "sql")]
-    fn typed_projection_rows_result<E>(
-        entity_name: String,
-        rows: SqlProjectionRows,
-    ) -> SqlDispatchResponse<E>
-    where
-        E: EntityKind,
-    {
-        let rows = SqlQueryRowsOutput::from_projection(entity_name, rows);
-        SqlDispatchResponse::Projection(rows)
-    }
-
-    #[cfg(feature = "sql")]
-    fn map_typed_sql_dispatch_result<E>(
-        result: core::db::SqlDispatchResult,
-        entity_name: String,
-    ) -> SqlDispatchResponse<E>
-    where
-        E: EntityKind,
-    {
-        match result {
-            core::db::SqlDispatchResult::Count { row_count } => {
-                SqlDispatchResponse::Mutation(Self::mutation_count(row_count))
-            }
-            core::db::SqlDispatchResult::Projection {
-                columns,
-                rows,
-                row_count,
-            } => {
-                let rows = Self::projection_rows_from_values(columns, rows, row_count);
-                Self::typed_projection_rows_result(entity_name, rows)
-            }
-            core::db::SqlDispatchResult::ProjectionText {
-                columns,
-                rows,
-                row_count,
-            } => Self::typed_projection_rows_result(
-                entity_name,
-                SqlProjectionRows::new(columns, rows, row_count),
-            ),
-            core::db::SqlDispatchResult::Grouped {
-                columns,
-                rows,
-                row_count,
-                next_cursor,
-            } => SqlDispatchResponse::Grouped(SqlGroupedRowsOutput {
-                entity: entity_name,
-                columns,
-                rows: Self::grouped_rows_from_values(rows),
-                row_count,
-                next_cursor,
-            }),
-            core::db::SqlDispatchResult::Explain(explain) => SqlDispatchResponse::Explain {
-                entity: entity_name,
-                explain,
-            },
-            core::db::SqlDispatchResult::Describe(description) => {
-                SqlDispatchResponse::Describe(description)
-            }
-            core::db::SqlDispatchResult::ShowIndexes(indexes) => SqlDispatchResponse::ShowIndexes {
-                entity: entity_name,
-                indexes,
-            },
-            core::db::SqlDispatchResult::ShowColumns(columns) => SqlDispatchResponse::ShowColumns {
-                entity: entity_name,
-                columns,
-            },
-            core::db::SqlDispatchResult::ShowEntities(entities) => {
-                SqlDispatchResponse::ShowEntities { entities }
-            }
-        }
-    }
-
-    #[cfg(feature = "sql")]
-    fn projection_rows_from_values(
-        columns: Vec<String>,
-        rows: Vec<Vec<Value>>,
-        row_count: u32,
-    ) -> SqlProjectionRows {
-        // Phase 1: render each projected row cell into stable text.
-        let mut rendered_rows = Vec::with_capacity(rows.len());
-        let mut max_column_count = 0usize;
-
-        for row in rows {
-            let rendered_row = Self::render_sql_value_row(row);
-            max_column_count = max_column_count.max(rendered_row.len());
-            rendered_rows.push(rendered_row);
-        }
-
-        // Phase 2: synthesize fallback labels only when core metadata and
-        // rendered row width differ so the public payload stays rectangular.
-        let columns = if max_column_count == 0 || columns.len() == max_column_count {
-            columns
-        } else {
-            Self::projection_columns(max_column_count)
-        };
-
-        SqlProjectionRows::new(columns, rendered_rows, row_count)
-    }
-
-    #[cfg(feature = "sql")]
-    fn grouped_rows_from_values(rows: Vec<core::db::GroupedRow>) -> Vec<Vec<String>> {
-        let mut rendered_rows = Vec::with_capacity(rows.len());
-
-        for row in rows {
-            let mut rendered_row =
-                Vec::with_capacity(row.group_key().len() + row.aggregate_values().len());
-            Self::render_sql_values_into(row.group_key(), &mut rendered_row);
-            Self::render_sql_values_into(row.aggregate_values(), &mut rendered_row);
-            rendered_rows.push(rendered_row);
-        }
-
-        rendered_rows
     }
 
     #[cfg(feature = "sql")]
@@ -514,8 +305,8 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: resolve the explicit outward projection contract before
-        // rendering any row data so typed mutation returning and SQL dispatch
-        // share one field-selection rule.
+        // rendering any row data so every row-producing typed write helper
+        // shares one field-selection rule.
         let (columns, indices) = Self::projection_selection::<E>(selected_fields)?;
         let mut rows = Vec::with_capacity(entities.len());
 
@@ -546,28 +337,6 @@ impl<C: CanisterKind> DbSession<C> {
             entity_name,
             SqlProjectionRows::new(columns, rows, row_count),
         ))
-    }
-
-    #[cfg(feature = "sql")]
-    fn render_sql_value_row(row: Vec<Value>) -> Vec<String> {
-        let mut rendered_row = Vec::with_capacity(row.len());
-        Self::render_sql_values_into(&row, &mut rendered_row);
-
-        rendered_row
-    }
-
-    #[cfg(feature = "sql")]
-    fn render_sql_values_into(values: &[Value], rendered_row: &mut Vec<String>) {
-        for value in values {
-            rendered_row.push(render_value_text(value));
-        }
-    }
-
-    #[cfg(feature = "sql")]
-    fn projection_columns(column_count: usize) -> Vec<String> {
-        (0..column_count)
-            .map(|index| format!("col_{index}"))
-            .collect()
     }
 
     pub(crate) const fn paged_grouped_response(

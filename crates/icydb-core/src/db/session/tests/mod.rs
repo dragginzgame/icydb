@@ -1612,51 +1612,6 @@ fn session_aggregate_ids(response: &EntityResponse<SessionAggregateEntity>) -> V
     response.iter().map(|row| row.id().key()).collect()
 }
 
-// Keep aggregate terminal explain comparisons stable without relying on one
-// derived `Debug` surface that may reorder fields across formatter changes.
-fn session_aggregate_terminal_plan_snapshot(
-    plan: &crate::db::ExplainAggregateTerminalPlan,
-) -> String {
-    let execution = plan.execution();
-    let node = plan.execution_node_descriptor();
-    let descriptor_json = node.render_json_canonical();
-
-    format!(
-        concat!(
-            "terminal={:?}\n",
-            "query_access={:?}\n",
-            "query_order_by={:?}\n",
-            "query_page={:?}\n",
-            "query_grouping={:?}\n",
-            "query_pushdown={:?}\n",
-            "query_consistency={:?}\n",
-            "execution_aggregation={:?}\n",
-            "execution_mode={:?}\n",
-            "execution_ordering_source={:?}\n",
-            "execution_limit={:?}\n",
-            "execution_cursor={}\n",
-            "execution_covering_projection={}\n",
-            "execution_node_properties={:?}\n",
-            "execution_node_json={}",
-        ),
-        plan.terminal(),
-        plan.query().access(),
-        plan.query().order_by(),
-        plan.query().page(),
-        plan.query().grouping(),
-        plan.query().order_pushdown(),
-        plan.query().consistency(),
-        execution.aggregation(),
-        execution.execution_mode(),
-        execution.ordering_source(),
-        execution.limit(),
-        execution.cursor(),
-        execution.covering_projection(),
-        execution.node_properties(),
-        descriptor_json,
-    )
-}
-
 // Recursively search the execution descriptor tree for one node type.
 fn explain_execution_contains_node_type(
     descriptor: &ExplainExecutionNodeDescriptor,
@@ -1690,13 +1645,13 @@ fn explain_execution_find_first_node(
     None
 }
 
-// Build one store-backed execution descriptor json payload for reduced SQL so
-// tests can lock the structured execution-explain surface separately from the
-// text EXPLAIN EXECUTION renderer.
-fn store_backed_execution_descriptor_json_for_sql<E>(
+// Build one store-backed execution descriptor for reduced SQL so tests can
+// assert the structured execution surface without snapshot-locking the JSON
+// renderer.
+fn store_backed_execution_descriptor_for_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-) -> String
+) -> ExplainExecutionNodeDescriptor
 where
     E: PersistedRow<Canister = SessionSqlCanister>
         + EntityValue
@@ -1730,7 +1685,7 @@ where
     )
     .expect("store-backed execution descriptor should assemble");
 
-    descriptor.render_json_canonical()
+    descriptor
 }
 
 #[derive(Default)]

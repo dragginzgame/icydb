@@ -130,8 +130,6 @@ pub use session::{
     DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
     debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
-pub use session::{LoweredSqlDispatchExecutorAttribution, SqlProjectionTextExecutorAttribution};
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]
 pub use session::{

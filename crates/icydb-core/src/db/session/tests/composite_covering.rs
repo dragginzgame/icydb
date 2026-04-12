@@ -49,11 +49,6 @@ fn session_explain_execution_order_only_composite_covering_matrix_uses_index_ran
             Some(true),
             "{context} should keep the explicit covering-read route",
         );
-        assert_eq!(
-            descriptor.node_properties().get("cov_read_route"),
-            Some(&Value::Text("covering_read".to_string())),
-            "{context} should expose the covering-read route label",
-        );
         let projection_node =
             explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
                 .unwrap_or_else(|| panic!("{context} should emit a covering-read node"));

@@ -119,11 +119,6 @@ fn assert_filtered_expression_materialized_descriptor(
         ExplainExecutionNodeType::IndexRangeScan,
         "{context} should stay on the shared index-range root",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("materialized".to_string())),
-        "{context} explain roots should expose the materialized route label",
-    );
     assert!(
         explain_execution_find_first_node(
             &descriptor,

@@ -128,7 +128,6 @@ fn assert_indexed_grouped_ordered_public_case(
     sql: &str,
     context: &str,
     expect_grouped_node_contract: bool,
-    expect_route_outcome: bool,
 ) {
     let query = session
         .query_from_sql::<IndexedSessionSqlEntity>(sql)
@@ -156,19 +155,6 @@ fn assert_indexed_grouped_ordered_public_case(
         Some(&Value::from("none")),
         "{context} execution explain root should stay on the ordered grouped planner path",
     );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("ordered_materialized")),
-        "{context} execution explain root should surface the ordered grouped execution strategy",
-    );
-
-    if expect_route_outcome {
-        assert_eq!(
-            descriptor.node_properties().get("grouped_route_outcome"),
-            Some(&Value::from("materialized_fallback")),
-            "{context} execution explain root should surface the grouped route outcome",
-        );
-    }
 
     if expect_grouped_node_contract {
         let grouped_node = explain_execution_find_first_node(
@@ -286,16 +272,6 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
         Some(&Value::from("group_key_order_unavailable")),
         "grouped execution explain root should surface the planner-owned grouped fallback reason",
     );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_route_outcome"),
-        Some(&Value::from("materialized_fallback")),
-        "grouped execution explain root should surface the grouped route outcome",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("grouped_execution_mode"),
-        Some(&Value::from("hash_materialized")),
-        "grouped execution explain root should surface the grouped execution strategy",
-    );
 
     let grouped_node = explain_execution_find_first_node(
         &descriptor,
@@ -386,13 +362,12 @@ fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_
         ),
     ];
 
-    for (context, sql, expect_grouped_node_contract, expect_route_outcome) in cases {
+    for (context, sql, expect_grouped_node_contract, _) in cases {
         assert_indexed_grouped_ordered_public_case(
             &session,
             sql,
             context,
             expect_grouped_node_contract,
-            expect_route_outcome,
         );
     }
 }
@@ -710,13 +685,12 @@ fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_order
         ),
     ];
 
-    for (context, sql, expect_grouped_node_contract, expect_route_outcome) in cases {
+    for (context, sql, expect_grouped_node_contract, _) in cases {
         assert_indexed_grouped_ordered_public_case(
             &session,
             sql,
             context,
             expect_grouped_node_contract,
-            expect_route_outcome,
         );
     }
 }

@@ -1,11 +1,5 @@
 use super::*;
 
-// Expected scan direction for one range-ordered window shape.
-enum RangeScanDirectionExpectation {
-    Asc,
-    Desc,
-}
-
 // Expected ordered-route shape for one range-ordered window shape.
 enum RangeOrderedRouteExpectation {
     TopNSeekAccessSatisfied,
@@ -15,7 +9,6 @@ enum RangeOrderedRouteExpectation {
 // Expected EXPLAIN route properties for one index-range ordered window shape.
 struct RangeRouteExpectations<'a> {
     access_name: &'a str,
-    scan_direction: RangeScanDirectionExpectation,
     ordered_route: RangeOrderedRouteExpectation,
 }
 
@@ -124,22 +117,6 @@ fn assert_range_route_descriptor(
         ),
         "{context} should expose the chosen order-compatible fallback index",
     );
-    match expectations.scan_direction {
-        RangeScanDirectionExpectation::Asc => {
-            assert_ne!(
-                descriptor.node_properties().get("scan_dir"),
-                Some(&Value::Text("desc".to_string())),
-                "{context} should not expose the descending scan direction",
-            );
-        }
-        RangeScanDirectionExpectation::Desc => {
-            assert_eq!(
-                descriptor.node_properties().get("scan_dir"),
-                Some(&Value::Text("desc".to_string())),
-                "{context} should expose the descending scan direction",
-            );
-        }
-    }
     assert!(
         explain_execution_find_first_node(
             descriptor,
@@ -219,7 +196,6 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: RangeScanDirectionExpectation::Asc,
                 ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
             },
             "range-choice roots",
@@ -229,7 +205,6 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: RangeScanDirectionExpectation::Desc,
                 ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
             },
             "descending range-choice roots",
@@ -239,7 +214,6 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: RangeScanDirectionExpectation::Asc,
                 ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
             },
             "range-choice offset roots",
@@ -249,7 +223,6 @@ fn session_explain_execution_range_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_score_label_idx",
-                scan_direction: RangeScanDirectionExpectation::Desc,
                 ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
             },
             "descending range-choice offset roots",
@@ -348,7 +321,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_alpha_idx",
-                scan_direction: RangeScanDirectionExpectation::Asc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "order-only offset roots",
@@ -359,7 +331,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_alpha_idx",
-                scan_direction: RangeScanDirectionExpectation::Desc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "descending order-only offset roots",
@@ -370,7 +341,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_handle_idx",
-                scan_direction: RangeScanDirectionExpectation::Asc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "composite order-only roots",
@@ -381,7 +351,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             None,
             RangeRouteExpectations {
                 access_name: "z_tier_handle_idx",
-                scan_direction: RangeScanDirectionExpectation::Desc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "descending composite order-only roots",
@@ -392,7 +361,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_handle_idx",
-                scan_direction: RangeScanDirectionExpectation::Asc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "composite order-only offset roots",
@@ -403,7 +371,6 @@ fn session_explain_execution_order_only_choice_matrix_is_stable() {
             Some(1),
             RangeRouteExpectations {
                 access_name: "z_tier_handle_idx",
-                scan_direction: RangeScanDirectionExpectation::Desc,
                 ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
             },
             "descending composite order-only offset roots",

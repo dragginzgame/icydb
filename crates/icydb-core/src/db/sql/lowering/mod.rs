@@ -48,9 +48,8 @@ pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 pub(in crate::db) use select::apply_lowered_select_shape;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
-    bind_lowered_sql_delete_query_structural, bind_lowered_sql_query,
-    bind_lowered_sql_query_structural, bind_lowered_sql_select_query_structural,
-    canonicalize_sql_predicate_for_model,
+    bind_lowered_sql_query, bind_lowered_sql_query_structural,
+    bind_lowered_sql_select_query_structural, canonicalize_sql_predicate_for_model,
 };
 
 ///

@@ -134,10 +134,9 @@ fn execute_sql_delete_rejects_delete_lane_on_typed_entity_surface() {
             .expect_err("typed execute_sql DELETE should stay off the entity-response surface");
 
         assert!(
-            err.to_string().contains(
-                "execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()"
-            ),
-            "typed execute_sql DELETE should preserve explicit dispatch/fluent guidance",
+            err.to_string()
+                .contains("execute_sql rejects DELETE; use delete::<E>()"),
+            "typed execute_sql DELETE should preserve explicit fluent guidance",
         );
     }
 }

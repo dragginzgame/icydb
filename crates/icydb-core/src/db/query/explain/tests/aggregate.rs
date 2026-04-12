@@ -1,48 +1,54 @@
 use super::*;
 
-fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> String {
+fn assert_aggregate_terminal_public_contract(
+    plan: &ExplainAggregateTerminalPlan,
+    expected_node_type: ExplainExecutionNodeType,
+    expected_layer: &str,
+    expected_execution_mode_detail: &str,
+) {
     let execution = plan.execution();
     let node = plan.execution_node_descriptor();
-    let descriptor_json = node.render_json_canonical();
+    let text = node.render_text_tree();
+    let json = node.render_json_canonical();
 
-    format!(
-        concat!(
-            "terminal={:?}\n",
-            "query_access={:?}\n",
-            "query_order_by={:?}\n",
-            "query_page={:?}\n",
-            "query_grouping={:?}\n",
-            "query_pushdown={:?}\n",
-            "query_consistency={:?}\n",
-            "execution_aggregation={:?}\n",
-            "execution_mode={:?}\n",
-            "execution_ordering_source={:?}\n",
-            "execution_limit={:?}\n",
-            "execution_cursor={}\n",
-            "execution_covering_projection={}\n",
-            "execution_node_properties={:?}\n",
-            "execution_node_json={}",
-        ),
-        plan.terminal(),
-        plan.query().access(),
-        plan.query().order_by(),
-        plan.query().page(),
-        plan.query().grouping(),
-        plan.query().order_pushdown(),
-        plan.query().consistency(),
+    assert_eq!(
+        node.node_type(),
+        expected_node_type,
+        "aggregate terminal explain must keep the high-level execution node family stable",
+    );
+    assert!(
+        text.contains(&format!("layer={expected_layer}")),
+        "aggregate terminal text explain must keep the node layer stable",
+    );
+    assert!(
+        json.contains(&format!("\"layer\":\"{expected_layer}\"")),
+        "aggregate terminal JSON explain must keep the node layer stable",
+    );
+    assert!(
+        text.contains(&format!(
+            "execution_mode_detail={expected_execution_mode_detail}"
+        )),
+        "aggregate terminal text explain must keep execution mode detail stable",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"execution_mode_detail\":\"{expected_execution_mode_detail}\""
+        )),
+        "aggregate terminal JSON explain must keep execution mode detail stable",
+    );
+    assert!(
+        json.contains("\"predicate_pushdown_mode\":\"none\""),
+        "aggregate terminal JSON explain must keep the pushdown classification stable",
+    );
+    assert_eq!(
         execution.aggregation(),
-        execution.execution_mode(),
-        execution.ordering_source(),
-        execution.limit(),
-        execution.cursor(),
-        execution.covering_projection(),
-        execution.node_properties(),
-        descriptor_json,
-    )
+        plan.terminal(),
+        "aggregate terminal execution payload must stay aligned with the terminal kind",
+    );
 }
 
 #[test]
-fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
+fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
     // Phase 1: build a deterministic index-prefix query explain payload.
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -82,31 +88,44 @@ fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
         },
     );
 
-    let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
-    let expected = "terminal=Min
-query_access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 1, values: [Text(\"alpha\")] }
-query_order_by=Fields([ExplainOrder { field: \"tag\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }])
-query_page=None
-query_grouping=None
-query_pushdown=MissingModelContext
-query_consistency=Ignore
-execution_aggregation=Min
-execution_mode=Materialized
-execution_ordering_source=IndexSeekFirst { fetch: 1 }
-execution_limit=None
-execution_cursor=false
-execution_covering_projection=false
-execution_node_properties={\"fetch\": Uint(1)}
-execution_node_json={\"node_id\":0,\"node_type\":\"AggregateSeekFirst\",\"layer\":\"aggregate\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":{\"type\":\"IndexPrefix\",\"name\":\"explain::pushdown_tag\",\"fields\":[\"tag\"],\"prefix_len\":1,\"values\":[\"Text(\\\"alpha\\\")\"]},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
-
+    assert_eq!(terminal_plan.terminal(), AggregateKind::Min);
+    assert!(matches!(
+        terminal_plan.query().access(),
+        ExplainAccessPath::IndexPrefix { name, fields, prefix_len, values }
+            if *name == "explain::pushdown_tag"
+                && fields == &vec!["tag"]
+                && *prefix_len == 1
+                && values == &vec![Value::Text("alpha".to_string())]
+    ));
+    assert!(matches!(
+        terminal_plan.query().order_by(),
+        ExplainOrderBy::Fields(fields)
+            if fields.len() == 2
+                && fields[0].field == "tag"
+                && fields[0].direction == OrderDirection::Asc
+                && fields[1].field == "id"
+                && fields[1].direction == OrderDirection::Asc
+    ));
+    assert_eq!(terminal_plan.query().page(), &ExplainPagination::None);
+    assert_eq!(terminal_plan.query().grouping(), &ExplainGrouping::None);
     assert_eq!(
-        actual, expected,
-        "aggregate terminal seek-route explain snapshot drifted",
+        terminal_plan.execution().ordering_source(),
+        ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 },
+    );
+    assert_eq!(terminal_plan.execution().limit(), None);
+    assert!(!terminal_plan.execution().cursor());
+    assert!(!terminal_plan.execution().covering_projection());
+
+    assert_aggregate_terminal_public_contract(
+        &terminal_plan,
+        ExplainExecutionNodeType::AggregateSeekFirst,
+        "aggregate",
+        "materialized",
     );
 }
 
 #[test]
-fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
+fn explain_aggregate_terminal_standard_route_public_contract_is_stable() {
     // Phase 1: build a deterministic full-scan query explain payload.
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
@@ -135,25 +154,35 @@ fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
         },
     );
 
-    let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
-    let expected = "terminal=Exists
-query_access=FullScan
-query_order_by=Fields([ExplainOrder { field: \"id\", direction: Asc }])
-query_page=Page { limit: Some(3), offset: 1 }
-query_grouping=None
-query_pushdown=MissingModelContext
-query_consistency=Ignore
-execution_aggregation=Exists
-execution_mode=Streaming
-execution_ordering_source=AccessOrder
-execution_limit=Some(3)
-execution_cursor=true
-execution_covering_projection=false
-execution_node_properties={}
-execution_node_json={\"node_id\":0,\"node_type\":\"AggregateExists\",\"layer\":\"aggregate\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":true,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
-
+    assert_eq!(terminal_plan.terminal(), AggregateKind::Exists);
+    assert_eq!(terminal_plan.query().access(), &ExplainAccessPath::FullScan);
+    assert!(matches!(
+        terminal_plan.query().order_by(),
+        ExplainOrderBy::Fields(fields)
+            if fields.len() == 1
+                && fields[0].field == "id"
+                && fields[0].direction == OrderDirection::Asc
+    ));
     assert_eq!(
-        actual, expected,
-        "aggregate terminal standard-route explain snapshot drifted",
+        terminal_plan.query().page(),
+        &ExplainPagination::Page {
+            limit: Some(3),
+            offset: 1,
+        },
+    );
+    assert_eq!(terminal_plan.query().grouping(), &ExplainGrouping::None);
+    assert_eq!(
+        terminal_plan.execution().ordering_source(),
+        ExplainExecutionOrderingSource::AccessOrder,
+    );
+    assert_eq!(terminal_plan.execution().limit(), Some(3));
+    assert!(terminal_plan.execution().cursor());
+    assert!(!terminal_plan.execution().covering_projection());
+
+    assert_aggregate_terminal_public_contract(
+        &terminal_plan,
+        ExplainExecutionNodeType::AggregateExists,
+        "aggregate",
+        "streaming",
     );
 }

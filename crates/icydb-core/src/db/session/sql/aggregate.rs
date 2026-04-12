@@ -62,26 +62,14 @@ const fn unsupported_sql_aggregate_surface_lane_message(route: &SqlStatementRout
             "execute_sql_aggregate requires constrained global aggregate SELECT"
         }
         SqlStatementRoute::Insert { .. } => {
-            "execute_sql_aggregate rejects INSERT; use execute_sql_dispatch"
+            "execute_sql_aggregate rejects INSERT; use create(...) or insert(...)"
         }
-        SqlStatementRoute::Update { .. } => {
-            "execute_sql_aggregate rejects UPDATE; use execute_sql_dispatch"
-        }
-        SqlStatementRoute::Explain { .. } => {
-            "execute_sql_aggregate rejects EXPLAIN; use execute_sql_dispatch"
-        }
-        SqlStatementRoute::Describe { .. } => {
-            "execute_sql_aggregate rejects DESCRIBE; use execute_sql_dispatch"
-        }
-        SqlStatementRoute::ShowIndexes { .. } => {
-            "execute_sql_aggregate rejects SHOW INDEXES; use execute_sql_dispatch"
-        }
-        SqlStatementRoute::ShowColumns { .. } => {
-            "execute_sql_aggregate rejects SHOW COLUMNS; use execute_sql_dispatch"
-        }
-        SqlStatementRoute::ShowEntities => {
-            "execute_sql_aggregate rejects SHOW ENTITIES; use execute_sql_dispatch"
-        }
+        SqlStatementRoute::Update { .. } => "execute_sql_aggregate rejects UPDATE; use update(...)",
+        SqlStatementRoute::Explain { .. } => "execute_sql_aggregate rejects EXPLAIN",
+        SqlStatementRoute::Describe { .. } => "execute_sql_aggregate rejects DESCRIBE",
+        SqlStatementRoute::ShowIndexes { .. } => "execute_sql_aggregate rejects SHOW INDEXES",
+        SqlStatementRoute::ShowColumns { .. } => "execute_sql_aggregate rejects SHOW COLUMNS",
+        SqlStatementRoute::ShowEntities => "execute_sql_aggregate rejects SHOW ENTITIES",
     }
 }
 
@@ -509,7 +497,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlStatement::Delete(_) => {
                 return Err(QueryError::unsupported_query(
-                    "execute_sql_aggregate rejects DELETE; use execute_sql_dispatch",
+                    "execute_sql_aggregate rejects DELETE; use delete::<E>()",
                 ));
             }
             _ => {

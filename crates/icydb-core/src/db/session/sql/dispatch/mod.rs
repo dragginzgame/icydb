@@ -21,8 +21,8 @@ use crate::{
             computed_projection,
             projection::{
                 SqlProjectionPayload, execute_sql_projection_rows_for_canister,
-                execute_sql_projection_text_rows_for_canister, projection_labels_from_fields,
-                projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
+                projection_labels_from_fields, projection_labels_from_projection_spec,
+                sql_projection_rows_from_kernel_rows,
             },
         },
         sql::lowering::{
@@ -49,53 +49,6 @@ use crate::{
 #[cfg(feature = "perf-attribution")]
 pub use lowered::LoweredSqlDispatchExecutorAttribution;
 
-///
-/// GeneratedSqlDispatchAttempt
-///
-/// Hidden generated-query dispatch envelope used by the facade helper to keep
-/// generated route ownership in core while preserving the public EXPLAIN error
-/// rewrite contract at the outer boundary.
-///
-
-#[doc(hidden)]
-pub struct GeneratedSqlDispatchAttempt {
-    entity_name: &'static str,
-    explain_order_field: Option<&'static str>,
-    result: Result<SqlDispatchResult, QueryError>,
-}
-
-impl GeneratedSqlDispatchAttempt {
-    // Build one generated-query dispatch attempt with optional explain-hint context.
-    const fn new(
-        entity_name: &'static str,
-        explain_order_field: Option<&'static str>,
-        result: Result<SqlDispatchResult, QueryError>,
-    ) -> Self {
-        Self {
-            entity_name,
-            explain_order_field,
-            result,
-        }
-    }
-
-    /// Borrow the resolved entity name for this generated-query attempt.
-    #[must_use]
-    pub const fn entity_name(&self) -> &'static str {
-        self.entity_name
-    }
-
-    /// Borrow the suggested deterministic order field for EXPLAIN rewrites.
-    #[must_use]
-    pub const fn explain_order_field(&self) -> Option<&'static str> {
-        self.explain_order_field
-    }
-
-    /// Consume and return the generated-query dispatch result.
-    pub fn into_result(self) -> Result<SqlDispatchResult, QueryError> {
-        self.result
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlGroupingSurface {
     Scalar,
@@ -109,31 +62,6 @@ const fn unsupported_sql_grouping_message(surface: SqlGroupingSurface) -> &'stat
         }
         SqlGroupingSurface::Grouped => "execute_sql_grouped requires grouped SQL query intent",
     }
-}
-
-// Enforce the generated canister query contract that empty SQL is unsupported
-// before any parser/lowering work occurs.
-fn trim_generated_query_sql_input(sql: &str) -> Result<&str, QueryError> {
-    let sql_trimmed = sql.trim();
-    if sql_trimmed.is_empty() {
-        return Err(QueryError::unsupported_query(
-            "query endpoint requires a non-empty SQL string",
-        ));
-    }
-
-    Ok(sql_trimmed)
-}
-
-// Render the generated-surface entity list from the descriptor table instead
-// of assuming every session-visible entity belongs on the public query export.
-fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
-    let mut entities = Vec::with_capacity(authorities.len());
-
-    for authority in authorities {
-        entities.push(authority.model().name().to_string());
-    }
-
-    entities
 }
 
 // Project parsed SELECT items into one stable outward column contract while
@@ -224,46 +152,6 @@ const fn grouped_sql_text_function_name(function: SqlTextFunction) -> &'static s
         SqlTextFunction::Replace => "REPLACE",
         SqlTextFunction::Substring => "SUBSTRING",
     }
-}
-
-// Resolve one generated query route onto the descriptor-owned authority table.
-fn authority_for_generated_sql_route(
-    route: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<EntityAuthority, QueryError> {
-    let sql_entity = route.entity();
-
-    for authority in authorities {
-        if identifiers_tail_match(sql_entity, authority.model().name()) {
-            return Ok(*authority);
-        }
-    }
-
-    Err(unsupported_generated_sql_entity_error(
-        sql_entity,
-        authorities,
-    ))
-}
-
-// Keep the generated query-surface unsupported-entity contract stable while
-// moving authority lookup out of the build-generated shim.
-fn unsupported_generated_sql_entity_error(
-    entity_name: &str,
-    authorities: &[EntityAuthority],
-) -> QueryError {
-    let mut supported = String::new();
-
-    for (index, authority) in authorities.iter().enumerate() {
-        if index != 0 {
-            supported.push_str(", ");
-        }
-
-        supported.push_str(authority.model().name());
-    }
-
-    QueryError::unsupported_query(format!(
-        "query endpoint does not support entity '{entity_name}'; supported: {supported}"
-    ))
 }
 
 // Keep typed SQL write routes on the same entity-match contract used by
@@ -1029,31 +917,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(SqlProjectionPayload::new(columns, rows, row_count))
     }
 
-    // Execute one structural SQL load query and return render-ready text rows
-    // for the dispatch lane when the terminal short path can prove them
-    // directly.
-    fn execute_structural_sql_projection_text(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        // Phase 1: build the shared structural plan and outward column contract once.
-        let (columns, plan) = self.prepare_structural_sql_projection_execution(query, authority)?;
-
-        // Phase 2: execute the shared structural load path with the already
-        // derived projection semantics while preferring rendered SQL rows.
-        let projected =
-            execute_sql_projection_text_rows_for_canister(&self.db, self.debug, authority, plan)
-                .map_err(QueryError::execute)?;
-        let (rows, row_count) = projected.into_parts();
-
-        Ok(SqlDispatchResult::ProjectionText {
-            columns,
-            rows,
-            row_count,
-        })
-    }
-
     // Execute one typed SQL delete query while keeping the row payload on the
     // typed delete executor boundary that still owns non-runtime-hook delete
     // commit-window application.
@@ -1247,7 +1110,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one reduced SQL statement into one unified SQL dispatch payload.
-    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlDispatchResult, QueryError>
+    #[cfg(test)]
+    pub(in crate::db) fn execute_sql_dispatch<E>(
+        &self,
+        sql: &str,
+    ) -> Result<SqlDispatchResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -1257,7 +1124,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one parsed reduced SQL statement into one unified SQL payload.
-    pub fn execute_sql_dispatch_parsed<E>(
+    pub(in crate::db) fn execute_sql_dispatch_parsed<E>(
         &self,
         parsed: &SqlParsedStatement,
     ) -> Result<SqlDispatchResult, QueryError>
@@ -1345,170 +1212,5 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok(SqlDispatchResult::ShowEntities(self.show_entities()))
             }
         }
-    }
-
-    /// Execute one parsed reduced SQL statement through the generated canister
-    /// query/explain surface for one already-resolved dynamic authority.
-    ///
-    /// This keeps the canister SQL facade on the same reduced SQL ownership
-    /// boundary as typed dispatch without forcing the outer facade to reopen
-    /// typed-generic routing just to preserve parity for computed projections.
-    #[doc(hidden)]
-    pub fn execute_generated_query_surface_dispatch_for_authority(
-        &self,
-        parsed: &SqlParsedStatement,
-        authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        match parsed.route() {
-            SqlStatementRoute::Query { .. } => self.dispatch_sql_query_route_for_authority(
-                parsed,
-                authority,
-                "generated SQL query surface requires query or EXPLAIN statement lanes",
-                |session, select, authority, grouped_surface, projection_columns| {
-                    if grouped_surface {
-                        let columns = projection_columns.ok_or_else(|| {
-                            QueryError::unsupported_query(
-                                "grouped SQL dispatch requires explicit grouped projection items",
-                            )
-                        })?;
-
-                        return session
-                            .execute_lowered_sql_grouped_dispatch_select_core(select, authority, columns);
-                    }
-
-                    let result =
-                        session.execute_lowered_sql_dispatch_select_text_core(select, authority)?;
-                    if let Some(columns) = projection_columns {
-                        let SqlDispatchResult::ProjectionText {
-                            rows, row_count, ..
-                        } = result
-                        else {
-                            return Err(QueryError::invariant(
-                                "generated scalar SQL dispatch text path must emit projection text rows",
-                            ));
-                        };
-
-                        return Ok(SqlDispatchResult::ProjectionText {
-                            columns,
-                            rows,
-                            row_count,
-                        });
-                    }
-
-                    Ok(result)
-                },
-                |session, delete, authority| {
-                    let SqlStatement::Delete(statement) = &parsed.statement else {
-                        return Err(QueryError::invariant(
-                            "DELETE SQL route must carry parsed DELETE statement",
-                        ));
-                    };
-
-                    match &statement.returning {
-                        Some(returning) => {
-                            let SqlDispatchResult::Projection {
-                                columns,
-                                rows,
-                                row_count,
-                            } = session.execute_lowered_sql_dispatch_delete_core(&delete, authority)?
-                            else {
-                                return Err(QueryError::invariant(
-                                    "generated SQL delete projection path must emit value-row projection payload",
-                                ));
-                            };
-
-                            Self::sql_returning_dispatch_projection(
-                                columns, rows, row_count, returning,
-                            )
-                        }
-                        None => session
-                            .execute_lowered_sql_delete_count_core(&delete, authority),
-                    }
-                },
-            ),
-            SqlStatementRoute::Explain { .. } => {
-                self.dispatch_sql_explain_route_for_authority(parsed, authority)
-            }
-            SqlStatementRoute::Insert { .. } | SqlStatementRoute::Update { .. }
-            | SqlStatementRoute::Describe { .. }
-            | SqlStatementRoute::ShowIndexes { .. }
-            | SqlStatementRoute::ShowColumns { .. }
-            | SqlStatementRoute::ShowEntities => Err(QueryError::unsupported_query(
-                "generated SQL query surface requires SELECT, DELETE, or EXPLAIN statement lanes",
-            )),
-        }
-    }
-
-    /// Execute one raw SQL string through the generated canister query surface.
-    ///
-    /// This hidden helper keeps parse, route, authority, and metadata/query
-    /// dispatch ownership in core so the build-generated `sql_dispatch` shim
-    /// stays close to a pure descriptor table plus public ABI wrapper.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn execute_generated_query_surface_sql(
-        &self,
-        sql: &str,
-        authorities: &[EntityAuthority],
-    ) -> GeneratedSqlDispatchAttempt {
-        // Phase 1: normalize and parse once so every generated route family
-        // shares the same SQL ownership boundary.
-        let sql_trimmed = match trim_generated_query_sql_input(sql) {
-            Ok(sql_trimmed) => sql_trimmed,
-            Err(err) => return GeneratedSqlDispatchAttempt::new("", None, Err(err)),
-        };
-        let parsed = match self.parse_sql_statement(sql_trimmed) {
-            Ok(parsed) => parsed,
-            Err(err) => return GeneratedSqlDispatchAttempt::new("", None, Err(err)),
-        };
-
-        // Phase 2: keep SHOW ENTITIES descriptor-owned and resolve all other
-        // generated routes against the emitted authority table exactly once.
-        if matches!(parsed.route(), SqlStatementRoute::ShowEntities) {
-            return GeneratedSqlDispatchAttempt::new(
-                "",
-                None,
-                Ok(SqlDispatchResult::ShowEntities(generated_sql_entities(
-                    authorities,
-                ))),
-            );
-        }
-        let authority = match authority_for_generated_sql_route(parsed.route(), authorities) {
-            Ok(authority) => authority,
-            Err(err) => return GeneratedSqlDispatchAttempt::new("", None, Err(err)),
-        };
-
-        // Phase 3: dispatch the resolved route through the existing query,
-        // explain, and metadata helpers without rebuilding route ownership in
-        // the generated build output.
-        let entity_name = authority.model().name();
-        let explain_order_field = parsed
-            .route()
-            .is_explain()
-            .then_some(authority.model().primary_key.name);
-        let result = match parsed.route() {
-            SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. } => {
-                self.execute_generated_query_surface_dispatch_for_authority(&parsed, authority)
-            }
-            SqlStatementRoute::Insert { .. } | SqlStatementRoute::Update { .. } => {
-                Err(QueryError::unsupported_query(
-                    "generated SQL query surface requires SELECT, DELETE, or EXPLAIN statement lanes",
-                ))
-            }
-            SqlStatementRoute::Describe { .. } => Ok(SqlDispatchResult::Describe(
-                self.describe_entity_model(authority.model()),
-            )),
-            SqlStatementRoute::ShowIndexes { .. } => Ok(SqlDispatchResult::ShowIndexes(
-                self.show_indexes_for_store_model(authority.store_path(), authority.model()),
-            )),
-            SqlStatementRoute::ShowColumns { .. } => Ok(SqlDispatchResult::ShowColumns(
-                self.show_columns_for_model(authority.model()),
-            )),
-            SqlStatementRoute::ShowEntities => unreachable!(
-                "SHOW ENTITIES is handled before authority resolution for generated query dispatch"
-            ),
-        };
-
-        GeneratedSqlDispatchAttempt::new(entity_name, explain_order_field, result)
     }
 }

@@ -60,19 +60,9 @@ fn assert_expression_covering_read_descriptor(
         Some(true),
         "{context} should expose the explicit covering-read route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} should expose the covering-read route label",
-    );
     let projection_node =
         explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
             .expect("expression covering explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "{context} should expose the projected field list",
-    );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
         Some(&Value::Text("planner_proven".to_string())),

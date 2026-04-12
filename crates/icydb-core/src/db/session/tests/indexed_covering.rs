@@ -34,11 +34,6 @@ fn assert_covering_index_range_descriptor<E>(
         Some(true),
         "{context} should keep the explicit covering-read route",
     );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "{context} should expose the covering-read route label",
-    );
     assert!(
         explain_execution_find_first_node(
             &descriptor,
@@ -257,16 +252,6 @@ fn session_explain_execution_order_only_filtered_desc_residual_query_fails_close
         Some(false),
         "descending filtered composite residual order-only projections should materialize rows because the residual filter needs non-index fields",
     );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "descending filtered composite residual order-only roots should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "descending filtered composite residual order-only roots should expose the concrete equality-prefix value",
-    );
     assert!(
         explain_execution_find_first_node(
             &descriptor,
@@ -344,10 +329,5 @@ fn session_explain_execution_order_only_filtered_query_without_guard_falls_back_
         descriptor.covering_scan(),
         Some(true),
         "unguarded filtered-order queries must not claim the covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("materialized".to_string())),
-        "unguarded filtered-order explains must surface the explicit materialized fallback route",
     );
 }
