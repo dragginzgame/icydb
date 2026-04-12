@@ -815,6 +815,12 @@ fn plan_access_starts_with_rejects_expression_index() {
     );
 }
 
+// Keep this canonicalization matrix in one test so the paired raw/canonical
+// predicates and expected access paths stay reviewable in one place.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the canonical IN/OR planning matrix is intentionally table-driven in one test"
+)]
 #[test]
 fn plan_access_canonical_in_and_or_matrix() {
     let cases = vec![
