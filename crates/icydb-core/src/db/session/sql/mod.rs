@@ -328,11 +328,11 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_query(&query)
     }
 
-    /// Execute one single-entity reduced SQL read/introspection statement.
+    /// Execute one single-entity reduced SQL statement.
     ///
     /// This helper is intentionally hard-bound to `E` and exists for canister
     /// endpoints that want one tiny SQL forwarder without reviving dynamic
-    /// entity dispatch.
+    /// entity dispatch or typed-entity SQL result decoding.
     pub fn execute_entity_sql<E>(&self, sql: &str) -> Result<SqlDispatchResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -340,30 +340,6 @@ impl<C: CanisterKind> DbSession<C> {
         let parsed = self.parse_sql_statement(sql)?;
 
         Self::ensure_entity_sql_route_matches::<E>(parsed.route())?;
-
-        match &parsed.statement {
-            SqlStatement::Delete(_) => {
-                return Err(QueryError::unsupported_query(
-                    "execute_entity_sql rejects DELETE; use delete::<E>()",
-                ));
-            }
-            SqlStatement::Insert(_) => {
-                return Err(QueryError::unsupported_query(
-                    "execute_entity_sql rejects INSERT; use create(...) or insert(...)",
-                ));
-            }
-            SqlStatement::Update(_) => {
-                return Err(QueryError::unsupported_query(
-                    "execute_entity_sql rejects UPDATE; use update(...)",
-                ));
-            }
-            SqlStatement::Select(_)
-            | SqlStatement::Explain(_)
-            | SqlStatement::Describe(_)
-            | SqlStatement::ShowIndexes(_)
-            | SqlStatement::ShowColumns(_)
-            | SqlStatement::ShowEntities(_) => {}
-        }
 
         self.execute_sql_dispatch_parsed::<E>(&parsed)
     }

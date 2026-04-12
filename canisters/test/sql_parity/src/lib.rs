@@ -2,10 +2,26 @@
 //! Test-only SQL parity canister used for typed and fluent SQL fixture checks.
 //!
 
+#[cfg(feature = "sql")]
+mod perf;
+
 extern crate canic_cdk as ic_cdk;
 
+#[cfg(feature = "sql")]
+use crate::perf::{
+    SqlPerfAttributionRequest, SqlPerfAttributionSample, SqlPerfRequest, SqlPerfSample,
+};
+#[cfg(feature = "sql")]
+use canic_cdk::query;
 use canic_cdk::update;
 use icydb::traits::Path;
+#[cfg(feature = "sql")]
+use icydb::{
+    db::sql::SqlQueryResult,
+    db::{SqlStatementRoute, identifiers_tail_match},
+    error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    traits::EntitySchema,
+};
 use icydb_core::db::IndexState;
 use icydb_testing_test_sql_parity_fixtures::{
     fixtures,
@@ -84,6 +100,115 @@ fn fixtures_mark_customer_index_building() -> Result<(), icydb::Error> {
     )?;
 
     Ok(())
+}
+
+#[cfg(feature = "sql")]
+const fn sql_entity_route_names() -> [&'static str; 7] {
+    [
+        "Customer",
+        "CustomerAccount",
+        "CustomerOrder",
+        "SqlWriteProbe",
+        "PlannerChoice",
+        "PlannerPrefixChoice",
+        "PlannerUniquePrefixChoice",
+    ]
+}
+
+#[cfg(feature = "sql")]
+fn unsupported_query_entity_error(entity: &str) -> icydb::Error {
+    let supported_entities = sql_entity_route_names().join(", ");
+
+    icydb::Error::new(
+        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        ErrorOrigin::Query,
+        format!(
+            "query endpoint does not support entity '{entity}'; supported entities: {supported_entities}"
+        ),
+    )
+}
+
+#[cfg(feature = "sql")]
+pub(crate) enum RoutedSqlEntity {
+    Customer,
+    CustomerAccount,
+    CustomerOrder,
+    SqlWriteProbe,
+    PlannerChoice,
+    PlannerPrefixChoice,
+    PlannerUniquePrefixChoice,
+}
+
+#[cfg(feature = "sql")]
+pub(crate) fn routed_sql_entity(entity: &str) -> Result<RoutedSqlEntity, icydb::Error> {
+    if identifiers_tail_match(entity, Customer::MODEL.name()) {
+        Ok(RoutedSqlEntity::Customer)
+    } else if identifiers_tail_match(entity, CustomerAccount::MODEL.name()) {
+        Ok(RoutedSqlEntity::CustomerAccount)
+    } else if identifiers_tail_match(entity, CustomerOrder::MODEL.name()) {
+        Ok(RoutedSqlEntity::CustomerOrder)
+    } else if identifiers_tail_match(entity, SqlWriteProbe::MODEL.name()) {
+        Ok(RoutedSqlEntity::SqlWriteProbe)
+    } else if identifiers_tail_match(entity, PlannerChoice::MODEL.name()) {
+        Ok(RoutedSqlEntity::PlannerChoice)
+    } else if identifiers_tail_match(entity, PlannerPrefixChoice::MODEL.name()) {
+        Ok(RoutedSqlEntity::PlannerPrefixChoice)
+    } else if identifiers_tail_match(entity, PlannerUniquePrefixChoice::MODEL.name()) {
+        Ok(RoutedSqlEntity::PlannerUniquePrefixChoice)
+    } else {
+        Err(unsupported_query_entity_error(entity))
+    }
+}
+
+#[cfg(feature = "sql")]
+pub(crate) fn execute_entity_routed_sql(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
+    let route = db().sql_statement_route(sql)?;
+
+    match route {
+        SqlStatementRoute::ShowEntities => db().execute_entity_sql::<Customer>(sql),
+        SqlStatementRoute::Query { entity }
+        | SqlStatementRoute::Insert { entity }
+        | SqlStatementRoute::Update { entity }
+        | SqlStatementRoute::Explain { entity }
+        | SqlStatementRoute::Describe { entity }
+        | SqlStatementRoute::ShowIndexes { entity }
+        | SqlStatementRoute::ShowColumns { entity } => match routed_sql_entity(entity.as_str())? {
+            RoutedSqlEntity::Customer => db().execute_entity_sql::<Customer>(sql),
+            RoutedSqlEntity::CustomerAccount => db().execute_entity_sql::<CustomerAccount>(sql),
+            RoutedSqlEntity::CustomerOrder => db().execute_entity_sql::<CustomerOrder>(sql),
+            RoutedSqlEntity::SqlWriteProbe => db().execute_entity_sql::<SqlWriteProbe>(sql),
+            RoutedSqlEntity::PlannerChoice => db().execute_entity_sql::<PlannerChoice>(sql),
+            RoutedSqlEntity::PlannerPrefixChoice => {
+                db().execute_entity_sql::<PlannerPrefixChoice>(sql)
+            }
+            RoutedSqlEntity::PlannerUniquePrefixChoice => {
+                db().execute_entity_sql::<PlannerUniquePrefixChoice>(sql)
+            }
+        },
+    }
+}
+
+/// Execute one reduced SQL statement against the parity canister.
+#[cfg(feature = "sql")]
+#[query]
+fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    execute_entity_routed_sql(sql.as_str())
+}
+
+/// Measure one repeated SQL surface invocation inside wasm.
+#[cfg(feature = "sql")]
+#[query]
+fn sql_perf(request: SqlPerfRequest) -> Result<SqlPerfSample, icydb::Error> {
+    perf::sample_sql_surface(request)
+}
+
+/// Attribute one representative SQL surface into fixed-cost wasm phases.
+#[cfg(feature = "sql")]
+#[query]
+fn sql_perf_attribution(
+    request: SqlPerfAttributionRequest,
+) -> Result<SqlPerfAttributionSample, icydb::Error> {
+    perf::attribute_sql_surface(request)
 }
 
 canic_cdk::export_candid!();

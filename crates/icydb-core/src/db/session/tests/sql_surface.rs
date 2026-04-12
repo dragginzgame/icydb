@@ -723,3 +723,99 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "aggregate SQL surface should preserve its own lane boundary before RETURNING guidance",
     );
 }
+
+#[test]
+fn execute_entity_sql_admits_supported_single_entity_read_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let scalar = session
+        .execute_entity_sql::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("execute_entity_sql should admit scalar SELECT");
+    let SqlDispatchResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = scalar
+    else {
+        panic!("execute_entity_sql scalar SELECT should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
+    assert_eq!(row_count, 1);
+
+    let grouped = session
+        .execute_entity_sql::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        )
+        .expect("execute_entity_sql should admit grouped SELECT");
+    let SqlDispatchResult::Grouped {
+        columns, row_count, ..
+    } = grouped
+    else {
+        panic!("execute_entity_sql grouped SELECT should emit grouped rows");
+    };
+    assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
+    assert_eq!(row_count, 2);
+
+    let aggregate = session
+        .execute_entity_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect("execute_entity_sql should admit global aggregate SELECT");
+    let SqlDispatchResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = aggregate
+    else {
+        panic!("execute_entity_sql aggregate SELECT should emit projection rows");
+    };
+    assert_eq!(columns, vec!["COUNT(*)".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Uint(3)]]);
+    assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_entity_sql_admits_supported_single_entity_mutation_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert = session
+        .execute_entity_sql::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("execute_entity_sql should admit INSERT");
+    let SqlDispatchResult::Count { row_count } = insert else {
+        panic!("execute_entity_sql INSERT should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let update = session
+        .execute_entity_sql::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        )
+        .expect("execute_entity_sql should admit UPDATE");
+    let SqlDispatchResult::Count { row_count } = update else {
+        panic!("execute_entity_sql UPDATE should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let delete = session
+        .execute_entity_sql::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+        )
+        .expect("execute_entity_sql should admit DELETE RETURNING");
+    let SqlDispatchResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = delete
+    else {
+        panic!("execute_entity_sql DELETE RETURNING should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
+    assert_eq!(row_count, 1);
+}

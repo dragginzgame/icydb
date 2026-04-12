@@ -31,7 +31,12 @@ IcyDB SQL is a constrained single-entity language for:
 IcyDB SQL is not a general-purpose relational SQL engine.
 
 Typed and fluent APIs are the canonical public mutation surfaces.
-SQL text is now a read/introspection surface plus a typed query-lowering helper.
+SQL text also has one explicit single-entity debug executor:
+
+- `execute_entity_sql::<E>(...)`
+
+That helper stays hard-bound to one entity type and returns SQL-shaped output
+instead of typed entities.
 
 ## Supported Public SQL Statements
 
@@ -70,25 +75,32 @@ Supported commands:
 - `SHOW ENTITIES`
 - `SHOW TABLES`
 
-## Non-Supported Public SQL Mutation Execution
+## Public SQL Mutation Execution
 
-Public SQL execution no longer owns:
+Public SQL mutation execution is intentionally narrow.
+
+The dedicated debug SQL helper:
+
+- `execute_entity_sql::<E>(...)`
+
+may execute currently supported single-entity:
 
 - `INSERT`
 - `UPDATE`
 - `DELETE`
-- `RETURNING`
+- `... RETURNING`
 
-Those behaviors now belong to typed/fluent APIs:
+and returns one SQL-shaped result payload rather than typed entities.
 
-- `create(...)`, `insert(...)`, `update(...)`, `replace(...)`
-- `create_returning...`, `insert_returning...`, `update_returning...`
-- `delete::<E>()`
-- `delete::<E>().returning...`
+The narrower legacy SQL helpers still reject mutation execution:
 
-`query_from_sql(...)` may still lower `DELETE` intent into one canonical query
-model, but that is a typed lowering helper, not a public SQL mutation
-execution contract.
+- `query_from_sql(...)`
+- `execute_sql(...)`
+- `execute_sql_grouped(...)`
+- `execute_sql_aggregate(...)`
+
+Those helpers remain split by typed query/result lane and are not the
+canonical SQL debug surface.
 
 ## Entity Naming And Aliases
 

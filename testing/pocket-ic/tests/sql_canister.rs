@@ -3496,13 +3496,6 @@ fn assert_metadata_entity_name(
 #[test]
 fn sql_canister_sql_parity_smoke_flow() {
     run_with_sql_parity_canister(|pic, canister_id| {
-        let entities: Vec<String> = pic
-            .query_call(canister_id, "sql_entities", ())
-            .expect("sql_entities query call should succeed");
-        assert!(entities.iter().any(|name| name == "Customer"));
-        assert!(entities.iter().any(|name| name == "CustomerAccount"));
-        assert!(entities.iter().any(|name| name == "CustomerOrder"));
-
         let show_entities_payload = query_result(pic, canister_id, "SHOW ENTITIES")
             .expect("SHOW ENTITIES query should return an Ok payload");
         let show_entities_lines = show_entities_payload.render_lines();

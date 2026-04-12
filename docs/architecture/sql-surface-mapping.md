@@ -48,6 +48,7 @@ Legend:
 | `execute_sql` | yes | no | no | no | no | no | no | no | no |
 | `execute_sql_grouped` | no | yes | no | partial | no | no | no | no | no |
 | `execute_sql_aggregate` | no | no | yes | no | no | no | no | no | no |
+| `execute_entity_sql::<E>` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no |
 
 ## What Is Already Stable
@@ -68,6 +69,14 @@ Representative evidence:
 
 This is the part of the SQL surface that already behaves like one canonical
 query/runtime model with multiple frontends.
+
+The strongest current SQL debug surface is now:
+
+- `execute_entity_sql::<E>(...)`
+
+It stays single-entity and SQL-shaped, but it executes every currently
+supported single-entity SQL statement family instead of rejecting shapes just
+because they landed on one of the narrower legacy wrappers.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
@@ -127,17 +136,22 @@ Representative evidence:
 
 ### Mutation Ownership
 
-SQL text is no longer a public write-execution surface.
-
-The canonical public write owners are:
+The canonical public write owners are still:
 
 - typed `create(...)`, `insert(...)`, `update(...)`, and `replace(...)`
 - typed `*_returning...` helpers for row-returning mutation outcomes
 - fluent `delete::<E>()` and `delete::<E>().returning...`
 
-`query_from_sql(...)` may still lower `DELETE` intent into the canonical query
-model, but public SQL execution no longer owns `INSERT`, `UPDATE`, or `DELETE`
-runtime behavior.
+But the dedicated SQL debug surface:
+
+- `execute_entity_sql::<E>(...)`
+
+also executes the currently admitted single-entity mutation shapes and returns
+SQL-shaped count/projection payloads.
+
+The older SQL helper shards still reject mutation execution and should be
+treated as narrower legacy wrappers rather than as the canonical SQL debug
+entrypoint.
 
 Representative evidence:
 

@@ -4,7 +4,11 @@
 
 extern crate canic_cdk as ic_cdk;
 
+#[cfg(feature = "sql")]
+use canic_cdk::query;
 use canic_cdk::update;
+#[cfg(feature = "sql")]
+use icydb::db::sql::SqlQueryResult;
 use icydb_testing_test_sql_fixtures::sql::SqlTestUser;
 
 icydb::start!();
@@ -45,6 +49,13 @@ fn sql_users() -> Vec<SqlTestUser> {
             ..Default::default()
         },
     ]
+}
+
+/// Execute one SqlTestUser-only reduced SQL statement against the smoke canister.
+#[cfg(feature = "sql")]
+#[query]
+fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_entity_sql::<SqlTestUser>(sql.as_str())
 }
 
 canic_cdk::export_candid!();
