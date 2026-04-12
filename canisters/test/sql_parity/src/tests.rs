@@ -19,6 +19,16 @@ mod tests {
 
     const DEMO_RPG_MEMORY_MIN: u8 = 104;
     const DEMO_RPG_MEMORY_MAX: u8 = 154;
+    type GroupedRow = (Value, Value);
+    type GroupedRowCase<'a> = (&'a str, Vec<GroupedRow>, &'a str);
+    type GroupedWindowCase<'a> = (
+        &'a str,
+        Vec<GroupedRow>,
+        Vec<GroupedRow>,
+        &'a str,
+        &'a str,
+        &'a str,
+    );
 
     // The generated `db()` bootstrap now flushes pending eager-init state
     // without introducing a new owner range at call time. In host-parallel
@@ -367,7 +377,7 @@ mod tests {
 
     // Compare one typed grouped SQL family against the expected ordered rows
     // for a compact matrix of aggregate variants.
-    fn assert_typed_grouped_row_cases(cases: &[(&str, Vec<(Value, Value)>, &str)]) {
+    fn assert_typed_grouped_row_cases(cases: &[GroupedRowCase<'_>]) {
         reload_default_fixtures();
 
         for (sql, expected_rows, context) in cases {
@@ -379,16 +389,7 @@ mod tests {
 
     // Compare one typed grouped pagination family against the expected page
     // windows and continuation contract.
-    fn assert_typed_grouped_window_cases(
-        cases: &[(
-            &str,
-            Vec<(Value, Value)>,
-            Vec<(Value, Value)>,
-            &str,
-            &str,
-            &str,
-        )],
-    ) {
+    fn assert_typed_grouped_window_cases(cases: &[GroupedWindowCase<'_>]) {
         reload_default_fixtures();
 
         for (sql, first_expected, second_expected, first_context, second_context, cursor_context) in
