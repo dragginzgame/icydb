@@ -654,7 +654,7 @@ fn lower_query_for_routed_entity(
     }
 }
 
-fn attribution_phase_split(
+const fn attribution_phase_split(
     total_local_instructions: u64,
     parse_local_instructions: u64,
     route_local_instructions: u64,
@@ -666,11 +666,7 @@ fn attribution_phase_split(
         .saturating_add(lower_local_instructions);
     let remaining = total_local_instructions.saturating_sub(attributed_before_execute);
 
-    let dispatch_local_instructions = if require_positive_dispatch && remaining >= 2 {
-        1
-    } else {
-        0
-    };
+    let dispatch_local_instructions = (require_positive_dispatch && remaining >= 2) as u64;
     let execute_local_instructions = remaining.saturating_sub(dispatch_local_instructions);
     let wrapper_local_instructions = total_local_instructions.saturating_sub(
         attributed_before_execute
