@@ -28,19 +28,17 @@ use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
-pub(crate) use aggregate::compile_sql_global_aggregate_command_from_prepared;
 pub(in crate::db) use aggregate::is_sql_global_aggregate_statement;
 #[cfg(test)]
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
     PreparedSqlScalarAggregateEmptySetBehavior, PreparedSqlScalarAggregateOrderingRequirement,
-    PreparedSqlScalarAggregateRowSource, TypedSqlGlobalAggregateTerminal,
-    compile_sql_global_aggregate_command,
+    PreparedSqlScalarAggregateRowSource, SqlGlobalAggregateCommand,
+    TypedSqlGlobalAggregateTerminal, compile_sql_global_aggregate_command,
 };
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-    SqlGlobalAggregateCommand, SqlGlobalAggregateCommandCore,
-    bind_lowered_sql_explain_global_aggregate_structural,
+    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;

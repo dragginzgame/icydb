@@ -8,9 +8,13 @@ fn assert_sql_aggregate_value_case(
     expected: Value,
     context: &str,
 ) {
-    let actual = session
-        .execute_sql_aggregate::<SessionSqlEntity>(sql)
+    let rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} aggregate SQL should execute: {err}"));
+    let actual = rows
+        .into_iter()
+        .next()
+        .and_then(|mut row| if row.len() == 1 { row.pop() } else { None })
+        .unwrap_or_else(|| panic!("{context} aggregate SQL should emit one scalar value"));
 
     assert_eq!(
         actual, expected,
@@ -213,11 +217,7 @@ fn execute_sql_aggregate_window_matrix_returns_expected_values() {
         seed_session_sql_entities(&session, seed_rows.as_slice());
 
         for (sql, expected) in assertions {
-            let actual = session
-                .execute_sql_aggregate::<SessionSqlEntity>(sql)
-                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
-
-            assert_eq!(actual, expected, "{context} aggregate window case: {sql}");
+            assert_sql_aggregate_value_case(&session, sql, expected, context);
         }
     }
 }
@@ -317,104 +317,7 @@ fn execute_sql_aggregate_matrix_queries_match_expected_values() {
 
     // Phase 3: assert aggregate outputs for each SQL input.
     for (sql, expected_value) in cases {
-        let actual_value = session
-            .execute_sql_aggregate::<SessionSqlEntity>(sql)
-            .expect("aggregate matrix SQL execution should succeed");
-
-        assert_eq!(actual_value, expected_value, "aggregate matrix case: {sql}");
-    }
-}
-
-#[test]
-fn execute_sql_aggregate_rejects_unsupported_select_shapes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    for (sql, expected_message, context) in [
-        (
-            "SELECT age FROM SessionSqlEntity",
-            "execute_sql_aggregate requires constrained global aggregate SELECT",
-            "unsupported non-aggregate select shape",
-        ),
-        (
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            "execute_sql_aggregate rejects grouped SELECT",
-            "grouped select on aggregate lane",
-        ),
-    ] {
-        let err = session
-            .execute_sql_aggregate::<SessionSqlEntity>(sql)
-            .expect_err("unsupported aggregate shape should stay fail-closed");
-        assert!(
-            matches!(
-                err,
-                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                    _
-                ))
-            ),
-            "{context} should map to unsupported execution error boundary: {sql}",
-        );
-        assert!(
-            err.to_string().contains(expected_message),
-            "{context} should preserve the aggregate-surface boundary message: {sql}",
-        );
-    }
-}
-
-#[test]
-fn execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let cases = [
-        (
-            "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
-            "execute_sql_aggregate rejects EXPLAIN",
-        ),
-        (
-            "DESCRIBE SessionSqlEntity",
-            "execute_sql_aggregate rejects DESCRIBE",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "execute_sql_aggregate rejects SHOW INDEXES",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "execute_sql_aggregate rejects SHOW COLUMNS",
-        ),
-        (
-            "SHOW ENTITIES",
-            "execute_sql_aggregate rejects SHOW ENTITIES",
-        ),
-        (
-            "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
-            "execute_sql_aggregate rejects DELETE",
-        ),
-        (
-            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            "execute_sql_aggregate rejects INSERT",
-        ),
-        (
-            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-            "execute_sql_aggregate rejects INSERT",
-        ),
-        (
-            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-            "execute_sql_aggregate rejects UPDATE",
-        ),
-    ];
-
-    for (sql, expected) in cases {
-        let err = session
-            .execute_sql_aggregate::<SessionSqlEntity>(sql)
-            .expect_err(
-                "non-aggregate statement lanes should stay fail-closed for execute_sql_aggregate",
-            );
-        assert!(
-            err.to_string().contains(expected),
-            "execute_sql_aggregate should preserve a surface-local lane boundary message: {sql}",
-        );
+        assert_sql_aggregate_value_case(&session, sql, expected_value, sql);
     }
 }
 
@@ -425,11 +328,11 @@ fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
 
     let cases = [
         (
-            session
-                .execute_sql_aggregate::<SessionSqlEntity>(
-                    "SELECT SUM(missing_field) FROM SessionSqlEntity",
-                )
-                .map(|_| ()),
+            statement_projection_rows::<SessionSqlEntity>(
+                &session,
+                "SELECT SUM(missing_field) FROM SessionSqlEntity",
+            )
+            .map(|_| ()),
             "execute_sql_aggregate unknown target field",
         ),
         (

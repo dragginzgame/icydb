@@ -145,7 +145,7 @@ fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
         filtered_composite_order_explain_queries()
     {
         let descriptor = session
-            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
             .explain_execution()
             .unwrap_or_else(|err| {

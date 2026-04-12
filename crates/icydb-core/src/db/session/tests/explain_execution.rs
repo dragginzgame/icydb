@@ -320,7 +320,7 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
     );
 
     let projected_descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(
             "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
         )
         .expect("coverable SQL projection query should lower")
@@ -402,7 +402,7 @@ fn session_explain_execution_primary_key_covering_full_scan_is_planner_proven() 
         .expect("PK-covering session seed should succeed");
 
     let descriptor = session
-        .query_from_sql::<SessionSqlEntity>(
+        .lower_sql_query_for_tests::<SessionSqlEntity>(
             "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
         )
         .expect("PK-only covering query should lower")

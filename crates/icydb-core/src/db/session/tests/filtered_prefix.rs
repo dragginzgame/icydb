@@ -115,7 +115,7 @@ fn assert_filtered_prefix_projection_parity(
 fn assert_filtered_prefix_covering_route(session: &DbSession<SessionSqlCanister>, desc: bool) {
     for (context, sql) in filtered_prefix_queries(desc) {
         let descriptor = session
-            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
             .explain_execution()
             .unwrap_or_else(|err| {
@@ -165,7 +165,7 @@ fn assert_filtered_composite_prefix_projection_parity(
 fn assert_filtered_composite_covering_route(session: &DbSession<SessionSqlCanister>, desc: bool) {
     for (context, sql) in filtered_composite_prefix_queries(desc) {
         let descriptor = session
-            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
             .explain_execution()
             .unwrap_or_else(|err| {

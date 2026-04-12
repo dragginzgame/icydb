@@ -78,7 +78,7 @@ fn execute_sql_rejects_aggregate_projection_in_current_slice() {
     let session = sql_session();
 
     let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
         .expect_err("global aggregate SQL projection should remain lowering-gated");
 
     assert!(

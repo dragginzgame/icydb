@@ -43,6 +43,7 @@ pub(crate) enum SqlGlobalAggregateTerminal {
 /// Field-target variants carry a resolved planner field slot so typed SQL
 /// aggregate execution does not re-resolve the same field name before dispatch.
 ///
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TypedSqlGlobalAggregateTerminal {
     CountRows,
@@ -181,6 +182,7 @@ impl PreparedSqlScalarAggregateStrategy {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::db::sql::lowering) fn from_typed_terminal(
         terminal: &TypedSqlGlobalAggregateTerminal,
     ) -> Self {
@@ -479,12 +481,14 @@ enum LoweredSqlAggregateShape {
 ///
 /// Lowered global SQL aggregate command carrying base query shape plus terminal.
 ///
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
     terminal: TypedSqlGlobalAggregateTerminal,
 }
 
+#[cfg(test)]
 impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     /// Borrow the lowered base query shape for aggregate execution.
     #[must_use]
@@ -588,6 +592,7 @@ pub(crate) fn compile_sql_global_aggregate_command<E: EntityKind>(
 // Lower one already-prepared SQL statement into the constrained global
 // aggregate command envelope so callers that already parsed and routed the
 // statement do not pay the parser again.
+#[cfg(test)]
 pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
@@ -621,6 +626,7 @@ pub(in crate::db) fn compile_sql_global_aggregate_command_core_from_prepared(
     ))
 }
 
+#[cfg(test)]
 fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
     terminal: SqlGlobalAggregateTerminal,
 ) -> Result<TypedSqlGlobalAggregateTerminal, SqlLoweringError> {
@@ -696,6 +702,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
     })
 }
 
+#[cfg(test)]
 pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,

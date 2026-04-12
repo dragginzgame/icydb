@@ -25,7 +25,7 @@ fn assert_direct_casefold_expression_route(
     context: &str,
 ) {
     let descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(sql)
+        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(sql)
         .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
         .explain_execution()
         .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
@@ -87,7 +87,7 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
     );
 
     let entity_direct_names = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+        .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
         )
         .expect("direct STARTS_WITH entity query should execute")
@@ -95,7 +95,7 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
         .map(|row| row.entity_ref().name.clone())
         .collect::<Vec<_>>();
     let entity_like_names = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+        .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
         )
         .expect("strict LIKE prefix entity query should execute")
@@ -103,7 +103,7 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
         .map(|row| row.entity_ref().name.clone())
         .collect::<Vec<_>>();
     let entity_range_names = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+        .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE name >= 'S' AND name < 'T' ORDER BY name ASC",
         )
         .expect("strict text-range entity query should execute")
@@ -123,7 +123,7 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
     // Phase 3: keep the accepted `UPPER(name)` entity family aligned with the
     // established casefold LIKE path on the same seeded fixture.
     let upper_like_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+        .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
         )
         .expect("UPPER(field) LIKE entity query should execute");
@@ -140,7 +140,7 @@ fn execute_sql_direct_starts_with_family_matrix_matches_indexed_like_rows() {
 
     for (sql, context) in upper_cases {
         let actual_rows = session
-            .execute_sql::<IndexedSessionSqlEntity>(sql)
+            .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
         assert_eq!(actual_rows.len(), upper_like_rows.len());

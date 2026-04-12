@@ -65,6 +65,7 @@ type PreparedScalarProjectionExecution<'ctx> = (
 );
 
 // Typed boundary request for one scalar field-projection terminal family call.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
     DistinctValues,
@@ -143,6 +144,7 @@ where
     // aggregate field-extrema path and then project the winning row's field
     // value. This keeps aggregate extrema on the dedicated aggregate
     // route instead of the two-step ranked-id plus follow-up field load path.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) fn execute_scalar_extrema_value_boundary(
         &self,
         plan: PreparedExecutionPlan<E>,

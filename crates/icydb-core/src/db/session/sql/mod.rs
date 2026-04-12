@@ -13,30 +13,33 @@ mod surface;
 
 use crate::{
     db::{
-        DbSession, EntityResponse, GroupedTextCursorPageWithTrace, MissingRowPolicy,
-        PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
+        DbSession, PersistedRow, QueryError,
         executor::EntityAuthority,
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        sql::{
-            lowering::{
-                bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
-                prepare_sql_statement,
-            },
-            parser::{SqlStatement, parse_sql},
-        },
+        sql::parser::{SqlStatement, parse_sql},
     },
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 
-use crate::db::session::sql::aggregate::{
-    SqlAggregateSurface, parsed_requires_dedicated_sql_aggregate_lane,
-    unsupported_sql_aggregate_lane_message,
-};
+#[cfg(not(test))]
+use crate::db::session::sql::surface::sql_statement_route_from_statement;
+#[cfg(test)]
 use crate::db::session::sql::surface::{
     SqlSurface, session_sql_lane, sql_statement_route_from_statement, unsupported_sql_lane_message,
+};
+#[cfg(test)]
+use crate::db::{
+    EntityResponse, MissingRowPolicy, PagedGroupedExecutionWithTrace, Query,
+    session::sql::aggregate::{
+        SqlAggregateSurface, parsed_requires_dedicated_sql_aggregate_lane,
+        unsupported_sql_aggregate_lane_message,
+    },
+    sql::lowering::{
+        bind_lowered_sql_query, lower_sql_command_from_prepared_statement, prepare_sql_statement,
+    },
 };
 
 #[cfg(feature = "structural-read-metrics")]
@@ -52,6 +55,7 @@ pub use crate::db::{
     session::sql::projection::SqlProjectionTextExecutorAttribution,
 };
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SqlComputedProjectionSurface {
     QueryFrom,
@@ -59,6 +63,7 @@ enum SqlComputedProjectionSurface {
     ExecuteSqlGrouped,
 }
 
+#[cfg(test)]
 const fn unsupported_sql_computed_projection_message(
     surface: SqlComputedProjectionSurface,
 ) -> &'static str {
@@ -73,6 +78,7 @@ const fn unsupported_sql_computed_projection_message(
     }
 }
 
+#[cfg(test)]
 const fn unsupported_sql_write_surface_message(
     surface: SqlSurface,
     statement: &SqlStatement,
@@ -112,6 +118,7 @@ const fn unsupported_sql_write_surface_message(
     }
 }
 
+#[cfg(test)]
 const fn unsupported_sql_returning_surface_message(
     surface: SqlSurface,
     statement: &SqlStatement,
@@ -233,6 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    #[cfg(test)]
     // Lower one parsed SQL statement onto the structural query lane while
     // keeping dedicated global aggregate execution outside this shared path.
     fn query_from_sql_parsed<E>(
@@ -288,6 +296,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(query)
     }
 
+    #[cfg(test)]
     // Lower one session-owned computed grouped SQL projection onto the typed
     // grouped query lane without widening generic grouped expression support.
     fn grouped_query_from_computed_sql_projection_plan<E>(
@@ -335,11 +344,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(parsed.route().clone())
     }
 
-    /// Build one typed query intent from one reduced SQL statement.
+    /// Build one typed query intent from one reduced SQL statement for tests.
     ///
-    /// This parser/lowering entrypoint is intentionally constrained to the
-    /// executable subset wired in the current release.
-    pub fn query_from_sql<E>(&self, sql: &str) -> Result<Query<E>, QueryError>
+    /// The public SQL surface no longer exposes structural lowering directly,
+    /// but core tests still need one explicit lowering hook to inspect planner
+    /// behavior below the outward SQL result envelope.
+    #[cfg(test)]
+    pub(in crate::db) fn lower_sql_query_for_tests<E>(
+        &self,
+        sql: &str,
+    ) -> Result<Query<E>, QueryError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -353,8 +367,16 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    /// Execute one reduced SQL `SELECT` statement for entity `E`.
-    pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
+    /// Execute one scalar reduced SQL `SELECT` statement for tests.
+    ///
+    /// The public surface now uses `execute_sql_query::<E>(...)`, but tests
+    /// still keep one scalar entity-materializing helper for planner/runtime
+    /// coverage that asserts the structural read lane directly.
+    #[cfg(test)]
+    pub(in crate::db) fn execute_scalar_sql_for_tests<E>(
+        &self,
+        sql: &str,
+    ) -> Result<EntityResponse<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -407,8 +429,13 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_sql_statement_parsed::<E>(&parsed)
     }
 
-    /// Execute one reduced SQL grouped `SELECT` statement and return grouped rows.
-    pub fn execute_sql_grouped<E>(
+    /// Execute one grouped reduced SQL `SELECT` statement for tests.
+    ///
+    /// The public surface now routes grouped SQL through
+    /// `execute_sql_query::<E>(...)`, but tests still need explicit grouped
+    /// cursor coverage below the outward SQL result envelope.
+    #[cfg(test)]
+    pub(in crate::db) fn execute_grouped_sql_for_tests<E>(
         &self,
         sql: &str,
         cursor_token: Option<&str>,
@@ -455,52 +482,5 @@ impl<C: CanisterKind> DbSession<C> {
         Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Grouped)?;
 
         self.execute_grouped(&query, cursor_token)
-    }
-
-    /// Execute one reduced SQL grouped `SELECT` statement and return one text cursor directly.
-    #[doc(hidden)]
-    pub fn execute_sql_grouped_text_cursor<E>(
-        &self,
-        sql: &str,
-        cursor_token: Option<&str>,
-    ) -> Result<GroupedTextCursorPageWithTrace, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let parsed = self.parse_sql_statement(sql)?;
-
-        if matches!(&parsed.statement, SqlStatement::Delete(_)) {
-            return Err(QueryError::unsupported_query(
-                "execute_sql_grouped rejects DELETE; use delete::<E>()",
-            ));
-        }
-
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
-            if !plan.is_grouped() {
-                return Err(QueryError::unsupported_query(
-                    unsupported_sql_computed_projection_message(
-                        SqlComputedProjectionSurface::ExecuteSqlGrouped,
-                    ),
-                ));
-            }
-
-            let query = Self::grouped_query_from_computed_sql_projection_plan::<E>(&plan)?;
-            let (rows, continuation_cursor, execution_trace) =
-                self.execute_grouped_text_cursor(&query, cursor_token)?;
-            let rows =
-                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
-
-            return Ok((rows, continuation_cursor, execution_trace));
-        }
-
-        let query = Self::query_from_sql_parsed::<E>(
-            &parsed,
-            SqlSurface::ExecuteSqlGrouped,
-            SqlComputedProjectionSurface::ExecuteSqlGrouped,
-            SqlAggregateSurface::ExecuteSqlGrouped,
-        )?;
-        Self::ensure_sql_query_grouping(&query, execute::SqlGroupingSurface::Grouped)?;
-
-        self.execute_grouped_text_cursor(&query, cursor_token)
     }
 }

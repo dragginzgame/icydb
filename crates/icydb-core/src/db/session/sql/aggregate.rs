@@ -6,27 +6,23 @@
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PersistedRow, QueryError,
-        executor::{ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest},
+        DbSession, MissingRowPolicy, QueryError,
         numeric::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
-        session::sql::surface::sql_statement_route_from_statement,
-        session::sql::{SqlParsedStatement, SqlStatementResult, SqlStatementRoute},
+        session::sql::{SqlParsedStatement, SqlStatementResult},
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-            SqlGlobalAggregateCommand, SqlGlobalAggregateCommandCore,
-            compile_sql_global_aggregate_command_core_from_prepared,
-            compile_sql_global_aggregate_command_from_prepared, is_sql_global_aggregate_statement,
-            prepare_sql_statement,
+            SqlGlobalAggregateCommandCore, compile_sql_global_aggregate_command_core_from_prepared,
+            is_sql_global_aggregate_statement,
         },
-        sql::parser::{SqlStatement, parse_sql},
     },
-    traits::{CanisterKind, EntityValue},
+    traits::CanisterKind,
     value::Value,
 };
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlAggregateSurface {
     QueryFrom,
@@ -40,41 +36,17 @@ pub(in crate::db::session::sql) fn parsed_requires_dedicated_sql_aggregate_lane(
     is_sql_global_aggregate_statement(&parsed.statement)
 }
 
+#[cfg(test)]
 pub(in crate::db::session::sql) const fn unsupported_sql_aggregate_lane_message(
     surface: SqlAggregateSurface,
 ) -> &'static str {
     match surface {
-        SqlAggregateSurface::QueryFrom => {
-            "query_from_sql rejects global aggregate SELECT; use execute_sql_aggregate(...)"
-        }
-        SqlAggregateSurface::ExecuteSql => {
-            "execute_sql rejects global aggregate SELECT; use execute_sql_aggregate(...)"
-        }
+        SqlAggregateSurface::QueryFrom => "structural SQL lowering rejects global aggregate SELECT",
+        SqlAggregateSurface::ExecuteSql => "scalar SQL execution rejects global aggregate SELECT",
         SqlAggregateSurface::ExecuteSqlGrouped => {
-            "execute_sql_grouped rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+            "grouped SQL execution rejects global aggregate SELECT"
         }
     }
-}
-
-const fn unsupported_sql_aggregate_surface_lane_message(route: &SqlStatementRoute) -> &'static str {
-    match route {
-        SqlStatementRoute::Query { .. } => {
-            "execute_sql_aggregate requires constrained global aggregate SELECT"
-        }
-        SqlStatementRoute::Insert { .. } => {
-            "execute_sql_aggregate rejects INSERT; use create(...) or insert(...)"
-        }
-        SqlStatementRoute::Update { .. } => "execute_sql_aggregate rejects UPDATE; use update(...)",
-        SqlStatementRoute::Explain { .. } => "execute_sql_aggregate rejects EXPLAIN",
-        SqlStatementRoute::Describe { .. } => "execute_sql_aggregate rejects DESCRIBE",
-        SqlStatementRoute::ShowIndexes { .. } => "execute_sql_aggregate rejects SHOW INDEXES",
-        SqlStatementRoute::ShowColumns { .. } => "execute_sql_aggregate rejects SHOW COLUMNS",
-        SqlStatementRoute::ShowEntities => "execute_sql_aggregate rejects SHOW ENTITIES",
-    }
-}
-
-const fn unsupported_sql_aggregate_grouped_message() -> &'static str {
-    "execute_sql_aggregate rejects grouped SELECT; use execute_sql_grouped(...)"
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -327,239 +299,5 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)
-    }
-
-    // Require one resolved target slot from a prepared field-target SQL
-    // aggregate strategy before executing against the supported families.
-    fn prepared_sql_scalar_target_slot_required(
-        strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
-        message: &'static str,
-    ) -> Result<crate::db::query::plan::FieldSlot, QueryError> {
-        strategy
-            .target_slot()
-            .cloned()
-            .ok_or_else(|| QueryError::invariant(message))
-    }
-
-    // Execute prepared COUNT(*) through the shared existing-rows scalar
-    // terminal boundary.
-    fn execute_prepared_sql_scalar_count_rows<E>(
-        &self,
-        command: &SqlGlobalAggregateCommand<E>,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.execute_load_query_with(command.query(), |load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                crate::db::executor::ScalarTerminalBoundaryRequest::Count,
-            )?
-            .into_count()
-        })
-        .map(|count| Value::Uint(u64::from(count)))
-    }
-
-    // Execute prepared COUNT(field) through the shared scalar projection
-    // boundary.
-    fn execute_prepared_sql_scalar_count_field<E>(
-        &self,
-        command: &SqlGlobalAggregateCommand<E>,
-        strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let target_slot = Self::prepared_sql_scalar_target_slot_required(
-            strategy,
-            "prepared COUNT(field) SQL aggregate strategy requires target slot",
-        )?;
-
-        self.execute_load_query_with(command.query(), |load, plan| {
-            load.execute_scalar_projection_boundary(
-                plan,
-                target_slot.clone(),
-                ScalarProjectionBoundaryRequest::CountNonNull,
-            )?
-            .into_count()
-        })
-        .map(|count| Value::Uint(u64::from(count)))
-    }
-
-    // Execute prepared SUM/AVG(field) through the shared numeric field
-    // boundary.
-    fn execute_prepared_sql_scalar_numeric_field<E>(
-        &self,
-        command: &SqlGlobalAggregateCommand<E>,
-        strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
-        request: ScalarNumericFieldBoundaryRequest,
-        message: &'static str,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let target_slot = Self::prepared_sql_scalar_target_slot_required(strategy, message)?;
-
-        self.execute_load_query_with(command.query(), |load, plan| {
-            load.execute_numeric_field_boundary(plan, target_slot.clone(), request)
-        })
-        .map(|value| value.map_or(Value::Null, Value::Decimal))
-    }
-
-    // Execute prepared MIN/MAX(field) through the shared extrema-value
-    // boundary.
-    fn execute_prepared_sql_scalar_extrema_field<E>(
-        &self,
-        command: &SqlGlobalAggregateCommand<E>,
-        strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
-        kind: crate::db::query::plan::AggregateKind,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let target_slot = Self::prepared_sql_scalar_target_slot_required(
-            strategy,
-            "prepared extrema SQL aggregate strategy requires target slot",
-        )?;
-
-        self.execute_load_query_with(command.query(), |load, plan| {
-            load.execute_scalar_extrema_value_boundary(plan, target_slot.clone(), kind)
-        })
-        .map(|value| value.unwrap_or(Value::Null))
-    }
-
-    // Execute one prepared typed SQL scalar aggregate strategy through the
-    // existing aggregate boundary families without rediscovering behavior from
-    // raw SQL terminal variants at the session layer.
-    fn execute_prepared_sql_scalar_aggregate<E>(
-        &self,
-        command: &SqlGlobalAggregateCommand<E>,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let strategy = command.prepared_scalar_strategy();
-
-        match strategy.runtime_descriptor() {
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                self.execute_prepared_sql_scalar_count_rows(command)
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
-                self.execute_prepared_sql_scalar_count_field(command, &strategy)
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: crate::db::query::plan::AggregateKind::Sum,
-            } => self.execute_prepared_sql_scalar_numeric_field(
-                command,
-                &strategy,
-                ScalarNumericFieldBoundaryRequest::Sum,
-                "prepared SUM(field) SQL aggregate strategy requires target slot",
-            ),
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: crate::db::query::plan::AggregateKind::Avg,
-            } => self.execute_prepared_sql_scalar_numeric_field(
-                command,
-                &strategy,
-                ScalarNumericFieldBoundaryRequest::Avg,
-                "prepared AVG(field) SQL aggregate strategy requires target slot",
-            ),
-            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { kind } => {
-                self.execute_prepared_sql_scalar_extrema_field(command, &strategy, kind)
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. } => {
-                Err(QueryError::invariant(
-                    "prepared SQL scalar aggregate numeric runtime descriptor drift",
-                ))
-            }
-        }
-    }
-
-    /// Execute one reduced SQL global aggregate `SELECT` statement.
-    ///
-    /// This entrypoint is intentionally constrained to one aggregate terminal
-    /// shape per statement and preserves existing terminal semantics.
-    pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        // Parse once into one owned statement so the aggregate lane can keep
-        // its surface checks and lowering on the same statement instance.
-        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-        // First keep wrong-lane traffic on an explicit aggregate-surface
-        // contract instead of relying on generic lowering failures.
-        match &statement {
-            SqlStatement::Select(_) if is_sql_global_aggregate_statement(&statement) => {}
-            SqlStatement::Select(statement) if !statement.group_by.is_empty() => {
-                return Err(QueryError::unsupported_query(
-                    unsupported_sql_aggregate_grouped_message(),
-                ));
-            }
-            SqlStatement::Delete(_) => {
-                return Err(QueryError::unsupported_query(
-                    "execute_sql_aggregate rejects DELETE; use delete::<E>()",
-                ));
-            }
-            _ => {
-                let route = sql_statement_route_from_statement(&statement);
-
-                return Err(QueryError::unsupported_query(
-                    unsupported_sql_aggregate_surface_lane_message(&route),
-                ));
-            }
-        }
-
-        // First lower the SQL surface onto the existing single-terminal
-        // aggregate command authority so execution never has to rediscover the
-        // accepted aggregate shape family.
-        let prepared = prepare_sql_statement(statement, E::MODEL.name())
-            .map_err(QueryError::from_sql_lowering_error)?;
-        let command = compile_sql_global_aggregate_command_from_prepared::<E>(
-            prepared.clone(),
-            MissingRowPolicy::Ignore,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
-        let strategy = command.prepared_scalar_strategy();
-
-        // DISTINCT field aggregates reuse the existing structural projection +
-        // reduction lane so SQL deduplicates aggregate inputs before folding.
-        if strategy.is_distinct() {
-            let statement = compile_sql_global_aggregate_command_core_from_prepared(
-                prepared,
-                E::MODEL,
-                MissingRowPolicy::Ignore,
-            )
-            .map_err(QueryError::from_sql_lowering_error)?;
-            let authority = crate::db::executor::EntityAuthority::for_type::<E>();
-            let SqlStatementResult::Projection { rows, .. } =
-                self.execute_sql_aggregate_statement_for_authority(statement, authority, None)?
-            else {
-                return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate statement must finalize as one projection row",
-                ));
-            };
-            let Some(mut row) = rows.into_iter().next() else {
-                return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate statement must emit one projection row",
-                ));
-            };
-            if row.len() != 1 {
-                return Err(QueryError::invariant(
-                    "DISTINCT SQL aggregate statement must emit exactly one projected value",
-                ));
-            }
-            let value = row.pop().ok_or_else(|| {
-                QueryError::invariant(
-                    "DISTINCT SQL aggregate statement must emit exactly one projected value",
-                )
-            })?;
-
-            return Ok(value);
-        }
-
-        // Then execute one prepared typed-scalar aggregate strategy so
-        // SQL aggregate execution and SQL aggregate explain consume the same
-        // behavioral source instead of matching raw terminal variants twice.
-        self.execute_prepared_sql_scalar_aggregate(&command)
     }
 }

@@ -9,7 +9,7 @@ fn assert_query_lowering_matches_fluent_intent(
     context: &str,
 ) {
     let sql_query = session
-        .query_from_sql::<SessionSqlEntity>(sql)
+        .lower_sql_query_for_tests::<SessionSqlEntity>(sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err}"));
 
     assert_eq!(
@@ -31,7 +31,7 @@ fn query_from_sql_rejects_global_aggregate_execution_in_current_lane() {
     let session = sql_session();
 
     let err = session
-        .query_from_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .lower_sql_query_for_tests::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
         .expect_err(
             "query_from_sql should keep global aggregate execution on the dedicated aggregate lane",
         );

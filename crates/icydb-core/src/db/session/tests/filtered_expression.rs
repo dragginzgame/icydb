@@ -110,7 +110,7 @@ fn assert_filtered_expression_materialized_descriptor(
     context: &str,
 ) {
     let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
         .explain_execution()
         .unwrap_or_else(|err| panic!("{context} SQL explain_execution should succeed: {err:?}"));
@@ -167,7 +167,7 @@ fn execute_sql_projection_filtered_expression_order_only_matrix_returns_guarded_
             statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
         let entity_rows = session
-            .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
         let entity_projected_rows = entity_rows
             .iter()
@@ -219,7 +219,7 @@ fn execute_sql_projection_filtered_expression_prefix_matrix_matches_guarded_rows
         let (like_rows, starts_with_rows, range_rows) =
             filtered_expression_prefix_spellings(&session, descending);
         let entity_rows = session
-            .execute_sql::<FilteredIndexedSessionSqlEntity>(entity_sql)
+            .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(entity_sql)
             .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
         let entity_projected_rows = entity_rows
             .iter()

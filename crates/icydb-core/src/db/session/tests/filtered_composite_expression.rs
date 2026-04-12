@@ -111,7 +111,7 @@ fn assert_filtered_composite_expression_materialized_descriptor(
     context: &str,
 ) {
     let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
         .expect("filtered composite expression SQL query should lower")
         .explain_execution()
         .expect("filtered composite expression SQL explain_execution should succeed");
@@ -152,7 +152,7 @@ fn assert_filtered_composite_expression_covering_descriptor(
     context: &str,
 ) {
     let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
         .expect("filtered composite expression covering SQL query should lower")
         .explain_execution()
         .expect("filtered composite expression covering SQL explain_execution should succeed");
@@ -291,7 +291,7 @@ fn execute_sql_projection_filtered_composite_expression_order_only_pagination_ma
     // projection window can be checked against the same structural order.
     let base_sql = "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC";
     let full_entity_rows = session
-        .execute_sql::<FilteredIndexedSessionSqlEntity>(base_sql)
+        .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(base_sql)
         .expect("filtered composite expression baseline entity query should execute");
     let expected_projected_rows = full_entity_rows
         .iter()
@@ -319,7 +319,7 @@ fn execute_sql_projection_filtered_composite_expression_order_only_pagination_ma
             statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, &paged_sql)
                 .expect("filtered composite expression paged projection query should execute");
         let paged_entity_rows = session
-            .execute_sql::<FilteredIndexedSessionSqlEntity>(&paged_sql)
+            .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(&paged_sql)
             .expect("filtered composite expression paged entity query should execute");
         let expected_page = paged_entity_rows
             .iter()
@@ -420,7 +420,7 @@ fn session_explain_execution_filtered_composite_expression_prefix_key_only_keeps
     // Phase 2: collect the fuller materialized sibling and the narrower
     // key-only covering sibling from the same guarded prefix shape.
     let full_descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered composite expression prefix full-projection SQL query should lower")
@@ -429,7 +429,7 @@ fn session_explain_execution_filtered_composite_expression_prefix_key_only_keeps
             "filtered composite expression prefix full-projection SQL explain_execution should succeed",
         );
     let key_only_descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered composite expression prefix key-only SQL query should lower")
@@ -502,12 +502,12 @@ fn execute_sql_statement_filtered_composite_expression_prefix_key_only_keeps_tra
     // Phase 2: execute the fuller materialized sibling and the narrower
     // key-only covering sibling with trace enabled.
     let full_query = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered composite expression prefix full-projection SQL query should lower");
     let key_only_query = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered composite expression prefix key-only SQL query should lower");

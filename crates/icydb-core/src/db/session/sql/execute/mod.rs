@@ -49,18 +49,18 @@ use crate::{
 #[cfg(feature = "perf-attribution")]
 pub use lowered::LoweredSqlStatementExecutorAttribution;
 
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlGroupingSurface {
     Scalar,
     Grouped,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 const fn unsupported_sql_grouping_message(surface: SqlGroupingSurface) -> &'static str {
     match surface {
-        SqlGroupingSurface::Scalar => {
-            "execute_sql rejects grouped SELECT; use execute_sql_grouped(...)"
-        }
-        SqlGroupingSurface::Grouped => "execute_sql_grouped requires grouped SQL query intent",
+        SqlGroupingSurface::Scalar => "scalar SQL execution rejects grouped SELECT",
+        SqlGroupingSurface::Grouped => "grouped SQL execution requires grouped SQL query intent",
     }
 }
 
@@ -1097,6 +1097,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Validate that one SQL-derived query intent matches the grouped/scalar
     // execution surface that is about to consume it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::session::sql) fn ensure_sql_query_grouping<E>(
         query: &Query<E>,
         surface: SqlGroupingSurface,

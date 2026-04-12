@@ -19,7 +19,7 @@ fn assert_covering_index_range_descriptor<E>(
     E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
 {
     let descriptor = session
-        .query_from_sql::<E>(sql)
+        .lower_sql_query_for_tests::<E>(sql)
         .expect("order-only covering SQL query should lower")
         .explain_execution()
         .expect("order-only covering SQL explain_execution should succeed");
@@ -71,7 +71,7 @@ fn assert_projection_matches_entity_rows(
     let projected_rows = statement_projection_rows::<IndexedSessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
     let entity_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(sql)
         .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
     let entity_projected_rows = entity_rows
         .iter()
@@ -229,7 +229,7 @@ fn session_explain_execution_order_only_filtered_desc_residual_query_fails_close
     // shape to keep the secondary-prefix route while failing closed before
     // Top-N derivation.
     let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND age >= 20 ORDER BY handle DESC, id DESC LIMIT 2",
         )
         .expect("descending filtered composite residual order-only SQL query should lower")
@@ -314,7 +314,7 @@ fn session_explain_execution_order_only_filtered_query_without_guard_falls_back_
     // fail-closed full-scan path instead of silently borrowing the filtered
     // index order.
     let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT name FROM FilteredIndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
         )
         .expect("unguarded filtered-order SQL query should lower")

@@ -117,7 +117,7 @@ fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
         .expect("seed insert should succeed");
 
     let response = session
-        .execute_sql::<SessionSqlEntity>(
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>(
             "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
         )
         .expect("field-list SQL projection should execute");
@@ -528,7 +528,9 @@ fn execute_sql_select_field_projection_unknown_field_fails_with_plan_error() {
     let session = sql_session();
 
     let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT missing_field FROM SessionSqlEntity")
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>(
+            "SELECT missing_field FROM SessionSqlEntity",
+        )
         .expect_err("unknown projected fields should fail planner validation");
 
     assert!(
@@ -560,7 +562,9 @@ fn execute_sql_select_distinct_star_executes() {
         .expect("seed insert should succeed");
 
     let response = session
-        .execute_sql::<SessionSqlEntity>("SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC")
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>(
+            "SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+        )
         .expect("SELECT DISTINCT * should execute");
     assert_eq!(response.len(), 2);
 }

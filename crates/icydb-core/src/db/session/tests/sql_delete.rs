@@ -134,7 +134,7 @@ fn execute_sql_delete_rejects_delete_lane_on_typed_entity_surface() {
         "DELETE FROM SessionSqlEntity WHERE age < 20 RETURNING id",
     ] {
         let err = session
-            .execute_sql::<SessionSqlEntity>(sql)
+            .execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
             .expect_err("typed execute_sql DELETE should stay off the entity-response surface");
 
         assert!(

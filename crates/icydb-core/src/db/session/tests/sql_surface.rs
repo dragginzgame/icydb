@@ -155,7 +155,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
                 "query_from_sql must reject UPDATE statements",
             ),
         ],
-        |sql| session.query_from_sql::<SessionSqlEntity>(sql),
+        |sql| session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
     );
 
     // Phase 2: require both executable query entrypoints to preserve their
@@ -190,7 +190,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
     ];
     assert_sql_surface_rejects_statement_lanes_with_message(
         &message_cases,
-        |sql| session.execute_sql::<SessionSqlEntity>(sql),
+        |sql| session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql),
         "execute_sql",
     );
 
@@ -228,7 +228,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
 
     assert_sql_surface_rejects_statement_lanes_with_message(
         &grouped_cases,
-        |sql| session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
+        |sql| session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None),
         "execute_sql_grouped",
     );
 }
@@ -254,7 +254,7 @@ fn query_from_sql_projection_lowering_matrix_normalizes_to_scalar_fields() {
         ),
     ] {
         let query = session
-            .query_from_sql::<SessionSqlEntity>(sql)
+            .lower_sql_query_for_tests::<SessionSqlEntity>(sql)
             .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
         let projection = query
             .plan()
@@ -286,7 +286,7 @@ fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages
     let session = sql_session();
 
     let query_err = session
-        .query_from_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .lower_sql_query_for_tests::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err(
             "query_from_sql should stay on the structural lowered-query lane and reject computed text projection forms",
         );
@@ -298,7 +298,7 @@ fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages
     );
 
     let execute_err = session
-        .execute_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err("execute_sql should keep computed text projection on the statement-owned lane");
     assert!(
         execute_err
@@ -395,7 +395,7 @@ fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
     let session = sql_session();
 
     let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT \"name\" FROM SessionSqlEntity")
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT \"name\" FROM SessionSqlEntity")
         .expect_err("quoted identifiers should be rejected by reduced SQL parser");
 
     assert!(
@@ -593,19 +593,16 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
 
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| session.sql_statement_route(sql));
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.query_from_sql::<SessionSqlEntity>(sql)
+        session.lower_sql_query_for_tests::<SessionSqlEntity>(sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.execute_sql::<SessionSqlEntity>(sql)
+        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         statement_projection_rows::<SessionSqlEntity>(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.execute_sql_grouped::<SessionSqlEntity>(sql, None)
-    });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.execute_sql_aggregate::<SessionSqlEntity>(sql)
+        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         let explain_sql = format!("EXPLAIN {sql}");
@@ -614,16 +611,16 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert_specific_sql_unsupported_feature_detail(
         "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
         "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        |sql| session.query_from_sql::<SessionSqlEntity>(sql),
+        |sql| session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
     );
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
     assert_unsupported_sql_surface_result(
-        session.query_from_sql::<SessionSqlEntity>(sql),
+        session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
         "query_from_sql should reject INSERT lane even when RETURNING is present",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_sql::<SessionSqlEntity>(sql),
+        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql),
         "execute_sql should reject INSERT lane even when RETURNING is present",
     );
     let returning_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
@@ -635,23 +632,19 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "statement INSERT RETURNING should project the requested generated id",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
+        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None),
         "execute_sql_grouped should reject INSERT lane even when RETURNING is present",
-    );
-    assert_unsupported_sql_surface_result(
-        session.execute_sql_aggregate::<SessionSqlEntity>(sql),
-        "execute_sql_aggregate should reject INSERT lane even when RETURNING is present",
     );
 
     let update_returning_sql =
         "UPDATE SessionSqlEntity SET age = 22 WHERE name = 'Ada' RETURNING id, age";
 
     assert_unsupported_sql_surface_result(
-        session.query_from_sql::<SessionSqlEntity>(update_returning_sql),
+        session.lower_sql_query_for_tests::<SessionSqlEntity>(update_returning_sql),
         "query_from_sql should reject UPDATE lane even when RETURNING is present",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_sql::<SessionSqlEntity>(update_returning_sql),
+        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(update_returning_sql),
         "execute_sql should reject UPDATE lane even when RETURNING is present",
     );
     let updated_rows =
@@ -669,19 +662,15 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "statement UPDATE RETURNING should project the updated scalar field",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_sql_grouped::<SessionSqlEntity>(update_returning_sql, None),
+        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(update_returning_sql, None),
         "execute_sql_grouped should reject UPDATE lane even when RETURNING is present",
-    );
-    assert_unsupported_sql_surface_result(
-        session.execute_sql_aggregate::<SessionSqlEntity>(update_returning_sql),
-        "execute_sql_aggregate should reject UPDATE lane even when RETURNING is present",
     );
 
     let delete_returning_sql =
         "DELETE FROM SessionSqlEntity WHERE age > 20 ORDER BY age ASC LIMIT 1 RETURNING id";
 
     let query_from_err = session
-        .query_from_sql::<SessionSqlEntity>(delete_returning_sql)
+        .lower_sql_query_for_tests::<SessionSqlEntity>(delete_returning_sql)
         .map(|_| ())
         .expect_err("query_from_sql should reject DELETE RETURNING");
     assert!(
@@ -692,7 +681,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     );
 
     let execute_sql_err = session
-        .execute_sql::<SessionSqlEntity>(delete_returning_sql)
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>(delete_returning_sql)
         .map(|_| ())
         .expect_err("execute_sql should reject DELETE entirely");
     assert!(
@@ -703,7 +692,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     );
 
     let grouped_err = session
-        .execute_sql_grouped::<SessionSqlEntity>(delete_returning_sql, None)
+        .execute_grouped_sql_for_tests::<SessionSqlEntity>(delete_returning_sql, None)
         .map(|_| ())
         .expect_err("execute_sql_grouped should still reject DELETE at the grouped surface");
     assert!(
@@ -711,17 +700,6 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
             .to_string()
             .contains("execute_sql_grouped rejects DELETE"),
         "grouped SQL surface should preserve its own lane boundary before RETURNING guidance",
-    );
-
-    let aggregate_err = session
-        .execute_sql_aggregate::<SessionSqlEntity>(delete_returning_sql)
-        .map(|_| ())
-        .expect_err("execute_sql_aggregate should still reject DELETE at the aggregate surface");
-    assert!(
-        aggregate_err
-            .to_string()
-            .contains("execute_sql_aggregate rejects DELETE"),
-        "aggregate SQL surface should preserve its own lane boundary before RETURNING guidance",
     );
 }
 

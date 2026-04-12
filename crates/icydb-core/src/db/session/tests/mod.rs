@@ -1067,7 +1067,7 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
     );
 
     let query = session
-        .query_from_sql::<IndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(
             "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
         )
         .expect("trace-query SQL fixture should lower");
@@ -1415,7 +1415,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
     session: &DbSession<SessionSqlCanister>,
 ) -> (Vec<(StorageKey, Vec<StorageKey>)>, Vec<Ulid>) {
     let plan = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
         .expect("filtered expression-order SQL query should lower")
@@ -1963,7 +1963,7 @@ fn execute_sql_name_age_rows(
     sql: &str,
 ) -> Vec<(String, u64)> {
     session
-        .execute_sql::<SessionSqlEntity>(sql)
+        .execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
         .expect("scalar SQL execution should succeed")
         .iter()
         .map(|row| (row.entity_ref().name.clone(), row.entity_ref().age))

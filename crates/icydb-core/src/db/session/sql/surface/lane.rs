@@ -18,6 +18,7 @@ pub(in crate::db::session::sql) enum SqlLaneKind {
 }
 
 // Session SQL surfaces that enforce explicit wrong-lane fail-closed contracts.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlSurface {
     QueryFrom,
@@ -41,6 +42,7 @@ pub(in crate::db::session::sql) const fn session_sql_lane(
 }
 
 // Render one deterministic unsupported-lane message for one SQL surface.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::session::sql) const fn unsupported_sql_lane_message(
     surface: SqlSurface,
     lane: SqlLaneKind,
