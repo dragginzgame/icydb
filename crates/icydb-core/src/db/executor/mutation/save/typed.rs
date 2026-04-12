@@ -17,11 +17,37 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::{EntityValue, Storable},
+    traits::{EntityInsertInput, EntityValue, Storable},
     types::Timestamp,
 };
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
+    // Insert one authored typed input after materializing its typed entity and
+    // authored-slot provenance.
+    pub(super) fn save_typed_insert_input<I>(&self, input: I) -> Result<E, InternalError>
+    where
+        I: EntityInsertInput<Entity = E>,
+    {
+        let materialized = input.materialize_insert();
+        let authored_insert_slots = materialized.authored_slots().to_vec();
+        let entity = materialized.into_entity();
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let preflight = SavePreflightInputs {
+            schema: Self::schema_info(),
+            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            validate_relations: model_has_strong_relation_targets(E::MODEL),
+            write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
+            authored_insert_slots: Some(authored_insert_slots.as_slice()),
+        };
+
+        self.save_entity_with_context_and_schema(
+            &ctx,
+            SaveRule::from_mode(SaveMode::Insert),
+            preflight,
+            entity,
+        )
+    }
+
     // Build one logical row operation from a full typed after-image.
     pub(super) fn prepare_typed_entity_row_op(
         ctx: &Context<'_, E>,
@@ -74,6 +100,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
             validate_relations: model_has_strong_relation_targets(E::MODEL),
             write_context,
+            authored_insert_slots: None,
         };
 
         self.save_entity_with_context_and_schema(ctx, save_rule, preflight, entity)
@@ -133,6 +160,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             preflight.schema,
             preflight.validate_relations,
             preflight.write_context,
+            preflight.authored_insert_slots,
         )?;
         let marker_row_op = Self::prepare_typed_entity_row_op(
             ctx,

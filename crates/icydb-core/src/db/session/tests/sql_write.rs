@@ -582,6 +582,28 @@ fn execute_sql_dispatch_signed_numeric_write_matrix_widens_parser_literals() {
 }
 
 #[test]
+fn execute_sql_dispatch_signed_numeric_insert_widens_parser_literals() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let rows = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
+    )
+    .expect("signed SQL INSERT should widen parser literals onto signed field contracts");
+
+    assert_eq!(rows, vec![vec![Value::Int(2), Value::Int(9)]]);
+
+    let persisted = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
+        &session,
+        "SELECT id, delta FROM SessionSqlSignedWriteEntity ORDER BY id ASC",
+    )
+    .expect("signed post-insert projection should succeed");
+
+    assert_eq!(persisted, rows);
+}
+
+#[test]
 fn execute_sql_dispatch_rejects_incompatible_assignment_literal_for_signed_field() {
     reset_session_sql_store();
     let session = sql_session();

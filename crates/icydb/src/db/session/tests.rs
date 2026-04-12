@@ -1151,6 +1151,14 @@ fn facade_execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
             "execute_sql_grouped rejects SHOW COLUMNS",
         ),
         ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
+        (
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 21)",
+            "execute_sql_grouped rejects INSERT",
+        ),
+        (
+            "UPDATE FacadeSqlEntity SET age = 22 WHERE name = 'Ada'",
+            "execute_sql_grouped rejects UPDATE",
+        ),
     ];
 
     for (sql, expected) in cases {
@@ -1446,6 +1454,55 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_timestamp_field() {
         "facade insert projection should synthesize the generated timestamp field",
     );
     assert_eq!(rows.rows[0][2], "Ada".to_string());
+}
+
+#[test]
+fn facade_insert_typed_synthesizes_generated_and_managed_fields() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert_typed(FacadeSqlEntityInsert {
+            name: Some("Ada".to_string()),
+            age: Some(31),
+        })
+        .expect("facade typed insert input should succeed")
+        .entity();
+
+    assert_ne!(inserted.id, crate::types::Ulid::default());
+    assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
+    assert_eq!(inserted.created_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_insert_typed_synthesizes_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert_typed(FacadeSqlGeneratedTimestampEntityInsert {
+            id: Some(1),
+            name: Some("Ada".to_string()),
+        })
+        .expect("facade typed insert input should synthesize generated timestamp fields")
+        .entity();
+
+    assert_ne!(inserted.created_on_insert, crate::types::Timestamp::EPOCH);
+    assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
+    assert_eq!(inserted.created_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_insert_typed_rejects_omitted_authorable_fields() {
+    let session = fresh_facade_session();
+    let err = session
+        .insert_typed(FacadeSqlDefaultOnlyEntityInsert {
+            id: Some(1),
+            nickname: None,
+        })
+        .expect_err("typed insert input should keep omitted authorable fields fail-closed");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("typed insert requires explicit values for authorable fields nickname"),
+        "typed insert input should keep the omitted-authorable boundary explicit: {err_text}",
+    );
 }
 
 #[test]
@@ -1939,6 +1996,18 @@ fn facade_execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
         (
             "DELETE FROM FacadeSqlEntity ORDER BY age LIMIT 1",
             "execute_sql_aggregate rejects DELETE",
+        ),
+        (
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 21)",
+            "execute_sql_aggregate rejects INSERT",
+        ),
+        (
+            "INSERT INTO FacadeSqlEntity (name, age) SELECT name, age FROM FacadeSqlEntity ORDER BY id ASC LIMIT 1",
+            "execute_sql_aggregate rejects INSERT",
+        ),
+        (
+            "UPDATE FacadeSqlEntity SET age = 22 WHERE name = 'Ada'",
+            "execute_sql_aggregate rejects UPDATE",
         ),
     ];
 

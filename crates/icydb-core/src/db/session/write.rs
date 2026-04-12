@@ -9,7 +9,7 @@ use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch, executor::MutationMode},
     error::InternalError,
-    traits::{CanisterKind, EntityValue},
+    traits::{CanisterKind, EntityInsertInput, EntityValue},
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -19,6 +19,15 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_entity(|save| save.insert(entity))
+    }
+
+    /// Insert one authored typed input.
+    pub fn insert_typed<I>(&self, input: I) -> Result<I::Entity, InternalError>
+    where
+        I: EntityInsertInput,
+        I::Entity: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_save_entity(|save| save.insert_typed(input))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.

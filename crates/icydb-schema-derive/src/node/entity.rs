@@ -509,9 +509,102 @@ impl HasType for Entity {
     }
 }
 
+fn entity_insert_ident(ident: &Ident) -> Ident {
+    format_ident!("{ident}Insert")
+}
+
+const fn field_is_insert_authorable(field: &Field) -> bool {
+    field.generated.is_none() && field.write_management.is_none()
+}
+
+fn entity_insert_tokens(entity: &Entity) -> TokenStream {
+    let ident = entity.def.ident();
+    let insert_ident = entity_insert_ident(&ident);
+    let insert_fields = entity
+        .fields
+        .iter()
+        .filter(|field| field_is_insert_authorable(field));
+    let insert_struct_fields = insert_fields.clone().map(|field| {
+        let field_ident = &field.ident;
+        let field_ty = field.value.type_expr();
+
+        quote! {
+            pub #field_ident: Option<#field_ty>
+        }
+    });
+    let insert_materialization = entity
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| field_is_insert_authorable(field))
+        .map(|(index, field)| {
+            let field_ident = &field.ident;
+            let index = syn::LitInt::new(&index.to_string(), Span::call_site());
+
+            quote! {
+                if let Some(value) = self.#field_ident {
+                    entity.#field_ident = value;
+                    authored_slots.push(#index);
+                }
+            }
+        });
+
+    quote! {
+        #[doc = ""]
+        #[doc = stringify!(#insert_ident)]
+        #[doc = ""]
+        #[doc = concat!("Insert-authored input for `", stringify!(#ident), "`.")]
+        #[doc = "Excludes generated and managed write fields from the authored insert surface."]
+        #[doc = ""]
+        #[derive(
+            ::icydb::__reexports::candid::CandidType,
+            Clone,
+            Debug,
+            Default,
+            ::icydb::__reexports::serde::Deserialize,
+            ::icydb::__reexports::serde::Serialize
+        )]
+        #[serde(crate = "::icydb::__reexports::serde", default)]
+        pub struct #insert_ident {
+            #(#insert_struct_fields),*
+        }
+
+        impl ::icydb::traits::EntityInsertInput for #insert_ident {
+            type Entity = #ident;
+
+            fn materialize_insert(self) -> ::icydb::traits::EntityInsertMaterialization<Self::Entity> {
+                let mut entity = <Self::Entity as ::core::default::Default>::default();
+                let mut authored_slots = ::std::vec::Vec::new();
+
+                #(#insert_materialization)*
+
+                ::icydb::traits::EntityInsertMaterialization::new(entity, authored_slots)
+            }
+        }
+    }
+}
+
 impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+        let TraitTokens { derive, impls } = self.resolve_trait_tokens();
+        let schema = self.schema_tokens();
+        let type_part = self.type_part();
+        let insert_part = entity_insert_tokens(self);
+
+        tokens.extend(quote! {
+            // SCHEMA CONSTANT
+            #schema
+
+            // MAIN TYPE
+            #derive
+            #type_part
+
+            // INSERT-AUTHORED TYPE
+            #insert_part
+
+            // IMPLEMENTATIONS
+            #impls
+        });
     }
 }
 

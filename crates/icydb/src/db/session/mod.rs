@@ -549,6 +549,15 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::write_response(self.inner.insert(entity)?))
     }
 
+    /// Insert one authored typed input.
+    pub fn insert_typed<I>(&self, input: I) -> Result<WriteResponse<I::Entity>, Error>
+    where
+        I: crate::traits::EntityInsertInput,
+        I::Entity: PersistedRow<Canister = C> + EntityValue,
+    {
+        Ok(Self::write_response(self.inner.insert_typed(input)?))
+    }
+
     /// Insert a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.

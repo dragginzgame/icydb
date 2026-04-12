@@ -1,0 +1,5 @@
+error: generated(insert = ...) currently supports only single-value fields
+  --> tests/ui/generated_requires_many_timestamp.rs:20:21
+   |
+20 |             ident = "created_on_insert",
+   |                     ^^^^^^^^^^^^^^^^^^^

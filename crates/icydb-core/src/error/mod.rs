@@ -397,6 +397,16 @@ impl InternalError {
         ))
     }
 
+    /// Construct an executor-origin typed insert omission rejection.
+    pub(crate) fn mutation_insert_missing_authored_fields(
+        entity_path: &str,
+        field_names: &str,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "typed insert requires explicit values for authorable fields {field_names}: {entity_path}",
+        ))
+    }
+
     /// Construct an executor-origin mutation result invariant.
     ///
     /// This constructor lands ahead of the public structural mutation surface,

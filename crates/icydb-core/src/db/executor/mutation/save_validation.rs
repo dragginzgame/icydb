@@ -32,7 +32,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let schema = authority.schema_info();
         let validate_relations = authority.has_strong_relation_targets();
 
-        self.preflight_entity_with_cached_schema(entity, schema, validate_relations, write_context)
+        self.preflight_entity_with_cached_schema(
+            entity,
+            schema,
+            validate_relations,
+            write_context,
+            None,
+        )
     }
 
     // Validate one persisted row against the current write-boundary invariants
@@ -64,7 +70,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         schema: &SchemaInfo,
         validate_relations: bool,
         write_context: SanitizeWriteContext,
+        authored_insert_slots: Option<&[usize]>,
     ) -> Result<(), InternalError> {
+        Self::validate_insert_authorship(authored_insert_slots)?;
         sanitize_with_context(entity, Some(write_context))?;
         validate(entity)?;
         Self::validate_entity_invariants(entity, schema)?;
@@ -73,6 +81,36 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         Ok(())
+    }
+
+    // Enforce the typed insert authorship contract for generated insert-input
+    // payloads. Every user-authorable insert field must be explicitly present;
+    // only generated or managed fields may be omitted by the insert type.
+    fn validate_insert_authorship(
+        authored_insert_slots: Option<&[usize]>,
+    ) -> Result<(), InternalError> {
+        let Some(authored_insert_slots) = authored_insert_slots else {
+            return Ok(());
+        };
+
+        let missing_fields = EntityAuthority::for_type::<E>()
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| field.insert_generation().is_none())
+            .filter(|(_, field)| field.write_management().is_none())
+            .filter(|(index, _)| !authored_insert_slots.contains(index))
+            .map(|(_, field)| field.name().to_string())
+            .collect::<Vec<_>>();
+
+        if missing_fields.is_empty() {
+            return Ok(());
+        }
+
+        Err(InternalError::mutation_insert_missing_authored_fields(
+            E::PATH,
+            &missing_fields.join(", "),
+        ))
     }
 
     // Enforce trait boundary invariants for user-provided entities.
