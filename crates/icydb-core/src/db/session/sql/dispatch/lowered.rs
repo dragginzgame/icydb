@@ -256,7 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one lowered SQL DELETE command through the shared structural
     // delete projection path and keep the outward boundary in row-parts form.
-    fn execute_lowered_sql_delete_projection_core(
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_delete_projection_core(
         &self,
         delete: &LoweredBaseQueryShape,
         authority: EntityAuthority,
@@ -278,6 +278,20 @@ impl<C: CanisterKind> DbSession<C> {
             rows,
             row_count,
         ))
+    }
+
+    // Execute one lowered SQL DELETE command and return only the affected-row
+    // count for surfaces that intentionally follow traditional SQL mutation
+    // result semantics unless `RETURNING` is present.
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_delete_count_core(
+        &self,
+        delete: &LoweredBaseQueryShape,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        let (_, _, row_count) =
+            self.execute_lowered_sql_delete_projection_core(delete, authority)?;
+
+        Ok(SqlDispatchResult::Count { row_count })
     }
 
     // Execute one lowered SQL DELETE command through the shared structural

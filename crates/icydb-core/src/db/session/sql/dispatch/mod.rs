@@ -32,8 +32,8 @@ use crate::{
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlInsertSource, SqlInsertStatement,
-            SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
-            SqlStatement, SqlTextFunction, SqlUpdateStatement,
+            SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem,
+            SqlSelectStatement, SqlStatement, SqlTextFunction, SqlUpdateStatement,
         },
     },
     model::{
@@ -592,6 +592,90 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    // Package one write after-image batch according to the traditional SQL
+    // mutation result contract: count-only when no `RETURNING` clause is
+    // present, row payload only when the authored SQL explicitly asks for it.
+    fn sql_write_dispatch_result<E>(
+        entities: Vec<E>,
+        returning: Option<&SqlReturningProjection>,
+    ) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
+
+        match returning {
+            None => Ok(SqlDispatchResult::Count { row_count }),
+            Some(returning) => {
+                let SqlDispatchResult::Projection {
+                    columns,
+                    rows,
+                    row_count,
+                } = Self::sql_write_dispatch_projection(entities)?
+                else {
+                    return Err(QueryError::invariant(
+                        "SQL write projection helper must emit value-row projection payload",
+                    ));
+                };
+
+                Self::sql_returning_dispatch_projection(columns, rows, row_count, returning)
+            }
+        }
+    }
+
+    // Narrow one row-producing write payload down to the admitted `RETURNING`
+    // projection shape so write dispatch can keep explicit field-list
+    // ownership without reopening the full scalar SELECT projection surface.
+    fn sql_returning_dispatch_projection(
+        columns: Vec<String>,
+        rows: Vec<Vec<Value>>,
+        row_count: u32,
+        returning: &SqlReturningProjection,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        match returning {
+            SqlReturningProjection::All => Ok(SqlDispatchResult::Projection {
+                columns,
+                rows,
+                row_count,
+            }),
+            SqlReturningProjection::Fields(fields) => {
+                let mut indices = Vec::with_capacity(fields.len());
+
+                for field in fields {
+                    let index = columns
+                        .iter()
+                        .position(|column| column == field)
+                        .ok_or_else(|| {
+                            QueryError::unsupported_query(format!(
+                                "SQL RETURNING field '{field}' does not exist on the target entity"
+                            ))
+                        })?;
+                    indices.push(index);
+                }
+
+                let mut projected_rows = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let mut projected = Vec::with_capacity(indices.len());
+                    for index in &indices {
+                        let value = row.get(*index).ok_or_else(|| {
+                            QueryError::invariant(
+                                "SQL RETURNING projection row must align with declared columns",
+                            )
+                        })?;
+                        projected.push(value.clone());
+                    }
+                    projected_rows.push(projected);
+                }
+
+                Ok(SqlDispatchResult::Projection {
+                    columns: fields.clone(),
+                    rows: projected_rows,
+                    row_count,
+                })
+            }
+        }
+    }
+
     // Build the structural insert patch and resolved primary key expected by
     // the shared structural mutation entrypoint.
     fn sql_insert_patch_and_key<E>(
@@ -868,7 +952,7 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(entity);
         }
 
-        Self::sql_write_dispatch_projection(entities)
+        Self::sql_write_dispatch_result(entities, statement.returning.as_ref())
     }
 
     // Execute one reduced SQL UPDATE statement by selecting deterministic
@@ -904,7 +988,7 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(updated);
         }
 
-        Self::sql_write_dispatch_projection(entities)
+        Self::sql_write_dispatch_result(entities, statement.returning.as_ref())
     }
 
     // Build the shared structural SQL projection execution inputs once so
@@ -995,6 +1079,44 @@ impl<C: CanisterKind> DbSession<C> {
             row_count,
         )
         .into_dispatch_result())
+    }
+
+    // Execute one typed SQL delete query and return only the affected-row
+    // count so bare dispatch DELETE matches traditional SQL result semantics.
+    fn execute_typed_sql_delete_count<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let row_count = self.execute_delete_count(query)?;
+
+        Ok(SqlDispatchResult::Count { row_count })
+    }
+
+    // Execute one typed SQL delete query and project only the explicit
+    // `RETURNING` payload requested by the authored SQL surface.
+    fn execute_typed_sql_delete_returning<E>(
+        &self,
+        query: &Query<E>,
+        returning: &SqlReturningProjection,
+    ) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let SqlDispatchResult::Projection {
+            columns,
+            rows,
+            row_count,
+        } = self.execute_typed_sql_delete(query)?
+        else {
+            return Err(QueryError::invariant(
+                "typed SQL delete projection path must emit value-row projection payload",
+            ));
+        };
+
+        Self::sql_returning_dispatch_projection(columns, rows, row_count, returning)
     }
 
     // Lower one parsed SQL query/explain route once for one resolved authority
@@ -1171,13 +1293,23 @@ impl<C: CanisterKind> DbSession<C> {
                     Ok(payload.into_dispatch_result())
                 },
                 |session, delete, _authority| {
+                    let SqlStatement::Delete(statement) = &parsed.statement else {
+                        return Err(QueryError::invariant(
+                            "DELETE SQL route must carry parsed DELETE statement",
+                        ));
+                    };
                     let typed_query = bind_lowered_sql_query::<E>(
                         LoweredSqlQuery::Delete(delete),
                         MissingRowPolicy::Ignore,
                     )
                     .map_err(QueryError::from_sql_lowering_error)?;
 
-                    session.execute_typed_sql_delete(&typed_query)
+                    match &statement.returning {
+                        Some(returning) => {
+                            session.execute_typed_sql_delete_returning(&typed_query, returning)
+                        }
+                        None => session.execute_typed_sql_delete_count(&typed_query),
+                    }
                 },
             ),
             SqlStatementRoute::Insert { .. } => {
@@ -1266,7 +1398,32 @@ impl<C: CanisterKind> DbSession<C> {
                     Ok(result)
                 },
                 |session, delete, authority| {
-                    session.execute_lowered_sql_dispatch_delete_core(&delete, authority)
+                    let SqlStatement::Delete(statement) = &parsed.statement else {
+                        return Err(QueryError::invariant(
+                            "DELETE SQL route must carry parsed DELETE statement",
+                        ));
+                    };
+
+                    match &statement.returning {
+                        Some(returning) => {
+                            let SqlDispatchResult::Projection {
+                                columns,
+                                rows,
+                                row_count,
+                            } = session.execute_lowered_sql_dispatch_delete_core(&delete, authority)?
+                            else {
+                                return Err(QueryError::invariant(
+                                    "generated SQL delete projection path must emit value-row projection payload",
+                                ));
+                            };
+
+                            Self::sql_returning_dispatch_projection(
+                                columns, rows, row_count, returning,
+                            )
+                        }
+                        None => session
+                            .execute_lowered_sql_delete_count_core(&delete, authority),
+                    }
                 },
             ),
             SqlStatementRoute::Explain { .. } => {

@@ -423,20 +423,22 @@ struct DeleteParityCase {
 fn assert_delete_parity_case(pic: &Pic, canister_id: Principal, case: &DeleteParityCase) {
     reset_fixtures(pic, canister_id);
     load_default_fixtures(pic, canister_id);
+    let direct_sql = format!("{} RETURNING *", case.direct_sql);
     let direct = query_projection_rows(
         pic,
         canister_id,
-        case.direct_sql,
-        "generated direct STARTS_WITH delete should return projection rows",
+        direct_sql.as_str(),
+        "generated direct STARTS_WITH delete should return RETURNING projection rows",
     );
 
     reset_fixtures(pic, canister_id);
     load_default_fixtures(pic, canister_id);
+    let like_sql = format!("{} RETURNING *", case.like_sql);
     let like = query_projection_rows(
         pic,
         canister_id,
-        case.like_sql,
-        "generated LIKE delete should return projection rows",
+        like_sql.as_str(),
+        "generated LIKE delete should return RETURNING projection rows",
     );
 
     assert_eq!(
@@ -3693,21 +3695,18 @@ fn sql_canister_query_lane_supports_user_secondary_covering_strict_range_desc_pr
 }
 
 #[test]
-fn sql_canister_query_lane_supports_delete_projection() {
+fn sql_canister_query_lane_delete_returns_count_without_returning() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let deleted_rows = query_projection_rows(
-            pic,
-            canister_id,
-            "DELETE FROM Customer ORDER BY id LIMIT 1",
-            "query DELETE should return deleted projection rows",
-        );
+        let payload = query_result(pic, canister_id, "DELETE FROM Customer ORDER BY id LIMIT 1")
+            .expect("query DELETE should return count payload");
 
-        assert_eq!(deleted_rows.entity, "Customer");
-        assert_eq!(deleted_rows.row_count, 1);
-        assert_eq!(deleted_rows.rows.len(), 1);
-        assert!(
-            !deleted_rows.columns.is_empty(),
-            "DELETE projection should keep canonical entity columns",
+        assert_eq!(
+            payload,
+            SqlQueryResult::Count {
+                entity: "Customer".to_string(),
+                row_count: 1,
+            },
+            "bare query DELETE should return traditional count payload",
         );
     });
 }

@@ -7,7 +7,8 @@ use candid::CandidType;
 use serde::Deserialize;
 
 use crate::{
-    db::{EntityFieldDescription, EntitySchemaDescription},
+    db::{EntityFieldDescription, EntitySchemaDescription, response::MutationResult},
+    traits::EntityKind,
     value::{Value, ValueEnum},
 };
 
@@ -94,9 +95,44 @@ pub struct SqlGroupedRowsOutput {
     pub next_cursor: Option<String>,
 }
 
+///
+/// SqlDispatchResponse
+///
+/// Unified typed SQL dispatch payload.
+/// Read statements keep their existing projection/grouped/metadata families,
+/// while mutation statements converge on `MutationResult<E>` so typed Rust
+/// write APIs no longer expose a separate SQL-only result shape.
+///
+#[derive(Debug)]
+pub enum SqlDispatchResponse<E: EntityKind> {
+    Mutation(MutationResult<E>),
+    Projection(SqlQueryRowsOutput),
+    Grouped(SqlGroupedRowsOutput),
+    Explain {
+        entity: String,
+        explain: String,
+    },
+    Describe(EntitySchemaDescription),
+    ShowIndexes {
+        entity: String,
+        indexes: Vec<String>,
+    },
+    ShowColumns {
+        entity: String,
+        columns: Vec<EntityFieldDescription>,
+    },
+    ShowEntities {
+        entities: Vec<String>,
+    },
+}
+
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
+    Count {
+        entity: String,
+        row_count: u32,
+    },
     Projection(SqlQueryRowsOutput),
     Grouped(SqlGroupedRowsOutput),
     Explain {
@@ -122,6 +158,7 @@ impl SqlQueryResult {
     #[must_use]
     pub fn render_lines(&self) -> Vec<String> {
         match self {
+            Self::Count { entity, row_count } => render_count_lines(entity.as_str(), *row_count),
             Self::Projection(rows) => {
                 render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows())
             }
@@ -294,6 +331,17 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     }
 
     lines
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one SQL count payload into deterministic shell output lines."
+)]
+#[must_use]
+pub fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
+    vec![format!(
+        "surface=count entity={entity} row_count={row_count}"
+    )]
 }
 
 #[cfg_attr(

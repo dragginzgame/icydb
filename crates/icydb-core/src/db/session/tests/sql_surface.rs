@@ -638,19 +638,75 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     );
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
-    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
-        session.query_from_sql::<SessionSqlEntity>(sql)
-    });
-    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
-        session.execute_sql::<SessionSqlEntity>(sql)
-    });
-    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
-        dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
-    });
-    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
-        session.execute_sql_grouped::<SessionSqlEntity>(sql, None)
-    });
-    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
-        session.execute_sql_aggregate::<SessionSqlEntity>(sql)
-    });
+    assert_unsupported_sql_surface_result(
+        session.query_from_sql::<SessionSqlEntity>(sql),
+        "query_from_sql should reject INSERT lane even when RETURNING is present",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql::<SessionSqlEntity>(sql),
+        "execute_sql should reject INSERT lane even when RETURNING is present",
+    );
+    let returning_rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        .expect("dispatch should admit INSERT RETURNING");
+    assert_eq!(returning_rows.len(), 1);
+    assert_eq!(returning_rows[0].len(), 1);
+    assert!(
+        matches!(returning_rows[0][0], Value::Ulid(_)),
+        "dispatch INSERT RETURNING should project the requested generated id",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
+        "execute_sql_grouped should reject INSERT lane even when RETURNING is present",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_aggregate::<SessionSqlEntity>(sql),
+        "execute_sql_aggregate should reject INSERT lane even when RETURNING is present",
+    );
+
+    let delete_returning_sql =
+        "DELETE FROM SessionSqlEntity WHERE age > 20 ORDER BY age ASC LIMIT 1 RETURNING id";
+
+    let query_from_err = session
+        .query_from_sql::<SessionSqlEntity>(delete_returning_sql)
+        .map(|_| ())
+        .expect_err("query_from_sql should reject DELETE RETURNING");
+    assert!(
+        query_from_err
+            .to_string()
+            .contains("DELETE RETURNING; use execute_sql_dispatch(...)"),
+        "query_from_sql should preserve explicit DELETE RETURNING dispatch guidance",
+    );
+
+    let execute_sql_err = session
+        .execute_sql::<SessionSqlEntity>(delete_returning_sql)
+        .map(|_| ())
+        .expect_err("execute_sql should reject DELETE entirely");
+    assert!(
+        execute_sql_err
+            .to_string()
+            .contains("execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()"),
+        "execute_sql should preserve explicit dispatch/fluent delete guidance",
+    );
+
+    let grouped_err = session
+        .execute_sql_grouped::<SessionSqlEntity>(delete_returning_sql, None)
+        .map(|_| ())
+        .expect_err("execute_sql_grouped should still reject DELETE at the grouped surface");
+    assert!(
+        grouped_err
+            .to_string()
+            .contains("execute_sql_grouped rejects DELETE"),
+        "grouped SQL surface should preserve its own lane boundary before RETURNING guidance",
+    );
+
+    let aggregate_err = session
+        .execute_sql_aggregate::<SessionSqlEntity>(delete_returning_sql)
+        .map(|_| ())
+        .expect_err("execute_sql_aggregate should still reject DELETE at the aggregate surface");
+    assert!(
+        aggregate_err
+            .to_string()
+            .contains("execute_sql_aggregate rejects DELETE"),
+        "aggregate SQL surface should preserve its own lane boundary before RETURNING guidance",
+    );
 }

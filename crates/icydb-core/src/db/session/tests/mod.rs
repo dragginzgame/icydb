@@ -1134,6 +1134,9 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue + crate::traits::EntityKind,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Count { .. } => Err(unsupported_sql_dispatch_query_error(
+            "projection column dispatch only supports row-producing SQL dispatch statements",
+        )),
         SqlDispatchResult::Projection { columns, .. }
         | SqlDispatchResult::ProjectionText { columns, .. }
         | SqlDispatchResult::Grouped { columns, .. } => Ok(columns),
@@ -1155,6 +1158,9 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Count { .. } => Err(unsupported_sql_dispatch_query_error(
+            "projection row dispatch only supports row-producing SQL dispatch statements",
+        )),
         SqlDispatchResult::Projection { rows, .. } => Ok(rows),
         SqlDispatchResult::ProjectionText { .. } | SqlDispatchResult::Grouped { .. } => {
             Err(unsupported_sql_dispatch_query_error(
@@ -1180,7 +1186,8 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Explain(explain) => Ok(explain),
-        SqlDispatchResult::Projection { .. }
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Describe(_)
@@ -1219,7 +1226,8 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Describe(description) => Ok(description),
-        SqlDispatchResult::Projection { .. }
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)
@@ -1240,7 +1248,8 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
-        SqlDispatchResult::Projection { .. }
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)
@@ -1261,7 +1270,8 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::ShowColumns(columns) => Ok(columns),
-        SqlDispatchResult::Projection { .. }
+        SqlDispatchResult::Count { .. }
+        | SqlDispatchResult::Projection { .. }
         | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Grouped { .. }
         | SqlDispatchResult::Explain(_)

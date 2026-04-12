@@ -145,13 +145,14 @@ where
     }
 
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
-        SqlQueryResult::Explain { explain, .. } => Ok(explain),
-        SqlQueryResult::Projection(_)
-        | SqlQueryResult::Grouped(_)
-        | SqlQueryResult::Describe(_)
-        | SqlQueryResult::ShowIndexes { .. }
-        | SqlQueryResult::ShowColumns { .. }
-        | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+        SqlDispatchResponse::Explain { explain, .. } => Ok(explain),
+        SqlDispatchResponse::Mutation(_)
+        | SqlDispatchResponse::Projection(_)
+        | SqlDispatchResponse::Grouped(_)
+        | SqlDispatchResponse::Describe(_)
+        | SqlDispatchResponse::ShowIndexes { .. }
+        | SqlDispatchResponse::ShowColumns { .. }
+        | SqlDispatchResponse::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
             "EXPLAIN dispatch requires an EXPLAIN statement",
         )),
     }
@@ -172,13 +173,14 @@ where
     }
 
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
-        SqlQueryResult::Describe(description) => Ok(description),
-        SqlQueryResult::Projection(_)
-        | SqlQueryResult::Grouped(_)
-        | SqlQueryResult::Explain { .. }
-        | SqlQueryResult::ShowIndexes { .. }
-        | SqlQueryResult::ShowColumns { .. }
-        | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+        SqlDispatchResponse::Describe(description) => Ok(description),
+        SqlDispatchResponse::Mutation(_)
+        | SqlDispatchResponse::Projection(_)
+        | SqlDispatchResponse::Grouped(_)
+        | SqlDispatchResponse::Explain { .. }
+        | SqlDispatchResponse::ShowIndexes { .. }
+        | SqlDispatchResponse::ShowColumns { .. }
+        | SqlDispatchResponse::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
             "DESCRIBE dispatch requires a DESCRIBE statement",
         )),
     }
@@ -199,13 +201,14 @@ where
     }
 
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
-        SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
-        SqlQueryResult::Projection(_)
-        | SqlQueryResult::Grouped(_)
-        | SqlQueryResult::Explain { .. }
-        | SqlQueryResult::Describe(_)
-        | SqlQueryResult::ShowColumns { .. }
-        | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+        SqlDispatchResponse::ShowIndexes { indexes, .. } => Ok(indexes),
+        SqlDispatchResponse::Mutation(_)
+        | SqlDispatchResponse::Projection(_)
+        | SqlDispatchResponse::Grouped(_)
+        | SqlDispatchResponse::Explain { .. }
+        | SqlDispatchResponse::Describe(_)
+        | SqlDispatchResponse::ShowColumns { .. }
+        | SqlDispatchResponse::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
             "SHOW INDEXES dispatch requires a SHOW INDEXES statement",
         )),
     }
@@ -226,13 +229,14 @@ where
     }
 
     match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
-        SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
-        SqlQueryResult::Projection(_)
-        | SqlQueryResult::Grouped(_)
-        | SqlQueryResult::Explain { .. }
-        | SqlQueryResult::Describe(_)
-        | SqlQueryResult::ShowIndexes { .. }
-        | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+        SqlDispatchResponse::ShowColumns { columns, .. } => Ok(columns),
+        SqlDispatchResponse::Mutation(_)
+        | SqlDispatchResponse::Projection(_)
+        | SqlDispatchResponse::Grouped(_)
+        | SqlDispatchResponse::Explain { .. }
+        | SqlDispatchResponse::Describe(_)
+        | SqlDispatchResponse::ShowIndexes { .. }
+        | SqlDispatchResponse::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
             "SHOW COLUMNS dispatch requires a SHOW COLUMNS statement",
         )),
     }
@@ -345,6 +349,26 @@ where
             context.as_str(),
         );
     }
+}
+
+fn facade_query_from_sql_unit(
+    session: &DbSession<FacadeSqlCanister>,
+    sql: &str,
+) -> Result<(), Error> {
+    session.query_from_sql::<FacadeSqlEntity>(sql).map(|_| ())
+}
+
+fn facade_execute_sql_unit(session: &DbSession<FacadeSqlCanister>, sql: &str) -> Result<(), Error> {
+    session.execute_sql::<FacadeSqlEntity>(sql).map(|_| ())
+}
+
+fn facade_execute_sql_grouped_unit(
+    session: &DbSession<FacadeSqlCanister>,
+    sql: &str,
+) -> Result<(), Error> {
+    session
+        .execute_sql_grouped::<FacadeSqlEntity>(sql, None)
+        .map(|_| ())
 }
 
 #[test]
@@ -1042,59 +1066,25 @@ fn facade_query_from_sql_rejects_non_query_statement_lanes_matrix() {
 }
 
 #[test]
-fn facade_explain_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+fn facade_explain_delete_non_casefold_direct_starts_with_matrix_rejects_wrappers() {
     let session = fresh_facade_session();
 
-    let err = dispatch_explain_sql::<FacadeSqlEntity>(
-        &session,
-        "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-    )
-    .expect_err("facade direct STARTS_WITH delete EXPLAIN wrapper should stay fail-closed");
-
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "unsupported runtime kind mismatch: facade EXPLAIN DELETE non-casefold direct STARTS_WITH",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "unsupported runtime origin mismatch: facade EXPLAIN DELETE non-casefold direct STARTS_WITH",
-    );
-    assert!(
-        err.message().contains(
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+    for (sql, context) in [
+        (
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+            "facade EXPLAIN DELETE non-casefold direct STARTS_WITH",
         ),
-        "facade EXPLAIN DELETE should preserve the stable unsupported direct STARTS_WITH delete detail",
-    );
-}
-
-#[test]
-fn facade_explain_json_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    let session = fresh_facade_session();
-
-    let err = dispatch_explain_sql::<FacadeSqlEntity>(
-        &session,
-        "EXPLAIN JSON DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-    )
-    .expect_err("facade direct STARTS_WITH JSON delete EXPLAIN wrapper should stay fail-closed");
-
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "unsupported runtime kind mismatch: facade EXPLAIN JSON DELETE non-casefold direct STARTS_WITH",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "unsupported runtime origin mismatch: facade EXPLAIN JSON DELETE non-casefold direct STARTS_WITH",
-    );
-    assert!(
-        err.message().contains(
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+        (
+            "EXPLAIN JSON DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+            "facade EXPLAIN JSON DELETE non-casefold direct STARTS_WITH",
         ),
-        "facade EXPLAIN JSON DELETE should preserve the stable unsupported direct STARTS_WITH delete detail",
-    );
+    ] {
+        assert_unsupported_sql_runtime_result_contains(
+            dispatch_explain_sql::<FacadeSqlEntity>(&session, sql),
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+            context,
+        );
+    }
 }
 
 #[test]
@@ -1173,90 +1163,34 @@ fn facade_execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
 }
 
 #[test]
-fn facade_query_from_sql_rejects_computed_text_projection_in_current_lane() {
+fn facade_computed_text_projection_lane_matrix_rejects_current_entrypoints() {
     let session = fresh_facade_session();
 
-    // Phase 1: keep the public facade on the same structural-only contract
-    // as the core `query_from_sql(...)` boundary.
-    let err = session
-            .query_from_sql::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity")
-            .expect_err(
-                "facade query_from_sql should reject computed text projection on the structural-only lane",
-            );
-
-    // Phase 2: assert the facade preserves the actionable boundary message
-    // instead of silently widening into dispatch-owned computed semantics.
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "unsupported runtime kind mismatch: facade query_from_sql computed text projection",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "unsupported runtime origin mismatch: facade query_from_sql computed text projection",
-    );
-    assert!(
-        err.to_string()
-            .contains("query_from_sql does not accept computed text projection"),
-        "facade query_from_sql should preserve the computed projection boundary message",
-    );
-}
-
-#[test]
-fn facade_execute_sql_rejects_computed_text_projection_in_current_lane() {
-    let session = fresh_facade_session();
-
-    let err = session
-        .execute_sql::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity")
-        .expect_err(
-            "facade execute_sql should keep computed text projection on the dispatch-owned lane",
+    for (run, expected_substring, context) in [
+        (
+            facade_query_from_sql_unit
+                as fn(&DbSession<FacadeSqlCanister>, &str) -> Result<(), Error>,
+            "query_from_sql does not accept computed text projection",
+            "facade query_from_sql computed text projection",
+        ),
+        (
+            facade_execute_sql_unit as fn(&DbSession<FacadeSqlCanister>, &str) -> Result<(), Error>,
+            "execute_sql rejects computed text projection",
+            "facade execute_sql computed text projection",
+        ),
+        (
+            facade_execute_sql_grouped_unit
+                as fn(&DbSession<FacadeSqlCanister>, &str) -> Result<(), Error>,
+            "execute_sql_grouped rejects computed text projection",
+            "facade execute_sql_grouped computed text projection",
+        ),
+    ] {
+        assert_unsupported_sql_runtime_result_contains(
+            run(&session, "SELECT TRIM(name) FROM FacadeSqlEntity"),
+            expected_substring,
+            context,
         );
-
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "unsupported runtime kind mismatch: facade execute_sql computed text projection",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "unsupported runtime origin mismatch: facade execute_sql computed text projection",
-    );
-    assert!(
-        err.to_string()
-            .contains("execute_sql rejects computed text projection"),
-        "facade execute_sql should preserve the computed projection boundary message",
-    );
-}
-
-#[test]
-fn facade_execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
-    let session = fresh_facade_session();
-
-    let Err(err) = session
-        .execute_sql_grouped::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity", None)
-    else {
-        panic!(
-            "facade execute_sql_grouped should keep computed text projection on the dispatch-owned lane"
-        )
-    };
-
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "unsupported runtime kind mismatch: facade execute_sql_grouped computed text projection",
-    );
-    assert_eq!(
-        err.origin(),
-        ErrorOrigin::Query,
-        "unsupported runtime origin mismatch: facade execute_sql_grouped computed text projection",
-    );
-    assert!(
-        err.to_string()
-            .contains("execute_sql_grouped rejects computed text projection"),
-        "facade execute_sql_grouped should preserve the computed projection boundary message",
-    );
+    }
 }
 
 #[test]
@@ -1315,11 +1249,11 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_primary_key() {
     let session = fresh_facade_session();
     let payload = session
         .execute_sql_dispatch::<FacadeSqlEntity>(
-            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31)",
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31) RETURNING *",
         )
         .expect("facade execute_sql_dispatch should admit inserts that omit schema-generated ids");
 
-    let SqlQueryResult::Projection(rows) = payload else {
+    let SqlDispatchResponse::Projection(rows) = payload else {
         panic!("facade execute_sql_dispatch insert should return projection payload");
     };
     assert_eq!(
@@ -1405,7 +1339,8 @@ fn facade_structural_insert_applies_default_only_missing_fields() {
             MutationMode::Insert,
         )
         .expect("facade structural insert should admit sparse default-backed fields")
-        .entity();
+        .entity()
+        .expect("facade structural insert should return one entity");
 
     assert_eq!(inserted.id, 1);
     assert_eq!(inserted.nickname, expected_default);
@@ -1428,7 +1363,8 @@ fn facade_structural_replace_missing_row_applies_default_only_missing_fields() {
             MutationMode::Replace,
         )
         .expect("facade structural replace should admit sparse default-backed missing rows")
-        .entity();
+        .entity()
+        .expect("facade structural replace should return one entity");
 
     assert_eq!(replaced.id, 2);
     assert_eq!(replaced.nickname, expected_default);
@@ -1439,11 +1375,11 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_timestamp_field() {
     let session = fresh_facade_session();
     let payload = session
         .execute_sql_dispatch::<FacadeSqlGeneratedTimestampEntity>(
-            "INSERT INTO FacadeSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada')",
+            "INSERT INTO FacadeSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada') RETURNING *",
         )
         .expect("facade execute_sql_dispatch should admit inserts that omit schema-generated timestamps");
 
-    let SqlQueryResult::Projection(rows) = payload else {
+    let SqlDispatchResponse::Projection(rows) = payload else {
         panic!("facade execute_sql_dispatch insert should return projection payload");
     };
     assert_eq!(rows.row_count, 1);
@@ -1465,11 +1401,30 @@ fn facade_create_synthesizes_generated_and_managed_fields() {
             age: Some(31),
         })
         .expect("facade create input should succeed")
-        .entity();
+        .entity()
+        .expect("facade create should return one entity");
 
     assert_ne!(inserted.id, crate::types::Ulid::default());
     assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
     assert_eq!(inserted.created_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_create_returning_projects_inserted_rows() {
+    let session = fresh_facade_session();
+    let rows = session
+        .create_returning(
+            FacadeSqlEntityCreate {
+                name: Some("Ada".to_string()),
+                age: Some(31),
+            },
+            ["name", "age"],
+        )
+        .expect("facade create returning should succeed");
+
+    assert_eq!(rows.columns, vec!["name".to_string(), "age".to_string()]);
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows, vec![vec!["Ada".to_string(), "31".to_string()]]);
 }
 
 #[test]
@@ -1481,11 +1436,39 @@ fn facade_create_synthesizes_generated_timestamp_field() {
             name: Some("Ada".to_string()),
         })
         .expect("facade create input should synthesize generated timestamp fields")
-        .entity();
+        .entity()
+        .expect("facade create should return one entity");
 
     assert_ne!(inserted.created_on_insert, crate::types::Timestamp::EPOCH);
     assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
     assert_eq!(inserted.created_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_insert_returning_all_projects_inserted_rows() {
+    let session = fresh_facade_session();
+    let rows = session
+        .insert_returning_all(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade insert returning all should succeed");
+
+    assert_eq!(
+        rows.columns,
+        vec![
+            "id".to_string(),
+            "name".to_string(),
+            "age".to_string(),
+            "created_at".to_string(),
+            "updated_at".to_string(),
+        ],
+    );
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows.len(), 1);
+    assert_eq!(rows.rows[0][1], "Ada");
+    assert_eq!(rows.rows[0][2], "31");
 }
 
 #[test]
@@ -1503,6 +1486,37 @@ fn facade_create_rejects_omitted_authorable_fields() {
         err_text.contains("create requires explicit values for authorable fields nickname"),
         "create input should keep the omitted-authorable boundary explicit: {err_text}",
     );
+}
+
+#[test]
+fn facade_update_returning_projects_updated_rows() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade update returning setup insert should succeed")
+        .entity()
+        .expect("facade update returning setup insert should yield one entity");
+
+    let rows = session
+        .update_returning(
+            FacadeSqlEntity {
+                id: inserted.id,
+                name: "Bea".to_string(),
+                age: 32,
+                created_at: inserted.created_at,
+                updated_at: inserted.updated_at,
+            },
+            ["name", "age"],
+        )
+        .expect("facade update returning should succeed");
+
+    assert_eq!(rows.columns, vec!["name".to_string(), "age".to_string()]);
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows, vec![vec!["Bea".to_string(), "32".to_string()]]);
 }
 
 #[test]
@@ -1561,7 +1575,8 @@ fn facade_typed_insert_sets_managed_timestamps_from_shared_preflight_now() {
             ..Default::default()
         })
         .expect("typed facade insert should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade insert should return one entity");
 
     assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
     assert_eq!(
@@ -1580,7 +1595,8 @@ fn facade_typed_update_preserves_created_at_and_refreshes_updated_at() {
             ..Default::default()
         })
         .expect("typed facade insert should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade insert should return one entity");
     std::thread::sleep(std::time::Duration::from_millis(2));
 
     let updated = session
@@ -1592,7 +1608,8 @@ fn facade_typed_update_preserves_created_at_and_refreshes_updated_at() {
             updated_at: inserted.updated_at,
         })
         .expect("typed facade update should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade update should return one entity");
 
     assert_eq!(updated.created_at, inserted.created_at);
     assert_ne!(updated.updated_at, inserted.updated_at);
@@ -1608,7 +1625,8 @@ fn facade_typed_replace_existing_row_refreshes_managed_timestamps() {
             ..Default::default()
         })
         .expect("typed facade insert should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade insert should return one entity");
     std::thread::sleep(std::time::Duration::from_millis(2));
 
     let replaced = session
@@ -1620,7 +1638,8 @@ fn facade_typed_replace_existing_row_refreshes_managed_timestamps() {
             updated_at: crate::types::Timestamp::EPOCH,
         })
         .expect("typed facade replace should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade replace should return one entity");
 
     assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
     assert_ne!(replaced.created_at, inserted.created_at);
@@ -1635,26 +1654,209 @@ fn facade_execute_sql_dispatch_update_preserves_created_at_and_refreshes_updated
     let session = fresh_facade_session();
     let inserted = session
         .execute_sql_dispatch::<FacadeSqlEntity>(
-            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31)",
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31) RETURNING *",
         )
         .expect("facade SQL insert should succeed");
-    let SqlQueryResult::Projection(inserted_rows) = inserted else {
+    let SqlDispatchResponse::Projection(inserted_rows) = inserted else {
         panic!("facade SQL insert should return projection payload");
     };
     std::thread::sleep(std::time::Duration::from_millis(2));
 
     let updated = session
         .execute_sql_dispatch::<FacadeSqlEntity>(
-            "UPDATE FacadeSqlEntity SET name = 'Bea' WHERE age = 31",
+            "UPDATE FacadeSqlEntity SET name = 'Bea' WHERE age = 31 RETURNING *",
         )
         .expect("facade SQL update should succeed");
-    let SqlQueryResult::Projection(updated_rows) = updated else {
+    let SqlDispatchResponse::Projection(updated_rows) = updated else {
         panic!("facade SQL update should return projection payload");
     };
 
     assert_eq!(updated_rows.rows.len(), 1);
     assert_eq!(updated_rows.rows[0][3], inserted_rows.rows[0][3]);
     assert_ne!(updated_rows.rows[0][4], inserted_rows.rows[0][4]);
+}
+
+#[test]
+fn facade_execute_sql_dispatch_insert_and_update_return_count_without_returning() {
+    let session = fresh_facade_session();
+
+    let inserted = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31)",
+        )
+        .expect("facade bare SQL insert should succeed");
+    let SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) = inserted else {
+        panic!("facade bare SQL insert should return count payload");
+    };
+    assert_eq!(
+        row_count, 1,
+        "facade bare SQL insert should return count payload"
+    );
+
+    let updated = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "UPDATE FacadeSqlEntity SET name = 'Bea' WHERE name = 'Ada'",
+        )
+        .expect("facade bare SQL update should succeed");
+    let SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) = updated else {
+        panic!("facade bare SQL update should return count payload");
+    };
+    assert_eq!(
+        row_count, 1,
+        "facade bare SQL update should return count payload"
+    );
+}
+
+#[test]
+fn facade_execute_sql_dispatch_delete_returns_count_without_returning() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade delete count setup insert should succeed");
+
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "DELETE FROM FacadeSqlEntity WHERE name = 'Ada' ORDER BY id LIMIT 1",
+        )
+        .expect("facade bare DELETE dispatch should succeed");
+
+    let SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) = payload else {
+        panic!("facade bare DELETE dispatch should return count payload");
+    };
+    assert_eq!(
+        row_count, 1,
+        "facade bare DELETE dispatch should return count payload",
+    );
+}
+
+#[test]
+fn facade_execute_sql_rejects_delete_lane() {
+    let session = fresh_facade_session();
+
+    for sql in [
+        "DELETE FROM FacadeSqlEntity WHERE name = 'Ada'",
+        "DELETE FROM FacadeSqlEntity WHERE name = 'Ada' RETURNING id",
+    ] {
+        let err = session
+            .execute_sql::<FacadeSqlEntity>(sql)
+            .expect_err("facade execute_sql DELETE should stay off the typed row surface");
+
+        assert!(
+            err.to_string().contains(
+                "execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()"
+            ),
+            "facade execute_sql DELETE should preserve explicit dispatch/fluent delete guidance",
+        );
+    }
+}
+
+#[test]
+fn facade_fluent_delete_returns_count_without_materializing_deleted_rows() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade fluent delete setup insert should succeed");
+
+    let result = session
+        .delete::<FacadeSqlEntity>()
+        .execute()
+        .expect("facade fluent delete should return mutation result payload");
+
+    assert_eq!(result.count(), 1);
+}
+
+#[test]
+fn facade_fluent_delete_returning_all_projects_deleted_rows() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade fluent delete returning setup insert should succeed");
+
+    let rows = session
+        .delete::<FacadeSqlEntity>()
+        .returning_all()
+        .execute()
+        .expect("facade fluent delete returning all should return projection payload");
+
+    assert_eq!(
+        rows.columns,
+        vec![
+            "id".to_string(),
+            "name".to_string(),
+            "age".to_string(),
+            "created_at".to_string(),
+            "updated_at".to_string(),
+        ],
+    );
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows.len(), 1);
+    assert_eq!(rows.rows[0][1], "Ada");
+    assert_eq!(rows.rows[0][2], "31");
+}
+
+#[test]
+fn facade_fluent_delete_returning_field_list_projects_deleted_rows() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade fluent delete returning field list setup insert should succeed");
+
+    let rows = session
+        .delete::<FacadeSqlEntity>()
+        .returning(["name", "age"])
+        .order_by("id")
+        .limit(1)
+        .execute()
+        .expect("facade fluent delete returning field list should return projection payload");
+
+    assert_eq!(rows.columns, vec!["name".to_string(), "age".to_string()]);
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows, vec![vec!["Ada".to_string(), "31".to_string()]]);
+}
+
+#[test]
+fn facade_execute_sql_dispatch_delete_returning_projects_deleted_rows() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("facade delete returning setup insert should succeed");
+
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "DELETE FROM FacadeSqlEntity WHERE name = 'Ada' ORDER BY id LIMIT 1 RETURNING name, age",
+        )
+        .expect("facade DELETE RETURNING should succeed");
+
+    let SqlDispatchResponse::Projection(rows) = payload else {
+        panic!("facade DELETE RETURNING should return projection payload");
+    };
+    assert_eq!(rows.columns, vec!["name".to_string(), "age".to_string()]);
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(
+        rows.rows,
+        vec![vec!["Ada".to_string(), "31".to_string()]],
+        "facade DELETE RETURNING should project deleted-row field lists",
+    );
 }
 
 #[test]
@@ -1764,7 +1966,8 @@ fn facade_structural_insert_sets_managed_timestamps_from_shared_preflight_now() 
     let inserted = session
         .mutate_structural::<FacadeSqlEntity>(id, patch, MutationMode::Insert)
         .expect("facade structural insert should succeed")
-        .entity();
+        .entity()
+        .expect("facade structural insert should return one entity");
 
     assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
     assert_eq!(
@@ -1791,7 +1994,8 @@ fn facade_structural_replace_missing_row_sets_managed_timestamps_from_shared_pre
     let replaced = session
         .mutate_structural::<FacadeSqlEntity>(id, patch, MutationMode::Replace)
         .expect("facade structural replace should succeed for a missing row")
-        .entity();
+        .entity()
+        .expect("facade structural replace should return one entity");
 
     assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
     assert_eq!(
@@ -1810,7 +2014,8 @@ fn facade_structural_replace_existing_row_refreshes_managed_timestamps() {
             ..Default::default()
         })
         .expect("typed facade insert should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade insert should return one entity");
     std::thread::sleep(std::time::Duration::from_millis(2));
 
     let patch = UpdatePatch::new()
@@ -1831,7 +2036,8 @@ fn facade_structural_replace_existing_row_refreshes_managed_timestamps() {
     let replaced = session
         .mutate_structural::<FacadeSqlEntity>(inserted.id, patch, MutationMode::Replace)
         .expect("facade structural replace should succeed for an existing row")
-        .entity();
+        .entity()
+        .expect("facade structural replace should return one entity");
 
     assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
     assert_ne!(replaced.created_at, inserted.created_at);
@@ -1851,7 +2057,8 @@ fn facade_structural_update_preserves_created_at_and_refreshes_updated_at() {
             ..Default::default()
         })
         .expect("typed facade insert should succeed")
-        .entity();
+        .entity()
+        .expect("typed facade insert should return one entity");
     std::thread::sleep(std::time::Duration::from_millis(2));
 
     let patch = UpdatePatch::new()
@@ -1864,7 +2071,8 @@ fn facade_structural_update_preserves_created_at_and_refreshes_updated_at() {
     let updated = session
         .mutate_structural::<FacadeSqlEntity>(inserted.id, patch, MutationMode::Update)
         .expect("facade structural update should succeed")
-        .entity();
+        .entity()
+        .expect("facade structural update should return one entity");
 
     assert_eq!(updated.created_at, inserted.created_at);
     assert_ne!(updated.updated_at, inserted.updated_at);
@@ -1911,7 +2119,7 @@ fn facade_execute_sql_rejects_global_aggregate_sql_while_dispatch_returns_projec
         .execute_sql_dispatch::<FacadeSqlEntity>(sql)
         .expect("facade execute_sql_dispatch should execute global aggregate SQL through projection payload");
 
-    let SqlQueryResult::Projection(rows) = payload else {
+    let SqlDispatchResponse::Projection(rows) = payload else {
         panic!(
             "facade execute_sql_dispatch should return projection payload for global aggregate SQL"
         );
@@ -2064,7 +2272,7 @@ fn facade_execute_sql_rejects_grouped_sql_while_dispatch_returns_grouped_payload
             "facade execute_sql_dispatch should execute grouped SQL through the unified surface",
         );
 
-    let SqlQueryResult::Grouped(rows) = payload else {
+    let SqlDispatchResponse::Grouped(rows) = payload else {
         panic!("facade execute_sql_dispatch should return grouped payload for grouped SQL");
     };
     assert_eq!(

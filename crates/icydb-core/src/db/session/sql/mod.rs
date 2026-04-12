@@ -114,6 +114,35 @@ const fn unsupported_sql_write_surface_message(
     }
 }
 
+const fn unsupported_sql_returning_surface_message(
+    surface: SqlSurface,
+    statement: &SqlStatement,
+) -> &'static str {
+    match (surface, statement) {
+        (SqlSurface::QueryFrom, SqlStatement::Delete(_)) => {
+            "query_from_sql rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSql, SqlStatement::Delete(_)) => {
+            "execute_sql rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlStatement::Delete(_)) => {
+            "execute_sql_grouped rejects DELETE RETURNING; use execute_sql_dispatch(...)"
+        }
+        (SqlSurface::Explain, SqlStatement::Delete(_)) => "explain_sql requires EXPLAIN",
+        (
+            _,
+            SqlStatement::Select(_)
+            | SqlStatement::Insert(_)
+            | SqlStatement::Update(_)
+            | SqlStatement::Explain(_)
+            | SqlStatement::Describe(_)
+            | SqlStatement::ShowIndexes(_)
+            | SqlStatement::ShowColumns(_)
+            | SqlStatement::ShowEntities(_),
+        ) => unreachable!(),
+    }
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Resolve planner-visible indexes and build one execution-ready
     // structural plan at the session SQL boundary.
@@ -146,6 +175,11 @@ impl<C: CanisterKind> DbSession<C> {
         ) {
             return Err(QueryError::unsupported_query(
                 unsupported_sql_write_surface_message(lane_surface, &parsed.statement),
+            ));
+        }
+        if matches!(&parsed.statement, SqlStatement::Delete(delete) if delete.returning.is_some()) {
+            return Err(QueryError::unsupported_query(
+                unsupported_sql_returning_surface_message(lane_surface, &parsed.statement),
             ));
         }
 
@@ -244,12 +278,17 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    /// Execute one reduced SQL `SELECT`/`DELETE` statement for entity `E`.
+    /// Execute one reduced SQL `SELECT` statement for entity `E`.
     pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
+        if matches!(&parsed.statement, SqlStatement::Delete(_)) {
+            return Err(QueryError::unsupported_query(
+                "execute_sql rejects DELETE; use execute_sql_dispatch(...) or delete::<E>()",
+            ));
+        }
         let query = Self::query_from_sql_parsed::<E>(
             &parsed,
             SqlSurface::ExecuteSql,

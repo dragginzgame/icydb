@@ -47,9 +47,7 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
 #[doc(hidden)]
 pub use icydb_core::error::InternalError;
-pub use response::{
-    PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
-};
+pub use response::{MutationResult, PagedResponse, ProjectionResponse, Response};
 #[cfg(feature = "sql")]
 pub use session::SqlParsedStatement;
 #[cfg(feature = "sql")]

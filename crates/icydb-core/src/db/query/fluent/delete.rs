@@ -5,16 +5,15 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow,
+        DbSession, EntityResponse, PersistedRow,
         predicate::Predicate,
         query::{
-            api::ResponseCardinalityExt,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
             trace::QueryTracePlan,
         },
-        response::EntityResponse,
+        response::ResponseError,
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
@@ -25,7 +24,8 @@ use crate::{
 ///
 /// Session-bound delete query wrapper.
 /// This type owns *intent construction* and *execution routing only*.
-/// Result inspection is provided by query API extension traits over `EntityResponse<E>`.
+/// Delete execution follows the same traditional mutation contract as the
+/// unified SQL write lane: bare execution returns affected-row count.
 ///
 
 pub struct FluentDeleteQuery<'a, E>
@@ -165,23 +165,21 @@ where
     // Execution (minimal core surface)
     // ------------------------------------------------------------------
 
-    /// Execute this delete using the session's policy settings.
-    ///
-    /// All result inspection and projection is performed on `EntityResponse<E>`.
-    pub fn execute(&self) -> Result<EntityResponse<E>, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.session.execute_query(self.query())
-    }
-
-    /// Execute this delete while returning only the affected-row count.
-    #[doc(hidden)]
-    pub fn execute_count_only(&self) -> Result<u32, QueryError>
+    /// Execute this delete and return the affected-row count.
+    pub fn execute(&self) -> Result<u32, QueryError>
     where
         E: EntityValue,
     {
         self.session.execute_delete_count(self.query())
+    }
+
+    /// Execute this delete and materialize deleted rows for one explicit
+    /// row-returning surface.
+    pub fn execute_rows(&self) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_query(self.query())
     }
 
     /// Execute and return whether any rows were affected.
@@ -189,7 +187,7 @@ where
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.is_empty())
+        Ok(self.execute()? == 0)
     }
 
     /// Execute and return the number of affected rows.
@@ -197,7 +195,7 @@ where
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.count())
+        self.execute()
     }
 
     /// Execute and require exactly one affected row.
@@ -205,8 +203,12 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_one()?;
-        Ok(())
+        let row_count = self.execute()?;
+        match row_count {
+            1 => Ok(()),
+            0 => Err(ResponseError::not_found(E::PATH).into()),
+            count => Err(ResponseError::not_unique(E::PATH, count).into()),
+        }
     }
 
     /// Execute and require at least one affected row.
@@ -214,7 +216,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_some()?;
+        if self.execute()? == 0 {
+            return Err(ResponseError::not_found(E::PATH).into());
+        }
+
         Ok(())
     }
 }

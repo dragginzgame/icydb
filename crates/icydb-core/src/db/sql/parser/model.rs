@@ -237,6 +237,21 @@ impl SqlSelectStatement {
 }
 
 ///
+/// SqlReturningProjection
+///
+/// Narrow write-lane `RETURNING` contract accepted by reduced SQL.
+/// This intentionally keeps returning projections on field lists or `*` only
+/// so write-result shaping does not reopen the broader computed or aggregate
+/// SELECT projection surface.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlReturningProjection {
+    All,
+    Fields(Vec<String>),
+}
+
+///
 /// SqlDeleteStatement
 ///
 /// Canonical parsed `DELETE` statement shape for reduced SQL.
@@ -251,6 +266,7 @@ pub(crate) struct SqlDeleteStatement {
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
+    pub(crate) returning: Option<SqlReturningProjection>,
 }
 
 ///
@@ -283,6 +299,7 @@ pub(crate) struct SqlInsertStatement {
     pub(crate) entity: String,
     pub(crate) columns: Vec<String>,
     pub(crate) source: SqlInsertSource,
+    pub(crate) returning: Option<SqlReturningProjection>,
 }
 
 ///
@@ -315,6 +332,7 @@ pub(crate) struct SqlUpdateStatement {
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
+    pub(crate) returning: Option<SqlReturningProjection>,
 }
 
 ///

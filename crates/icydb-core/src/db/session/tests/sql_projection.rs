@@ -159,11 +159,6 @@ fn sql_projection_columns_matrix_matches_expected_labels() {
             &["id", "name", "age"][..],
             "star projection columns",
         ),
-        (
-            "DELETE FROM SessionSqlEntity WHERE age > 10",
-            &["id", "name", "age"][..],
-            "delete projection columns",
-        ),
     ] {
         assert_projection_columns(&session, sql, expected_columns, context);
     }
@@ -418,7 +413,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
 }
 
 #[test]
-fn execute_sql_select_schema_qualified_entity_executes() {
+fn execute_sql_projection_qualified_identifier_matrix_executes() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -430,34 +425,22 @@ fn execute_sql_select_schema_qualified_entity_executes() {
         })
         .expect("seed insert should succeed");
 
-    let response = session
-        .execute_sql::<SessionSqlEntity>(
+    for (sql, expect_full_row, expected_name, expected_age, context) in [
+        (
             "SELECT * FROM public.SessionSqlEntity ORDER BY age ASC LIMIT 1",
-        )
-        .expect("schema-qualified entity SQL should execute");
-
-    assert_eq!(response.len(), 1);
-}
-
-#[test]
-fn execute_sql_projection_select_qualified_field_forms_execute() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-projection".to_string(),
-            age: 42,
-        })
-        .expect("seed insert should succeed");
-
-    for (sql, context) in [
+            true,
+            "schema-qualified",
+            41,
+            "schema-qualified entity SQL",
+        ),
         (
             "SELECT SessionSqlEntity.name \
              FROM SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 40 \
              ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+            false,
+            "schema-qualified",
+            41,
             "table-qualified projection SQL",
         ),
         (
@@ -465,19 +448,36 @@ fn execute_sql_projection_select_qualified_field_forms_execute() {
              FROM SessionSqlEntity alias \
              WHERE alias.age >= 40 \
              ORDER BY alias.age DESC LIMIT 1",
+            false,
+            "schema-qualified",
+            41,
             "table-alias projection SQL",
         ),
     ] {
-        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
-        let row = response
-            .first()
-            .unwrap_or_else(|| panic!("{context} response should contain one row"));
 
-        assert_eq!(response.len(), 1, "{context} should return one row");
+        assert_eq!(rows.len(), 1, "{context} should return one row");
+
+        if expect_full_row {
+            assert!(
+                matches!(rows[0][0], Value::Ulid(_)),
+                "{context} should preserve the generated primary key slot",
+            );
+            assert_eq!(
+                rows[0][1..],
+                [
+                    Value::Text(expected_name.to_string()),
+                    Value::Uint(expected_age),
+                ],
+                "{context} should preserve full entity field order",
+            );
+            continue;
+        }
+
         assert_eq!(
-            row,
-            &[Value::Text("qualified-projection".to_string())],
+            rows,
+            vec![vec![Value::Text(expected_name.to_string())]],
             "{context} should preserve the projected field value",
         );
     }
@@ -499,9 +499,9 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
 
     let projection = dispatch_projection_rows::<SessionSqlEntity>(
         &session,
-        "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+        "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1 RETURNING *",
     )
-    .expect("projection SQL execution should support delete statements");
+    .expect("projection SQL execution should support DELETE RETURNING statements");
     let rows = projection;
 
     assert!(

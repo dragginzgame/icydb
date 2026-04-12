@@ -7,9 +7,9 @@ use super::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
     SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
-    SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -360,6 +360,7 @@ fn parse_delete_statement_with_limit() {
             }],
             limit: Some(3),
             offset: None,
+            returning: None,
         }),
     );
 }
@@ -385,6 +386,7 @@ fn parse_delete_statement_with_limit_and_offset() {
             }],
             limit: Some(3),
             offset: Some(1),
+            returning: None,
         }),
     );
 }
@@ -412,6 +414,7 @@ fn parse_delete_statement_accepts_single_table_alias() {
             }],
             limit: Some(3),
             offset: Some(1),
+            returning: None,
         }),
     );
 }
@@ -455,6 +458,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
                 }],
                 limit: Some(1),
                 offset: None,
+                returning: None,
             }),
         );
     }
@@ -527,6 +531,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                     }],
                     limit: Some(1),
                     offset: None,
+                    returning: None,
                 }),
             }),
         );
@@ -1144,6 +1149,7 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
                 Value::Text("Ada".to_string()),
                 Value::Int(21),
             ]]),
+            returning: None,
         }),
     );
 }
@@ -1171,6 +1177,7 @@ fn parse_insert_statement_with_multiple_values_tuples() {
                     Value::Int(22)
                 ],
             ]),
+            returning: None,
         }),
     );
 }
@@ -1203,6 +1210,7 @@ fn parse_update_statement_with_assignments_and_predicate() {
             order_by: Vec::new(),
             limit: None,
             offset: None,
+            returning: None,
         }),
     );
 }
@@ -1235,6 +1243,7 @@ fn parse_update_statement_accepts_single_table_alias() {
             order_by: Vec::new(),
             limit: None,
             offset: None,
+            returning: None,
         }),
     );
 }
@@ -1272,6 +1281,7 @@ fn parse_update_statement_with_order_limit_and_offset() {
             ],
             limit: Some(2),
             offset: Some(1),
+            returning: None,
         }),
     );
 }
@@ -1302,27 +1312,88 @@ fn parse_update_statement_rejects_invalid_window_clause_order() {
 }
 
 #[test]
-fn parse_insert_statement_rejects_returning_clause_with_stable_feature_label() {
-    let err = parse_sql("INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING id")
-        .expect_err("INSERT RETURNING should stay fail-closed");
+fn parse_insert_statement_with_returning_field_list_parses() {
+    let statement = parse_sql("INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING id, name")
+        .expect("INSERT RETURNING field list should parse");
 
-    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["id".to_string(), "name".to_string()],
+            source: SqlInsertSource::Values(vec![vec![
+                Value::Int(1),
+                Value::Text("Ada".to_string())
+            ]]),
+            returning: Some(SqlReturningProjection::Fields(vec![
+                "id".to_string(),
+                "name".to_string(),
+            ])),
+        }),
+    );
 }
 
 #[test]
-fn parse_update_statement_rejects_returning_clause_with_stable_feature_label() {
-    let err = parse_sql("UPDATE users SET name = 'Ada' WHERE id = 1 RETURNING id")
-        .expect_err("UPDATE RETURNING should stay fail-closed");
+fn parse_update_statement_with_returning_star_parses() {
+    let statement =
+        parse_sql("UPDATE users alias SET alias.name = 'Ada' WHERE alias.id = 1 RETURNING *")
+            .expect("UPDATE RETURNING star should parse");
 
-    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+    assert_eq!(
+        statement,
+        SqlStatement::Update(SqlUpdateStatement {
+            entity: "users".to_string(),
+            assignments: vec![SqlAssignment {
+                field: "name".to_string(),
+                value: Value::Text("Ada".to_string()),
+            }],
+            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1))),
+            order_by: vec![],
+            limit: None,
+            offset: None,
+            returning: Some(SqlReturningProjection::All),
+        }),
+    );
 }
 
 #[test]
-fn parse_delete_statement_rejects_returning_clause_with_stable_feature_label() {
-    let err = parse_sql("DELETE FROM users WHERE id = 1 RETURNING id")
-        .expect_err("DELETE RETURNING should stay fail-closed");
+fn parse_delete_statement_with_returning_field_list_parses() {
+    let statement =
+        parse_sql("DELETE FROM users alias WHERE alias.id = 1 RETURNING alias.id, alias.name")
+            .expect("DELETE RETURNING field list should parse");
 
-    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+    assert_eq!(
+        statement,
+        SqlStatement::Delete(SqlDeleteStatement {
+            entity: "users".to_string(),
+            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1),)),
+            order_by: vec![],
+            limit: None,
+            offset: None,
+            returning: Some(SqlReturningProjection::Fields(vec![
+                "id".to_string(),
+                "name".to_string(),
+            ])),
+        }),
+    );
+}
+
+#[test]
+fn parse_delete_statement_with_returning_star_parses() {
+    let statement = parse_sql("DELETE FROM users WHERE id = 1 RETURNING *")
+        .expect("DELETE RETURNING star should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Delete(SqlDeleteStatement {
+            entity: "users".to_string(),
+            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1),)),
+            order_by: vec![],
+            limit: None,
+            offset: None,
+            returning: Some(SqlReturningProjection::All),
+        }),
+    );
 }
 
 #[test]
@@ -1336,6 +1407,7 @@ fn parse_insert_statement_without_column_list_parses() {
             entity: "users".to_string(),
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
+            returning: None,
         }),
     );
 }
@@ -1375,6 +1447,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
                 limit: Some(1),
                 offset: None,
             })),
+            returning: None,
         }),
     );
 }
@@ -1421,6 +1494,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
                 limit: Some(1),
                 offset: None,
             })),
+            returning: None,
         }),
     );
 }
@@ -1439,6 +1513,7 @@ fn parse_insert_statement_accepts_single_table_alias() {
                 Value::Int(1),
                 Value::Text("Ada".to_string()),
             ]]),
+            returning: None,
         }),
     );
 }
@@ -1454,6 +1529,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
             entity: "users".to_string(),
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![Value::Int(1)]]),
+            returning: None,
         }),
     );
 }
@@ -1493,6 +1569,7 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
                     Value::Int(22)
                 ],
             ]),
+            returning: None,
         }),
     );
 }
@@ -1535,14 +1612,9 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
         (
-            "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING id",
-            "RETURNING",
+            "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING LOWER(name)",
+            "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
-        (
-            "UPDATE users SET name = 'Ada' WHERE id = 1 RETURNING id",
-            "RETURNING",
-        ),
-        ("DELETE FROM users WHERE id = 1 RETURNING id", "RETURNING"),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (

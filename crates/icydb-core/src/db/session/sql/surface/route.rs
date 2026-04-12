@@ -33,6 +33,9 @@ pub enum SqlStatementRoute {
 /// Unified SQL dispatch payload returned by shared SQL lane execution.
 #[derive(Debug)]
 pub enum SqlDispatchResult {
+    Count {
+        row_count: u32,
+    },
     Projection {
         columns: Vec<String>,
         rows: Vec<Vec<crate::value::Value>>,
@@ -83,6 +86,15 @@ impl SqlParsedStatement {
     #[must_use]
     pub const fn route(&self) -> &SqlStatementRoute {
         &self.route
+    }
+
+    /// Return whether this parsed statement is a SQL mutation statement.
+    #[must_use]
+    pub const fn is_mutation(&self) -> bool {
+        matches!(
+            &self.statement,
+            SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_)
+        )
     }
 
     // Prepare this parsed statement for one concrete entity route.

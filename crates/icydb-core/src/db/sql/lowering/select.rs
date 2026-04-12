@@ -499,6 +499,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         limit,
         offset,
         entity: _,
+        returning: _,
     } = statement;
 
     LoweredBaseQueryShape {

@@ -24,9 +24,9 @@ pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
     SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
-    SqlUpdateStatement,
+    SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.

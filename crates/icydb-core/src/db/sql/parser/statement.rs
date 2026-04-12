@@ -12,8 +12,8 @@ use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
         SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-        SqlInsertSource, SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlSelectItem,
-        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        SqlInsertSource, SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlReturningProjection,
+        SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
         SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
     },
 };
@@ -273,12 +273,20 @@ impl Parser {
         } else {
             None
         };
+        let mut returning = if self.eat_keyword(Keyword::Returning) {
+            Some(self.parse_returning_projection()?)
+        } else {
+            None
+        };
 
         if let Some(alias) = table_alias.as_deref() {
             predicate = predicate.map(|predicate| {
                 normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
             });
             order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
+            returning = returning.map(|returning| {
+                normalize_returning_projection_for_table_alias(returning, entity.as_str(), alias)
+            });
         }
 
         Ok(SqlDeleteStatement {
@@ -287,6 +295,7 @@ impl Parser {
             order_by,
             limit,
             offset,
+            returning,
         })
     }
 
@@ -312,11 +321,17 @@ impl Parser {
 
             SqlInsertSource::Values(values)
         };
+        let returning = if self.eat_keyword(Keyword::Returning) {
+            Some(self.parse_returning_projection()?)
+        } else {
+            None
+        };
 
         Ok(SqlInsertStatement {
             entity,
             columns,
             source,
+            returning,
         })
     }
 
@@ -427,6 +442,11 @@ impl Parser {
         } else {
             None
         };
+        let mut returning = if self.eat_keyword(Keyword::Returning) {
+            Some(self.parse_returning_projection()?)
+        } else {
+            None
+        };
 
         // Phase 3: collapse the admitted single-table alias back onto the
         // canonical entity field namespace so the write selector stays
@@ -438,6 +458,9 @@ impl Parser {
                 normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
             });
             order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
+            returning = returning.map(|returning| {
+                normalize_returning_projection_for_table_alias(returning, entity.as_str(), alias)
+            });
         }
 
         Ok(SqlUpdateStatement {
@@ -447,6 +470,7 @@ impl Parser {
             order_by,
             limit,
             offset,
+            returning,
         })
     }
 
@@ -473,6 +497,31 @@ impl Parser {
         }
 
         Ok(assignments)
+    }
+
+    fn parse_returning_projection(&mut self) -> Result<SqlReturningProjection, SqlParseError> {
+        if self.eat_star() {
+            return Ok(SqlReturningProjection::All);
+        }
+
+        let mut fields = vec![self.expect_identifier()?];
+        if self.peek_lparen() {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL function namespace beyond supported aggregate or scalar text projection forms",
+            ));
+        }
+
+        while self.eat_comma() {
+            let field = self.expect_identifier()?;
+            if self.peek_lparen() {
+                return Err(SqlParseError::unsupported_feature(
+                    "SQL function namespace beyond supported aggregate or scalar text projection forms",
+                ));
+            }
+            fields.push(field);
+        }
+
+        Ok(SqlReturningProjection::Fields(fields))
     }
 
     fn expect_assignment_eq(&mut self) -> Result<(), SqlParseError> {
@@ -506,6 +555,21 @@ impl Parser {
         let entity = self.expect_identifier()?;
 
         Ok(SqlShowColumnsStatement { entity })
+    }
+}
+
+// Normalize one admitted write-lane `RETURNING` field list back onto the
+// canonical entity namespace after one single-table alias is admitted.
+fn normalize_returning_projection_for_table_alias(
+    projection: SqlReturningProjection,
+    entity: &str,
+    alias: &str,
+) -> SqlReturningProjection {
+    match projection {
+        SqlReturningProjection::All => SqlReturningProjection::All,
+        SqlReturningProjection::Fields(fields) => SqlReturningProjection::Fields(
+            normalize_identifier_list_for_table_alias(fields, entity, alias),
+        ),
     }
 }
 

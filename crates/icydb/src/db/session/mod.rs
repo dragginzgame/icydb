@@ -10,20 +10,20 @@ mod tests;
 use crate::db::{
     SqlStatementRoute,
     sql::{
-        SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput,
-        render_value_text,
+        SqlDispatchResponse, SqlGroupedRowsOutput, SqlProjectionRows, SqlQueryResult,
+        SqlQueryRowsOutput, render_value_text,
     },
 };
 use crate::{
     db::{
         EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
+        response::{MutationResult, PagedGroupedResponse, Response},
     },
-    error::Error,
+    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
 use icydb_core as core;
@@ -123,6 +123,11 @@ impl SqlParsedStatement {
     pub const fn route(&self) -> &SqlStatementRoute {
         self.inner.route()
     }
+
+    #[must_use]
+    pub const fn is_mutation(&self) -> bool {
+        self.inner.is_mutation()
+    }
 }
 
 ///
@@ -146,20 +151,25 @@ impl<C: CanisterKind> DbSession<C> {
         Response::from_core(inner)
     }
 
-    const fn write_response<E>(entity: E) -> WriteResponse<E>
+    const fn mutation_entity<E>(entity: E) -> MutationResult<E>
     where
         E: EntityKind,
     {
-        WriteResponse::new(entity)
+        MutationResult::from_entity(entity)
     }
 
-    fn write_batch_response<E>(
-        inner: icydb_core::db::WriteBatchResponse<E>,
-    ) -> WriteBatchResponse<E>
+    const fn mutation_count<E>(row_count: u32) -> MutationResult<E>
     where
         E: EntityKind,
     {
-        WriteBatchResponse::from_core(inner)
+        MutationResult::from_count(row_count)
+    }
+
+    fn mutation_entities<E>(inner: icydb_core::db::WriteBatchResponse<E>) -> MutationResult<E>
+    where
+        E: EntityKind,
+    {
+        MutationResult::from_core_batch(inner)
     }
 
     // ------------------------------------------------------------------
@@ -235,7 +245,7 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one reduced SQL `SELECT`/`DELETE` statement.
+    /// Execute one reduced SQL `SELECT` statement.
     #[cfg(feature = "sql")]
     pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
     where
@@ -246,7 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one reduced SQL statement and return one unified SQL payload.
     #[cfg(feature = "sql")]
-    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlDispatchResponse<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -260,24 +270,28 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_sql_dispatch_parsed<E>(
         &self,
         parsed: &SqlParsedStatement,
-    ) -> Result<SqlQueryResult, Error>
+    ) -> Result<SqlDispatchResponse<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
 
-        Ok(Self::map_sql_dispatch_result(
+        Ok(Self::map_typed_sql_dispatch_result::<E>(
             result,
             E::MODEL.name().to_string(),
         ))
     }
 
     #[cfg(feature = "sql")]
-    pub(crate) fn map_sql_dispatch_result(
+    pub(crate) fn map_dynamic_sql_dispatch_result(
         result: core::db::SqlDispatchResult,
         entity_name: String,
     ) -> SqlQueryResult {
         match result {
+            core::db::SqlDispatchResult::Count { row_count } => SqlQueryResult::Count {
+                entity: entity_name,
+                row_count,
+            },
             core::db::SqlDispatchResult::Projection {
                 columns,
                 rows,
@@ -334,6 +348,79 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "sql")]
+    fn typed_projection_rows_result<E>(
+        entity_name: String,
+        rows: SqlProjectionRows,
+    ) -> SqlDispatchResponse<E>
+    where
+        E: EntityKind,
+    {
+        let rows = SqlQueryRowsOutput::from_projection(entity_name, rows);
+        SqlDispatchResponse::Projection(rows)
+    }
+
+    #[cfg(feature = "sql")]
+    fn map_typed_sql_dispatch_result<E>(
+        result: core::db::SqlDispatchResult,
+        entity_name: String,
+    ) -> SqlDispatchResponse<E>
+    where
+        E: EntityKind,
+    {
+        match result {
+            core::db::SqlDispatchResult::Count { row_count } => {
+                SqlDispatchResponse::Mutation(Self::mutation_count(row_count))
+            }
+            core::db::SqlDispatchResult::Projection {
+                columns,
+                rows,
+                row_count,
+            } => {
+                let rows = Self::projection_rows_from_values(columns, rows, row_count);
+                Self::typed_projection_rows_result(entity_name, rows)
+            }
+            core::db::SqlDispatchResult::ProjectionText {
+                columns,
+                rows,
+                row_count,
+            } => Self::typed_projection_rows_result(
+                entity_name,
+                SqlProjectionRows::new(columns, rows, row_count),
+            ),
+            core::db::SqlDispatchResult::Grouped {
+                columns,
+                rows,
+                row_count,
+                next_cursor,
+            } => SqlDispatchResponse::Grouped(SqlGroupedRowsOutput {
+                entity: entity_name,
+                columns,
+                rows: Self::grouped_rows_from_values(rows),
+                row_count,
+                next_cursor,
+            }),
+            core::db::SqlDispatchResult::Explain(explain) => SqlDispatchResponse::Explain {
+                entity: entity_name,
+                explain,
+            },
+            core::db::SqlDispatchResult::Describe(description) => {
+                SqlDispatchResponse::Describe(description)
+            }
+            core::db::SqlDispatchResult::ShowIndexes(indexes) => SqlDispatchResponse::ShowIndexes {
+                entity: entity_name,
+                indexes,
+            },
+            core::db::SqlDispatchResult::ShowColumns(columns) => SqlDispatchResponse::ShowColumns {
+                entity: entity_name,
+                columns,
+            },
+            core::db::SqlDispatchResult::ShowEntities(entities) => {
+                SqlDispatchResponse::ShowEntities { entities }
+            }
+        }
+    }
+
+    #[cfg(feature = "sql")]
     fn projection_rows_from_values(
         columns: Vec<String>,
         rows: Vec<Vec<Value>>,
@@ -373,6 +460,92 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         rendered_rows
+    }
+
+    #[cfg(feature = "sql")]
+    fn projection_selection<E>(
+        selected_fields: Option<&[String]>,
+    ) -> Result<(Vec<String>, Vec<usize>), Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match selected_fields {
+            None => Ok((
+                E::MODEL
+                    .fields()
+                    .iter()
+                    .map(|field| field.name().to_string())
+                    .collect(),
+                (0..E::MODEL.fields().len()).collect(),
+            )),
+            Some(fields) => {
+                let mut indices = Vec::with_capacity(fields.len());
+
+                for field in fields {
+                    let index = E::MODEL
+                        .fields()
+                        .iter()
+                        .position(|candidate| candidate.name() == field.as_str())
+                        .ok_or_else(|| {
+                            Error::new(
+                                ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                                ErrorOrigin::Query,
+                                format!(
+                                    "RETURNING field '{field}' does not exist on the target entity '{}'",
+                                    E::PATH
+                                ),
+                            )
+                        })?;
+                    indices.push(index);
+                }
+
+                Ok((fields.to_vec(), indices))
+            }
+        }
+    }
+
+    #[cfg(feature = "sql")]
+    pub(crate) fn sql_query_rows_output_from_entities<E>(
+        entity_name: String,
+        entities: Vec<E>,
+        selected_fields: Option<&[String]>,
+    ) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: resolve the explicit outward projection contract before
+        // rendering any row data so typed mutation returning and SQL dispatch
+        // share one field-selection rule.
+        let (columns, indices) = Self::projection_selection::<E>(selected_fields)?;
+        let mut rows = Vec::with_capacity(entities.len());
+
+        // Phase 2: render the selected entity slots into stable SQL-style text
+        // rows so every row-producing write surface converges on the same
+        // outward payload family.
+        for entity in entities {
+            let mut rendered = Vec::with_capacity(indices.len());
+            for index in &indices {
+                let value = entity.get_value_by_index(*index).ok_or_else(|| {
+                    Error::new(
+                        ErrorKind::Runtime(RuntimeErrorKind::Internal),
+                        ErrorOrigin::Query,
+                        format!(
+                            "RETURNING projection row must align with declared columns: entity='{}' index={index}",
+                            E::PATH
+                        ),
+                    )
+                })?;
+                rendered.push(render_value_text(&value));
+            }
+            rows.push(rendered);
+        }
+
+        let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+
+        Ok(SqlQueryRowsOutput::from_projection(
+            entity_name,
+            SqlProjectionRows::new(columns, rows, row_count),
+        ))
     }
 
     #[cfg(feature = "sql")]
@@ -542,20 +715,98 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level write helpers (semantic)
     // ------------------------------------------------------------------
 
-    pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
+    pub fn insert<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.insert(entity)?))
+        Ok(Self::mutation_entity(self.inner.insert(entity)?))
+    }
+
+    /// Insert one full entity and return every persisted field.
+    #[cfg(feature = "sql")]
+    pub fn insert_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let entity = self.inner.insert(entity)?;
+
+        Self::sql_query_rows_output_from_entities::<E>(E::PATH.to_string(), vec![entity], None)
+    }
+
+    /// Insert one full entity and return one explicit field list.
+    #[cfg(feature = "sql")]
+    pub fn insert_returning<E, I, S>(
+        &self,
+        entity: E,
+        fields: I,
+    ) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let entity = self.inner.insert(entity)?;
+        let fields = fields
+            .into_iter()
+            .map(|field| field.as_ref().to_string())
+            .collect::<Vec<_>>();
+
+        Self::sql_query_rows_output_from_entities::<E>(
+            E::PATH.to_string(),
+            vec![entity],
+            Some(fields.as_slice()),
+        )
     }
 
     /// Create one authored typed input.
-    pub fn create<I>(&self, input: I) -> Result<WriteResponse<I::Entity>, Error>
+    pub fn create<I>(&self, input: I) -> Result<MutationResult<I::Entity>, Error>
     where
         I: crate::traits::EntityCreateInput,
         I::Entity: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.create(input)?))
+        Ok(Self::mutation_entity(self.inner.create(input)?))
+    }
+
+    /// Create one authored typed input and return every persisted field.
+    #[cfg(feature = "sql")]
+    pub fn create_returning_all<I>(&self, input: I) -> Result<SqlQueryRowsOutput, Error>
+    where
+        I: crate::traits::EntityCreateInput,
+        I::Entity: PersistedRow<Canister = C> + EntityValue,
+    {
+        let entity = self.inner.create(input)?;
+
+        Self::sql_query_rows_output_from_entities::<I::Entity>(
+            I::Entity::PATH.to_string(),
+            vec![entity],
+            None,
+        )
+    }
+
+    /// Create one authored typed input and return one explicit field list.
+    #[cfg(feature = "sql")]
+    pub fn create_returning<I, F, S>(
+        &self,
+        input: I,
+        fields: F,
+    ) -> Result<SqlQueryRowsOutput, Error>
+    where
+        I: crate::traits::EntityCreateInput,
+        I::Entity: PersistedRow<Canister = C> + EntityValue,
+        F: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let entity = self.inner.create(input)?;
+        let fields = fields
+            .into_iter()
+            .map(|field| field.as_ref().to_string())
+            .collect::<Vec<_>>();
+
+        Self::sql_query_rows_output_from_entities::<I::Entity>(
+            I::Entity::PATH.to_string(),
+            vec![entity],
+            Some(fields.as_slice()),
+        )
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -566,11 +817,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn insert_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.insert_many_atomic(entities)?,
         ))
     }
@@ -581,20 +832,20 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn insert_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.insert_many_non_atomic(entities)?,
         ))
     }
 
-    pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
+    pub fn replace<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.replace(entity)?))
+        Ok(Self::mutation_entity(self.inner.replace(entity)?))
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -605,11 +856,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn replace_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.replace_many_atomic(entities)?,
         ))
     }
@@ -620,20 +871,56 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn replace_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.replace_many_non_atomic(entities)?,
         ))
     }
 
-    pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
+    pub fn update<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.update(entity)?))
+        Ok(Self::mutation_entity(self.inner.update(entity)?))
+    }
+
+    /// Update one full entity and return every persisted field.
+    #[cfg(feature = "sql")]
+    pub fn update_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let entity = self.inner.update(entity)?;
+
+        Self::sql_query_rows_output_from_entities::<E>(E::PATH.to_string(), vec![entity], None)
+    }
+
+    /// Update one full entity and return one explicit field list.
+    #[cfg(feature = "sql")]
+    pub fn update_returning<E, I, S>(
+        &self,
+        entity: E,
+        fields: I,
+    ) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let entity = self.inner.update(entity)?;
+        let fields = fields
+            .into_iter()
+            .map(|field| field.as_ref().to_string())
+            .collect::<Vec<_>>();
+
+        Self::sql_query_rows_output_from_entities::<E>(
+            E::PATH.to_string(),
+            vec![entity],
+            Some(fields.as_slice()),
+        )
     }
 
     /// Apply one structural mutation under one explicit write-mode contract.
@@ -655,11 +942,11 @@ impl<C: CanisterKind> DbSession<C> {
         key: E::Key,
         patch: UpdatePatch,
         mode: MutationMode,
-    ) -> Result<WriteResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.mutate_structural::<E>(
+        Ok(Self::mutation_entity(self.inner.mutate_structural::<E>(
             key,
             patch.inner,
             mode.into_core(),
@@ -674,11 +961,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn update_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.update_many_atomic(entities)?,
         ))
     }
@@ -689,11 +976,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn update_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<WriteBatchResponse<E>, Error>
+    ) -> Result<MutationResult<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_batch_response(
+        Ok(Self::mutation_entities(
             self.inner.update_many_non_atomic(entities)?,
         ))
     }

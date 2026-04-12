@@ -1,108 +1,135 @@
 use crate::{
+    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::{EntityKind, EntityValue},
     types::Id,
 };
-use icydb_core::db::WriteBatchResponse as CoreWriteBatchResponse;
+use icydb_core::db::{ResponseError, WriteBatchResponse as CoreWriteBatchResponse};
 
 ///
-/// WriteResponse
+/// MutationResult
 ///
-/// Facade over a single write result with explicit accessors.
-/// Returned IDs are public identifiers used for correlation, reporting, and lookup.
+/// Unified facade result for authored write operations.
+/// This keeps insert, create, update, replace, structural mutation, batch
+/// mutation, and count-first delete under one public result family instead of
+/// exposing separate single-row, batch-row, and bare-count payload types.
 ///
-
 #[derive(Debug)]
-pub struct WriteResponse<E: EntityKind> {
-    entity: E,
+pub enum MutationResult<E: EntityKind> {
+    Count { row_count: u32 },
+    Entity(E),
+    Entities(Vec<E>),
 }
 
-impl<E: EntityKind> WriteResponse<E> {
-    /// Construct a facade write response from a stored entity.
+impl<E: EntityKind> MutationResult<E> {
+    /// Construct one count-only mutation result.
     #[must_use]
-    pub const fn new(entity: E) -> Self {
-        Self { entity }
+    pub const fn from_count(row_count: u32) -> Self {
+        Self::Count { row_count }
     }
 
-    /// Return the stored entity.
+    /// Construct one single-entity mutation result.
     #[must_use]
-    pub fn entity(self) -> E {
-        self.entity
+    pub const fn from_entity(entity: E) -> Self {
+        Self::Entity(entity)
     }
 
-    /// Return the stored entity's primary identity
+    /// Construct one multi-entity mutation result.
     #[must_use]
-    pub fn id(&self) -> Id<E>
-    where
-        E: EntityValue,
-    {
-        self.entity.id()
-    }
-}
-
-///
-/// WriteBatchResponse
-///
-/// Facade over batch write results with explicit entity and identity accessors.
-///
-
-#[derive(Debug)]
-pub struct WriteBatchResponse<E: EntityKind> {
-    entities: Vec<E>,
-}
-
-impl<E: EntityKind> WriteBatchResponse<E> {
-    /// Construct a facade batch response from stored entities.
-    #[must_use]
-    pub const fn new(entities: Vec<E>) -> Self {
-        Self { entities }
+    pub const fn from_entities(entities: Vec<E>) -> Self {
+        Self::Entities(entities)
     }
 
-    /// Construct a facade batch response from the core response.
+    /// Construct one multi-entity mutation result from the core batch surface.
     #[must_use]
-    pub fn from_core(inner: CoreWriteBatchResponse<E>) -> Self {
-        Self {
-            entities: inner.into_iter().collect(),
+    pub fn from_core_batch(inner: CoreWriteBatchResponse<E>) -> Self {
+        Self::from_entities(inner.into_iter().collect())
+    }
+
+    /// Return the number of rows represented by this mutation result.
+    #[must_use]
+    pub fn row_count(&self) -> u32 {
+        match self {
+            Self::Count { row_count } => *row_count,
+            Self::Entity(_) => 1,
+            Self::Entities(entities) => u32::try_from(entities.len()).unwrap_or(u32::MAX),
         }
     }
 
-    /// Return the number of entries.
+    /// Return the number of rows represented by this mutation result.
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.entities.len()
+    pub fn count(&self) -> u32 {
+        self.row_count()
     }
 
-    /// Returns `true` if the batch is empty.
+    /// Return whether this result contains no rows.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.entities.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.row_count() == 0
     }
 
-    /// Return all stored entities.
+    /// Return whether this result contains at least one row.
     #[must_use]
-    pub fn entities(self) -> Vec<E> {
-        self.entities
+    pub fn exists(&self) -> bool {
+        !self.is_empty()
     }
 
-    /// Borrow an iterator over primary keys for correlation, reporting, and lookup.
-    pub fn ids(&self) -> impl Iterator<Item = Id<E>> + '_
-    where
-        E: EntityValue,
-    {
-        self.entities.iter().map(EntityValue::id)
+    /// Consume and return exactly one entity.
+    pub fn entity(self) -> Result<E, Error> {
+        match self {
+            Self::Entity(entity) => Ok(entity),
+            Self::Entities(mut entities) => match entities.len() {
+                0 => Err(Error::from(ResponseError::not_found(E::PATH))),
+                1 => Ok(entities.remove(0)),
+                count => Err(Error::from(ResponseError::not_unique(
+                    E::PATH,
+                    u32::try_from(count).unwrap_or(u32::MAX),
+                ))),
+            },
+            Self::Count { .. } => Err(Self::unsupported_shape_error("entity", "count")),
+        }
+    }
+
+    /// Consume and return all entities represented by this result.
+    pub fn entities(self) -> Result<Vec<E>, Error> {
+        match self {
+            Self::Entity(entity) => Ok(vec![entity]),
+            Self::Entities(entities) => Ok(entities),
+            Self::Count { .. } => Err(Self::unsupported_shape_error("entities", "count")),
+        }
+    }
+
+    fn unsupported_shape_error(expected: &str, actual: &str) -> Error {
+        Error::new(
+            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            ErrorOrigin::Response,
+            format!("mutation result does not contain {expected}; actual shape={actual}"),
+        )
     }
 }
 
-impl<E: EntityKind> WriteBatchResponse<E> {
-    pub fn iter(&self) -> std::slice::Iter<'_, E> {
-        self.entities.iter()
+impl<E: EntityKind + EntityValue> MutationResult<E> {
+    /// Borrow exactly one primary identity from this mutation result.
+    pub fn id(&self) -> Result<Id<E>, Error> {
+        match self {
+            Self::Entity(entity) => Ok(entity.id()),
+            Self::Entities(entities) => match entities.as_slice() {
+                [] => Err(Error::from(ResponseError::not_found(E::PATH))),
+                [entity] => Ok(entity.id()),
+                many => Err(Error::from(ResponseError::not_unique(
+                    E::PATH,
+                    u32::try_from(many.len()).unwrap_or(u32::MAX),
+                ))),
+            },
+            Self::Count { .. } => Err(Self::unsupported_shape_error("id", "count")),
+        }
     }
-}
 
-impl<'a, E: EntityKind> IntoIterator for &'a WriteBatchResponse<E> {
-    type Item = &'a E;
-    type IntoIter = std::slice::Iter<'a, E>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+    /// Borrow all primary identities from this mutation result.
+    pub fn ids(&self) -> Result<Vec<Id<E>>, Error> {
+        match self {
+            Self::Entity(entity) => Ok(vec![entity.id()]),
+            Self::Entities(entities) => Ok(entities.iter().map(EntityValue::id).collect()),
+            Self::Count { .. } => Err(Self::unsupported_shape_error("ids", "count")),
+        }
     }
 }

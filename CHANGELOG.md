@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
+- `0.76.14` makes mutation results follow one clearer rule: `SELECT` and every admitted row-producing mutation surface now share the same row payload family (`... RETURNING` on SQL dispatch, fluent delete returning, and typed create/insert/update returning), while non-returning writes share one mutation-result family across typed create/insert/update/replace/delete surfaces.
 - `0.76.13` renames the new authored insert companion surface from `TypeInsert` / `insert_typed(...)` to `TypeCreate` / `create(...)`, keeping the same generated and managed-field ownership rules while making the authored create contract read more clearly next to the older full-entity `insert(...)` path.
 - `0.76.12` adds a separate typed authored insert surface (`TypeInsert` plus `insert_typed(...)`) so generated fields and managed timestamps are structurally absent from the authored write type, authored omission reaches save preflight explicitly, and the older full-entity `insert(...)` path can stay in place until typed write provenance is designed more broadly.
 - `0.76.11` hardens schema insert-generated fields on the authored write surfaces that can already prove caller intent, so typed-dispatch SQL and public structural writes now reject explicit values for `generated(insert = "...")` fields on both create and rewrite lanes instead of quietly letting system-owned generated values be overwritten.

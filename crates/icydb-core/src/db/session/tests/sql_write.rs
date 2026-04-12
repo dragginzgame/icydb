@@ -2,41 +2,31 @@ use super::*;
 use crate::db::{MutationMode, UpdatePatch};
 
 #[test]
-fn execute_sql_dispatch_single_row_insert_matrix_returns_projection_payload() {
+fn execute_sql_dispatch_single_row_insert_matrix_returns_count_without_returning() {
     let cases = [
         (
             "explicit-column insert",
-            Some("INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)"),
+            Some(
+                "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21) RETURNING id",
+            ),
             "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (2, 'Bea', 22)",
-            vec![vec![
-                Value::Uint(2),
-                Value::Text("Bea".to_string()),
-                Value::Uint(22),
-            ]],
+            1_u32,
         ),
         (
             "single-table-alias insert",
             None,
             "INSERT INTO SessionSqlWriteEntity s (id, name, age) VALUES (6, 'Fae', 26)",
-            vec![vec![
-                Value::Uint(6),
-                Value::Text("Fae".to_string()),
-                Value::Uint(26),
-            ]],
+            1_u32,
         ),
         (
             "canonical-order insert",
             None,
             "INSERT INTO SessionSqlWriteEntity VALUES (4, 'Dee', 24)",
-            vec![vec![
-                Value::Uint(4),
-                Value::Text("Dee".to_string()),
-                Value::Uint(24),
-            ]],
+            1_u32,
         ),
     ];
 
-    for (context, columns_sql, row_sql, expected_rows) in cases {
+    for (context, columns_sql, row_sql, expected_row_count) in cases {
         reset_session_sql_store();
         let session = sql_session();
 
@@ -46,54 +36,35 @@ fn execute_sql_dispatch_single_row_insert_matrix_returns_projection_payload() {
                     .unwrap_or_else(|err| {
                         panic!("{context} should return projection payload: {err}")
                     });
-            assert_eq!(columns, vec!["id", "name", "age"]);
+            assert_eq!(columns, vec!["id"]);
         }
 
-        let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(&session, row_sql)
-            .unwrap_or_else(|err| panic!("{context} should return one value row: {err}"));
-
+        let payload = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(row_sql)
+            .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
+        let SqlDispatchResult::Count { row_count } = payload else {
+            panic!("{context} should return count payload");
+        };
         assert_eq!(
-            rows, expected_rows,
-            "{context} should preserve returned row values"
+            row_count, expected_row_count,
+            "{context} should follow traditional SQL count semantics without RETURNING",
         );
     }
 }
 
 #[test]
-fn execute_sql_dispatch_multi_row_insert_matrix_preserves_input_order() {
-    for (sql, expected_rows, check_persisted, context) in [
+fn execute_sql_dispatch_multi_row_insert_matrix_returns_count_without_returning() {
+    for (sql, expected_row_count, check_persisted, context) in [
         (
             "INSERT INTO SessionSqlWriteEntity (id, name, age) \
              VALUES (2, 'Bea', 22), (3, 'Cid', 23)",
-            vec![
-                vec![
-                    Value::Uint(2),
-                    Value::Text("Bea".to_string()),
-                    Value::Uint(22),
-                ],
-                vec![
-                    Value::Uint(3),
-                    Value::Text("Cid".to_string()),
-                    Value::Uint(23),
-                ],
-            ],
+            2_u32,
             true,
             "explicit-column multi-row insert",
         ),
         (
             "INSERT INTO SessionSqlWriteEntity VALUES (4, 'Dee', 24), (5, 'Eli', 25)",
-            vec![
-                vec![
-                    Value::Uint(4),
-                    Value::Text("Dee".to_string()),
-                    Value::Uint(24),
-                ],
-                vec![
-                    Value::Uint(5),
-                    Value::Text("Eli".to_string()),
-                    Value::Uint(25),
-                ],
-            ],
+            2_u32,
             false,
             "canonical-order multi-row insert",
         ),
@@ -101,11 +72,15 @@ fn execute_sql_dispatch_multi_row_insert_matrix_preserves_input_order() {
         reset_session_sql_store();
         let session = sql_session();
 
-        let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should return value rows: {err}"));
+        let payload = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
+        let SqlDispatchResult::Count { row_count } = payload else {
+            panic!("{context} should return count payload");
+        };
         assert_eq!(
-            rows, expected_rows,
-            "{context} should preserve returned row order",
+            row_count, expected_row_count,
+            "{context} should follow traditional SQL count semantics without RETURNING",
         );
 
         if check_persisted {
@@ -114,7 +89,11 @@ fn execute_sql_dispatch_multi_row_insert_matrix_preserves_input_order() {
                 "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
             )
             .unwrap_or_else(|err| panic!("{context} post-insert projection should succeed: {err}"));
-            assert_eq!(persisted, rows);
+            assert_eq!(
+                persisted.len(),
+                usize::try_from(expected_row_count).unwrap_or(usize::MAX),
+                "{context} should persist the counted insert rows",
+            );
         }
     }
 }
@@ -142,10 +121,21 @@ fn execute_sql_dispatch_insert_with_schema_generated_primary_key_matrix_accepts_
         reset_session_sql_store();
         let session = sql_session();
 
-        let rows =
-            dispatch_projection_rows::<SessionSqlEntity>(&session, sql).unwrap_or_else(|err| {
-                panic!("{context} should synthesize one schema-generated Ulid: {err}")
-            });
+        let rows = dispatch_projection_rows::<SessionSqlEntity>(
+            &session,
+            match sql {
+                "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21)" => {
+                    "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING *"
+                }
+                "INSERT INTO SessionSqlEntity VALUES ('Bea', 22)" => {
+                    "INSERT INTO SessionSqlEntity VALUES ('Bea', 22) RETURNING *"
+                }
+                _ => unreachable!("generated-key insert matrix uses fixed SQL cases"),
+            },
+        )
+        .unwrap_or_else(|err| {
+            panic!("{context} should synthesize one schema-generated Ulid: {err}")
+        });
 
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0][0], Value::Ulid(_)));
@@ -284,12 +274,12 @@ fn execute_sql_dispatch_insert_synthesizes_schema_generated_fields_matrix() {
         (
             dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
                 &session,
-                "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
+                "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada') RETURNING *",
             )
             .expect("SQL INSERT should synthesize omitted schema-generated non-primary fields"),
             dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
                 &session,
-                "INSERT INTO SessionSqlGeneratedFieldEntity VALUES (2, 'Bea')",
+                "INSERT INTO SessionSqlGeneratedFieldEntity VALUES (2, 'Bea') RETURNING *",
             )
             .expect(
                 "positional SQL INSERT should omit schema-generated non-primary fields by width",
@@ -300,12 +290,12 @@ fn execute_sql_dispatch_insert_synthesizes_schema_generated_fields_matrix() {
         (
             dispatch_projection_rows::<SessionSqlGeneratedTimestampEntity>(
                 &session,
-                "INSERT INTO SessionSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada')",
+                "INSERT INTO SessionSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada') RETURNING *",
             )
             .expect("SQL INSERT should synthesize omitted schema-generated timestamp fields"),
             dispatch_projection_rows::<SessionSqlGeneratedTimestampEntity>(
                 &session,
-                "INSERT INTO SessionSqlGeneratedTimestampEntity VALUES (2, 'Bea')",
+                "INSERT INTO SessionSqlGeneratedTimestampEntity VALUES (2, 'Bea') RETURNING *",
             )
             .expect("positional SQL INSERT should omit schema-generated timestamp fields by width"),
             "timestamp",
@@ -508,7 +498,7 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
 }
 
 #[test]
-fn execute_sql_dispatch_single_row_update_matrix_returns_projection_payload() {
+fn execute_sql_dispatch_single_row_update_matrix_returns_count_without_returning() {
     let cases = [
         (
             "plain update",
@@ -533,16 +523,15 @@ fn execute_sql_dispatch_single_row_update_matrix_returns_projection_payload() {
             })
             .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
 
-        let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should return one value row: {err}"));
-
+        let payload = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
+        let SqlDispatchResult::Count { row_count } = payload else {
+            panic!("{context} should return count payload");
+        };
         assert_eq!(
-            rows,
-            vec![vec![
-                Value::Uint(1),
-                Value::Text("Bea".to_string()),
-                Value::Uint(22),
-            ]],
+            row_count, 1,
+            "{context} should follow traditional SQL count semantics without RETURNING",
         );
 
         if check_persisted {
@@ -551,7 +540,14 @@ fn execute_sql_dispatch_single_row_update_matrix_returns_projection_payload() {
                 "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
             )
             .unwrap_or_else(|err| panic!("{context} post-update projection should succeed: {err}"));
-            assert_eq!(persisted, rows);
+            assert_eq!(
+                persisted,
+                vec![vec![
+                    Value::Uint(1),
+                    Value::Text("Bea".to_string()),
+                    Value::Uint(22),
+                ]],
+            );
         }
     }
 }
@@ -564,13 +560,15 @@ fn execute_sql_dispatch_signed_numeric_write_matrix_widens_parser_literals() {
         .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
         .expect("signed write setup insert should succeed");
 
-    let rows = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
-        &session,
-        "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
-    )
-    .expect("signed SQL UPDATE should widen parser literals onto signed field contracts");
-
-    assert_eq!(rows, vec![vec![Value::Int(1), Value::Int(7)]]);
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlSignedWriteEntity>(
+            "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
+        )
+        .expect("signed SQL UPDATE should widen parser literals onto signed field contracts");
+    let SqlDispatchResult::Count { row_count } = payload else {
+        panic!("signed SQL UPDATE should return count payload without RETURNING");
+    };
+    assert_eq!(row_count, 1);
 
     let persisted = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
         &session,
@@ -578,7 +576,7 @@ fn execute_sql_dispatch_signed_numeric_write_matrix_widens_parser_literals() {
     )
     .expect("signed post-update projection should succeed");
 
-    assert_eq!(persisted, rows);
+    assert_eq!(persisted, vec![vec![Value::Int(1), Value::Int(7)]]);
 }
 
 #[test]
@@ -586,13 +584,15 @@ fn execute_sql_dispatch_signed_numeric_insert_widens_parser_literals() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let rows = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
-        &session,
-        "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
-    )
-    .expect("signed SQL INSERT should widen parser literals onto signed field contracts");
-
-    assert_eq!(rows, vec![vec![Value::Int(2), Value::Int(9)]]);
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlSignedWriteEntity>(
+            "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
+        )
+        .expect("signed SQL INSERT should widen parser literals onto signed field contracts");
+    let SqlDispatchResult::Count { row_count } = payload else {
+        panic!("signed SQL INSERT should return count payload without RETURNING");
+    };
+    assert_eq!(row_count, 1);
 
     let persisted = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
         &session,
@@ -600,7 +600,7 @@ fn execute_sql_dispatch_signed_numeric_insert_widens_parser_literals() {
     )
     .expect("signed post-insert projection should succeed");
 
-    assert_eq!(persisted, rows);
+    assert_eq!(persisted, vec![vec![Value::Int(2), Value::Int(9)]]);
 }
 
 #[test]
@@ -650,32 +650,21 @@ fn execute_sql_dispatch_update_with_non_primary_key_predicate_updates_matching_r
         })
         .expect("typed setup insert should succeed");
 
-    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
-        &session,
-        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
-    )
-    .expect("SQL UPDATE with non-primary-key predicate should succeed");
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+        )
+        .expect("SQL UPDATE with non-primary-key predicate should succeed");
+    let SqlDispatchResult::Count { row_count } = payload else {
+        panic!("SQL UPDATE with non-primary-key predicate should return count payload");
+    };
     let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
         &session,
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
     .expect("post-update SQL projection should succeed");
 
-    assert_eq!(
-        rows,
-        vec![
-            vec![
-                Value::Uint(1),
-                Value::Text("Ada".to_string()),
-                Value::Uint(22),
-            ],
-            vec![
-                Value::Uint(2),
-                Value::Text("Bea".to_string()),
-                Value::Uint(22),
-            ],
-        ],
-    );
+    assert_eq!(row_count, 2);
     assert_eq!(
         persisted,
         vec![
@@ -717,32 +706,21 @@ fn execute_sql_dispatch_update_with_order_limit_and_offset_updates_one_ordered_w
             .expect("typed setup insert should succeed");
     }
 
-    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
-        &session,
-        "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("SQL UPDATE ordered window should succeed");
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("SQL UPDATE ordered window should succeed");
+    let SqlDispatchResult::Count { row_count } = payload else {
+        panic!("SQL UPDATE ordered window should return count payload");
+    };
     let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
         &session,
         "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
     .expect("post-update SQL projection should succeed");
 
-    assert_eq!(
-        rows,
-        vec![
-            vec![
-                Value::Uint(2),
-                Value::Text("Bea".to_string()),
-                Value::Uint(99),
-            ],
-            vec![
-                Value::Uint(3),
-                Value::Text("Cid".to_string()),
-                Value::Uint(99),
-            ],
-        ],
-    );
+    assert_eq!(row_count, 2);
     assert_eq!(
         persisted,
         vec![
@@ -784,19 +762,41 @@ fn execute_sql_dispatch_update_with_limit_and_offset_uses_primary_key_order_fall
             .expect("typed setup insert should succeed");
     }
 
-    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+    let payload = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
+        )
+        .expect("SQL UPDATE window without ORDER BY should use deterministic primary-key fallback");
+    let SqlDispatchResult::Count { row_count } = payload else {
+        panic!("SQL UPDATE window without ORDER BY should return count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
         &session,
-        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
+        "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
     )
-    .expect("SQL UPDATE window without ORDER BY should use deterministic primary-key fallback");
+    .expect("post-update SQL projection should succeed");
 
     assert_eq!(
-        rows,
-        vec![vec![
-            Value::Uint(2),
-            Value::Text("Bea".to_string()),
-            Value::Uint(22),
-        ]],
+        persisted,
+        vec![
+            vec![
+                Value::Uint(1),
+                Value::Text("Ada".to_string()),
+                Value::Uint(21),
+            ],
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(22),
+            ],
+            vec![
+                Value::Uint(3),
+                Value::Text("Cid".to_string()),
+                Value::Uint(21),
+            ],
+        ],
     );
 }
 
@@ -833,7 +833,7 @@ fn execute_sql_dispatch_write_rejects_entity_mismatch_matrix() {
 
 #[test]
 fn execute_sql_dispatch_insert_select_matrix_accepts_supported_source_shapes() {
-    for (sql, expected_inserted_name, persisted_sql, expected_persisted, context) in [
+    for (_sql, expected_inserted_name, persisted_sql, expected_persisted, context) in [
         (
             "INSERT INTO SessionSqlEntity (name, age) \
              SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
@@ -867,8 +867,20 @@ fn execute_sql_dispatch_insert_select_matrix_accepts_supported_source_shapes() {
             })
             .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
 
-        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        let returning_sql = match context {
+            "plain INSERT SELECT" => {
+                "INSERT INTO SessionSqlEntity (name, age) \
+                 SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1 RETURNING *"
+            }
+            "computed INSERT SELECT" => {
+                "INSERT INTO SessionSqlEntity (name, age) \
+                 SELECT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1 RETURNING *"
+            }
+            other => panic!("unexpected INSERT SELECT context: {other}"),
+        };
+
+        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, returning_sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed with RETURNING: {err}"));
         let persisted = dispatch_projection_rows::<SessionSqlEntity>(&session, persisted_sql)
             .unwrap_or_else(|err| {
                 panic!("{context} post-insert-select projection should succeed: {err}")
@@ -991,30 +1003,83 @@ fn execute_sql_dispatch_insert_rejects_tuple_length_mismatch() {
 }
 
 #[test]
-fn execute_sql_dispatch_write_rejects_returning_clause_matrix() {
+fn execute_sql_dispatch_insert_and_update_returning_projection_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let inserted = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING name, age",
+    )
+    .expect("SQL INSERT RETURNING should return projection rows");
+    assert_eq!(
+        inserted,
+        vec![vec![Value::Text("Ada".to_string()), Value::Uint(21)]],
+        "SQL INSERT RETURNING field list should project requested inserted fields",
+    );
+
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed update setup insert should succeed");
+    let updated = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING *",
+    )
+    .expect("SQL UPDATE RETURNING should return projection rows");
+    assert_eq!(
+        updated,
+        vec![vec![
+            Value::Uint(1),
+            Value::Text("Ada".to_string()),
+            Value::Uint(22),
+        ]],
+        "SQL UPDATE RETURNING star should preserve full entity field order",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_write_rejects_unsupported_returning_projection_matrix() {
     reset_session_sql_store();
     for (entity_kind, sql) in [
         (
             "insert",
-            "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id",
+            "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING LOWER(name)",
         ),
         (
             "update",
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING LOWER(name)",
         ),
     ] {
         let session = sql_session();
         let err = match entity_kind {
             "insert" => session
                 .execute_sql_dispatch::<SessionSqlEntity>(sql)
-                .expect_err("SQL INSERT RETURNING should stay fail-closed"),
-            "update" => session
-                .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
-                .expect_err("SQL UPDATE RETURNING should stay fail-closed"),
+                .expect_err("unsupported INSERT RETURNING projection should stay fail-closed"),
+            "update" => {
+                session
+                    .insert(SessionSqlWriteEntity {
+                        id: 1,
+                        name: "Ada".to_string(),
+                        age: 21,
+                    })
+                    .expect("unsupported UPDATE RETURNING setup insert should succeed");
+                session
+                    .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+                    .expect_err("unsupported UPDATE RETURNING projection should stay fail-closed")
+            }
             other => panic!("unexpected write RETURNING case: {other}"),
         };
 
-        assert_sql_unsupported_feature_detail(err, "RETURNING");
+        assert!(
+            err.to_string().contains(
+                "SQL function namespace beyond supported aggregate or scalar text projection forms"
+            ),
+            "{entity_kind} RETURNING should preserve the parser-owned unsupported feature detail",
+        );
     }
 }
 

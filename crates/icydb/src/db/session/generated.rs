@@ -48,7 +48,10 @@ pub fn execute_generated_sql_query<C: CanisterKind>(
     // Phase 2: map success onto the public SQL payload surface or preserve the
     // generated EXPLAIN unordered-pagination hint for the public error shape.
     match attempt.into_result() {
-        Ok(result) => Ok(DbSession::<C>::map_sql_dispatch_result(result, entity_name)),
+        Ok(result) => Ok(DbSession::<C>::map_dynamic_sql_dispatch_result(
+            result,
+            entity_name,
+        )),
         Err(err) => {
             let facade = Error::from(err);
 
