@@ -462,6 +462,14 @@ mod tests {
         }
     }
 
+    // Compare several equivalent-form SQL families by asserting each batch
+    // collapses to one dispatch payload shape.
+    fn assert_equivalent_dispatch_result_form_batches(cases: &[(&[&str], &str)]) {
+        for (sqls, context) in cases {
+            assert_equivalent_dispatch_result_forms(sqls, context);
+        }
+    }
+
     // Compare one set of equivalent explain SQL forms by asserting each explain
     // payload preserves the same required and forbidden route tokens.
     fn assert_equivalent_explain_route_forms(
@@ -1139,155 +1147,125 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_projection_matches_typed_surface() {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering projection parity",
-        );
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_projection_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering projection parity",
+            ),
+            (
+                "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerOrder>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_explain_matches_typed_surface() {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering EXPLAIN parity",
-        );
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_explain_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering EXPLAIN parity",
+            ),
+        ];
+
+        assert_dispatch_matches_typed_as_cases::<CustomerOrder>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering projection parity",
-        );
+    fn generated_sql_dispatch_customer_order_direct_starts_with_projection_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering projection parity",
+            ),
+            (
+                "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerOrder>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_direct_starts_with_explain_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
+            ),
+        ];
+
+        assert_dispatch_matches_typed_as_cases::<CustomerOrder>(&cases);
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_strict_text_range_projection_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering projection parity",
+            ),
+            (
+                "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerOrder>(&cases);
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_strict_text_range_explain_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering EXPLAIN parity",
+            ),
+        ];
+
+        assert_dispatch_matches_typed_as_cases::<CustomerOrder>(&cases);
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_equivalent_strict_prefix_matrix_matches_projection_rows()
     {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering EXPLAIN parity",
-        );
-    }
+        let cases = [
+            (
+                &[
+                    "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                    "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                    "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerOrder strict prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                    "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                    "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerOrder strict prefix forms should keep projection parity",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_projection_matches_typed_surface() {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_explain_matches_typed_surface() {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_explain_matches_typed_surface()
-    {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_projection_matches_typed_surface() {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_explain_matches_typed_surface() {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_strict_text_range_desc_explain_matches_typed_surface()
-    {
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_equivalent_strict_prefix_forms_match_projection_rows()
-    {
         reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerOrder STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated CustomerOrder text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_equivalent_desc_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerOrder STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated descending CustomerOrder text-range and LIKE prefix queries should keep projection parity",
-        );
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
@@ -1548,53 +1526,29 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_equivalent_strict_prefix_forms_match_projection_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_equivalent_strict_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
+                ][..],
+                "generated CustomerAccount filtered strict prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
+                    "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
+                ][..],
+                "generated descending CustomerAccount filtered strict prefix forms should keep projection parity",
+            ),
+        ];
+
         reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated CustomerAccount text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_equivalent_desc_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated descending CustomerAccount text-range and LIKE prefix queries should keep projection parity",
-        );
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
@@ -1806,39 +1760,27 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_prefix_forms_match_projection_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerAccount filtered expression prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerAccount filtered expression prefix forms should keep projection parity",
+            ),
+        ];
+
         reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_desc_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
@@ -2074,89 +2016,53 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_prefix_forms_match_projection_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerAccount filtered composite expression prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerAccount filtered composite expression prefix forms should keep projection parity",
+            ),
+        ];
+
         reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_desc_prefix_forms_match_projection_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_composite_equivalent_strict_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerAccount filtered composite strict prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerAccount filtered composite strict prefix forms should keep projection parity",
+            ),
+        ];
+
         reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_equivalent_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated CustomerAccount filtered composite text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_equivalent_desc_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated descending CustomerAccount filtered composite text-range and LIKE prefix queries should keep projection parity",
-        );
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
