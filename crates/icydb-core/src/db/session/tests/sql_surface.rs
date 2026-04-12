@@ -21,9 +21,8 @@ fn assert_sql_surface_rejects_statement_lanes_with_message<T, F>(
     F: FnMut(&str) -> Result<T, QueryError>,
 {
     for (sql, expected) in cases {
-        let err = match execute(sql) {
-            Ok(_) => panic!("{surface} should reject the non-owned lane: {sql}"),
-            Err(err) => err,
+        let Err(err) = execute(sql) else {
+            panic!("{surface} should reject the non-owned lane: {sql}");
         };
         assert!(
             err.to_string().contains(expected),
@@ -39,9 +38,8 @@ where
     F: FnMut(&str) -> Result<T, QueryError>,
 {
     for (sql, feature) in unsupported_sql_feature_cases() {
-        let err = match execute(sql) {
-            Ok(_) => panic!("unsupported SQL feature should fail through the SQL surface"),
-            Err(err) => err,
+        let Err(err) = execute(sql) else {
+            panic!("unsupported SQL feature should fail through the SQL surface");
         };
         assert_sql_unsupported_feature_detail(err, feature);
     }
