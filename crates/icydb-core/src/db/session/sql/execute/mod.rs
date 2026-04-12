@@ -49,21 +49,6 @@ use crate::{
 #[cfg(feature = "perf-attribution")]
 pub use lowered::LoweredSqlStatementExecutorAttribution;
 
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlGroupingSurface {
-    Scalar,
-    Grouped,
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-const fn unsupported_sql_grouping_message(surface: SqlGroupingSurface) -> &'static str {
-    match surface {
-        SqlGroupingSurface::Scalar => "scalar SQL execution rejects grouped SELECT",
-        SqlGroupingSurface::Grouped => "grouped SQL execution requires grouped SQL query intent",
-    }
-}
-
 // Project parsed SELECT items into one stable outward column contract while
 // allowing parser-owned aliases to override only the final session label.
 fn sql_projection_labels_from_select_statement(
@@ -1093,24 +1078,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.explain_lowered_sql_for_authority(&lowered, authority)
             .map(SqlStatementResult::Explain)
-    }
-
-    // Validate that one SQL-derived query intent matches the grouped/scalar
-    // execution surface that is about to consume it.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::db::session::sql) fn ensure_sql_query_grouping<E>(
-        query: &Query<E>,
-        surface: SqlGroupingSurface,
-    ) -> Result<(), QueryError>
-    where
-        E: EntityKind,
-    {
-        match (surface, query.has_grouping()) {
-            (SqlGroupingSurface::Scalar, false) | (SqlGroupingSurface::Grouped, true) => Ok(()),
-            (SqlGroupingSurface::Scalar, true) | (SqlGroupingSurface::Grouped, false) => Err(
-                QueryError::unsupported_query(unsupported_sql_grouping_message(surface)),
-            ),
-        }
     }
 
     /// Execute one reduced SQL statement into one unified SQL statement payload.

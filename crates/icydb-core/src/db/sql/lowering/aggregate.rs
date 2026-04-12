@@ -2,12 +2,14 @@ use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
     SqlLoweringError,
 };
+#[cfg(test)]
+use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
-            intent::{Query, StructuralQuery},
+            intent::StructuralQuery,
             plan::{AggregateKind, FieldSlot, resolve_aggregate_target_field_slot},
         },
         sql::parser::{
@@ -16,7 +18,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::EntityKind,
 };
 
 ///

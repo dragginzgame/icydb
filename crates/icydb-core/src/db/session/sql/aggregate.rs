@@ -22,31 +22,10 @@ use crate::{
     value::Value,
 };
 
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlAggregateSurface {
-    QueryFrom,
-    ExecuteSql,
-    ExecuteSqlGrouped,
-}
-
 pub(in crate::db::session::sql) fn parsed_requires_dedicated_sql_aggregate_lane(
     parsed: &SqlParsedStatement,
 ) -> bool {
     is_sql_global_aggregate_statement(&parsed.statement)
-}
-
-#[cfg(test)]
-pub(in crate::db::session::sql) const fn unsupported_sql_aggregate_lane_message(
-    surface: SqlAggregateSurface,
-) -> &'static str {
-    match surface {
-        SqlAggregateSurface::QueryFrom => "structural SQL lowering rejects global aggregate SELECT",
-        SqlAggregateSurface::ExecuteSql => "scalar SQL execution rejects global aggregate SELECT",
-        SqlAggregateSurface::ExecuteSqlGrouped => {
-            "grouped SQL execution rejects global aggregate SELECT"
-        }
-    }
 }
 
 impl<C: CanisterKind> DbSession<C> {

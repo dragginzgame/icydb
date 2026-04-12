@@ -36,7 +36,7 @@ mod verbose_route_choice;
 use super::*;
 use crate::{
     db::{
-        Db, MissingRowPolicy, PlanError,
+        Db, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
         access::lower_index_range_specs,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::{CursorPlanError, IndexScanContinuationInput},
@@ -50,7 +50,7 @@ use crate::{
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
-            intent::StructuralQuery,
+            intent::{Query, StructuralQuery},
             plan::{
                 AggregateKind, FieldSlot,
                 expr::{Expr, ProjectionField},
@@ -58,7 +58,14 @@ use crate::{
         },
         registry::{StoreHandle, StoreRegistry},
         response::EntityResponse,
-        sql::lowering::{LoweredSqlQuery, apply_lowered_select_shape},
+        sql::{
+            lowering::{
+                LoweredSqlQuery, apply_lowered_select_shape, bind_lowered_sql_query,
+                is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
+                prepare_sql_statement,
+            },
+            parser::{SqlSelectItem, SqlStatement, parse_sql},
+        },
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
@@ -137,6 +144,267 @@ static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64
 
 // Shared projected-row shape used by the session SQL projection tests.
 type ProjectedRows = Vec<Vec<Value>>;
+
+trait SessionSqlLegacyTestExt<C: crate::traits::CanisterKind> {
+    fn lower_sql_query_for_tests<E>(&self, sql: &str) -> Result<Query<E>, QueryError>
+    where
+        E: crate::traits::EntityKind<Canister = C>;
+
+    fn execute_scalar_sql_for_tests<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue;
+
+    fn execute_grouped_sql_for_tests<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue;
+}
+
+impl<C: crate::traits::CanisterKind> SessionSqlLegacyTestExt<C> for DbSession<C> {
+    fn lower_sql_query_for_tests<E>(&self, sql: &str) -> Result<Query<E>, QueryError>
+    where
+        E: crate::traits::EntityKind<Canister = C>,
+    {
+        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
+
+        match &statement {
+            SqlStatement::Insert(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects INSERT; use create(...) or insert(...)",
+                ));
+            }
+            SqlStatement::Update(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects UPDATE; use update(...)",
+                ));
+            }
+            SqlStatement::Delete(delete) if delete.returning.is_some() => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects DELETE RETURNING; use delete::<E>().returning...",
+                ));
+            }
+            SqlStatement::Explain(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects EXPLAIN; parse SQL first and use the dedicated EXPLAIN helpers",
+                ));
+            }
+            SqlStatement::Describe(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects DESCRIBE; use describe_entity(...)",
+                ));
+            }
+            SqlStatement::ShowIndexes(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects SHOW INDEXES; use show_indexes(...)",
+                ));
+            }
+            SqlStatement::ShowColumns(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects SHOW COLUMNS; use show_columns(...)",
+                ));
+            }
+            SqlStatement::ShowEntities(_) => {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql rejects SHOW ENTITIES; use show_entities()",
+                ));
+            }
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
+            {
+                return Err(QueryError::unsupported_query(
+                    "query_from_sql does not accept computed text projection",
+                ));
+            }
+            SqlStatement::Delete(_) | SqlStatement::Select(_) => {}
+        }
+
+        if is_sql_global_aggregate_statement(&statement) {
+            return Err(QueryError::unsupported_query(
+                "structural SQL lowering rejects global aggregate SELECT",
+            ));
+        }
+
+        let lowered = lower_sql_command_from_prepared_statement(
+            prepare_sql_statement(statement, E::MODEL.name())
+                .map_err(QueryError::from_sql_lowering_error)?,
+            E::MODEL.primary_key.name,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(query) = lowered.query().cloned() else {
+            return Err(QueryError::unsupported_query(
+                "query_from_sql accepts SELECT or DELETE only",
+            ));
+        };
+
+        bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)
+    }
+
+    fn execute_scalar_sql_for_tests<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
+
+        match &statement {
+            SqlStatement::Delete(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects DELETE; use delete::<E>()",
+                ));
+            }
+            SqlStatement::Explain(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects EXPLAIN; parse SQL first and use the dedicated EXPLAIN helpers",
+                ));
+            }
+            SqlStatement::Describe(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects DESCRIBE; use describe_entity(...)",
+                ));
+            }
+            SqlStatement::ShowIndexes(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects SHOW INDEXES; use show_indexes(...)",
+                ));
+            }
+            SqlStatement::ShowColumns(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects SHOW COLUMNS; use show_columns(...)",
+                ));
+            }
+            SqlStatement::ShowEntities(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects SHOW ENTITIES; use show_entities()",
+                ));
+            }
+            SqlStatement::Insert(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects INSERT; use create(...) or insert(...)",
+                ));
+            }
+            SqlStatement::Update(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects UPDATE; use update(...)",
+                ));
+            }
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
+            {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql rejects computed text projection",
+                ));
+            }
+            SqlStatement::Select(_) => {}
+        }
+
+        if is_sql_global_aggregate_statement(&statement) {
+            return Err(QueryError::unsupported_query(
+                "execute_sql rejects global aggregate SELECT",
+            ));
+        }
+
+        let query = self.lower_sql_query_for_tests::<E>(sql)?;
+
+        if query.has_grouping() {
+            return Err(QueryError::unsupported_query(
+                "execute_sql rejects grouped SELECT",
+            ));
+        }
+
+        self.execute_query(&query)
+    }
+
+    fn execute_grouped_sql_for_tests<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
+
+        match &statement {
+            SqlStatement::Delete(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects DELETE; use delete::<E>()",
+                ));
+            }
+            SqlStatement::Explain(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects EXPLAIN",
+                ));
+            }
+            SqlStatement::Describe(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects DESCRIBE",
+                ));
+            }
+            SqlStatement::ShowIndexes(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects SHOW INDEXES",
+                ));
+            }
+            SqlStatement::ShowColumns(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects SHOW COLUMNS",
+                ));
+            }
+            SqlStatement::ShowEntities(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects SHOW ENTITIES",
+                ));
+            }
+            SqlStatement::Insert(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects INSERT; use create(...) or insert(...)",
+                ));
+            }
+            SqlStatement::Update(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects UPDATE; use update(...)",
+                ));
+            }
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
+            {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_grouped rejects scalar computed text projection",
+                ));
+            }
+            SqlStatement::Select(_) => {}
+        }
+
+        if is_sql_global_aggregate_statement(&statement) {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped rejects global aggregate SELECT",
+            ));
+        }
+
+        let query = self.lower_sql_query_for_tests::<E>(sql)?;
+
+        if !query.has_grouping() {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped requires grouped SELECT",
+            ));
+        }
+
+        self.execute_grouped(&query, cursor_token)
+    }
+}
+
+fn sql_select_has_text_function(statement: &crate::db::sql::parser::SqlSelectStatement) -> bool {
+    matches!(
+        &statement.projection,
+        crate::db::sql::parser::SqlProjection::Items(items)
+            if items
+                .iter()
+                .any(|item| matches!(item, SqlSelectItem::TextFunction(_)))
+    )
+}
 
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
