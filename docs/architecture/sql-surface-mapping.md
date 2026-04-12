@@ -43,7 +43,8 @@ Legend:
 
 | surface | scalar `SELECT` | grouped `SELECT` | global aggregate `SELECT` | computed projection `SELECT` | `DELETE` | `INSERT` | `UPDATE` | `EXPLAIN` | `DESCRIBE` / `SHOW` |
 |---|---|---|---|---|---|---|---|---|---|
-| `execute_sql_query::<E>` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `execute_sql_query::<E>` | yes | yes | yes | yes | no | no | no | yes | yes |
+| `execute_sql_update::<E>` | no | no | no | no | yes | yes | yes | no | no |
 | typed/fluent writes | no | no | no | no | yes | yes | yes | no | no |
 
 ## What Is Already Stable
@@ -65,12 +66,13 @@ Representative evidence:
 This is the part of the SQL surface that already behaves like one canonical
 query/runtime model with multiple frontends.
 
-The strongest public SQL execution surface is now:
+The strongest public SQL execution split is now:
 
-- `execute_sql_query::<E>(...)`
+- `execute_sql_query::<E>(...)` for read, explain, and introspection SQL
+- `execute_sql_update::<E>(...)` for state-changing SQL
 
-It stays single-entity and SQL-shaped, but it executes every currently
-admitted single-entity SQL statement family through one outward entrypoint.
+Both stay single-entity and SQL-shaped, but neither one widens into the
+other's statement family.
 
 The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
@@ -115,6 +117,11 @@ Representative evidence:
 - `crates/icydb/src/db/session/mod.rs`
 - `crates/icydb/src/db/session/delete.rs`
 - `crates/icydb-core/src/db/session/sql/mod.rs`
+
+The SQL mutation mirror is now explicit rather than hidden behind a query-shaped
+entrypoint:
+
+- `execute_sql_update::<E>(...)`
 
 ## Introspection Boundary
 

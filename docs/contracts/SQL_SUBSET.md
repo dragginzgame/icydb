@@ -31,12 +31,12 @@ IcyDB SQL is a constrained single-entity language for:
 IcyDB SQL is not a general-purpose relational SQL engine.
 
 Typed and fluent APIs are the canonical public surfaces.
-The remaining public SQL surface is:
+The remaining public SQL surfaces are:
 
 - `execute_sql_query::<E>(...)`
+- `execute_sql_update::<E>(...)`
 
-which executes admitted single-entity SQL statements against one concrete
-entity type and returns SQL-shaped output.
+Both stay hard-bound to one concrete entity type and return SQL-shaped output.
 
 ## Supported Public SQL Statements
 
@@ -63,7 +63,6 @@ Supported shapes:
 - `EXPLAIN JSON DELETE ...`
 
 `EXPLAIN` is an operational SQL surface.
-It does not imply public SQL mutation execution.
 
 ### Introspection
 
@@ -77,9 +76,14 @@ Supported commands:
 
 ## Public SQL Mutation Execution
 
-There is no public SQL text mutation executor.
+Supported public mutation shapes are:
 
-Mutation ownership stays on typed and fluent APIs:
+- `INSERT`
+- `UPDATE`
+- `DELETE`
+- admitted `... RETURNING`
+
+Mutation ownership still primarily lives on typed and fluent APIs:
 
 - `create(...)`
 - `insert(...)`
@@ -87,6 +91,11 @@ Mutation ownership stays on typed and fluent APIs:
 - `replace(...)`
 - `delete::<E>()`
 - the corresponding typed/fluent `...returning...` helpers
+
+Public SQL ownership is split deliberately:
+
+- `execute_sql_query::<E>(...)` owns read, explain, and introspection SQL
+- `execute_sql_update::<E>(...)` owns state-changing SQL
 
 ## Entity Naming And Aliases
 

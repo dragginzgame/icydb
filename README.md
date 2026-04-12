@@ -231,11 +231,25 @@ let rows = db!().execute_sql_query::<User>(
 )?;
 ```
 
+### Execute reduced SQL mutations
+
+```rust
+use icydb::prelude::*;
+
+let outcome = db!().execute_sql_update::<User>(
+    "UPDATE User SET age = 42 WHERE name = 'Ada' RETURNING id, age",
+)?;
+```
+
 ### Reduced SQL In Rust
 
-With the `sql` feature enabled, IcyDB keeps one Rust-side SQL entrypoint:
+With the `sql` feature enabled, IcyDB keeps one read entrypoint and one
+mutation entrypoint:
 
-- `execute_sql_query::<E>(...)` for the supported single-entity SQL subset
+- `execute_sql_query::<E>(...)` for the supported single-entity read,
+  explain, and introspection subset
+- `execute_sql_update::<E>(...)` for the supported single-entity mutation
+  subset
 
 Typed/fluent APIs still own the main Rust-side product surface.
 
@@ -310,7 +324,10 @@ in one atomic transaction is out of scope for the current surface.
 
 Executable SQL entrypoints:
 
-- `execute_sql_query::<E>(...)` for the supported single-entity SQL subset
+- `execute_sql_query::<E>(...)` for the supported single-entity read,
+  explain, and introspection subset
+- `execute_sql_update::<E>(...)` for the supported single-entity mutation
+  subset
 
 Public typed/fluent mutation shapes remain:
 
@@ -335,7 +352,6 @@ Out of scope and fail-closed by design:
 - joins/subqueries/CTEs
 - quoted identifiers
 - window functions
-- public SQL mutation execution
 - `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
 
 ---

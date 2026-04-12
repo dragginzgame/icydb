@@ -156,9 +156,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((visible_indexes, plan))
     }
 
-    // Enforce that the public SQL executor stays hard-bound to the typed
-    // entity `E` instead of silently reusing unrelated entity names.
-    fn ensure_sql_query_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
+    // Enforce that the public typed SQL executors stay hard-bound to the
+    // typed entity `E` instead of silently reusing unrelated entity names.
+    fn ensure_typed_sql_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -180,9 +180,57 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Err(QueryError::unsupported_query(format!(
-            "execute_sql_query only supports entity '{}', but received '{sql_entity}'",
+            "typed SQL only supports entity '{}', but received '{sql_entity}'",
             E::MODEL.name()
         )))
+    }
+
+    // Keep the public SQL query surface aligned with its name and with
+    // query-shaped canister entrypoints.
+    fn ensure_sql_query_statement_supported(statement: &SqlStatement) -> Result<(), QueryError> {
+        match statement {
+            SqlStatement::Select(_)
+            | SqlStatement::Explain(_)
+            | SqlStatement::Describe(_)
+            | SqlStatement::ShowIndexes(_)
+            | SqlStatement::ShowColumns(_)
+            | SqlStatement::ShowEntities(_) => Ok(()),
+            SqlStatement::Insert(_) => Err(QueryError::unsupported_query(
+                "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+            )),
+            SqlStatement::Update(_) => Err(QueryError::unsupported_query(
+                "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
+            )),
+            SqlStatement::Delete(_) => Err(QueryError::unsupported_query(
+                "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
+            )),
+        }
+    }
+
+    // Keep the public SQL mutation surface aligned with state-changing SQL
+    // while preserving one explicit read/introspection owner.
+    fn ensure_sql_update_statement_supported(statement: &SqlStatement) -> Result<(), QueryError> {
+        match statement {
+            SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_) => Ok(()),
+            SqlStatement::Select(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects SELECT; use execute_sql_query::<E>()",
+            )),
+            SqlStatement::Explain(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects EXPLAIN; use execute_sql_query::<E>()",
+            )),
+            SqlStatement::Describe(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects DESCRIBE; use execute_sql_query::<E>()",
+            )),
+            SqlStatement::ShowIndexes(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects SHOW INDEXES; use execute_sql_query::<E>()",
+            )),
+            SqlStatement::ShowColumns(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects SHOW COLUMNS; use execute_sql_query::<E>()",
+            )),
+            SqlStatement::ShowEntities(_) => Err(QueryError::unsupported_query(
+                "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()",
+            )),
+        }
     }
 
     // Lower one parsed SQL statement onto the structural query lane while
@@ -327,17 +375,34 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_query(&query)
     }
 
-    /// Execute one single-entity reduced SQL statement.
+    /// Execute one single-entity reduced SQL query or introspection statement.
     ///
-    /// This is the one broad public SQL executor. It stays hard-bound to `E`
-    /// and returns SQL-shaped statement output instead of typed entities.
+    /// This surface stays hard-bound to `E`, rejects state-changing SQL, and
+    /// returns SQL-shaped statement output instead of typed entities.
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
 
-        Self::ensure_sql_query_route_matches::<E>(parsed.route())?;
+        Self::ensure_typed_sql_route_matches::<E>(parsed.route())?;
+        Self::ensure_sql_query_statement_supported(&parsed.statement)?;
+
+        self.execute_sql_statement_parsed::<E>(&parsed)
+    }
+
+    /// Execute one single-entity reduced SQL mutation statement.
+    ///
+    /// This surface stays hard-bound to `E`, rejects read-only SQL, and
+    /// returns SQL-shaped mutation output such as counts or `RETURNING` rows.
+    pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let parsed = self.parse_sql_statement(sql)?;
+
+        Self::ensure_typed_sql_route_matches::<E>(parsed.route())?;
+        Self::ensure_sql_update_statement_supported(&parsed.statement)?;
 
         self.execute_sql_statement_parsed::<E>(&parsed)
     }

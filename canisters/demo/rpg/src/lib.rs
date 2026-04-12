@@ -38,4 +38,11 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     db().execute_sql_query::<Character>(sql.as_str())
 }
 
+/// Execute one Character-only reduced SQL mutation against the demo canister.
+#[cfg(feature = "sql")]
+#[update]
+fn update(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_update::<Character>(sql.as_str())
+}
+
 canic_cdk::export_candid!();

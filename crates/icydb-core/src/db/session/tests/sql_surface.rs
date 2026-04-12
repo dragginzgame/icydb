@@ -820,3 +820,131 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
     assert_eq!(row_count, 1);
 }
+
+#[test]
+fn execute_sql_query_rejects_supported_single_entity_mutation_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected, context) in [
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+            "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+            "query SQL surface should reject INSERT",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+            "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
+            "query SQL surface should reject UPDATE",
+        ),
+        (
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1",
+            "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
+            "query SQL surface should reject DELETE",
+        ),
+    ] {
+        let err = session
+            .execute_sql_query::<SessionSqlWriteEntity>(sql)
+            .expect_err(context);
+        assert!(
+            err.to_string().contains(expected),
+            "{context} should preserve the query-to-update guidance",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_query_admits_supported_single_entity_read_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let scalar = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("execute_sql_query should admit scalar SELECT");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = scalar
+    else {
+        panic!("execute_sql_query scalar SELECT should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
+    assert_eq!(row_count, 1);
+
+    let grouped = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        )
+        .expect("execute_sql_query should admit grouped SELECT");
+    let SqlStatementResult::Grouped {
+        columns, row_count, ..
+    } = grouped
+    else {
+        panic!("execute_sql_query grouped SELECT should emit grouped rows");
+    };
+    assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
+    assert_eq!(row_count, 2);
+
+    let aggregate = session
+        .execute_sql_query::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect("execute_sql_query should admit global aggregate SELECT");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = aggregate
+    else {
+        panic!("execute_sql_query aggregate SELECT should emit projection rows");
+    };
+    assert_eq!(columns, vec!["COUNT(*)".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Uint(3)]]);
+    assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("execute_sql_update should admit INSERT");
+    let SqlStatementResult::Count { row_count } = insert else {
+        panic!("execute_sql_update INSERT should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let update = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        )
+        .expect("execute_sql_update should admit UPDATE");
+    let SqlStatementResult::Count { row_count } = update else {
+        panic!("execute_sql_update UPDATE should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let delete = session
+        .execute_sql_update::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+        )
+        .expect("execute_sql_update should admit DELETE RETURNING");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+    } = delete
+    else {
+        panic!("execute_sql_update DELETE RETURNING should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string()]);
+    assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
+    assert_eq!(row_count, 1);
+}

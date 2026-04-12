@@ -185,6 +185,18 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one reduced SQL mutation statement against one concrete entity type.
+    #[cfg(feature = "sql")]
+    pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        Ok(crate::db::sql::sql_query_result_from_statement(
+            self.inner.execute_sql_update::<E>(sql)?,
+            E::MODEL.name().to_string(),
+        ))
+    }
+
     #[cfg(feature = "sql")]
     fn projection_selection<E>(
         selected_fields: Option<&[String]>,
