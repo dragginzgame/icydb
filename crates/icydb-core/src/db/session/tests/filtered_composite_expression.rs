@@ -262,25 +262,40 @@ const fn filtered_composite_expression_covering_queries(
 }
 
 #[test]
-fn execute_sql_projection_filtered_composite_expression_order_only_query_returns_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn execute_sql_projection_filtered_composite_expression_order_only_matrix_returns_guarded_rows() {
+    let cases = [
+        (
+            "ascending filtered composite expression order-only projection query",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            false,
+        ),
+        (
+            "descending filtered composite expression order-only projection query",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            true,
+        ),
+    ];
 
-    // Phase 1: seed the canonical mixed-case filtered expression dataset so
-    // the guarded `tier = 'gold'` window traverses one `LOWER(handle)` suffix.
-    seed_filtered_composite_expression_fixture(&session);
+    for (context, sql, desc) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 2: require the projection lane to keep the guarded equality-prefix
-    // window on the filtered composite `tier, LOWER(handle)` route.
-    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect("filtered composite expression order-only projection query should execute");
+        // Phase 1: seed the canonical mixed-case filtered expression dataset so
+        // the guarded `tier = 'gold'` window traverses one `LOWER(handle)` suffix.
+        seed_filtered_composite_expression_fixture(&session);
 
-    assert_eq!(
-        projected_rows,
-        filtered_composite_expression_order_only_expected_rows(false),
-        "guarded filtered composite expression order-only projections should preserve the canonical LOWER(handle) suffix window",
-    );
+        // Phase 2: require the projection lane to keep the guarded equality-prefix
+        // window on the filtered composite `tier, LOWER(handle)` route.
+        let projected_rows =
+            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+
+        assert_eq!(
+            projected_rows,
+            filtered_composite_expression_order_only_expected_rows(desc),
+            "{context} should preserve the guarded LOWER(handle) suffix window",
+        );
+    }
 }
 
 #[test]
@@ -369,88 +384,43 @@ fn execute_sql_projection_filtered_composite_expression_order_only_pagination_ma
 }
 
 #[test]
-fn execute_sql_projection_filtered_composite_expression_order_only_desc_query_returns_guarded_rows()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn execute_sql_projection_filtered_composite_expression_prefix_matrix_matches_guarded_rows() {
+    for (context, desc) in [
+        (
+            "ascending filtered composite expression prefix projections",
+            false,
+        ),
+        (
+            "descending filtered composite expression prefix projections",
+            true,
+        ),
+    ] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 1: reuse the same guarded mixed-case dataset so reverse
-    // `LOWER(handle)` traversal keeps the same equality-prefix route.
-    seed_filtered_composite_expression_fixture(&session);
+        // Phase 1: seed the guarded mixed-case dataset so each direction stays
+        // on the same equality-prefix route family.
+        seed_filtered_composite_expression_fixture(&session);
 
-    // Phase 2: require the reverse projection lane to keep the guarded
-    // `tier = 'gold'` equality-prefix window on the same composite route.
-    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect(
-            "descending filtered composite expression order-only projection query should execute",
+        // Phase 2: require the admitted bounded casefold spellings to keep one
+        // guarded equality-prefix projection result set in that direction.
+        let (like_rows, starts_with_rows, range_rows) =
+            filtered_composite_expression_prefix_spellings(&session, desc);
+
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "{context} should keep STARTS_WITH and LIKE in parity",
         );
-
-    assert_eq!(
-        projected_rows,
-        filtered_composite_expression_order_only_expected_rows(true),
-        "descending guarded filtered composite expression order-only projections should preserve the reverse LOWER(handle) suffix window",
-    );
-}
-
-#[test]
-fn execute_sql_projection_filtered_composite_expression_equivalent_prefix_forms_match_guarded_rows()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the canonical mixed-case filtered dataset so the guarded
-    // equality prefix and casefolded suffix range share one real route.
-    seed_filtered_composite_expression_fixture(&session);
-
-    // Phase 2: require the accepted bounded casefold spellings to keep one
-    // guarded equality-prefix projection result set.
-    let (like_rows, starts_with_rows, range_rows) =
-        filtered_composite_expression_prefix_spellings(&session, false);
-
-    assert_eq!(
-        starts_with_rows, like_rows,
-        "guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        range_rows, like_rows,
-        "guarded filtered composite expression text-range and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        like_rows,
-        filtered_composite_expression_prefix_expected_rows(false),
-        "guarded filtered composite expression prefix projections should preserve the canonical LOWER(handle) equality-prefix window",
-    );
-}
-
-#[test]
-fn execute_sql_projection_filtered_composite_expression_equivalent_desc_prefix_forms_match_guarded_rows()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the same guarded mixed-case dataset so reverse casefold
-    // prefix traversal stays on the same equality-prefix route.
-    seed_filtered_composite_expression_fixture(&session);
-
-    // Phase 2: require the accepted descending bounded casefold spellings to
-    // keep one reverse guarded equality-prefix result set.
-    let (like_rows, starts_with_rows, range_rows) =
-        filtered_composite_expression_prefix_spellings(&session, true);
-
-    assert_eq!(
-        starts_with_rows, like_rows,
-        "descending guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        range_rows, like_rows,
-        "descending guarded filtered composite expression text-range and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        like_rows,
-        filtered_composite_expression_prefix_expected_rows(true),
-        "descending guarded filtered composite expression prefix projections should preserve the reverse LOWER(handle) equality-prefix window",
-    );
+        assert_eq!(
+            range_rows, like_rows,
+            "{context} should keep text-range and LIKE in parity",
+        );
+        assert_eq!(
+            like_rows,
+            filtered_composite_expression_prefix_expected_rows(desc),
+            "{context} should preserve the guarded LOWER(handle) equality-prefix window",
+        );
+    }
 }
 
 #[test]
