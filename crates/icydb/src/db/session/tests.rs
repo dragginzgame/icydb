@@ -216,14 +216,13 @@ fn dispatch_show_entities_sql(
     Ok(session.show_entities())
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 7] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
     [
         (
             "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",
             "JOIN",
         ),
         ("SELECT \"name\" FROM FacadeSqlEntity", "quoted identifiers"),
-        ("SELECT * FROM FacadeSqlEntity alias", "table aliases"),
         (
             "SELECT * FROM FacadeSqlEntity WHERE name LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",
