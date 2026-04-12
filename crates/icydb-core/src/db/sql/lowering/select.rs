@@ -217,7 +217,7 @@ fn lower_having_clauses(
 // field kind so unsigned-width fields keep strict/indexable semantics even
 // though reduced SQL integer tokens parse through one generic numeric value
 // variant first.
-fn canonicalize_sql_predicate_for_model(
+pub(in crate::db) fn canonicalize_sql_predicate_for_model(
     model: &'static EntityModel,
     predicate: Predicate,
 ) -> Predicate {

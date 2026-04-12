@@ -13,7 +13,6 @@ use crate::{
         data::UpdatePatch,
         executor::{EntityAuthority, MutationMode},
         identifiers_tail_match,
-        predicate::{CompareOp, Predicate},
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         session::sql::{
             SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
@@ -27,7 +26,7 @@ use crate::{
         },
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlQuery, SqlLoweringError,
-            bind_lowered_sql_query,
+            bind_lowered_sql_query, canonicalize_sql_predicate_for_model,
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlInsertStatement, SqlProjection, SqlSelectItem,
@@ -345,26 +344,30 @@ where
 
 // Resolve the effective INSERT column list for one reduced SQL write:
 // explicit column lists pass through, while omitted-column-list INSERT uses
-// canonical model field order only when no hidden timestamp synthesis would be
-// required.
-fn sql_insert_columns<E>(statement: &SqlInsertStatement) -> Result<Vec<String>, QueryError>
+// canonical user-authored model field order and leaves hidden timestamp
+// synthesis on the existing write path.
+fn sql_insert_columns<E>(statement: &SqlInsertStatement) -> Vec<String>
 where
     E: EntityKind,
 {
     if !statement.columns.is_empty() {
-        return Ok(statement.columns.clone());
-    }
-    if sql_write_system_timestamp_fields::<E>().is_some() {
-        return Err(QueryError::unsupported_query(
-            "SQL INSERT without explicit column list is not supported for entities with system timestamp fields in this release",
-        ));
+        return statement.columns.clone();
     }
 
-    Ok(E::MODEL
+    let timestamp_fields = sql_write_system_timestamp_fields::<E>();
+
+    E::MODEL
         .fields()
         .iter()
+        .filter(|field| {
+            !matches!(
+                timestamp_fields,
+                Some((created_at, updated_at))
+                    if field.name() == created_at || field.name() == updated_at
+            )
+        })
         .map(|field| field.name().to_string())
-        .collect())
+        .collect()
 }
 
 // Validate one INSERT tuple list against the resolved effective column list so
@@ -475,32 +478,15 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((key, patch))
     }
 
-    // Build the structural update patch and resolved primary key expected by
-    // the shared structural mutation entrypoint.
-    fn sql_update_patch_and_key<E>(
-        statement: &SqlUpdateStatement,
-    ) -> Result<(E::Key, UpdatePatch), QueryError>
+    // Build the structural update patch shared by every row selected by one
+    // reduced SQL UPDATE statement.
+    fn sql_update_patch<E>(statement: &SqlUpdateStatement) -> Result<UpdatePatch, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: require the narrow `WHERE <pk> = literal` update selector
-        // so this first SQL update slice stays on the existing single-row
-        // structural mutation contract.
+        // Phase 1: lower the `SET` list onto the structural patch program
+        // while keeping primary-key mutation out of the reduced SQL write lane.
         let pk_name = E::MODEL.primary_key.name;
-        let Some(Predicate::Compare(compare)) = &statement.predicate else {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL UPDATE requires WHERE {pk_name} = literal in this release"
-            )));
-        };
-        if compare.field() != pk_name || compare.op() != CompareOp::Eq {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL UPDATE requires WHERE {pk_name} = literal in this release"
-            )));
-        }
-        let key = sql_write_key_from_literal::<E>(compare.value(), pk_name)?;
-
-        // Phase 2: lower the `SET` list onto the structural patch program
-        // while keeping primary-key mutation out of this first SQL update slice.
         let mut patch = UpdatePatch::new();
         for assignment in &statement.assignments {
             if assignment.field == pk_name {
@@ -516,7 +502,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
 
-        // Phase 3: keep structural SQL UPDATE aligned with the derive-owned
+        // Phase 2: keep structural SQL UPDATE aligned with the derive-owned
         // auto-updated timestamp contract when the entity carries that field.
         if let Some((_, updated_at)) = sql_write_system_timestamp_fields::<E>() {
             patch = patch
@@ -524,7 +510,29 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
 
-        Ok((key, patch))
+        Ok(patch)
+    }
+
+    // Resolve one deterministic typed selector query for reduced SQL UPDATE.
+    fn sql_update_selector_query<E>(statement: &SqlUpdateStatement) -> Result<Query<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: keep the widened SQL UPDATE lane explicit about requiring
+        // one admitted reduced predicate instead of opening bare full-table
+        // updates implicitly.
+        let Some(predicate) = statement.predicate.clone() else {
+            return Err(QueryError::unsupported_query(
+                "SQL UPDATE requires WHERE predicate in this release",
+            ));
+        };
+        let predicate = canonicalize_sql_predicate_for_model(E::MODEL, predicate);
+
+        // Phase 2: lock the update target set to deterministic primary-key
+        // order because UPDATE syntax still does not carry its own ORDER BY.
+        Ok(Query::<E>::new(MissingRowPolicy::Ignore)
+            .filter(predicate)
+            .order_by(E::MODEL.primary_key.name))
     }
 
     // Execute one narrow SQL INSERT statement through the existing structural
@@ -537,7 +545,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
-        let columns = sql_insert_columns::<E>(statement)?;
+        let columns = sql_insert_columns::<E>(statement);
         validate_sql_insert_tuple_lengths(columns.as_slice(), statement.values.as_slice())?;
         let mut entities = Vec::with_capacity(statement.values.len());
 
@@ -552,8 +560,9 @@ impl<C: CanisterKind> DbSession<C> {
         Self::sql_write_dispatch_projection(entities)
     }
 
-    // Execute one narrow SQL UPDATE statement through the existing structural
-    // mutation path and project the returned after-image as one SQL row.
+    // Execute one reduced SQL UPDATE statement by selecting deterministic
+    // target rows first and then replaying one shared structural patch onto
+    // each matched primary key.
     fn execute_sql_update_dispatch<E>(
         &self,
         statement: &SqlUpdateStatement,
@@ -562,12 +571,21 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
-        let (key, patch) = Self::sql_update_patch_and_key::<E>(statement)?;
-        let entity = self
-            .mutate_structural::<E>(key, patch, MutationMode::Update)
-            .map_err(QueryError::execute)?;
+        let selector = Self::sql_update_selector_query::<E>(statement)?;
+        let patch = Self::sql_update_patch::<E>(statement)?;
+        let matched = self.execute_query(&selector)?;
+        let mut entities = Vec::with_capacity(matched.len());
 
-        Self::sql_write_dispatch_projection(vec![entity])
+        // Phase 1: apply the already-normalized structural patch to every
+        // matched row in deterministic primary-key order.
+        for entity in matched.entities() {
+            let updated = self
+                .mutate_structural::<E>(entity.id().key(), patch.clone(), MutationMode::Update)
+                .map_err(QueryError::execute)?;
+            entities.push(updated);
+        }
+
+        Self::sql_write_dispatch_projection(entities)
     }
 
     // Build the shared structural SQL projection execution inputs once so

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
+- `0.76.5` broadens the typed SQL write lane so `UPDATE ... WHERE ...` can now target rows selected by the reduced predicate surface, single-table aliases now work on that narrowed `UPDATE` surface, and the remaining blocked write tails (`UPDATE ORDER BY/LIMIT/OFFSET`, `INSERT ... SELECT`, and write-table aliases outside the admitted lane) now fail with stable explicit unsupported-feature errors that are covered in both core tests and the PocketIC SQL harness.
 - `0.76.4` keeps the SQL-only line moving by adding single-table aliases for `SELECT` and `DELETE`, widening narrow `INSERT` forms on the typed dispatch lane, and then tightening the session-owned SQL boundary plus the related session test suites so the new SQL work lands on clearer ownership seams without changing query semantics.
 - `0.76.3` adds a first reduced SQL write surface by admitting narrow `INSERT` and primary-key-only `UPDATE` statements on the typed dispatch lane, and also pulls SQL projection/materialization shaping back behind the session boundary so shared executor contracts stay structural while the branch-level cleanup remains local.
 - `0.76.0` opens the `0.76` SQL-surface line by locking the remaining non-`JOIN` gaps into one explicit tracker, documenting which shapes are intentionally still fail-closed, and setting the boundary for later SQL-only follow-up patches without changing execution behavior yet.

@@ -4693,6 +4693,46 @@ fn sql_canister_perf_typed_dispatch_sql_write_probe_multi_insert_surfaces_expect
 }
 
 #[test]
+fn sql_canister_perf_typed_dispatch_sql_write_probe_positional_insert_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "INSERT INTO SqlWriteProbe VALUES (2, 'positional', 22)";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.sql_write_probe.positional_insert::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch SQL positional INSERT perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "typed dispatch SQL positional INSERT perf sample should emit the projection result kind for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("SqlWriteProbe"),
+            "typed dispatch SQL positional INSERT perf sample should stay on the SqlWriteProbe route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "typed dispatch SQL positional INSERT perf sample should emit one projected after-image row for `{sql}`",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_typed_dispatch_sql_write_probe_update_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let sql = "UPDATE SqlWriteProbe SET name = 'updated', age = 22 WHERE id = 1";
@@ -4728,6 +4768,127 @@ fn sql_canister_perf_typed_dispatch_sql_write_probe_update_surfaces_expected_val
             sample.outcome.row_count,
             Some(1),
             "typed dispatch SQL UPDATE perf sample should emit one projected after-image row for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_dispatch_sql_write_probe_update_alias_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "UPDATE SqlWriteProbe s SET s.name = 'updated-alias', s.age = 22 WHERE s.id = 1";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.sql_write_probe.update_alias::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch SQL UPDATE alias perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "typed dispatch SQL UPDATE alias perf sample should emit the projection result kind for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("SqlWriteProbe"),
+            "typed dispatch SQL UPDATE alias perf sample should stay on the SqlWriteProbe route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "typed dispatch SQL UPDATE alias perf sample should emit one projected after-image row for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_dispatch_sql_write_probe_equality_predicate_update_surfaces_expected_values()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "UPDATE SqlWriteProbe SET name = 'updated-by-eq', age = 22 WHERE age = 21";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.sql_write_probe.equality_predicate_update::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch SQL equality-predicate UPDATE perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "typed dispatch SQL equality-predicate UPDATE perf sample should emit the projection result kind for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("SqlWriteProbe"),
+            "typed dispatch SQL equality-predicate UPDATE perf sample should stay on the SqlWriteProbe route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "typed dispatch SQL equality-predicate UPDATE perf sample should emit one projected after-image row for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_dispatch_sql_write_probe_predicate_update_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.sql_write_probe.predicate_update::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch SQL predicate UPDATE perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "typed dispatch SQL predicate UPDATE perf sample should emit the projection result kind for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("SqlWriteProbe"),
+            "typed dispatch SQL predicate UPDATE perf sample should stay on the SqlWriteProbe route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "typed dispatch SQL predicate UPDATE perf sample should emit one projected after-image row for `{sql}`",
         );
     });
 }
@@ -6692,10 +6853,50 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.insert.positional.id2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "INSERT INTO SqlWriteProbe VALUES (2, 'positional', 22)"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.sql_write_probe.update.id1",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
                     sql: "UPDATE SqlWriteProbe SET name = 'updated', age = 22 WHERE id = 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.update.alias.id1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "UPDATE SqlWriteProbe s SET s.name = 'updated-alias', s.age = 22 WHERE s.id = 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.update.eq.age21",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "UPDATE SqlWriteProbe SET name = 'updated-by-eq', age = 22 WHERE age = 21"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.update.age21",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 1,

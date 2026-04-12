@@ -62,7 +62,8 @@ impl Parser {
         match statement {
             SqlStatement::Select(select) => self.select_clause_order_error(select),
             SqlStatement::Delete(delete) => self.delete_clause_order_error(delete),
-            SqlStatement::Insert(_) | SqlStatement::Update(_) => None,
+            SqlStatement::Insert(_) => None,
+            SqlStatement::Update(update) => self.update_clause_order_error(update),
             SqlStatement::Explain(explain) => match &explain.statement {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
@@ -144,6 +145,20 @@ impl Parser {
             return Some(SqlParseError::invalid_syntax(
                 "ORDER BY must appear before LIMIT in DELETE",
             ));
+        }
+
+        None
+    }
+
+    fn update_clause_order_error(&self, _statement: &SqlUpdateStatement) -> Option<SqlParseError> {
+        if self.peek_keyword(Keyword::Order) {
+            return Some(SqlParseError::unsupported_feature("UPDATE ORDER BY"));
+        }
+        if self.peek_keyword(Keyword::Limit) {
+            return Some(SqlParseError::unsupported_feature("UPDATE LIMIT"));
+        }
+        if self.peek_keyword(Keyword::Offset) {
+            return Some(SqlParseError::unsupported_feature("UPDATE OFFSET"));
         }
 
         None
@@ -285,6 +300,9 @@ impl Parser {
         } else {
             Vec::new()
         };
+        if self.peek_keyword(Keyword::Select) {
+            return Err(SqlParseError::unsupported_feature("INSERT ... SELECT"));
+        }
         self.expect_identifier_keyword("VALUES")?;
         let values =
             self.parse_insert_values_tuples((!columns.is_empty()).then_some(columns.len()))?;
@@ -305,6 +323,17 @@ impl Parser {
             self.peek_kind(),
             Some(crate::db::reduced_sql::TokenKind::Identifier(_))
         ) {
+            let Some(crate::db::reduced_sql::TokenKind::Identifier(value)) = self.peek_kind()
+            else {
+                unreachable!();
+            };
+            if matches!(
+                value.as_str().to_ascii_uppercase().as_str(),
+                "SET" | "VALUES"
+            ) {
+                return Ok(None);
+            }
+
             return self.expect_identifier().map(Some);
         }
 
@@ -377,14 +406,22 @@ impl Parser {
 
     fn parse_update_statement(&mut self) -> Result<SqlUpdateStatement, SqlParseError> {
         let entity = self.expect_identifier()?;
-        self.reject_update_table_alias_if_present()?;
+        let table_alias = self.parse_optional_table_alias()?;
         self.expect_identifier_keyword("SET")?;
-        let assignments = self.parse_update_assignments()?;
-        let predicate = if self.eat_keyword(Keyword::Where) {
+        let mut assignments = self.parse_update_assignments()?;
+        let mut predicate = if self.eat_keyword(Keyword::Where) {
             Some(self.parse_predicate()?)
         } else {
             None
         };
+
+        if let Some(alias) = table_alias.as_deref() {
+            assignments =
+                normalize_assignments_for_table_alias(assignments, entity.as_str(), alias);
+            predicate = predicate.map(|predicate| {
+                normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
+            });
+        }
 
         Ok(SqlUpdateStatement {
             entity,
@@ -416,22 +453,6 @@ impl Parser {
         }
 
         Ok(assignments)
-    }
-
-    fn reject_update_table_alias_if_present(&self) -> Result<(), SqlParseError> {
-        if self.peek_keyword(Keyword::As) {
-            return Err(SqlParseError::unsupported_feature("table aliases"));
-        }
-
-        if matches!(
-            self.peek_kind(),
-            Some(crate::db::reduced_sql::TokenKind::Identifier(value))
-                if !value.eq_ignore_ascii_case("SET")
-        ) {
-            return Err(SqlParseError::unsupported_feature("table aliases"));
-        }
-
-        Ok(())
     }
 
     fn expect_assignment_eq(&mut self) -> Result<(), SqlParseError> {
@@ -535,6 +556,24 @@ fn normalize_identifier_list_for_table_alias(
     fields
         .into_iter()
         .map(|field| normalize_identifier_to_scope(field, scope.as_slice()))
+        .collect()
+}
+
+// Reduce one UPDATE assignment list onto canonical entity-local field names so
+// single-table alias use stays parser-local before dispatch.
+fn normalize_assignments_for_table_alias(
+    assignments: Vec<SqlAssignment>,
+    entity: &str,
+    alias: &str,
+) -> Vec<SqlAssignment> {
+    let scope = table_alias_scope(entity, alias);
+
+    assignments
+        .into_iter()
+        .map(|assignment| SqlAssignment {
+            field: normalize_identifier_to_scope(assignment.field, scope.as_slice()),
+            value: assignment.value,
+        })
         .collect()
 }
 

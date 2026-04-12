@@ -1205,7 +1205,63 @@ fn parse_update_statement_with_assignments_and_predicate() {
 }
 
 #[test]
-fn parse_insert_statement_rejects_missing_column_list() {
+fn parse_update_statement_accepts_single_table_alias() {
+    let statement = parse_sql("UPDATE users u SET u.name = 'Ada', u.age = 21 WHERE u.id = 7")
+        .expect("update statement with one table alias should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Update(SqlUpdateStatement {
+            entity: "users".to_string(),
+            assignments: vec![
+                SqlAssignment {
+                    field: "name".to_string(),
+                    value: Value::Text("Ada".to_string()),
+                },
+                SqlAssignment {
+                    field: "age".to_string(),
+                    value: Value::Int(21),
+                },
+            ],
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "id",
+                CompareOp::Eq,
+                Value::Int(7),
+                CoercionId::Strict,
+            ))),
+        }),
+    );
+}
+
+#[test]
+fn parse_update_statement_rejects_order_by_limit_and_offset() {
+    let cases = [
+        (
+            "UPDATE users SET age = 22 WHERE id = 7 ORDER BY id",
+            "UPDATE ORDER BY",
+        ),
+        (
+            "UPDATE users SET age = 22 WHERE id = 7 LIMIT 1",
+            "UPDATE LIMIT",
+        ),
+        (
+            "UPDATE users SET age = 22 WHERE id = 7 OFFSET 1",
+            "UPDATE OFFSET",
+        ),
+    ];
+
+    for (sql, feature) in cases {
+        let err = parse_sql(sql).expect_err("unsupported UPDATE modifiers should stay fail-closed");
+        assert_eq!(
+            err,
+            SqlParseError::UnsupportedFeature { feature },
+            "unsupported UPDATE modifier should preserve an explicit feature label",
+        );
+    }
+}
+
+#[test]
+fn parse_insert_statement_without_column_list_parses() {
     let statement =
         parse_sql("INSERT INTO users VALUES (1)").expect("insert without column list should parse");
 
@@ -1216,6 +1272,32 @@ fn parse_insert_statement_rejects_missing_column_list() {
             columns: vec![],
             values: vec![vec![Value::Int(1)]],
         }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_rejects_insert_select() {
+    let err = parse_sql("INSERT INTO users (id, name) SELECT id, name FROM other")
+        .expect_err("insert-select should stay fail-closed");
+
+    assert_eq!(
+        err,
+        SqlParseError::UnsupportedFeature {
+            feature: "INSERT ... SELECT",
+        }
+    );
+}
+
+#[test]
+fn parse_insert_statement_rejects_table_alias() {
+    let err = parse_sql("INSERT INTO users u (id, name) VALUES (1, 'Ada')")
+        .expect_err("insert table aliases should stay fail-closed");
+
+    assert_eq!(
+        err,
+        SqlParseError::UnsupportedFeature {
+            feature: "table aliases",
+        }
     );
 }
 

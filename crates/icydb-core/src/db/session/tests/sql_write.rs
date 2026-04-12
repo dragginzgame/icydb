@@ -146,6 +146,108 @@ fn execute_sql_dispatch_update_returns_full_row_projection_payload() {
 }
 
 #[test]
+fn execute_sql_dispatch_update_accepts_single_table_alias() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+
+    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity s SET s.name = 'Bea', s.age = 22 WHERE s.id = 1",
+    )
+    .expect("SQL UPDATE with one table alias should succeed");
+
+    assert_eq!(
+        rows,
+        vec![vec![
+            Value::Uint(1),
+            Value::Text("Bea".to_string()),
+            Value::Uint(22),
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_update_with_non_primary_key_predicate_updates_matching_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 2,
+            name: "Bea".to_string(),
+            age: 21,
+        })
+        .expect("typed setup insert should succeed");
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 3,
+            name: "Cid".to_string(),
+            age: 30,
+        })
+        .expect("typed setup insert should succeed");
+
+    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+    )
+    .expect("SQL UPDATE with non-primary-key predicate should succeed");
+    let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+    )
+    .expect("post-update SQL projection should succeed");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Uint(1),
+                Value::Text("Ada".to_string()),
+                Value::Uint(22),
+            ],
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(22),
+            ],
+        ],
+    );
+    assert_eq!(
+        persisted,
+        vec![
+            vec![
+                Value::Uint(1),
+                Value::Text("Ada".to_string()),
+                Value::Uint(22),
+            ],
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(22),
+            ],
+            vec![
+                Value::Uint(3),
+                Value::Text("Cid".to_string()),
+                Value::Uint(30),
+            ],
+        ],
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_insert_requires_primary_key_column() {
     reset_session_sql_store();
     let session = sql_session();
@@ -161,6 +263,21 @@ fn execute_sql_dispatch_insert_requires_primary_key_column() {
             .contains("SQL INSERT requires primary key column 'id'"),
         "INSERT without primary key should keep an actionable boundary message",
     );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_rejects_insert_select() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+             SELECT id, name, age FROM SessionSqlWriteEntity",
+        )
+        .expect_err("SQL INSERT SELECT should stay fail-closed");
+
+    assert_sql_unsupported_feature_detail(err, "INSERT ... SELECT");
 }
 
 #[test]
@@ -182,21 +299,47 @@ fn execute_sql_dispatch_insert_rejects_tuple_length_mismatch() {
 }
 
 #[test]
-fn execute_sql_dispatch_update_requires_primary_key_equality_predicate() {
+fn execute_sql_dispatch_update_requires_where_predicate() {
     reset_session_sql_store();
     let session = sql_session();
 
     let err = session
-        .execute_sql_dispatch::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
-        )
-        .expect_err("SQL UPDATE without primary-key equality should stay fail-closed");
+        .execute_sql_dispatch::<SessionSqlWriteEntity>("UPDATE SessionSqlWriteEntity SET age = 22")
+        .expect_err("SQL UPDATE without WHERE predicate should stay fail-closed");
 
     assert!(
         err.to_string()
-            .contains("SQL UPDATE requires WHERE id = literal"),
-        "UPDATE without primary-key equality should keep an actionable boundary message",
+            .contains("SQL UPDATE requires WHERE predicate"),
+        "UPDATE without WHERE predicate should keep an actionable boundary message",
     );
+}
+
+#[test]
+fn execute_sql_dispatch_update_rejects_order_limit_and_offset() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 ORDER BY id",
+            "UPDATE ORDER BY",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 LIMIT 1",
+            "UPDATE LIMIT",
+        ),
+        (
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 OFFSET 1",
+            "UPDATE OFFSET",
+        ),
+    ];
+
+    for (sql, feature) in cases {
+        let err = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+            .expect_err("unsupported UPDATE windowing/modifier shape should stay fail-closed");
+        assert_sql_unsupported_feature_detail(err, feature);
+    }
 }
 
 #[test]
