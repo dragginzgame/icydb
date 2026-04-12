@@ -1,5 +1,92 @@
 use super::*;
 
+type ExpressionStartsWithRangeCase<'a> = (
+    &'a str,
+    fn() -> &'static EntityModel,
+    &'a str,
+    &'a str,
+    &'a str,
+);
+
+// Assert one text-casefold `STARTS_WITH` route against the shared expression
+// range-lowering contract.
+fn assert_expression_starts_with_range_case(
+    label: &str,
+    model_factory: fn() -> &'static EntityModel,
+    raw_value: &str,
+    expected_index_name: &str,
+    expected_lower: &str,
+) {
+    let model = model_factory();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text(raw_value.to_string()),
+    );
+
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
+
+    assert_eq!(index.name(), expected_index_name, "{label}: wrong index");
+    assert!(
+        prefix.is_empty(),
+        "{label}: starts-with expression ranges should not carry equality prefix values",
+    );
+    assert_eq!(
+        lower,
+        &Bound::Included(Value::Text(expected_lower.to_string())),
+        "{label}: wrong lower bound",
+    );
+    assert_eq!(upper, &Bound::Unbounded, "{label}: wrong upper bound");
+}
+
+// Assert one strict text `STARTS_WITH` route against the shared single-field
+// range-lowering contract.
+fn assert_strict_text_starts_with_range_case(
+    label: &str,
+    prefix: &str,
+    expected_lower: Bound<Value>,
+    expected_upper: Bound<Value>,
+) {
+    let model = model_with_index();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let predicate = compare_strict(
+        "tag",
+        CompareOp::StartsWith,
+        Value::Text(prefix.to_string()),
+    );
+
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+    assert_single_field_text_index_range(&plan, expected_lower, expected_upper);
+
+    assert!(
+        compile_runtime_predicate_for_test(model, &predicate).uses_scalar_program(),
+        "{label}: starts-with should compile onto the scalar executor for scalar text fields",
+    );
+}
+
+// Assert one strict text `STARTS_WITH` predicate and its equivalent range form
+// canonicalize to the same access plan.
+fn assert_starts_with_equivalent_range_case(
+    label: &str,
+    starts_with: Predicate,
+    equivalent_range: Predicate,
+) {
+    let model = model_with_index();
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
+        .expect("starts_with plan should build");
+    let equivalent_range_plan = plan_access_for_test(model, schema, Some(&equivalent_range))
+        .expect("equivalent range plan should build");
+
+    assert_eq!(
+        starts_with_plan, equivalent_range_plan,
+        "{label}: equivalent predicates should canonicalize to identical access plans",
+    );
+}
+
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
@@ -507,69 +594,42 @@ fn plan_access_gt_rejects_expression_index() {
 }
 
 #[test]
-fn plan_access_text_casefold_starts_with_uses_expression_index_range() {
-    let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_text_casefold(
-        "email",
-        CompareOp::StartsWith,
-        Value::Text("ALICE".to_string()),
-    );
+fn plan_access_text_casefold_starts_with_expression_range_matrix() {
+    let cases: &[ExpressionStartsWithRangeCase<'_>] = &[
+        (
+            "casefold expression",
+            model_with_expression_casefold_index,
+            "ALICE",
+            EXPRESSION_CASEFOLD_INDEX_MODEL.name(),
+            "alice",
+        ),
+        (
+            "casefold expression single-char prefix",
+            model_with_expression_casefold_index,
+            "A",
+            EXPRESSION_CASEFOLD_INDEX_MODEL.name(),
+            "a",
+        ),
+        (
+            "upper expression",
+            model_with_expression_upper_index,
+            "ALICE",
+            EXPRESSION_UPPER_INDEX_MODEL.name(),
+            "ALICE",
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
-
-    assert_eq!(index.name(), EXPRESSION_CASEFOLD_INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "text-casefold starts-with expression ranges should not carry equality prefix values",
-    );
-    assert_eq!(lower, &Bound::Included(Value::Text("alice".to_string())));
-    assert_eq!(upper, &Bound::Unbounded);
-}
-
-#[test]
-fn plan_access_text_casefold_starts_with_single_char_prefix_uses_expression_index_range() {
-    let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate =
-        compare_text_casefold("email", CompareOp::StartsWith, Value::Text("A".to_string()));
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
-
-    assert_eq!(index.name(), EXPRESSION_CASEFOLD_INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "single-char text-casefold starts-with expression ranges should not carry equality prefix values",
-    );
-    assert_eq!(lower, &Bound::Included(Value::Text("a".to_string())));
-    assert_eq!(upper, &Bound::Unbounded);
-}
-
-#[test]
-fn plan_access_text_casefold_starts_with_uses_upper_expression_index_range() {
-    let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_text_casefold(
-        "email",
-        CompareOp::StartsWith,
-        Value::Text("ALICE".to_string()),
-    );
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
-
-    assert_eq!(index.name(), EXPRESSION_UPPER_INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "text-casefold starts-with upper-expression ranges should not carry equality prefix values",
-    );
-    assert_eq!(lower, &Bound::Included(Value::Text("ALICE".to_string())));
-    assert_eq!(upper, &Bound::Unbounded);
+    for (label, model_factory, raw_value, expected_index_name, expected_lower) in
+        cases.iter().copied()
+    {
+        assert_expression_starts_with_range_case(
+            label,
+            model_factory,
+            raw_value,
+            expected_index_name,
+            expected_lower,
+        );
+    }
 }
 
 #[test]
@@ -1003,40 +1063,6 @@ fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
 }
 
 #[test]
-fn plan_access_text_starts_with_lowers_to_index_range() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
-
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert_single_field_text_index_range(
-        &plan,
-        Bound::Included(Value::Text("foo".to_string())),
-        Bound::Excluded(Value::Text("fop".to_string())),
-    );
-}
-
-#[test]
-fn plan_access_text_starts_with_compiles_scalar_and_lowers_to_index_range() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
-
-    let runtime = compile_runtime_predicate_for_test(model, &predicate);
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-
-    assert!(
-        runtime.uses_scalar_program(),
-        "runtime should compile starts-with onto the scalar executor for scalar text fields",
-    );
-    assert_single_field_text_index_range(
-        &plan,
-        Bound::Included(Value::Text("foo".to_string())),
-        Bound::Excluded(Value::Text("fop".to_string())),
-    );
-}
-
-#[test]
 fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::cached_for_entity_model(model);
@@ -1048,81 +1074,63 @@ fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
 }
 
 #[test]
-fn plan_access_starts_with_high_unicode_prefix_lowers_to_index_range() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
+fn plan_access_text_starts_with_range_matrix() {
+    let high_unicode_prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
+    let high_unicode_upper = format!("foo{}", char::from_u32(0xE000).expect("valid scalar"));
+    let max_unicode_prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert_single_field_text_index_range(
-        &plan,
-        Bound::Included(Value::Text(format!(
-            "foo{}",
-            char::from_u32(0xD7FF).expect("valid scalar")
-        ))),
-        Bound::Excluded(Value::Text(format!(
-            "foo{}",
-            char::from_u32(0xE000).expect("valid scalar")
-        ))),
-    );
+    let cases = vec![
+        (
+            "ascii prefix",
+            "foo".to_string(),
+            Bound::Included(Value::Text("foo".to_string())),
+            Bound::Excluded(Value::Text("fop".to_string())),
+        ),
+        (
+            "high unicode prefix",
+            high_unicode_prefix.clone(),
+            Bound::Included(Value::Text(high_unicode_prefix)),
+            Bound::Excluded(Value::Text(high_unicode_upper)),
+        ),
+        (
+            "max unicode prefix",
+            max_unicode_prefix.clone(),
+            Bound::Included(Value::Text(max_unicode_prefix)),
+            Bound::Unbounded,
+        ),
+    ];
+
+    for (label, prefix, expected_lower, expected_upper) in cases {
+        assert_strict_text_starts_with_range_case(label, &prefix, expected_lower, expected_upper);
+    }
 }
 
 #[test]
-fn plan_access_starts_with_max_unicode_prefix_lowers_to_lower_bound_range() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
+fn plan_access_stability_starts_with_equivalent_range_matrix() {
+    let max_unicode_prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let cases = vec![
+        (
+            "bounded ascii prefix",
+            compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string())),
+            Predicate::And(vec![
+                compare_strict("tag", CompareOp::Gte, Value::Text("foo".to_string())),
+                compare_strict("tag", CompareOp::Lt, Value::Text("fop".to_string())),
+            ]),
+        ),
+        (
+            "max unicode prefix",
+            compare_strict(
+                "tag",
+                CompareOp::StartsWith,
+                Value::Text(max_unicode_prefix.clone()),
+            ),
+            compare_strict("tag", CompareOp::Gte, Value::Text(max_unicode_prefix)),
+        ),
+    ];
 
-    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
-    assert_single_field_text_index_range(
-        &plan,
-        Bound::Included(Value::Text(
-            char::from_u32(0x10_FFFF).expect("valid scalar").to_string(),
-        )),
-        Bound::Unbounded,
-    );
-}
-
-#[test]
-fn plan_access_stability_starts_with_and_equivalent_range_share_identical_access_plan() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
-    let equivalent_range = Predicate::And(vec![
-        compare_strict("tag", CompareOp::Gte, Value::Text("foo".to_string())),
-        compare_strict("tag", CompareOp::Lt, Value::Text("fop".to_string())),
-    ]);
-
-    let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
-        .expect("starts_with plan should build");
-    let equivalent_range_plan = plan_access_for_test(model, schema, Some(&equivalent_range))
-        .expect("equivalent range plan should build");
-
-    assert_eq!(
-        starts_with_plan, equivalent_range_plan,
-        "equivalent prefix and bounded-range predicates should canonicalize to identical access plans",
-    );
-}
-
-#[test]
-fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_share_plan() {
-    let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
-    let equivalent_lower_bound = compare_strict("tag", CompareOp::Gte, Value::Text(prefix));
-
-    let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
-        .expect("starts_with plan should build");
-    let lower_bound_plan = plan_access_for_test(model, schema, Some(&equivalent_lower_bound))
-        .expect("lower-bound plan should build");
-
-    assert_eq!(
-        starts_with_plan, lower_bound_plan,
-        "max-unicode prefix has no strict upper bound and should match equivalent lower-bound range planning",
-    );
+    for (label, starts_with, equivalent_range) in cases {
+        assert_starts_with_equivalent_range_case(label, starts_with, equivalent_range);
+    }
 }
 
 #[test]

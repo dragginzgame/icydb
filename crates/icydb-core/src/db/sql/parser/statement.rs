@@ -150,15 +150,18 @@ impl Parser {
         None
     }
 
-    fn update_clause_order_error(&self, _statement: &SqlUpdateStatement) -> Option<SqlParseError> {
-        if self.peek_keyword(Keyword::Order) {
-            return Some(SqlParseError::unsupported_feature("UPDATE ORDER BY"));
+    fn update_clause_order_error(&self, statement: &SqlUpdateStatement) -> Option<SqlParseError> {
+        if self.peek_keyword(Keyword::Order)
+            && (statement.limit.is_some() || statement.offset.is_some())
+        {
+            return Some(SqlParseError::invalid_syntax(
+                "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
+            ));
         }
-        if self.peek_keyword(Keyword::Limit) {
-            return Some(SqlParseError::unsupported_feature("UPDATE LIMIT"));
-        }
-        if self.peek_keyword(Keyword::Offset) {
-            return Some(SqlParseError::unsupported_feature("UPDATE OFFSET"));
+        if self.peek_keyword(Keyword::Limit) && statement.offset.is_some() {
+            return Some(SqlParseError::invalid_syntax(
+                "LIMIT must appear before OFFSET in UPDATE",
+            ));
         }
 
         None
@@ -290,7 +293,7 @@ impl Parser {
     fn parse_insert_statement(&mut self) -> Result<SqlInsertStatement, SqlParseError> {
         self.expect_identifier_keyword("INTO")?;
         let entity = self.expect_identifier()?;
-        self.reject_insert_table_alias_if_present()?;
+        let _table_alias = self.parse_optional_table_alias()?;
 
         let columns = if self.peek_lparen() {
             self.expect_lparen()?;
@@ -388,45 +391,59 @@ impl Parser {
         Ok(values)
     }
 
-    fn reject_insert_table_alias_if_present(&self) -> Result<(), SqlParseError> {
-        if self.peek_keyword(Keyword::As) {
-            return Err(SqlParseError::unsupported_feature("table aliases"));
-        }
-
-        if matches!(
-            self.peek_kind(),
-            Some(crate::db::reduced_sql::TokenKind::Identifier(value))
-                if !value.eq_ignore_ascii_case("VALUES")
-        ) {
-            return Err(SqlParseError::unsupported_feature("table aliases"));
-        }
-
-        Ok(())
-    }
-
     fn parse_update_statement(&mut self) -> Result<SqlUpdateStatement, SqlParseError> {
         let entity = self.expect_identifier()?;
         let table_alias = self.parse_optional_table_alias()?;
         self.expect_identifier_keyword("SET")?;
         let mut assignments = self.parse_update_assignments()?;
+
+        // Phase 1: parse the reduced predicate before any bounded windowing.
         let mut predicate = if self.eat_keyword(Keyword::Where) {
             Some(self.parse_predicate()?)
         } else {
             None
         };
 
+        // Phase 2: parse the bounded ordered window admitted on the narrowed
+        // SQL UPDATE lane.
+        let mut order_by = if self.eat_keyword(Keyword::Order) {
+            self.expect_keyword(Keyword::By)?;
+            self.parse_order_terms()?
+        } else {
+            Vec::new()
+        };
+
+        let limit = if self.eat_keyword(Keyword::Limit) {
+            Some(self.parse_u32_literal("LIMIT")?)
+        } else {
+            None
+        };
+
+        let offset = if self.eat_keyword(Keyword::Offset) {
+            Some(self.parse_u32_literal("OFFSET")?)
+        } else {
+            None
+        };
+
+        // Phase 3: collapse the admitted single-table alias back onto the
+        // canonical entity field namespace so the write selector stays
+        // alias-neutral downstream.
         if let Some(alias) = table_alias.as_deref() {
             assignments =
                 normalize_assignments_for_table_alias(assignments, entity.as_str(), alias);
             predicate = predicate.map(|predicate| {
                 normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
             });
+            order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
         }
 
         Ok(SqlUpdateStatement {
             entity,
             assignments,
             predicate,
+            order_by,
+            limit,
+            offset,
         })
     }
 

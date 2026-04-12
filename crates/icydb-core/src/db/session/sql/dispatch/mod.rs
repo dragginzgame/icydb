@@ -29,13 +29,13 @@ use crate::{
             bind_lowered_sql_query, canonicalize_sql_predicate_for_model,
         },
         sql::parser::{
-            SqlAggregateCall, SqlAggregateKind, SqlInsertStatement, SqlProjection, SqlSelectItem,
-            SqlStatement, SqlTextFunction, SqlUpdateStatement,
+            SqlAggregateCall, SqlAggregateKind, SqlInsertStatement, SqlOrderDirection,
+            SqlProjection, SqlSelectItem, SqlStatement, SqlTextFunction, SqlUpdateStatement,
         },
     },
     model::{entity::resolve_field_slot, field::FieldKind},
     traits::{CanisterKind, EntityKind, EntityValue},
-    types::Timestamp,
+    types::{Timestamp, Ulid},
     value::Value,
 };
 
@@ -304,6 +304,16 @@ where
     })
 }
 
+// Synthesize one generated SQL primary-key literal when the narrowed write
+// lane owns that generation contract directly instead of requiring one
+// user-authored SQL column.
+fn sql_write_generated_primary_key_value<E>() -> Option<Value>
+where
+    E: EntityKind,
+{
+    matches!(E::MODEL.primary_key.kind(), FieldKind::Ulid).then(|| Value::Ulid(Ulid::generate()))
+}
+
 // Normalize one reduced-SQL write literal onto the target entity field kind
 // when the parser's numeric literal domain is narrower than the runtime field.
 fn sql_write_value_for_field<E>(field_name: &str, value: &Value) -> Result<Value, QueryError>
@@ -356,7 +366,7 @@ where
 
     let timestamp_fields = sql_write_system_timestamp_fields::<E>();
 
-    E::MODEL
+    let columns: Vec<String> = E::MODEL
         .fields()
         .iter()
         .filter(|field| {
@@ -367,7 +377,25 @@ where
             )
         })
         .map(|field| field.name().to_string())
-        .collect()
+        .collect();
+
+    let pk_name = E::MODEL.primary_key.name;
+    if sql_write_generated_primary_key_value::<E>().is_none() {
+        return columns;
+    }
+
+    let generated_key_omitted_columns: Vec<String> = columns
+        .iter()
+        .filter(|field| field.as_str() != pk_name)
+        .cloned()
+        .collect();
+    let first_width = statement.values.first().map(Vec::len);
+
+    if first_width == Some(generated_key_omitted_columns.len()) {
+        return generated_key_omitted_columns;
+    }
+
+    columns
 }
 
 // Validate one INSERT tuple list against the resolved effective column list so
@@ -441,21 +469,37 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: resolve the required primary-key literal from the explicit
-        // INSERT column/value list.
+        // INSERT column/value list, or synthesize one generated key when the
+        // narrowed SQL write lane owns that contract for this entity.
         let pk_name = E::MODEL.primary_key.name;
-        let Some(pk_index) = columns.iter().position(|field| field == pk_name) else {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL INSERT requires primary key column '{pk_name}' in this release"
-            )));
-        };
-        let pk_value = values.get(pk_index).ok_or_else(|| {
-            QueryError::invariant("INSERT primary key column must align with one VALUES literal")
-        })?;
-        let key = sql_write_key_from_literal::<E>(pk_value, pk_name)?;
+        let generated_pk = sql_write_generated_primary_key_value::<E>();
+        let (key, generated_pk_value) =
+            if let Some(pk_index) = columns.iter().position(|field| field == pk_name) {
+                let pk_value = values.get(pk_index).ok_or_else(|| {
+                    QueryError::invariant(
+                        "INSERT primary key column must align with one VALUES literal",
+                    )
+                })?;
+                (sql_write_key_from_literal::<E>(pk_value, pk_name)?, None)
+            } else if let Some(pk_value) = generated_pk {
+                (
+                    sql_write_key_from_literal::<E>(&pk_value, pk_name)?,
+                    Some(pk_value),
+                )
+            } else {
+                return Err(QueryError::unsupported_query(format!(
+                    "SQL INSERT requires primary key column '{pk_name}' in this release"
+                )));
+            };
 
         // Phase 2: lower the explicit column/value pairs onto the structural
         // patch program consumed by the shared save path.
         let mut patch = UpdatePatch::new();
+        if let Some(pk_value) = generated_pk_value {
+            patch = patch
+                .set_field(E::MODEL, pk_name, pk_value)
+                .map_err(QueryError::execute)?;
+        }
         for (field, value) in columns.iter().zip(values.iter()) {
             let normalized = sql_write_value_for_field::<E>(field, value)?;
             patch = patch
@@ -527,12 +571,42 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         };
         let predicate = canonicalize_sql_predicate_for_model(E::MODEL, predicate);
+        let pk_name = E::MODEL.primary_key.name;
+        let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate);
 
-        // Phase 2: lock the update target set to deterministic primary-key
-        // order because UPDATE syntax still does not carry its own ORDER BY.
-        Ok(Query::<E>::new(MissingRowPolicy::Ignore)
-            .filter(predicate)
-            .order_by(E::MODEL.primary_key.name))
+        // Phase 2: honor one explicit ordered update window when present, and
+        // otherwise keep the write target set deterministic on primary-key
+        // order exactly as the earlier predicate-only update lane did.
+        if statement.order_by.is_empty() {
+            selector = selector.order_by(pk_name);
+        } else {
+            let mut orders_primary_key = false;
+
+            for term in &statement.order_by {
+                if term.field == pk_name {
+                    orders_primary_key = true;
+                }
+                selector = match term.direction {
+                    SqlOrderDirection::Asc => selector.order_by(term.field.as_str()),
+                    SqlOrderDirection::Desc => selector.order_by_desc(term.field.as_str()),
+                };
+            }
+
+            if !orders_primary_key {
+                selector = selector.order_by(pk_name);
+            }
+        }
+
+        // Phase 3: apply the bounded update window on top of the deterministic
+        // selector order before mutation replay begins.
+        if let Some(limit) = statement.limit {
+            selector = selector.limit(limit);
+        }
+        if let Some(offset) = statement.offset {
+            selector = selector.offset(offset);
+        }
+
+        Ok(selector)
     }
 
     // Execute one narrow SQL INSERT statement through the existing structural

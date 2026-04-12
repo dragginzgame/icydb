@@ -1,5 +1,54 @@
 use super::support::*;
 
+// Assert one delete-window intent shape remains fail-closed until an explicit
+// ORDER BY is present.
+fn assert_delete_window_requires_order(label: &str, limit: Option<u32>, offset: Option<u32>) {
+    let model = basic_model();
+    let mut intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore).delete();
+    if let Some(limit) = limit {
+        intent = intent.limit(limit);
+    }
+    if let Some(offset) = offset {
+        intent = intent.offset(offset);
+    }
+
+    assert!(
+        matches!(
+            intent.build_plan_model(),
+            Err(QueryError::Intent(IntentError::PlanShape(
+                crate::db::query::plan::validate::PolicyPlanError::DeleteWindowRequiresOrder
+            )))
+        ),
+        "{label}: delete window without order should be rejected",
+    );
+}
+
+// Assert one load pagination shape remains fail-closed until an explicit
+// ORDER BY is present.
+fn assert_unordered_pagination_rejects(label: &str, limit: Option<u32>, offset: Option<u32>) {
+    let mut query = Query::<PlanEntity>::new(MissingRowPolicy::Ignore);
+    if let Some(limit) = limit {
+        query = query.limit(limit);
+    }
+    if let Some(offset) = offset {
+        query = query.offset(offset);
+    }
+
+    let err = query
+        .plan()
+        .expect_err("unordered pagination shape must fail");
+
+    assert!(
+        query_error_is_policy_plan_error(&err, |inner| {
+            matches!(
+                inner,
+                crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+            )
+        }),
+        "{label}: unordered pagination should map to PolicyPlanError::UnorderedPagination",
+    );
+}
+
 #[test]
 fn intent_rejects_by_ids_with_predicate() {
     let model = basic_model();
@@ -27,33 +76,13 @@ fn intent_rejects_only_with_predicate() {
 }
 
 #[test]
-fn intent_rejects_delete_limit_without_order() {
-    let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
-        .delete()
-        .limit(1);
-
-    assert!(matches!(
-        intent.build_plan_model(),
-        Err(QueryError::Intent(IntentError::PlanShape(
-            crate::db::query::plan::validate::PolicyPlanError::DeleteWindowRequiresOrder
-        )))
-    ));
-}
-
-#[test]
-fn intent_rejects_delete_offset_without_order() {
-    let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
-        .delete()
-        .offset(10);
-
-    assert!(matches!(
-        intent.build_plan_model(),
-        Err(QueryError::Intent(IntentError::PlanShape(
-            crate::db::query::plan::validate::PolicyPlanError::DeleteWindowRequiresOrder
-        )))
-    ));
+fn intent_rejects_delete_window_without_order_matrix() {
+    for (label, limit, offset) in [
+        ("delete limit without order", Some(1), None),
+        ("delete offset without order", None, Some(10)),
+    ] {
+        assert_delete_window_requires_order(label, limit, offset);
+    }
 }
 
 #[test]
@@ -87,21 +116,6 @@ fn delete_query_rejects_grouped_shape_during_intent_validation() {
 }
 
 #[test]
-fn load_limit_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .limit(1)
-        .plan()
-        .expect_err("limit without order must fail");
-
-    assert!(query_error_is_policy_plan_error(&err, |inner| {
-        matches!(
-            inner,
-            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-        )
-    }));
-}
-
-#[test]
 fn load_rejects_duplicate_non_primary_order_field() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
@@ -120,34 +134,14 @@ fn load_rejects_duplicate_non_primary_order_field() {
 }
 
 #[test]
-fn load_offset_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .offset(1)
-        .plan()
-        .expect_err("offset without order must fail");
-
-    assert!(query_error_is_policy_plan_error(&err, |inner| {
-        matches!(
-            inner,
-            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-        )
-    }));
-}
-
-#[test]
-fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .limit(10)
-        .offset(2)
-        .plan()
-        .expect_err("limit+offset without order must fail");
-
-    assert!(query_error_is_policy_plan_error(&err, |inner| {
-        matches!(
-            inner,
-            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-        )
-    }));
+fn load_unordered_pagination_rejects_matrix() {
+    for (label, limit, offset) in [
+        ("limit without order", Some(1), None),
+        ("offset without order", None, Some(1)),
+        ("limit+offset without order", Some(10), Some(2)),
+    ] {
+        assert_unordered_pagination_rejects(label, limit, offset);
+    }
 }
 
 #[test]

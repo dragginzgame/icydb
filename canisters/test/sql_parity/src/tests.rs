@@ -652,11 +652,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_computed_projection_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep computed projection parity",
-        );
+    fn generated_sql_dispatch_computed_projection_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep computed projection parity",
+            ),
+            (
+                "EXPLAIN SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep computed projection EXPLAIN parity",
+            ),
+        ];
+
+        assert_dispatch_result_parity_cases(&cases);
     }
 
     #[test]
@@ -1688,75 +1696,71 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order projection parity",
-        );
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order projection parity",
+            ),
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerAccount>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_explain_matches_typed_surface()
-     {
-        assert_dispatch_matches_typed_as::<CustomerAccount>(
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order EXPLAIN parity",
-        );
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_explain_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order EXPLAIN parity",
+            ),
+        ];
+
+        assert_dispatch_matches_typed_as_cases::<CustomerAccount>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order projection parity",
-        );
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix projection parity",
+            ),
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerAccount>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_explain_matches_typed_surface()
-     {
-        assert_dispatch_matches_typed_as::<CustomerAccount>(
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order EXPLAIN parity",
-        );
-    }
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_explain_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_explain_matches_typed_surface()
-     {
-        assert_dispatch_matches_typed_as::<CustomerAccount>(
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_explain_matches_typed_surface()
-     {
-        assert_dispatch_matches_typed_as::<CustomerAccount>(
-            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
-        );
+        assert_dispatch_matches_typed_as_cases::<CustomerAccount>(&cases);
     }
 
     #[test]
@@ -2066,560 +2070,387 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+                "bravo",
+                "filtered strict LIKE prefix CustomerAccount projection should return the expected row",
+            ),
+            (
+                "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+                "bravo",
+                "descending filtered strict LIKE prefix CustomerAccount projection should return the expected row",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
-        );
+        for (sql, expected_name, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-                assert_eq!(rows.row_count, 1);
-                assert_eq!(rows.rows.len(), 1);
-                assert_eq!(rows.rows[0][1], "bravo");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                    assert_eq!(rows.row_count, 1);
+                    assert_eq!(rows.rows.len(), 1);
+                    assert_eq!(rows.rows[0][1], expected_name, "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "filtered strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_desc_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+                [("gold", "bravo"), ("gold", "bristle")],
+                "filtered composite strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+                [("gold", "bristle"), ("gold", "bravo")],
+                "descending filtered composite strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
-        );
+        for (sql, expected_rows, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-                assert_eq!(rows.row_count, 1);
-                assert_eq!(rows.rows.len(), 1);
-                assert_eq!(rows.rows[0][1], "bravo");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(
+                        rows.columns,
+                        vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                    );
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_rows[0].0, "{context}");
+                    assert_eq!(rows.rows[0][2], expected_rows[0].1, "{context}");
+                    assert_eq!(rows.rows[1][1], expected_rows[1].0, "{context}");
+                    assert_eq!(rows.rows[1][2], expected_rows[1].1, "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "descending filtered strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+                [("gold", "bravo"), ("gold", "bristle")],
+                "filtered composite order-only CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+                [("gold", "bristle"), ("gold", "bravo")],
+                "descending filtered composite order-only CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
-        );
+        for (sql, expected_rows, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bravo");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bristle");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(
+                        rows.columns,
+                        vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                    );
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_rows[0].0, "{context}");
+                    assert_eq!(rows.rows[0][2], expected_rows[0].1, "{context}");
+                    assert_eq!(rows.rows[1][1], expected_rows[1].0, "{context}");
+                    assert_eq!(rows.rows[1][2], expected_rows[1].1, "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "filtered composite strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ["bravo", "Brisk"],
+                "filtered expression order-only CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ["bristle", "Brisk"],
+                "descending filtered expression order-only CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
-        );
+        for (sql, expected_handles, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bristle");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bravo");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_handles[0], "{context}");
+                    assert_eq!(rows.rows[1][1], expected_handles[1], "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "descending filtered composite strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ["bravo", "Brisk"],
+                "filtered expression strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ["bristle", "Brisk"],
+                "descending filtered expression strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-        );
+        for (sql, expected_handles, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bravo");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bristle");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_handles[0], "{context}");
+                    assert_eq!(rows.rows[1][1], expected_handles[1], "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "filtered composite order-only CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_text_range_projection_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression text-range projection parity",
+            ),
+            (
+                "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression text-range projection parity",
+            ),
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerAccount>(&cases);
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_strict_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerAccount filtered expression strict prefix forms should keep projection parity",
+            ),
+            (
+                &[
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerAccount filtered expression strict prefix forms should keep projection parity",
+            ),
+        ];
+
+        reload_default_fixtures();
+        assert_equivalent_dispatch_result_form_batches(&cases);
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                [("gold", "bravo"), ("gold", "bristle")],
+                "filtered composite expression order-only CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                [("gold", "bristle"), ("gold", "bravo")],
+                "descending filtered composite expression order-only CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-        );
+        for (sql, expected_rows, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bristle");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bravo");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(
+                        rows.columns,
+                        vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                    );
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_rows[0].0, "{context}");
+                    assert_eq!(rows.rows[0][2], expected_rows[0].1, "{context}");
+                    assert_eq!(rows.rows[1][1], expected_rows[1].0, "{context}");
+                    assert_eq!(rows.rows[1][2], expected_rows[1].1, "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "descending filtered composite order-only CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matches_expected_rows()
-     {
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                [("gold", "bravo"), ("gold", "bristle")],
+                "filtered composite expression strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                [("gold", "bristle"), ("gold", "bravo")],
+                "descending filtered composite expression strict LIKE prefix CustomerAccount projection should return the expected rows",
+            ),
+        ];
+
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
+        for (sql, expected_rows, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "bravo");
-                assert_eq!(rows.rows[1][1], "Brisk");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(
+                        rows.columns,
+                        vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                    );
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_rows[0].0, "{context}");
+                    assert_eq!(rows.rows[0][2], expected_rows[0].1, "{context}");
+                    assert_eq!(rows.rows[1][1], expected_rows[1].0, "{context}");
+                    assert_eq!(rows.rows[1][2], expected_rows[1].1, "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "filtered expression order-only CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "bristle");
-                assert_eq!(rows.rows[1][1], "Brisk");
-            }
-            other => panic!(
-                "descending filtered expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_text_range_projection_matrix_matches_typed_surface()
+    {
+        let cases = [
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression text-range projection parity",
             ),
-        }
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "bravo");
-                assert_eq!(rows.rows[1][1], "Brisk");
-            }
-            other => panic!(
-                "filtered expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            (
+                "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression text-range projection parity",
             ),
-        }
+        ];
+
+        assert_dispatch_result_matches_typed_as_cases::<CustomerAccount>(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "bristle");
-                assert_eq!(rows.rows[1][1], "Brisk");
-            }
-            other => panic!(
-                "descending filtered expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_strict_prefix_matrix_matches_projection_rows()
+    {
+        let cases = [
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+                ][..],
+                "generated CustomerAccount filtered composite expression strict prefix forms should keep projection parity",
             ),
-        }
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_text_range_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression text-range projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_strict_text_range_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression text-range projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated CustomerAccount filtered expression text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated descending CustomerAccount filtered expression text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bravo");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bristle");
-            }
-            other => panic!(
-                "filtered composite expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+            (
+                &[
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                    "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+                ][..],
+                "generated descending CustomerAccount filtered composite expression strict prefix forms should keep projection parity",
             ),
-        }
+        ];
+
+        reload_default_fixtures();
+        assert_equivalent_dispatch_result_form_batches(&cases);
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_desc_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bristle");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bravo");
-            }
-            other => panic!(
-                "descending filtered composite expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matrix_matches_expected_rows()
+    {
+        let cases = [
+            (
+                "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+                ["bravo", "charlie"],
+                "filtered order-only CustomerAccount projection should return the expected rows",
             ),
-        }
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bravo");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bristle");
-            }
-            other => panic!(
-                "filtered composite expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            (
+                "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+                ["echo", "charlie"],
+                "descending filtered order-only CustomerAccount projection should return the expected rows",
             ),
-        }
-    }
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_desc_projection_matches_expected_rows()
-     {
         reload_default_fixtures();
 
-        let payload = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
+        for (sql, expected_names, context) in cases {
+            let payload = dispatch_result_for_sql(sql);
 
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(
-                    rows.columns,
-                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
-                );
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "gold");
-                assert_eq!(rows.rows[0][2], "bristle");
-                assert_eq!(rows.rows[1][1], "gold");
-                assert_eq!(rows.rows[1][2], "bravo");
+            match payload {
+                SqlQueryResult::Projection(rows) => {
+                    assert_eq!(rows.entity, "CustomerAccount");
+                    assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                    assert_eq!(rows.row_count, 2);
+                    assert_eq!(rows.rows.len(), 2);
+                    assert_eq!(rows.rows[0][1], expected_names[0], "{context}");
+                    assert_eq!(rows.rows[1][1], expected_names[1], "{context}");
+                }
+                other => panic!("{context}: projection should return a projection payload: {other:?}"),
             }
-            other => panic!(
-                "descending filtered composite expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
-            ),
-        }
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_text_range_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression text-range projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_text_range_desc_projection_matches_typed_surface()
-     {
-        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression text-range projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated CustomerAccount filtered composite expression text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
-     {
-        reload_default_fixtures();
-
-        let like = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let starts_with = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-        let range = dispatch_result_for_sql(
-            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        );
-
-        assert_eq!(
-            starts_with, like,
-            "generated descending CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
-        );
-        assert_eq!(
-            range, like,
-            "generated descending CustomerAccount filtered composite expression text-range and LIKE prefix queries should keep projection parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "bravo");
-                assert_eq!(rows.rows[1][1], "charlie");
-            }
-            other => panic!(
-                "filtered order-only CustomerAccount projection should return a projection payload: {other:?}"
-            ),
-        }
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_projection_matches_expected_rows()
-     {
-        reload_default_fixtures();
-
-        let payload = dispatch_result_for_sql(
-            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
-        );
-
-        match payload {
-            SqlQueryResult::Projection(rows) => {
-                assert_eq!(rows.entity, "CustomerAccount");
-                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
-                assert_eq!(rows.row_count, 2);
-                assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "echo");
-                assert_eq!(rows.rows[1][1], "charlie");
-            }
-            other => panic!(
-                "descending filtered order-only CustomerAccount projection should return a projection payload: {other:?}"
-            ),
         }
     }
 
@@ -3322,19 +3153,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_grouped_execution_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10",
-            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL execution parity",
-        );
-    }
+    fn generated_sql_dispatch_grouped_surface_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10",
+                "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL execution parity",
+            ),
+            (
+                "EXPLAIN SELECT age, COUNT(*) FROM Customer GROUP BY age",
+                "typed execute_sql_dispatch and sql_dispatch should keep grouped EXPLAIN parity",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_grouped_explain_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN SELECT age, COUNT(*) FROM Customer GROUP BY age",
-            "typed execute_sql_dispatch and sql_dispatch should keep grouped EXPLAIN parity",
-        );
+        assert_dispatch_result_parity_cases(&cases);
     }
 
     #[test]
@@ -3426,11 +3257,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_global_aggregate_explain_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN SELECT COUNT(*) FROM Customer",
-            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN parity",
-        );
+    fn generated_sql_dispatch_global_aggregate_explain_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "EXPLAIN SELECT COUNT(*) FROM Customer",
+                "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN parity",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
+                "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
+            ),
+        ];
+
+        assert_dispatch_result_parity_cases(&cases);
     }
 
     #[test]
@@ -3466,14 +3305,6 @@ mod tests {
         assert!(
             !building_explain.contains("IndexPrefix"),
             "building filtered aggregate EXPLAIN should not keep the hidden Customer name index in planner output: {building_explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_global_aggregate_explain_execution_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
-            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
         );
     }
 
@@ -3773,19 +3604,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_direct_starts_with_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH parity",
-        );
-    }
+    fn generated_sql_dispatch_direct_starts_with_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH parity",
+            ),
+            (
+                "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH EXPLAIN parity",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_direct_starts_with_explain_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH EXPLAIN parity",
-        );
+        assert_dispatch_result_parity_cases(&cases);
     }
 
     #[test]
@@ -4530,27 +4361,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_stays_fail_closed() {
-        assert_dispatch_result_matches_typed(
-            "SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH fail-closed parity",
-        );
-    }
+    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_matrix_stays_fail_closed() {
+        let cases = [
+            (
+                "SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH fail-closed parity",
+            ),
+            (
+                "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+                "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH EXPLAIN fail-closed parity",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_explain_stays_fail_closed() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH EXPLAIN fail-closed parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_computed_projection_explain_matches_typed_surface() {
-        assert_dispatch_result_matches_typed(
-            "EXPLAIN SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep computed projection EXPLAIN parity",
-        );
+        assert_dispatch_result_parity_cases(&cases);
     }
 
     #[test]
@@ -4570,35 +4393,27 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_describe_matches_typed_describe_surface() {
-        assert_dispatch_matches_typed(
-            "DESCRIBE public.Customer",
-            "typed execute_sql_dispatch and sql_dispatch should return identical DESCRIBE payloads",
-        );
-    }
+    fn generated_sql_dispatch_metadata_surface_matrix_matches_typed_surface() {
+        let cases = [
+            (
+                "DESCRIBE public.Customer",
+                "typed execute_sql_dispatch and sql_dispatch should return identical DESCRIBE payloads",
+            ),
+            (
+                "SHOW INDEXES public.Customer",
+                "typed execute_sql_dispatch and sql_dispatch should return identical SHOW INDEXES payloads",
+            ),
+            (
+                "SHOW COLUMNS public.Customer",
+                "typed execute_sql_dispatch and sql_dispatch should return identical SHOW COLUMNS payloads",
+            ),
+            (
+                "SHOW ENTITIES",
+                "typed execute_sql_dispatch and sql_dispatch should return identical SHOW ENTITIES payloads",
+            ),
+        ];
 
-    #[test]
-    fn generated_sql_dispatch_show_indexes_matches_typed_surface() {
-        assert_dispatch_matches_typed(
-            "SHOW INDEXES public.Customer",
-            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW INDEXES payloads",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_show_columns_matches_typed_surface() {
-        assert_dispatch_matches_typed(
-            "SHOW COLUMNS public.Customer",
-            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW COLUMNS payloads",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_show_entities_matches_typed_surface() {
-        assert_dispatch_matches_typed(
-            "SHOW ENTITIES",
-            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW ENTITIES payloads",
-        );
+        assert_dispatch_parity_cases(&cases);
     }
 
     #[test]

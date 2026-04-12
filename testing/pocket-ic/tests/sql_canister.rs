@@ -2337,6 +2337,471 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
     ),
 ];
 
+// Keep the generated-dispatch sample and attribution matrices aligned on the
+// same ordered covering cohort so sample-level and stage-level perf checks
+// cannot silently drift onto different query shapes.
+const GENERATED_DISPATCH_ORDERED_PERF_CASES: &[(&str, &str, &str, u32)] = &[
+    (
+        "generated.user_expression_order.asc",
+        "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        "Customer",
+        2,
+    ),
+    (
+        "generated.user_expression_order.desc",
+        "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        "Customer",
+        2,
+    ),
+    (
+        "generated.customer_order_order_only_composite.asc",
+        "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_order_only_composite.desc",
+        "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_numeric_equality.asc",
+        "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_numeric_equality.desc",
+        "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_numeric_equality_bounded_status.asc",
+        "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_numeric_equality_bounded_status.desc",
+        "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_order_only.asc",
+        "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_order_only.desc",
+        "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_strict_like_prefix.asc",
+        "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+        "CustomerAccount",
+        1,
+    ),
+    (
+        "generated.customer_account_filtered_strict_like_prefix.desc",
+        "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+        "CustomerAccount",
+        1,
+    ),
+    (
+        "generated.customer_account_filtered_composite_order_only.asc",
+        "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_composite_order_only.desc",
+        "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_composite_strict_like_prefix.asc",
+        "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_account_filtered_composite_strict_like_prefix.desc",
+        "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        "CustomerAccount",
+        2,
+    ),
+    (
+        "generated.customer_order_strict_text_range.asc",
+        "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+    (
+        "generated.customer_order_strict_text_range.desc",
+        "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+        "CustomerOrder",
+        2,
+    ),
+];
+
+// Keep the typed-dispatch projection smoke cohort in one table so alias,
+// insert, and update shapes all stay on the same lightweight success contract.
+type TypedDispatchProjectionPerfCase<'a> = (&'a str, SqlPerfSurface, &'a str, &'a str, u32, u32);
+
+const TYPED_DISPATCH_PROJECTION_PERF_CASES: &[TypedDispatchProjectionPerfCase<'_>] = &[
+    (
+        "typed.dispatch.customer_account.lower_order_alias",
+        SqlPerfSurface::TypedDispatchCustomerAccount,
+        "SELECT LOWER(handle) AS normalized_handle, id FROM CustomerAccount WHERE active = true ORDER BY normalized_handle ASC, id ASC LIMIT 2",
+        "CustomerAccount",
+        2,
+        5,
+    ),
+    (
+        "typed.dispatch.customer.table_alias",
+        SqlPerfSurface::TypedDispatchCustomer,
+        "SELECT customer.name FROM Customer customer WHERE customer.name = 'alice' ORDER BY customer.id ASC LIMIT 1",
+        "Customer",
+        1,
+        5,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.insert",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)",
+        "SqlWriteProbe",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.insert_alias",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "INSERT INTO SqlWriteProbe s (id, name, age) VALUES (2, 'inserted-alias', 22)",
+        "SqlWriteProbe",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.customer.generated_pk_insert",
+        SqlPerfSurface::TypedDispatchCustomer,
+        "INSERT INTO Customer (name, age) VALUES ('inserted-generated', 22)",
+        "Customer",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.multi_insert",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)",
+        "SqlWriteProbe",
+        2,
+        1,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.positional_insert",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "INSERT INTO SqlWriteProbe VALUES (2, 'positional', 22)",
+        "SqlWriteProbe",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.update",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "UPDATE SqlWriteProbe SET name = 'updated', age = 22 WHERE id = 1",
+        "SqlWriteProbe",
+        1,
+        5,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.update_alias",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "UPDATE SqlWriteProbe s SET s.name = 'updated-alias', s.age = 22 WHERE s.id = 1",
+        "SqlWriteProbe",
+        1,
+        5,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.equality_predicate_update",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "UPDATE SqlWriteProbe SET name = 'updated-by-eq', age = 22 WHERE age = 21",
+        "SqlWriteProbe",
+        1,
+        1,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.predicate_update",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21",
+        "SqlWriteProbe",
+        1,
+        5,
+    ),
+    (
+        "typed.dispatch.sql_write_probe.ordered_window_update",
+        SqlPerfSurface::TypedDispatchSqlWriteProbe,
+        "UPDATE SqlWriteProbe SET name = 'updated-window', age = 22 WHERE id >= 1 ORDER BY id ASC LIMIT 1",
+        "SqlWriteProbe",
+        1,
+        5,
+    ),
+];
+
+// Keep the typed grouped-customer smoke cohort on one shared grouped-response
+// contract so projection and aggregate variants stay easy to audit together.
+const TYPED_GROUPED_CUSTOMER_PERF_CASES: &[(&str, &str)] = &[
+    (
+        "typed.execute_sql_grouped.customer.extrema.min",
+        "SELECT name, MIN(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.extrema.max",
+        "SELECT name, MAX(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.extrema.distinct_min",
+        "SELECT name, MIN(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.distinct.count",
+        "SELECT name, COUNT(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.distinct.sum",
+        "SELECT name, SUM(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.distinct.avg",
+        "SELECT name, AVG(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.top_level_distinct",
+        "SELECT DISTINCT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.computed",
+        "SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.computed_alias",
+        "SELECT TRIM(name) AS trimmed_name, COUNT(*) total FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+    ),
+    (
+        "typed.execute_sql_grouped.customer.order_alias",
+        "SELECT age years, COUNT(*) total FROM Customer GROUP BY age ORDER BY years ASC LIMIT 10",
+    ),
+];
+
+// Keep the typed aggregate-customer smoke cohort on one shared aggregate-value
+// contract so count, numeric, distinct, filtered, and window variants all stay
+// aligned on the same result surface.
+const TYPED_CUSTOMER_AGGREGATE_PERF_CASES: &[(&str, &str, &str)] = &[
+    (
+        "typed.execute_sql_aggregate.customer.count.star",
+        "SELECT COUNT(*) FROM Customer",
+        "Uint(3)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.count.field",
+        "SELECT COUNT(age) FROM Customer",
+        "Uint(3)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.numeric.min",
+        "SELECT MIN(age) FROM Customer",
+        "Int(24)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.numeric.max",
+        "SELECT MAX(age) FROM Customer",
+        "Int(43)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.numeric.sum",
+        "SELECT SUM(age) FROM Customer",
+        "Decimal(Decimal { mantissa: 98, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.numeric.avg",
+        "SELECT AVG(age) FROM Customer",
+        "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.distinct.count",
+        "SELECT COUNT(DISTINCT age) FROM Customer",
+        "Uint(3)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.distinct.sum",
+        "SELECT SUM(DISTINCT age) FROM Customer",
+        "Decimal(Decimal { mantissa: 98, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.distinct.avg",
+        "SELECT AVG(DISTINCT age) FROM Customer",
+        "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.distinct.min",
+        "SELECT MIN(DISTINCT age) FROM Customer",
+        "Int(24)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.distinct.max",
+        "SELECT MAX(DISTINCT age) FROM Customer",
+        "Int(43)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.count.star",
+        "SELECT COUNT(*) FROM Customer WHERE age >= 30",
+        "Uint(2)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.count.field",
+        "SELECT COUNT(age) FROM Customer WHERE age >= 30",
+        "Uint(2)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.min",
+        "SELECT MIN(age) FROM Customer WHERE age >= 30",
+        "Int(31)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.max",
+        "SELECT MAX(age) FROM Customer WHERE age >= 30",
+        "Int(43)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.sum",
+        "SELECT SUM(age) FROM Customer WHERE age >= 30",
+        "Decimal(Decimal { mantissa: 74, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.filtered.avg",
+        "SELECT AVG(age) FROM Customer WHERE age >= 30",
+        "Decimal(Decimal { mantissa: 37, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.empty.count.star",
+        "SELECT COUNT(*) FROM Customer WHERE age < 0",
+        "Uint(0)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.empty.sum",
+        "SELECT SUM(age) FROM Customer WHERE age < 0",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.empty.avg",
+        "SELECT AVG(age) FROM Customer WHERE age < 0",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.empty.min",
+        "SELECT MIN(age) FROM Customer WHERE age < 0",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.empty.max",
+        "SELECT MAX(age) FROM Customer WHERE age < 0",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.window.count.star",
+        "SELECT COUNT(*) FROM Customer ORDER BY age DESC LIMIT 2 OFFSET 1",
+        "Uint(2)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.window.sum",
+        "SELECT SUM(age) FROM Customer ORDER BY age DESC LIMIT 1 OFFSET 1",
+        "Decimal(Decimal { mantissa: 31, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.window.avg",
+        "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 2 OFFSET 1",
+        "Decimal(Decimal { mantissa: 37, scale: 0 })",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.offset_beyond.count.star",
+        "SELECT COUNT(*) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        "Uint(0)",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.offset_beyond.sum",
+        "SELECT SUM(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.offset_beyond.avg",
+        "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.offset_beyond.min",
+        "SELECT MIN(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        "Null",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.offset_beyond.max",
+        "SELECT MAX(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        "Null",
+    ),
+];
+
+// Keep the typed aggregate-customer reject-path smoke cases together because
+// they share the same unsupported-error contract and only vary by input shape.
+const TYPED_CUSTOMER_AGGREGATE_REJECT_CASES: &[(&str, &str, &str)] = &[
+    (
+        "typed.execute_sql_aggregate.customer.reject.non_aggregate",
+        "SELECT age FROM Customer",
+        "execute_sql_aggregate requires constrained global aggregate SELECT",
+    ),
+    (
+        "typed.execute_sql_aggregate.customer.reject.grouped",
+        "SELECT age, COUNT(*) FROM Customer GROUP BY age",
+        "execute_sql_aggregate rejects grouped SELECT",
+    ),
+];
+
+// Keep the grouped window attribution cursor-contract checks in one table so
+// SUM and AVG variants stay aligned on the same pagination assertions.
+const GROUPED_WINDOW_ATTRIBUTION_CASES: &[(&str, &str, &str)] = &[
+    (
+        "SUM(field) grouped window attribution",
+        "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
+    ),
+    (
+        "AVG(field) grouped window attribution",
+        "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+        "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
+    ),
+];
+
+// Keep the generated delete attribution smoke cases together because they
+// share the same stage-accounting contract and only vary by delete window.
+const GENERATED_DELETE_ATTRIBUTION_CASES: &[(&str, &str, Option<u32>, bool)] = &[
+    (
+        "generated_delete",
+        "DELETE FROM Customer ORDER BY id LIMIT 1",
+        Some(1),
+        false,
+    ),
+    (
+        "generated_delete_offset",
+        "DELETE FROM Customer ORDER BY id LIMIT 1 OFFSET 1",
+        None,
+        true,
+    ),
+];
+
 // Assert one scalar attribution sample stays structurally sane for perf
 // reporting across the representative SELECT cohort.
 fn assert_positive_scalar_attribution_sample(
@@ -2443,6 +2908,398 @@ fn assert_matching_perf_outcomes(
     assert_eq!(
         generated.outcome.error_origin, typed.outcome.error_origin,
         "{scenario_key}: generated and typed error origins must match",
+    );
+}
+
+// Assert one generated-dispatch perf sample case against the shared positive
+// sample contract plus the expected entity and row-window surface.
+fn assert_generated_dispatch_perf_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+    expected_entity: &str,
+    expected_row_count: u32,
+) {
+    // Phase 1: request one repeated generated-dispatch sample for the
+    // table-driven ordered covering query shape under test.
+    let sample = sql_perf_sample(
+        pic,
+        canister_id,
+        &SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 5,
+        },
+    );
+
+    // Phase 2: keep the shared sample-shape contract, entity binding, and
+    // requested row window aligned across the whole generated cohort.
+    assert_positive_perf_sample(label, &sample);
+    assert!(
+        sample.outcome.success,
+        "{label} generated dispatch perf sample must succeed: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some(expected_entity),
+        "{label} generated dispatch perf sample should stay on the expected entity route",
+    );
+    assert_eq!(
+        sample.outcome.row_count,
+        Some(expected_row_count),
+        "{label} generated dispatch perf sample should return the requested window size",
+    );
+}
+
+// Assert one generated-dispatch attribution case against the shared positive
+// stage-accounting contract plus the expected entity and row-window surface.
+fn assert_generated_dispatch_attribution_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+    expected_entity: &str,
+    expected_row_count: u32,
+) {
+    // Phase 1: request one generated-dispatch attribution sample for the
+    // same ordered covering query shape used by the sample-level matrix.
+    let sample = sql_perf_attribution_sample(
+        pic,
+        canister_id,
+        &SqlPerfAttributionRequest {
+            surface: SqlPerfAttributionSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+        },
+    );
+
+    // Phase 2: keep positive stage accounting, entity binding, and row-window
+    // expectations aligned across the generated attribution cohort.
+    assert_positive_scalar_attribution_sample(label, &sample, true);
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some(expected_entity),
+        "{label} generated dispatch attribution should stay on the expected entity route",
+    );
+    assert_eq!(
+        sample.outcome.row_count,
+        Some(expected_row_count),
+        "{label} generated dispatch attribution should return the requested window size",
+    );
+}
+
+// Assert one typed-dispatch projection perf case against the shared positive
+// sample contract plus the common projection result surface.
+fn assert_typed_dispatch_projection_perf_case(
+    pic: &Pic,
+    canister_id: Principal,
+    case: TypedDispatchProjectionPerfCase<'_>,
+) {
+    let (label, surface, sql, expected_entity, expected_row_count, repeat_count) = case;
+
+    // Phase 1: request one typed-dispatch sample for the alias, insert, or
+    // update shape under test.
+    let sample = sql_perf_sample(
+        pic,
+        canister_id,
+        &SqlPerfRequest {
+            surface,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count,
+        },
+    );
+
+    // Phase 2: keep the shared projection result contract stable across the
+    // typed-dispatch smoke cohort.
+    assert_positive_perf_sample(label, &sample);
+    assert!(
+        sample.outcome.success,
+        "{label} typed-dispatch perf sample must succeed: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.result_kind, "projection",
+        "{label} typed-dispatch perf sample should emit the projection result kind",
+    );
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some(expected_entity),
+        "{label} typed-dispatch perf sample should stay on the expected entity route",
+    );
+    assert_eq!(
+        sample.outcome.row_count,
+        Some(expected_row_count),
+        "{label} typed-dispatch perf sample should emit the expected projected row count",
+    );
+}
+
+// Assert one typed grouped-customer perf case against the shared grouped
+// response contract.
+fn assert_typed_grouped_customer_perf_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+) {
+    // Phase 1: request one grouped-customer perf sample for the table-driven
+    // grouped query shape under test.
+    let sample = sql_perf_sample(
+        pic,
+        canister_id,
+        &SqlPerfRequest {
+            surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 5,
+        },
+    );
+
+    // Phase 2: keep the grouped result contract stable across grouped
+    // aggregate, distinct, computed, and alias shapes.
+    assert_positive_perf_sample(label, &sample);
+    assert!(
+        sample.outcome.success,
+        "{label} typed grouped-customer perf sample must succeed: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.result_kind, "grouped_response",
+        "{label} typed grouped-customer perf sample should stay on the grouped response lane",
+    );
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some("Customer"),
+        "{label} typed grouped-customer perf sample should stay on the Customer grouped lane",
+    );
+    assert_eq!(
+        sample.outcome.row_count,
+        Some(3),
+        "{label} typed grouped-customer perf sample should emit the expected grouped row count",
+    );
+}
+
+// Assert one typed aggregate-customer perf case against the shared aggregate
+// value contract.
+fn assert_typed_customer_aggregate_perf_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+    expected_rendered_value: &str,
+) {
+    // Phase 1: request one aggregate-customer perf sample for the table-driven
+    // scalar query shape under test.
+    let sample = sql_perf_sample(
+        pic,
+        canister_id,
+        &SqlPerfRequest {
+            surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 5,
+        },
+    );
+
+    // Phase 2: keep the aggregate result contract stable across count,
+    // numeric, distinct, filtered, empty-window, and paged variants.
+    assert_positive_perf_sample(label, &sample);
+    assert!(
+        sample.outcome.success,
+        "{label} typed aggregate-customer perf sample must succeed: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.result_kind, "aggregate_value",
+        "{label} typed aggregate-customer perf sample should keep the aggregate outcome kind",
+    );
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some("Customer"),
+        "{label} typed aggregate-customer perf sample should stay on the Customer aggregate lane",
+    );
+    assert_eq!(
+        sample.outcome.rendered_value.as_deref(),
+        Some(expected_rendered_value),
+        "{label} typed aggregate-customer perf sample should render the expected scalar value",
+    );
+    assert_eq!(
+        sample.outcome.row_count, None,
+        "{label} typed aggregate-customer perf sample should stay scalar",
+    );
+    assert_eq!(
+        sample.outcome.has_cursor, None,
+        "{label} typed aggregate-customer perf sample should not expose cursor state",
+    );
+}
+
+// Assert one typed aggregate-customer reject path against the shared
+// unsupported-error contract.
+fn assert_typed_customer_aggregate_reject_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+    expected_message_fragment: &str,
+) {
+    // Phase 1: request one aggregate-customer perf sample for a deliberately
+    // unsupported SQL shape.
+    let sample = sql_perf_sample(
+        pic,
+        canister_id,
+        &SqlPerfRequest {
+            surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 5,
+        },
+    );
+
+    // Phase 2: keep the unsupported-error classification stable across the
+    // aggregate reject-path cohort.
+    assert_positive_perf_sample(label, &sample);
+    assert!(
+        !sample.outcome.success,
+        "{label} typed aggregate-customer perf sample should fail: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.result_kind, "error",
+        "{label} typed aggregate-customer perf sample should classify the request as an error",
+    );
+    assert_eq!(
+        sample.outcome.error_kind.as_deref(),
+        Some("Runtime(Unsupported)"),
+        "{label} typed aggregate-customer perf sample should preserve Runtime::Unsupported",
+    );
+    assert_eq!(
+        sample.outcome.error_origin.as_deref(),
+        Some("Query"),
+        "{label} typed aggregate-customer perf sample should preserve Query origin",
+    );
+    assert!(
+        sample
+            .outcome
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains(expected_message_fragment)),
+        "{label} typed aggregate-customer perf sample should preserve the expected guidance",
+    );
+}
+
+// Assert one generated delete attribution case against the shared delete-stage
+// contract plus the expected write outcome surface.
+fn assert_generated_delete_attribution_case(
+    pic: &Pic,
+    canister_id: Principal,
+    label: &str,
+    sql: &str,
+    expected_row_count: Option<u32>,
+    expect_concrete_write_outcome: bool,
+) -> SqlPerfAttributionSample {
+    // Phase 1: request one generated-dispatch attribution sample for the
+    // table-driven delete shape under test.
+    let sample = sql_perf_attribution_sample(
+        pic,
+        canister_id,
+        &SqlPerfAttributionRequest {
+            surface: SqlPerfAttributionSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+        },
+    );
+
+    // Phase 2: keep positive delete stage accounting and the expected write
+    // outcome contract aligned across the generated delete cohort.
+    assert!(
+        sample.outcome.success,
+        "{label} attribution must keep the representative DELETE successful: {sample:?}",
+    );
+    assert!(
+        sample.parse_local_instructions > 0,
+        "{label} parse phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.route_local_instructions > 0,
+        "{label} route phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.lower_local_instructions > 0,
+        "{label} lower phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.dispatch_local_instructions > 0,
+        "{label} dispatch phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.execute_local_instructions > 0,
+        "{label} execute phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.total_local_instructions
+            >= sample.parse_local_instructions
+                + sample.route_local_instructions
+                + sample.lower_local_instructions
+                + sample.dispatch_local_instructions
+                + sample.execute_local_instructions
+                + sample.wrapper_local_instructions,
+        "{label} total must cover every attributed phase: {sample:?}",
+    );
+    assert_eq!(
+        sample.outcome.entity.as_deref(),
+        Some("Customer"),
+        "{label} should stay on the Customer route",
+    );
+
+    if let Some(expected_row_count) = expected_row_count {
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(expected_row_count),
+            "{label} should report the expected write row count",
+        );
+    } else if expect_concrete_write_outcome {
+        assert!(
+            sample.outcome.row_count.is_some(),
+            "{label} should still report a concrete write outcome: {sample:?}",
+        );
+    }
+
+    sample
+}
+
+// Assert one grouped attribution sample keeps the shared typed-grouped phase
+// accounting contract.
+fn assert_positive_grouped_attribution_sample(label: &str, sample: &SqlPerfAttributionSample) {
+    assert!(
+        sample.outcome.success,
+        "{label} grouped attribution must keep the representative GROUP BY SELECT successful: {sample:?}",
+    );
+    assert!(
+        sample.parse_local_instructions > 0,
+        "{label} grouped parse phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.lower_local_instructions > 0,
+        "{label} grouped lower phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.dispatch_local_instructions > 0,
+        "{label} grouped dispatch/setup phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.execute_local_instructions > 0,
+        "{label} grouped execute phase must be positive: {sample:?}",
+    );
+    assert_eq!(
+        sample.route_local_instructions, 0,
+        "{label} grouped attribution should not report dynamic route-authority cost: {sample:?}",
+    );
+    assert!(
+        sample.total_local_instructions
+            >= sample.parse_local_instructions
+                + sample.lower_local_instructions
+                + sample.dispatch_local_instructions
+                + sample.execute_local_instructions
+                + sample.wrapper_local_instructions,
+        "{label} grouped total must cover every attributed phase: {sample:?}",
     );
 }
 
@@ -3776,1215 +4633,85 @@ fn sql_canister_query_lane_global_aggregate_explain_execution_stays_off_secondar
 }
 
 #[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_count_surfaces_expected_values() {
+fn sql_canister_perf_typed_execute_sql_aggregate_customer_matrix_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            ("SELECT COUNT(*) FROM Customer", "Uint(3)"),
-            ("SELECT COUNT(age) FROM Customer", "Uint(3)"),
-        ] {
-            let sample = sql_perf_sample(
+        for (label, sql, expected_rendered_value) in
+            TYPED_CUSTOMER_AGGREGATE_PERF_CASES.iter().copied()
+        {
+            assert_typed_customer_aggregate_perf_case(
                 pic,
                 canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.count::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+                label,
+                sql,
+                expected_rendered_value,
             );
         }
     });
 }
 
 #[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_numeric_surfaces_expected_values() {
+fn sql_canister_perf_generated_dispatch_delete_attribution_matrix_reports_positive_stages() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            ("SELECT MIN(age) FROM Customer", "Int(24)"),
-            ("SELECT MAX(age) FROM Customer", "Int(43)"),
-            (
-                "SELECT SUM(age) FROM Customer",
-                "Decimal(Decimal { mantissa: 98, scale: 0 })",
-            ),
-            (
-                "SELECT AVG(age) FROM Customer",
-                "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
-            ),
-        ] {
-            let sample = sql_perf_sample(
+        let mut rows = Vec::new();
+
+        for (label, sql, expected_row_count, expect_concrete_write_outcome) in
+            GENERATED_DELETE_ATTRIBUTION_CASES.iter().copied()
+        {
+            let sample = assert_generated_delete_attribution_case(
                 pic,
                 canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
+                label,
+                sql,
+                expected_row_count,
+                expect_concrete_write_outcome,
             );
 
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.numeric::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
-            );
+            rows.push(serde_json::json!({
+                "label": label,
+                "sample": sample,
+            }));
+        }
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows)
+                .expect("generated delete attribution samples should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_execute_sql_grouped_customer_matrix_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        for (label, sql) in TYPED_GROUPED_CUSTOMER_PERF_CASES.iter().copied() {
+            assert_typed_grouped_customer_perf_case(pic, canister_id, label, sql);
         }
     });
 }
 
 #[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_distinct_surfaces_expected_values() {
+fn sql_canister_perf_typed_dispatch_projection_matrix_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            ("SELECT COUNT(DISTINCT age) FROM Customer", "Uint(3)"),
-            (
-                "SELECT SUM(DISTINCT age) FROM Customer",
-                "Decimal(Decimal { mantissa: 98, scale: 0 })",
-            ),
-            (
-                "SELECT AVG(DISTINCT age) FROM Customer",
-                "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
-            ),
-            ("SELECT MIN(DISTINCT age) FROM Customer", "Int(24)"),
-            ("SELECT MAX(DISTINCT age) FROM Customer", "Int(43)"),
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.distinct::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate DISTINCT perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate DISTINCT perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate DISTINCT perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate DISTINCT perf sample should render the expected scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate DISTINCT perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate DISTINCT perf sample should not expose cursor state for `{sql}`",
-            );
+        for case in TYPED_DISPATCH_PROJECTION_PERF_CASES.iter().copied() {
+            assert_typed_dispatch_projection_perf_case(pic, canister_id, case);
         }
     });
 }
 
 #[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_filtered_surfaces_expected_values() {
+fn sql_canister_perf_typed_execute_sql_aggregate_customer_reject_matrix_reports_expected_errors() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            ("SELECT COUNT(*) FROM Customer WHERE age >= 30", "Uint(2)"),
-            ("SELECT COUNT(age) FROM Customer WHERE age >= 30", "Uint(2)"),
-            ("SELECT MIN(age) FROM Customer WHERE age >= 30", "Int(31)"),
-            ("SELECT MAX(age) FROM Customer WHERE age >= 30", "Int(43)"),
-            (
-                "SELECT SUM(age) FROM Customer WHERE age >= 30",
-                "Decimal(Decimal { mantissa: 74, scale: 0 })",
-            ),
-            (
-                "SELECT AVG(age) FROM Customer WHERE age >= 30",
-                "Decimal(Decimal { mantissa: 37, scale: 0 })",
-            ),
-        ] {
-            let sample = sql_perf_sample(
+        for (label, sql, expected_message_fragment) in
+            TYPED_CUSTOMER_AGGREGATE_REJECT_CASES.iter().copied()
+        {
+            assert_typed_customer_aggregate_reject_case(
                 pic,
                 canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.filtered::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected filtered scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+                label,
+                sql,
+                expected_message_fragment,
             );
         }
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_empty_window_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            ("SELECT COUNT(*) FROM Customer WHERE age < 0", "Uint(0)"),
-            ("SELECT SUM(age) FROM Customer WHERE age < 0", "Null"),
-            ("SELECT AVG(age) FROM Customer WHERE age < 0", "Null"),
-            ("SELECT MIN(age) FROM Customer WHERE age < 0", "Null"),
-            ("SELECT MAX(age) FROM Customer WHERE age < 0", "Null"),
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.empty::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected empty-window scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_window_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            (
-                "SELECT COUNT(*) FROM Customer ORDER BY age DESC LIMIT 2 OFFSET 1",
-                "Uint(2)",
-            ),
-            (
-                "SELECT SUM(age) FROM Customer ORDER BY age DESC LIMIT 1 OFFSET 1",
-                "Decimal(Decimal { mantissa: 31, scale: 0 })",
-            ),
-            (
-                "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 2 OFFSET 1",
-                "Decimal(Decimal { mantissa: 37, scale: 0 })",
-            ),
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.window::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected windowed scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_offset_beyond_window_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for (sql, expected_rendered_value) in [
-            (
-                "SELECT COUNT(*) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
-                "Uint(0)",
-            ),
-            (
-                "SELECT SUM(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
-                "Null",
-            ),
-            (
-                "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
-                "Null",
-            ),
-            (
-                "SELECT MIN(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
-                "Null",
-            ),
-            (
-                "SELECT MAX(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
-                "Null",
-            ),
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_aggregate.customer.offset_beyond::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "aggregate_value",
-                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.rendered_value.as_deref(),
-                Some(expected_rendered_value),
-                "typed execute_sql_aggregate perf sample should render the expected offset-beyond-window scalar value for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count, None,
-                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.has_cursor, None,
-                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_distinct_priority_stays_aligned() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT DISTINCT priority FROM CustomerOrder ORDER BY priority ASC LIMIT 2";
-        let generated = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-        let typed = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_matching_perf_outcomes(
-            "customer_order_distinct_priority_limit2",
-            &generated,
-            &typed,
-            "CustomerOrder",
-            2,
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_delete_offset_attribution_reports_positive_stages() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "DELETE FROM Customer ORDER BY id LIMIT 1 OFFSET 1".to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert!(
-            sample.outcome.success,
-            "generated delete OFFSET attribution must keep the representative DELETE successful: {sample:?}",
-        );
-        assert!(
-            sample.parse_local_instructions > 0,
-            "generated delete OFFSET attribution parse phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.route_local_instructions > 0,
-            "generated delete OFFSET attribution route phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.lower_local_instructions > 0,
-            "generated delete OFFSET attribution lower phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.dispatch_local_instructions > 0,
-            "generated delete OFFSET attribution dispatch phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.execute_local_instructions > 0,
-            "generated delete OFFSET attribution execute phase must be positive: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "generated delete OFFSET attribution should stay on the Customer route",
-        );
-        assert!(
-            sample.outcome.row_count.is_some(),
-            "generated delete OFFSET attribution should still report a concrete write outcome: {sample:?}",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_min_max_field_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for sql in [
-            "SELECT name, MIN(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, MAX(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, MIN(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_grouped.customer.extrema::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_grouped extrema perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "grouped_response",
-                "typed execute_sql_grouped extrema perf sample should stay on the grouped response lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_grouped extrema perf sample should stay on the Customer grouped lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count,
-                Some(3),
-                "typed execute_sql_grouped extrema perf sample should emit the expected grouped row count for `{sql}`",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_distinct_aggregates_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        for sql in [
-            "SELECT name, COUNT(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, SUM(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, AVG(DISTINCT age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-        ] {
-            let sample = sql_perf_sample(
-                pic,
-                canister_id,
-                &SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                    sql: sql.to_string(),
-                    cursor_token: None,
-                    repeat_count: 5,
-                },
-            );
-
-            assert_positive_perf_sample(
-                &format!("typed.execute_sql_grouped.customer.distinct::{sql}"),
-                &sample,
-            );
-            assert!(
-                sample.outcome.success,
-                "typed execute_sql_grouped DISTINCT aggregate perf sample should succeed for `{sql}`: {sample:?}",
-            );
-            assert_eq!(
-                sample.outcome.result_kind, "grouped_response",
-                "typed execute_sql_grouped DISTINCT aggregate perf sample should stay on the grouped response lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.entity.as_deref(),
-                Some("Customer"),
-                "typed execute_sql_grouped DISTINCT aggregate perf sample should stay on the Customer grouped lane for `{sql}`",
-            );
-            assert_eq!(
-                sample.outcome.row_count,
-                Some(3),
-                "typed execute_sql_grouped DISTINCT aggregate perf sample should emit the expected grouped row count for `{sql}`",
-            );
-        }
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_top_level_distinct_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql =
-            "SELECT DISTINCT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.execute_sql_grouped.customer.top_level_distinct::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed execute_sql_grouped top-level DISTINCT perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "grouped_response",
-            "typed execute_sql_grouped top-level DISTINCT perf sample should stay on the grouped response lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "typed execute_sql_grouped top-level DISTINCT perf sample should stay on the Customer grouped lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(3),
-            "typed execute_sql_grouped top-level DISTINCT perf sample should emit the expected grouped row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_computed_projection_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql =
-            "SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.execute_sql_grouped.customer.computed::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed execute_sql_grouped computed projection perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "grouped_response",
-            "typed execute_sql_grouped computed projection perf sample should stay on the grouped response lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "typed execute_sql_grouped computed projection perf sample should stay on the Customer grouped lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(3),
-            "typed execute_sql_grouped computed projection perf sample should emit the expected grouped row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_computed_projection_aliases_surface_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT TRIM(name) AS trimmed_name, COUNT(*) total FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.execute_sql_grouped.customer.computed_alias::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed execute_sql_grouped computed projection alias perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "grouped_response",
-            "typed execute_sql_grouped computed projection alias perf sample should stay on the grouped response lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "typed execute_sql_grouped computed projection alias perf sample should stay on the Customer grouped lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(3),
-            "typed execute_sql_grouped computed projection alias perf sample should emit the expected grouped row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_grouped_customer_order_by_group_field_alias_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT age years, COUNT(*) total FROM Customer GROUP BY age ORDER BY years ASC LIMIT 10";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.execute_sql_grouped.customer.order_alias::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed execute_sql_grouped order-alias perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "grouped_response",
-            "typed execute_sql_grouped order-alias perf sample should stay on the grouped response lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "typed execute_sql_grouped order-alias perf sample should stay on the Customer grouped lane for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(3),
-            "typed execute_sql_grouped order-alias perf sample should emit the expected grouped row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_customer_account_order_by_lower_alias_surfaces_expected_values()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT LOWER(handle) AS normalized_handle, id FROM CustomerAccount WHERE active = true ORDER BY normalized_handle ASC, id ASC LIMIT 2";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchCustomerAccount,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.customer_account.lower_order_alias::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch lower-order-alias perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "typed dispatch lower-order-alias perf sample should stay on the CustomerAccount route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "typed dispatch lower-order-alias perf sample should emit the expected ordered row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_customer_table_alias_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT customer.name FROM Customer customer WHERE customer.name = 'alice' ORDER BY customer.id ASC LIMIT 1";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.customer.table_alias::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch table-alias perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "typed dispatch table-alias perf sample should stay on the Customer route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch table-alias perf sample should emit the expected ordered row count for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_insert_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 1,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.insert::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL INSERT perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL INSERT perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL INSERT perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL INSERT perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_multi_insert_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 1,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.multi_insert::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL multi-row INSERT perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL multi-row INSERT perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL multi-row INSERT perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "typed dispatch SQL multi-row INSERT perf sample should emit two projected after-image rows for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_positional_insert_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "INSERT INTO SqlWriteProbe VALUES (2, 'positional', 22)";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 1,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.positional_insert::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL positional INSERT perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL positional INSERT perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL positional INSERT perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL positional INSERT perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_update_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "UPDATE SqlWriteProbe SET name = 'updated', age = 22 WHERE id = 1";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.update::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL UPDATE perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL UPDATE perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL UPDATE perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL UPDATE perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_update_alias_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "UPDATE SqlWriteProbe s SET s.name = 'updated-alias', s.age = 22 WHERE s.id = 1";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.update_alias::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL UPDATE alias perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL UPDATE alias perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL UPDATE alias perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL UPDATE alias perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_equality_predicate_update_surfaces_expected_values()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "UPDATE SqlWriteProbe SET name = 'updated-by-eq', age = 22 WHERE age = 21";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 1,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.equality_predicate_update::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL equality-predicate UPDATE perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL equality-predicate UPDATE perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL equality-predicate UPDATE perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL equality-predicate UPDATE perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_dispatch_sql_write_probe_predicate_update_surfaces_expected_values() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21";
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
-                sql: sql.to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            &format!("typed.dispatch.sql_write_probe.predicate_update::{sql}"),
-            &sample,
-        );
-        assert!(
-            sample.outcome.success,
-            "typed dispatch SQL predicate UPDATE perf sample should succeed for `{sql}`: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "projection",
-            "typed dispatch SQL predicate UPDATE perf sample should emit the projection result kind for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("SqlWriteProbe"),
-            "typed dispatch SQL predicate UPDATE perf sample should stay on the SqlWriteProbe route for `{sql}`",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "typed dispatch SQL predicate UPDATE perf sample should emit one projected after-image row for `{sql}`",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_reject_path_reports_non_aggregate_error()
-{
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                sql: "SELECT age FROM Customer".to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            "typed.execute_sql_aggregate.customer.reject.non_aggregate",
-            &sample,
-        );
-        assert!(
-            !sample.outcome.success,
-            "typed execute_sql_aggregate perf sample should fail for non-aggregate SELECT: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "error",
-            "typed execute_sql_aggregate perf sample should classify non-aggregate SELECT as an error",
-        );
-        assert_eq!(
-            sample.outcome.error_kind.as_deref(),
-            Some("Runtime(Unsupported)"),
-            "typed execute_sql_aggregate perf sample should preserve Runtime::Unsupported for non-aggregate SELECT",
-        );
-        assert_eq!(
-            sample.outcome.error_origin.as_deref(),
-            Some("Query"),
-            "typed execute_sql_aggregate perf sample should preserve Query origin for non-aggregate SELECT",
-        );
-        assert!(
-            sample
-                .outcome
-                .error_message
-                .as_deref()
-                .is_some_and(|message| message.contains(
-                    "execute_sql_aggregate requires constrained global aggregate SELECT"
-                )),
-            "typed execute_sql_aggregate perf sample should preserve constrained aggregate-surface guidance for non-aggregate SELECT",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_typed_execute_sql_aggregate_customer_reject_path_reports_grouped_error() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
-                sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age".to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert_positive_perf_sample(
-            "typed.execute_sql_aggregate.customer.reject.grouped",
-            &sample,
-        );
-        assert!(
-            !sample.outcome.success,
-            "typed execute_sql_aggregate perf sample should fail for grouped SELECT: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.result_kind, "error",
-            "typed execute_sql_aggregate perf sample should classify grouped SELECT as an error",
-        );
-        assert_eq!(
-            sample.outcome.error_kind.as_deref(),
-            Some("Runtime(Unsupported)"),
-            "typed execute_sql_aggregate perf sample should preserve Runtime::Unsupported for grouped SELECT",
-        );
-        assert_eq!(
-            sample.outcome.error_origin.as_deref(),
-            Some("Query"),
-            "typed execute_sql_aggregate perf sample should preserve Query origin for grouped SELECT",
-        );
-        assert!(
-            sample.outcome.error_message.as_deref().is_some_and(
-                |message| message.contains("execute_sql_aggregate rejects grouped SELECT")
-            ),
-            "typed execute_sql_aggregate perf sample should preserve grouped-entrypoint guidance for grouped SELECT",
-        );
     });
 }
 
@@ -6833,10 +6560,30 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.dispatch.customer.generated_pk_insert",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
+                    sql: "INSERT INTO Customer (name, age) VALUES ('inserted-generated', 22)"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.sql_write_probe.insert.id2",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
                     sql: "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.insert.alias.id2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "INSERT INTO SqlWriteProbe s (id, name, age) VALUES (2, 'inserted-alias', 22)"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -6897,6 +6644,16 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
                     sql: "UPDATE SqlWriteProbe SET name = 'updated-by-age', age = 22 WHERE age >= 21"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.update.window.id1_limit1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "UPDATE SqlWriteProbe SET name = 'updated-window', age = 22 WHERE id >= 1 ORDER BY id ASC LIMIT 1"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -8616,998 +8373,20 @@ fn sql_canister_perf_customer_name_order_keeps_row_check_metrics_zero_in_parity(
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_user_expression_order_reports_positive_instruction_samples()
-{
+fn sql_canister_perf_generated_dispatch_ordered_matrix_reports_positive_instruction_samples() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the new
-        // expression-order Customer covering shape so perf regression checks track
-        // the exact canister lane this slice changed.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch sample stays structurally
-        // sane and returns the expected Customer projection window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "Customer expression-order first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "Customer expression-order min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "Customer expression-order max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "Customer expression-order total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "Customer expression-order repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "Customer expression-order generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "Customer expression-order perf sample should stay on the Customer route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "Customer expression-order perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_user_expression_order_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the descending
-        // expression-order Customer covering shape so reverse traversal stays
-        // pinned in the checked-in perf suite.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch sample stays
-        // structurally sane and returns the expected Customer projection window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending Customer expression-order first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending Customer expression-order min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending Customer expression-order max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending Customer expression-order total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending Customer expression-order repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending Customer expression-order generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "descending Customer expression-order perf sample should stay on the Customer route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending Customer expression-order perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_order_only_composite_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerOrder order-only composite first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerOrder order-only composite min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerOrder order-only composite max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerOrder order-only composite total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerOrder order-only composite repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerOrder order-only composite generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder order-only composite perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder order-only composite perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_order_only_composite_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerOrder order-only composite first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerOrder order-only composite min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerOrder order-only composite max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerOrder order-only composite total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerOrder order-only composite repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerOrder order-only composite generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder order-only composite perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder order-only composite perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerOrder numeric-equality first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerOrder numeric-equality min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerOrder numeric-equality max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerOrder numeric-equality total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerOrder numeric-equality repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerOrder numeric-equality generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder numeric-equality perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder numeric-equality perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerOrder numeric-equality first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerOrder numeric-equality min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerOrder numeric-equality max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerOrder numeric-equality total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerOrder numeric-equality repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerOrder numeric-equality generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder numeric-equality perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder numeric-equality perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_status_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerOrder numeric-equality bounded status first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerOrder numeric-equality bounded status min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerOrder numeric-equality bounded status max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerOrder numeric-equality bounded status total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerOrder numeric-equality bounded status repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerOrder numeric-equality bounded status generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder numeric-equality bounded status perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder numeric-equality bounded status perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_status_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerOrder numeric-equality bounded status first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerOrder numeric-equality bounded status min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerOrder numeric-equality bounded status max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerOrder numeric-equality bounded status total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerOrder numeric-equality bounded status repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerOrder numeric-equality bounded status generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder numeric-equality bounded status perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder numeric-equality bounded status perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the guarded
-        // filtered-index order-only CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch sample stays structurally
-        // sane and returns the expected CustomerAccount projection window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerAccount filtered order-only first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerAccount filtered order-only min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerAccount filtered order-only max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerAccount filtered order-only total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerAccount filtered order-only repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerAccount filtered order-only generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered order-only perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered order-only perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the descending
-        // guarded filtered-index order-only CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch sample stays
-        // structurally sane and returns the expected CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerAccount filtered order-only first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerAccount filtered order-only min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerAccount filtered order-only max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerAccount filtered order-only total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerAccount filtered order-only repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerAccount filtered order-only generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered order-only perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered order-only perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the guarded
-        // filtered-index strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch sample stays structurally
-        // sane and returns the expected bounded CustomerAccount projection window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerAccount filtered strict LIKE prefix first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerAccount filtered strict LIKE prefix min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerAccount filtered strict LIKE prefix max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerAccount filtered strict LIKE prefix total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerAccount filtered strict LIKE prefix repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerAccount filtered strict LIKE prefix generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered strict LIKE prefix perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "CustomerAccount filtered strict LIKE prefix perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the descending
-        // guarded filtered-index strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch sample stays
-        // structurally sane and returns the expected bounded CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerAccount filtered strict LIKE prefix first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerAccount filtered strict LIKE prefix min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerAccount filtered strict LIKE prefix max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerAccount filtered strict LIKE prefix total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerAccount filtered strict LIKE prefix repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerAccount filtered strict LIKE prefix generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered strict LIKE prefix perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "descending CustomerAccount filtered strict LIKE prefix perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the guarded
-        // composite filtered order-only CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch sample stays structurally
-        // sane and returns the expected ordered composite CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerAccount filtered composite order-only first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerAccount filtered composite order-only min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerAccount filtered composite order-only max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerAccount filtered composite order-only total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerAccount filtered composite order-only repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerAccount filtered composite order-only generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered composite order-only perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered composite order-only perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the descending
-        // guarded composite filtered order-only CustomerAccount shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch sample stays
-        // structurally sane and returns the expected composite CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerAccount filtered composite order-only first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerAccount filtered composite order-only min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerAccount filtered composite order-only max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerAccount filtered composite order-only total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerAccount filtered composite order-only repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerAccount filtered composite order-only generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered composite order-only perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered composite order-only perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the guarded
-        // composite filtered strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch sample stays structurally
-        // sane and returns the expected bounded composite CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerAccount filtered composite strict LIKE prefix first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerAccount filtered composite strict LIKE prefix min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerAccount filtered composite strict LIKE prefix max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerAccount filtered composite strict LIKE prefix total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerAccount filtered composite strict LIKE prefix repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerAccount filtered composite strict LIKE prefix generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered composite strict LIKE prefix perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered composite strict LIKE prefix perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: sample the generated query surface for the descending
-        // guarded composite filtered strict LIKE prefix CustomerAccount shape.
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch sample stays
-        // structurally sane and returns the expected composite CustomerAccount window.
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerAccount filtered composite strict LIKE prefix first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerAccount filtered composite strict LIKE prefix min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerAccount filtered composite strict LIKE prefix max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerAccount filtered composite strict LIKE prefix total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerAccount filtered composite strict LIKE prefix repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerAccount filtered composite strict LIKE prefix generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered composite strict LIKE prefix perf sample should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered composite strict LIKE prefix perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_strict_text_range_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "CustomerOrder strict text-range first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "CustomerOrder strict text-range min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "CustomerOrder strict text-range max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "CustomerOrder strict text-range total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "CustomerOrder strict text-range repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "CustomerOrder strict text-range generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder strict text-range perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder strict text-range perf sample should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_strict_text_range_desc_reports_positive_instruction_samples()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_sample(
-            pic,
-            canister_id,
-            &SqlPerfRequest {
-                surface: SqlPerfSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-                repeat_count: 5,
-            },
-        );
-
-        assert!(
-            sample.first_local_instructions > 0,
-            "descending CustomerOrder strict text-range first instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.min_local_instructions > 0,
-            "descending CustomerOrder strict text-range min instruction sample must be positive: {sample:?}",
-        );
-        assert!(
-            sample.max_local_instructions >= sample.min_local_instructions,
-            "descending CustomerOrder strict text-range max must be >= min: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions >= sample.first_local_instructions,
-            "descending CustomerOrder strict text-range total must cover the first run: {sample:?}",
-        );
-        assert!(
-            sample.outcome_stable,
-            "descending CustomerOrder strict text-range repeated outcome must stay stable: {sample:?}",
-        );
-        assert!(
-            sample.outcome.success,
-            "descending CustomerOrder strict text-range generated dispatch sample must succeed: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder strict text-range perf sample should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder strict text-range perf sample should return the requested window size",
-        );
+        for (label, sql, expected_entity, expected_row_count) in
+            GENERATED_DISPATCH_ORDERED_PERF_CASES.iter().copied()
+        {
+            assert_generated_dispatch_perf_case(
+                pic,
+                canister_id,
+                label,
+                sql,
+                expected_entity,
+                expected_row_count,
+            );
+        }
     });
 }
 
@@ -9809,632 +8588,20 @@ fn sql_canister_perf_probe_reports_attribution_as_json() {
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_user_expression_order_attribution_reports_positive_stages()
-{
+fn sql_canister_perf_generated_dispatch_ordered_attribution_matrix_reports_positive_stages() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the exact Customer
-        // expression-order covering shape added in this slice.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch attribution keeps positive
-        // stage accounting on the new expression-backed index route.
-        assert_positive_scalar_attribution_sample("generated.user_expression_order", &sample, true);
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "Customer expression-order attribution should stay on the Customer route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "Customer expression-order attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_user_expression_order_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the descending
-        // Customer expression-order covering shape added to the harness.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch attribution keeps
-        // positive stage accounting on the reverse expression-backed route.
-        assert_positive_scalar_attribution_sample(
-            "generated.user_expression_order_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "descending Customer expression-order attribution should stay on the Customer route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending Customer expression-order attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_order_only_composite_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_order_only_composite",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder order-only composite attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder order-only composite attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_order_only_composite_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_order_only_composite_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder order-only composite attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder order-only composite attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_numeric_equality",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder numeric-equality attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder numeric-equality attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_numeric_equality_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder numeric-equality attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder numeric-equality attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_status_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_numeric_equality_bounded_status",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder numeric-equality bounded status attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder numeric-equality bounded status attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_status_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_numeric_equality_bounded_status_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder numeric-equality bounded status attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder numeric-equality bounded status attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the guarded
-        // filtered-index order-only CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch attribution keeps positive
-        // stage accounting on the guarded filtered-index route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_order_only",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered order-only attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered order-only attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the descending
-        // guarded filtered-index order-only CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch attribution keeps
-        // positive stage accounting on the reverse guarded filtered-index route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_order_only_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered order-only attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered order-only attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the guarded
-        // composite filtered order-only CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch attribution keeps positive
-        // stage accounting on the ordered composite filtered route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_composite_order_only",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered composite order-only attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered composite order-only attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the descending
-        // guarded composite filtered order-only CustomerAccount shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch attribution keeps
-        // positive stage accounting on the reverse composite route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_composite_order_only_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered composite order-only attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered composite order-only attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the guarded
-        // filtered-index strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch attribution keeps positive
-        // stage accounting on the bounded filtered route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_strict_like_prefix",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered strict LIKE prefix attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "CustomerAccount filtered strict LIKE prefix attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the descending
-        // guarded filtered-index strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch attribution keeps
-        // positive stage accounting on the reverse bounded filtered route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_strict_like_prefix_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered strict LIKE prefix attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "descending CustomerAccount filtered strict LIKE prefix attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the guarded
-        // composite filtered strict LIKE prefix CustomerAccount covering shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the generated dispatch attribution keeps positive
-        // stage accounting on the bounded composite filtered route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_composite_strict_like_prefix",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "CustomerAccount filtered composite strict LIKE prefix attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerAccount filtered composite strict LIKE prefix attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        // Phase 1: attribute the generated query surface for the descending
-        // guarded composite filtered strict LIKE prefix CustomerAccount shape.
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        // Phase 2: assert the descending generated dispatch attribution keeps
-        // positive stage accounting on the reverse bounded composite route.
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_account_filtered_composite_strict_like_prefix_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerAccount"),
-            "descending CustomerAccount filtered composite strict LIKE prefix attribution should stay on the CustomerAccount route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerAccount filtered composite strict LIKE prefix attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_strict_text_range_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_strict_text_range",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "CustomerOrder strict text-range attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "CustomerOrder strict text-range attribution should return the requested window size",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_generated_dispatch_customer_order_strict_text_range_desc_attribution_reports_positive_stages()
- {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2"
-                    .to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert_positive_scalar_attribution_sample(
-            "generated.customer_order_strict_text_range_desc",
-            &sample,
-            true,
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("CustomerOrder"),
-            "descending CustomerOrder strict text-range attribution should stay on the CustomerOrder route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(2),
-            "descending CustomerOrder strict text-range attribution should return the requested window size",
-        );
+        for (label, sql, expected_entity, expected_row_count) in
+            GENERATED_DISPATCH_ORDERED_PERF_CASES.iter().copied()
+        {
+            assert_generated_dispatch_attribution_case(
+                pic,
+                canister_id,
+                label,
+                sql,
+                expected_entity,
+                expected_row_count,
+            );
+        }
     });
 }
 
@@ -10521,133 +8688,6 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_delete_attribution_reports_positive_stages() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sample = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: "DELETE FROM Customer ORDER BY id LIMIT 1".to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert!(
-            sample.outcome.success,
-            "generated delete attribution must keep the representative DELETE successful: {sample:?}",
-        );
-        assert!(
-            sample.parse_local_instructions > 0,
-            "generated delete attribution parse phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.route_local_instructions > 0,
-            "generated delete attribution route phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.lower_local_instructions > 0,
-            "generated delete attribution lower phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.dispatch_local_instructions > 0,
-            "generated delete attribution dispatch phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.execute_local_instructions > 0,
-            "generated delete attribution execute phase must be positive: {sample:?}",
-        );
-        assert!(
-            sample.total_local_instructions
-                >= sample.parse_local_instructions
-                    + sample.route_local_instructions
-                    + sample.lower_local_instructions
-                    + sample.dispatch_local_instructions
-                    + sample.execute_local_instructions
-                    + sample.wrapper_local_instructions,
-            "generated delete attribution total must cover every attributed phase: {sample:?}",
-        );
-        assert_eq!(
-            sample.outcome.entity.as_deref(),
-            Some("Customer"),
-            "generated delete attribution should stay on the Customer route",
-        );
-        assert_eq!(
-            sample.outcome.row_count,
-            Some(1),
-            "generated delete attribution should delete exactly one row on the representative shape",
-        );
-
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "generated_delete": sample,
-            }))
-            .expect("generated delete attribution sample should serialize to JSON")
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        let sql = "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10";
-
-        let grouped = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
-                sql: sql.to_string(),
-                cursor_token: None,
-            },
-        );
-
-        assert!(
-            grouped.outcome.success,
-            "grouped attribution must keep the representative GROUP BY SELECT successful: {grouped:?}",
-        );
-        assert!(
-            grouped.parse_local_instructions > 0,
-            "grouped parse phase must be positive: {grouped:?}",
-        );
-        assert!(
-            grouped.lower_local_instructions > 0,
-            "grouped lower phase must be positive: {grouped:?}",
-        );
-        assert!(
-            grouped.dispatch_local_instructions > 0,
-            "grouped typed dispatch/setup phase must be positive: {grouped:?}",
-        );
-        assert!(
-            grouped.execute_local_instructions > 0,
-            "grouped execute phase must be positive: {grouped:?}",
-        );
-        assert_eq!(
-            grouped.route_local_instructions, 0,
-            "typed grouped attribution should not report dynamic route-authority cost: {grouped:?}",
-        );
-        assert!(
-            grouped.total_local_instructions
-                >= grouped.parse_local_instructions
-                    + grouped.lower_local_instructions
-                    + grouped.dispatch_local_instructions
-                    + grouped.execute_local_instructions
-                    + grouped.wrapper_local_instructions,
-            "grouped total must cover every attributed phase: {grouped:?}",
-        );
-
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "grouped": grouped,
-            }))
-            .expect("grouped attribution sample should serialize to JSON")
-        );
-    });
-}
-
-#[test]
 fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let full_page = sql_perf_attribution_sample(
@@ -10700,35 +8740,7 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
             ("first page", &first_page),
             ("second page", &second_page),
         ] {
-            assert!(
-                sample.parse_local_instructions > 0,
-                "{label} grouped parse phase must be positive: {sample:?}",
-            );
-            assert!(
-                sample.lower_local_instructions > 0,
-                "{label} grouped lower phase must be positive: {sample:?}",
-            );
-            assert!(
-                sample.dispatch_local_instructions > 0,
-                "{label} grouped dispatch/setup phase must be positive: {sample:?}",
-            );
-            assert!(
-                sample.execute_local_instructions > 0,
-                "{label} grouped execute phase must be positive: {sample:?}",
-            );
-            assert_eq!(
-                sample.route_local_instructions, 0,
-                "{label} grouped attribution should not report dynamic route-authority cost: {sample:?}",
-            );
-            assert!(
-                sample.total_local_instructions
-                    >= sample.parse_local_instructions
-                        + sample.lower_local_instructions
-                        + sample.dispatch_local_instructions
-                        + sample.execute_local_instructions
-                        + sample.wrapper_local_instructions,
-                "{label} grouped total must cover every attributed phase: {sample:?}",
-            );
+            assert_positive_grouped_attribution_sample(label, sample);
         }
 
         println!(
@@ -10744,28 +8756,11 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
 }
 
 #[test]
-fn sql_canister_perf_grouped_sum_field_window_attribution_preserves_cursor_contract() {
+fn sql_canister_perf_grouped_window_attribution_matrix_preserves_cursor_contract() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        assert_grouped_window_attribution(
-            pic,
-            canister_id,
-            "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
-            "SUM(field) grouped window attribution",
-        );
-    });
-}
-
-#[test]
-fn sql_canister_perf_grouped_avg_field_window_attribution_preserves_cursor_contract() {
-    run_with_loaded_sql_parity_canister(|pic, canister_id| {
-        assert_grouped_window_attribution(
-            pic,
-            canister_id,
-            "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
-            "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
-            "AVG(field) grouped window attribution",
-        );
+        for (label, full_page_sql, paged_sql) in GROUPED_WINDOW_ATTRIBUTION_CASES.iter().copied() {
+            assert_grouped_window_attribution(pic, canister_id, full_page_sql, paged_sql, label);
+        }
     });
 }
 

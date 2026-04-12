@@ -63,6 +63,74 @@ fn execute_sql_dispatch_insert_with_multiple_values_tuples_returns_rows_in_input
 }
 
 #[test]
+fn execute_sql_dispatch_insert_accepts_single_table_alias() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity s (id, name, age) VALUES (6, 'Fae', 26)",
+    )
+    .expect("SQL INSERT with one table alias should succeed");
+
+    assert_eq!(
+        rows,
+        vec![vec![
+            Value::Uint(6),
+            Value::Text("Fae".to_string()),
+            Value::Uint(26),
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_with_generated_ulid_primary_key_accepts_missing_pk_column() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21)",
+    )
+    .expect("SQL INSERT should synthesize one Ulid primary key when the target entity owns it");
+    let persisted = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity ORDER BY name ASC",
+    )
+    .expect("post-insert SQL projection should succeed");
+
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(rows[0][0], Value::Ulid(_)));
+    assert_eq!(
+        rows[0][1..],
+        [Value::Text("Ada".to_string()), Value::Uint(21),],
+    );
+    assert_eq!(
+        persisted,
+        vec![vec![Value::Text("Ada".to_string()), Value::Uint(21)]],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_insert_with_generated_ulid_primary_key_accepts_positional_omission() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "INSERT INTO SessionSqlEntity VALUES ('Bea', 22)",
+    )
+    .expect("positional SQL INSERT should synthesize one Ulid primary key when omitted");
+
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(rows[0][0], Value::Ulid(_)));
+    assert_eq!(
+        rows[0][1..],
+        [Value::Text("Bea".to_string()), Value::Uint(22),],
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_insert_without_column_list_uses_canonical_field_order() {
     reset_session_sql_store();
     let session = sql_session();
@@ -248,6 +316,108 @@ fn execute_sql_dispatch_update_with_non_primary_key_predicate_updates_matching_r
 }
 
 #[test]
+fn execute_sql_dispatch_update_with_order_limit_and_offset_updates_one_ordered_window() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for (id, name, age) in [
+        (1, "Ada", 21_u64),
+        (2, "Bea", 30_u64),
+        (3, "Cid", 25_u64),
+        (4, "Dee", 40_u64),
+    ] {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("typed setup insert should succeed");
+    }
+
+    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
+    )
+    .expect("SQL UPDATE ordered window should succeed");
+    let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+    )
+    .expect("post-update SQL projection should succeed");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(99),
+            ],
+            vec![
+                Value::Uint(3),
+                Value::Text("Cid".to_string()),
+                Value::Uint(99),
+            ],
+        ],
+    );
+    assert_eq!(
+        persisted,
+        vec![
+            vec![
+                Value::Uint(1),
+                Value::Text("Ada".to_string()),
+                Value::Uint(21),
+            ],
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(99),
+            ],
+            vec![
+                Value::Uint(3),
+                Value::Text("Cid".to_string()),
+                Value::Uint(99),
+            ],
+            vec![
+                Value::Uint(4),
+                Value::Text("Dee".to_string()),
+                Value::Uint(40),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_update_with_limit_and_offset_uses_primary_key_order_fallback() {
+    reset_session_sql_store();
+    let session = sql_session();
+    for (id, name, age) in [(1, "Ada", 21_u64), (2, "Bea", 21_u64), (3, "Cid", 21_u64)] {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("typed setup insert should succeed");
+    }
+
+    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
+    )
+    .expect("SQL UPDATE window without ORDER BY should use deterministic primary-key fallback");
+
+    assert_eq!(
+        rows,
+        vec![vec![
+            Value::Uint(2),
+            Value::Text("Bea".to_string()),
+            Value::Uint(22),
+        ]],
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_insert_requires_primary_key_column() {
     reset_session_sql_store();
     let session = sql_session();
@@ -315,30 +485,29 @@ fn execute_sql_dispatch_update_requires_where_predicate() {
 }
 
 #[test]
-fn execute_sql_dispatch_update_rejects_order_limit_and_offset() {
+fn execute_sql_dispatch_update_rejects_invalid_window_clause_order() {
     reset_session_sql_store();
     let session = sql_session();
 
     let cases = [
         (
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 ORDER BY id",
-            "UPDATE ORDER BY",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 LIMIT 1 ORDER BY id",
+            "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
         ),
         (
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 LIMIT 1",
-            "UPDATE LIMIT",
-        ),
-        (
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 OFFSET 1",
-            "UPDATE OFFSET",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 OFFSET 1 LIMIT 1",
+            "LIMIT must appear before OFFSET in UPDATE",
         ),
     ];
 
-    for (sql, feature) in cases {
+    for (sql, message) in cases {
         let err = session
             .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
-            .expect_err("unsupported UPDATE windowing/modifier shape should stay fail-closed");
-        assert_sql_unsupported_feature_detail(err, feature);
+            .expect_err("invalid UPDATE window clause order should stay fail-closed");
+        assert!(
+            err.to_string().contains(message),
+            "invalid UPDATE window clause ordering should keep an actionable parser boundary message",
+        );
     }
 }
 

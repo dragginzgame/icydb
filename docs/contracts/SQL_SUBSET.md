@@ -1,476 +1,377 @@
-# SQL Subset Contract (Reduced Parser)
+# IcyDB SQL Subset Contract
 
-This document defines the SQL surface for the reduced parser line.
+This document defines the supported IcyDB SQL language boundary.
+It is a product contract for the admitted single-entity SQL subset.
+Anything not stated here is outside the supported SQL surface and must fail
+closed.
 
-Anything not listed here is out of scope and must fail closed.
+This document defines the admitted SQL language, not per-entrypoint
+availability. A statement family may be part of the supported SQL subset even
+when some public surfaces intentionally do not expose it. Public-surface
+availability and lane mapping live in
+`docs/architecture/sql-surface-mapping.md`.
 
 ## Scope
 
-- Applies to SQL text parsing and SQL-to-planner lowering.
-- Applies to the current reduced SQL parser implementation line.
-- Uses existing planner/executor capabilities as the authority.
+- Applies to IcyDB SQL parsing, lowering, validation, and execution semantics.
+- Applies only to single-entity statements.
+- Defines the admitted SQL shapes, not the internal execution lanes.
+- Does not define storage internals, planner heuristics, or canister ABI shape.
 
 ## Core Rule
 
-The reduced SQL frontend must lower into existing `Query`/planner/session paths
-without semantic emulation layers.
+Every admitted SQL statement targets exactly one entity.
 
-## Normalization Rules
+IcyDB SQL is a constrained single-entity language for:
 
-The reduced parser normalizes one statement deterministically before lowering.
+- CRUD over one entity
+- filtering
+- ordering
+- pagination
+- scalar projection
+- grouped queries and aggregates
+- narrow built-in expression forms
+- explain and schema/introspection commands
 
-- SQL keywords are case-insensitive.
-- Insignificant whitespace is ignored.
-- A trailing statement terminator (`;`) is optional.
-- Multi-statement SQL input is rejected.
+IcyDB SQL is not a general-purpose relational SQL engine.
 
-## Executable Baseline (Current 0.66 Line)
+`INSERT` and `UPDATE` are first-class parts of this SQL subset contract.
+They are not provisional or documentation-only statement families.
 
-The current `0.66` line ships a projection-aware scalar SQL subset,
-dispatch-owned computed text projection, constrained grouped/global aggregate
-SQL execution, and dedicated DESCRIBE/SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES
-(plus `SHOW TABLES` alias) introspection lanes. Broader SQL grammar support
-remains staged behind lowering gates.
+## Supported Statements
 
-### SELECT
+### `SELECT`
 
-Executable shape:
+Supported `SELECT` families are:
 
-```sql
-SELECT *
-FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
-```
+- scalar row loads
+- scalar `DISTINCT` loads
+- global aggregate loads with exactly one aggregate projection terminal and no
+  `GROUP BY`
+- grouped aggregate loads
+- narrow computed projection loads
 
-```sql
-SELECT <field_list>
-FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
-```
+### `INSERT`
+
+Supported shape:
 
 ```sql
-SELECT DISTINCT *
-FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
+INSERT INTO entity [(column, ...)] VALUES (...), (...), ...
 ```
+
+Contract rules:
+
+- exactly one target entity
+- one or more `VALUES` tuples
+- explicit primary-key value is required
+- omitted column list uses canonical entity field order
+- `INSERT ... SELECT` is not supported
+
+### `UPDATE`
+
+Supported shape:
 
 ```sql
-SELECT DISTINCT <field_list_including_primary_key>
-FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
+UPDATE entity [alias]
+SET field = literal, ...
+WHERE predicate
+[ORDER BY ...]
+[LIMIT n]
+[OFFSET n]
 ```
 
-Notes:
+Contract rules:
 
-- `SELECT *` is executable.
-- Direct field-list projection lowering is executable.
-- Dispatch-oriented SQL surfaces also execute one bounded computed text
-  projection family:
-  - `TRIM`
-  - `LTRIM`
-  - `RTRIM`
-  - `LOWER`
-  - `UPPER`
-  - `LENGTH`
-  - `LEFT`
-  - `RIGHT`
-  - `STARTS_WITH`
-  - `ENDS_WITH`
-  - `CONTAINS`
-  - `POSITION`
-  - `REPLACE`
-  - `SUBSTRING`
-- This computed projection family is currently available through
-  `execute_sql_dispatch(...)`, `EXPLAIN` on the dispatch lane, and generated
-  `sql_dispatch::query(...)`.
-- `query_from_sql(...)` remains structural-only and rejects computed text
-  projection.
-- Entity-qualified field identifiers are executable and normalized to canonical
-  planner field names (for example `Entity.field`, `schema.Entity.field`).
-- Constrained scalar DISTINCT is executable:
-  - `SELECT DISTINCT *`
-  - `SELECT DISTINCT <field_list>` only when projection includes primary key
-    field.
-- `SELECT DISTINCT` shapes that do not project primary key remain fail-closed.
-- `EXPLAIN` wrappers are supported for these constrained scalar DISTINCT forms.
-- Field-list projection currently affects normalized intent/planning/fingerprints.
-- `execute_sql(...)` returns entity-shaped `Response<E>` rows on the public
-  facade.
-- `execute_sql_dispatch(...)` returns projection-shaped
-  `SqlQueryResult::Projection` payloads for row-producing SQL surfaces.
-- Scalar pagination still follows existing planner validation
-  (for example deterministic ordering requirements).
-- Schema-qualified entity names are executable when the trailing entity segment
-  matches the requested model (for example `public.Entity` for model `Entity`).
+- `WHERE` is required
+- primary-key mutation is not supported
+- ordered/windowed update selection is supported
+- if `ORDER BY` is omitted and a bounded update window is requested, the matched
+  set is resolved in primary-key order for determinism
 
-Grouped aggregate executable shape:
+### `DELETE`
+
+Supported shape:
 
 ```sql
-SELECT <group_field_list>, <aggregate_list>
-FROM <entity>
-[WHERE <predicate>]
-GROUP BY <group_field_list>
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
+DELETE FROM entity [alias]
+[WHERE predicate]
+[ORDER BY ...]
+[LIMIT n]
+[OFFSET n]
 ```
 
-Grouped SQL execution notes:
+`DELETE` is a single-entity delete with optional ordered windowing.
 
-- Grouped SQL uses `execute_sql_grouped(...)`.
-- Reduced grouped lowering currently requires projection/group-by alignment:
-  group fields first, then aggregate terminals, with projected group fields
-  matching `GROUP BY` fields.
-- Grouped SQL also supports normalized qualified identifiers (`schema.Entity`,
-  `Entity.field`) under the same grouped validation constraints.
-- Non-grouped SQL execution APIs (`execute_sql`, `execute_sql_dispatch`) continue
-  to reject global aggregate projection without `GROUP BY`.
+### `EXPLAIN`
 
-Global aggregate executable shape:
+Supported shapes:
 
-```sql
-SELECT <aggregate_terminal>
-FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
-```
+- `EXPLAIN SELECT ...`
+- `EXPLAIN DELETE ...`
+- `EXPLAIN EXECUTION SELECT ...`
+- `EXPLAIN EXECUTION DELETE ...`
+- `EXPLAIN JSON SELECT ...`
+- `EXPLAIN JSON DELETE ...`
 
-Global aggregate execution notes:
+`EXPLAIN` is not part of write execution and does not widen the admitted SQL
+statement families.
 
-- Global aggregate SQL uses `execute_sql_aggregate(...)`.
-- This entrypoint is intentionally constrained to one terminal projection item.
-- Executable terminals in the current baseline:
-  - `COUNT(*)`
-  - `COUNT(<field>)`
-  - `SUM(<field>)`
-  - `AVG(<field>)`
-  - `MIN(<field>)`
-  - `MAX(<field>)`
-- `COUNT(<field>)` counts non-null projected values in the effective query
-  window.
-- Unsupported terminal shapes (mixed projections, grouped forms) remain
-  fail-closed.
-- `EXPLAIN` wrappers are supported for this constrained global aggregate shape.
+### Introspection
 
-### DELETE
+Supported commands:
 
-Executable shape:
+- `DESCRIBE entity`
+- `SHOW INDEXES entity`
+- `SHOW COLUMNS entity`
+- `SHOW ENTITIES`
 
-```sql
-DELETE FROM <entity>
-[WHERE <predicate>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-```
+## Entity Naming And Aliases
 
-Execution constraints remain authoritative:
+The admitted single-entity naming surface is:
 
-- `DELETE ... LIMIT ...` requires `ORDER BY`.
-- `DELETE ... OFFSET ...` is out of scope.
-- Grouped delete shapes are out of scope.
+- unqualified entity names
+- schema-qualified entity names such as `public.Customer`
+- one optional single-table alias, with or without `AS`
 
-### EXPLAIN
+Examples:
 
-Executable wrappers:
+- `SELECT * FROM Customer c`
+- `SELECT c.name FROM Customer AS c`
+- `UPDATE Customer c SET c.age = 42 WHERE c.id = 1`
 
-```sql
-EXPLAIN <select_or_delete>
-EXPLAIN EXECUTION <select_or_delete>
-EXPLAIN JSON <select_or_delete>
-```
+No statement may introduce more than one entity binding.
 
-`<select_or_delete>` must itself be executable in this baseline.
-Global aggregate SQL terminals in the constrained
-`execute_sql_aggregate(...)` surface are also explainable in this baseline.
-Qualified identifiers (`schema.Entity`, `Entity.field`) are normalized before
-planning, so equivalent qualified and unqualified statements map to identical
-explainable intent.
+## Projection
 
-### DESCRIBE
+Supported scalar projection forms are:
 
-Executable shape:
+- `SELECT *`
+- `SELECT field, ...`
+- `SELECT DISTINCT *`
+- `SELECT DISTINCT field, ...`
 
-```sql
-DESCRIBE <entity>
-```
+Supported aggregate projection forms are:
 
-Execution notes:
+- exactly one global aggregate terminal with no `GROUP BY`
+- grouped projection where grouped key items come first and aggregate items come
+  after them
 
-- DESCRIBE SQL is available through `execute_sql_dispatch::<E>(...)` and
-  generated `sql_dispatch::query(...)`.
-- DESCRIBE returns canonical typed schema payload `EntitySchemaDescription`.
-- Direct non-SQL schema introspection remains available through
-  `describe_entity::<E>()`.
-- DESCRIBE entity matching follows the same trailing-segment rule used by
-  other SQL surfaces (`public.Entity` matches model `Entity`).
-- DESCRIBE is a dedicated introspection lane and does not lower into
-  executable `Query<E>` planner paths.
-- `EXPLAIN DESCRIBE ...` remains out of scope in this line.
+Supported grouped projection examples:
 
-### SHOW INDEXES
+- `SELECT age, COUNT(*) FROM Customer GROUP BY age`
+- `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
 
-Executable shape:
+Unsupported grouped projection examples:
 
-```sql
-SHOW INDEXES <entity>
-```
+- grouped aggregates without grouped keys in the projection
+- grouped keys appearing after aggregate outputs
+- arbitrary expression widening in grouped projection
 
-Execution notes:
+## Projection Aliases
 
-- `SHOW INDEXES` SQL is available through `execute_sql_dispatch::<E>(...)` and
-  generated `sql_dispatch::query(...)`.
-- `SHOW INDEXES` returns the canonical index-listing payload from
-  `show_indexes::<E>()`.
-- `SHOW INDEXES` entity matching follows the same trailing-segment rule used by
-  other SQL surfaces (`public.Entity` matches model `Entity`).
-- `SHOW INDEXES` is a dedicated introspection lane and does not lower into
-  executable `Query<E>` planner paths.
-- `EXPLAIN SHOW INDEXES ...` remains out of scope in this line.
+Projection aliases are supported in `SELECT` lists.
 
-### SHOW COLUMNS
+Both forms are admitted:
 
-Executable shape:
+- `SELECT name AS display_name FROM Customer`
+- `SELECT COUNT(*) total FROM Customer GROUP BY name`
 
-```sql
-SHOW COLUMNS <entity>
-```
+Aliases may label:
 
-Execution notes:
+- scalar field projections
+- aggregate projections
+- admitted computed text projections
 
-- `SHOW COLUMNS` SQL is available through `execute_sql_dispatch::<E>(...)` and
-  generated `sql_dispatch::query(...)`.
-- `SHOW COLUMNS` returns canonical field descriptors from
-  `show_columns::<E>()`.
-- `SHOW COLUMNS` entity matching follows the same trailing-segment rule used by
-  other SQL surfaces (`public.Entity` matches model `Entity`).
-- `SHOW COLUMNS` is a dedicated introspection lane and does not lower into
-  executable `Query<E>` planner paths.
-- `EXPLAIN SHOW COLUMNS ...` remains out of scope in this line.
+`ORDER BY <alias>` is supported only when the alias resolves to an already
+supported order target:
 
-### SHOW ENTITIES
+- a plain field
+- `LOWER(field)`
+- `UPPER(field)`
 
-Executable shapes:
+Aliases do not widen the order-expression surface.
 
-```sql
-SHOW ENTITIES
-SHOW TABLES
-```
+## Predicates
 
-Execution notes:
+Supported `WHERE` predicate forms are:
 
-- `SHOW ENTITIES` / `SHOW TABLES` SQL is available through
-  `execute_sql_dispatch::<E>(...)` and generated `sql_dispatch::query(...)`.
-- `SHOW TABLES` is a bounded alias that lowers to the same dedicated
-  show-entities lane and payload.
-- `SHOW ENTITIES`/`SHOW TABLES` return canonical runtime entity names from
-  `show_entities()`.
-- This is a dedicated introspection lane and does not lower into executable
-  `Query<E>` planner paths.
-- `EXPLAIN SHOW ENTITIES ...` and `EXPLAIN SHOW TABLES ...` remain out of
-  scope in this line.
+- `AND`, `OR`, `NOT`
+- parenthesized predicate trees
+- comparison operators
+  - `=`
+  - `!=`
+  - `<`
+  - `<=`
+  - `>`
+  - `>=`
+- `IN (...)`
+- `NOT IN (...)`
+- `BETWEEN ... AND ...`
+- `IS NULL`
+- `IS NOT NULL`
+- prefix `LIKE 'prefix%'`
+- `STARTS_WITH(field, 'prefix')`
 
-## Generated `sql_dispatch` Boundary (Current 0.66 Line)
+Narrow casefolded predicate forms are also supported:
 
-Generated canister SQL helpers in the current line use one unified query
-surface.
+- `LOWER(field) LIKE 'prefix%'`
+- `UPPER(field) LIKE 'PREFIX%'`
+- `STARTS_WITH(LOWER(field), 'prefix')`
+- `STARTS_WITH(UPPER(field), 'PREFIX')`
+- ordered text bounds over `LOWER(field)` / `UPPER(field)`
 
-- `sql_dispatch::query(...)` accepts the public generated SQL subset:
-  - row-producing `SELECT`
-  - row-producing `DELETE`
-  - computed text projection on the query lane
-  - `EXPLAIN SELECT`
-  - `EXPLAIN DELETE`
-  - `DESCRIBE`
-  - `SHOW INDEXES`
-  - `SHOW COLUMNS`
-  - `SHOW ENTITIES`
-  - `SHOW TABLES`
-- `sql_dispatch::query(...)` returns one `SqlQueryResult` enum payload with:
-  - `Projection(SqlQueryRowsOutput)`
-  - `Explain { entity, explain }`
-  - `Describe(EntitySchemaDescription)`
-  - `ShowIndexes { entity, indexes }`
-  - `ShowColumns { entity, columns }`
-  - `ShowEntities { entities }`
-- `SqlQueryResult` renders deterministic shell output via:
-  - `SqlQueryResult::render_lines()`
-  - `SqlQueryResult::render_text()`
-- The generated helper keeps one narrower internal query/explain core, but the
-  public generated canister facade also owns the metadata lanes listed above.
+Unsupported predicate forms include:
 
-## Surface Split Notes (Current 0.66 Line)
+- `LIKE` patterns beyond trailing-prefix `%`
+- generic SQL function predicates
+- nested function predicates such as `STARTS_WITH(TRIM(name), 'A')`
 
-The current `0.66` SQL line intentionally keeps a few public surface splits.
+## Ordering And Pagination
 
-- `query_from_sql(...)` is the structural-only boundary:
-  - accepts lowered `SELECT` / `DELETE` intent
-  - can build grouped structural query intent
-  - rejects computed text projection
-  - rejects `EXPLAIN`
-  - rejects `DESCRIBE` / `SHOW *`
-- `execute_sql(...)` remains the entity-row execution boundary for reduced
-  `SELECT` / `DELETE`.
-- `execute_sql_dispatch(...)` is the main typed unified SQL payload surface:
-  - executes row-producing `SELECT` / `DELETE`
-  - executes computed text projection
-  - renders `EXPLAIN`
-  - handles `DESCRIBE` / `SHOW *`
-- `execute_sql_grouped(...)` remains the grouped execution boundary.
-- `execute_sql_aggregate(...)` remains the constrained global aggregate
-  execution boundary.
-- generated `sql_dispatch::query(...)` mirrors the dispatch-style public SQL
-  surface for canister consumers, including computed projection and metadata
-  lanes.
+Supported scalar order targets are:
 
-## Parsed but Lowering-Gated (Follow-Up Slices)
+- plain fields
+- `LOWER(field)`
+- `UPPER(field)`
+- admitted `ORDER BY <alias>` rewrites onto those same targets
 
-The reduced parser can parse additional reduced SQL constructs that remain
-intentionally non-executable in the current baseline.
+Supported pagination clauses are:
 
-### SELECT
+- `LIMIT`
+- `OFFSET`
 
-Parsed shape:
+Scalar `SELECT`, `DELETE`, `UPDATE`, and global aggregate queries may use
+ordered window semantics.
 
-```sql
-SELECT [DISTINCT] <projection>
-FROM <entity>
-[WHERE <predicate>]
-[GROUP BY <field_list>]
-[HAVING <grouped_having_clause_list>]
-[ORDER BY <order_list>]
-[LIMIT <n>]
-[OFFSET <n>]
-```
+## Grouped Queries
 
-Parsed projection forms:
+Grouped SQL is supported with these rules:
 
-- `*`
-- field list (`field_a, field_b, ...`)
-- aggregate terminals already supported by planner/runtime:
-  - `COUNT(*)`
-  - `COUNT(<field>)`
-  - `SUM(<field>)`
-  - `AVG(<field>)`
-  - `MIN(<field>)`
-  - `MAX(<field>)`
+- `GROUP BY` requires at least one grouped key
+- grouped projection must list grouped keys first
+- grouped projection must include at least one aggregate output
+- `HAVING` is supported only on grouped queries
+- grouped `ORDER BY`, when present, must start with the grouped-key prefix
+- grouped `ORDER BY` requires `LIMIT`
 
-Lowering status in this baseline:
+Top-level `SELECT DISTINCT` on grouped queries is admitted but does not widen
+grouped semantics. Contractually, grouped `SELECT DISTINCT` is treated as the
+same grouped query shape as the equivalent non-`DISTINCT` grouped statement.
 
-- `*` and direct field lists are executable.
-- `DISTINCT` is executable only for constrained scalar shapes listed above.
-- Grouped aggregate forms are executable only for the constrained grouped shape
-  listed above.
-- Global aggregate projection forms are executable only through
-  `execute_sql_aggregate(...)` and only for the constrained terminal set listed
-  above.
-- Global aggregates remain lowering-gated for scalar/projection SQL surfaces
-  (`execute_sql`, `execute_sql_dispatch`).
+## Aggregates
 
-Predicate operators are limited to planner-supported predicate operators.
-The current baseline also supports bounded trailing-wildcard prefix `LIKE`
-families:
-- `<field> LIKE '<prefix>%'` lowers to strict text prefix predicate intent.
-- `LOWER(<field>) LIKE '<prefix>%'` lowers to text-casefold starts-with
-  predicate intent.
-- `UPPER(<field>) LIKE '<prefix>%'` lowers to the same bounded casefold
-  prefix intent.
-- direct predicate spellings are executable and lower to the same bounded
-  planner-bearing prefix intent:
-  - `WHERE STARTS_WITH(<field>, '<prefix>')` stays strict
-  - `WHERE STARTS_WITH(LOWER(<field>), '<prefix>')` lowers to text-casefold
-    prefix intent
-  - `WHERE STARTS_WITH(UPPER(<field>), '<prefix>')` lowers to the same bounded
-    casefold prefix intent
-  - these accepted direct `STARTS_WITH(...)` predicate forms are valid in the
-    bounded executable `WHERE` surface for both `SELECT` and `DELETE`
-  - matching `EXPLAIN <select_or_delete>` wrappers preserve the same bounded
-    accepted family
-- broader direct predicate-function spellings remain out of scope:
-  - non-casefold wrappers such as `WHERE STARTS_WITH(TRIM(field), value)`
-  - the same non-casefold wrapped direct forms remain fail-closed on
-    executable `DELETE`, `EXPLAIN DELETE`, and `EXPLAIN JSON DELETE`
-  - generic text-function predicates beyond the bounded direct
-    `STARTS_WITH(...)` family above
-- non-prefix wildcard shapes remain fail-closed.
-`HAVING` is executable for grouped SQL with a reduced clause shape:
-- clause symbols must be grouped key fields or one aggregate terminal already
-  projected in the grouped select list.
-- clauses are conjunctive (`AND`) only.
-- clause comparisons accept reduced compare forms:
-  - `<symbol> <op> <literal>` for `<op>` in `=`, `!=`, `<`, `<=`, `>`, `>=`
-  - `<symbol> IS NULL`
-  - `<symbol> IS NOT NULL`
-- `OR`/`NOT` and broader expression forms remain fail-closed.
+Supported aggregate functions are:
 
-## Supported Semantics and Constraints
+- `COUNT(*)`
+- `COUNT(field)`
+- `SUM(field)`
+- `AVG(field)`
+- `MIN(field)`
+- `MAX(field)`
 
-- Single-entity queries only.
-- Deterministic ordering rules and continuation/pagination semantics are owned
-  by existing cursor/query contracts.
-- Grouped query constraints already enforced by planner remain in force,
-  including grouped `DISTINCT`/`HAVING`/`ORDER BY` restrictions.
-- Unsupported but syntactically valid shapes must fail closed with typed
-  lowering/planner/validation errors.
+Global aggregate `DISTINCT` is supported for admitted field-target aggregate
+forms.
 
-## Out of Scope (Must Reject)
+Grouped aggregates support admitted field-target terminals, including shipped
+grouped `DISTINCT` aggregate forms where grouped policy allows them.
 
-- `INSERT`
-- `UPDATE`
-- table aliases (`FROM users u`, `FROM users AS u`)
-- joins (`JOIN`, `LEFT JOIN`, etc.)
-- subqueries
-- `UNION` / `INTERSECT` / `EXCEPT`
-- CTEs (`WITH`)
+## `HAVING`
+
+`HAVING` is supported only for grouped queries.
+
+Admitted `HAVING` forms are compare clauses over:
+
+- grouped key fields
+- declared aggregate outputs
+
+Admitted operators are:
+
+- comparison operators
+- `IS NULL`
+- `IS NOT NULL`
+
+`HAVING` boolean composition is intentionally narrow:
+
+- `AND` is supported
+- `OR` and `NOT` are not supported
+
+Grouped `HAVING` with grouped `DISTINCT` remains outside the supported subset.
+
+## Narrow Computed Expression Surface
+
+IcyDB SQL supports a narrow built-in text-function surface in projection
+position:
+
+- `TRIM(field)`
+- `LTRIM(field)`
+- `RTRIM(field)`
+- `LOWER(field)`
+- `UPPER(field)`
+- `LENGTH(field)`
+- `LEFT(field, n)`
+- `RIGHT(field, n)`
+- `STARTS_WITH(field, text)`
+- `ENDS_WITH(field, text)`
+- `CONTAINS(field, text)`
+- `POSITION(text, field)`
+- `REPLACE(field, from, to)`
+- `SUBSTRING(field, start [, length])`
+
+Grouped computed projection is limited to:
+
+- grouped fields
+- admitted text functions over grouped fields
+- aggregate outputs after those grouped items
+
+This expression surface is intentionally narrow and does not imply support for
+general SQL expression trees.
+
+## Rejected Features
+
+The following are outside the contract and must fail closed:
+
+- joins
+- subselects
+- common table expressions
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT`
 - window functions
+- multi-statement SQL input
 - quoted identifiers
-- multi-statement input
-- SQL function namespaces and generic expression forms beyond the current
-  bounded computed text projection family and supported aggregate terminals
-- SQL dialect extensions not represented in current query intent/planner model
+- generic SQL function namespaces beyond the admitted aggregate and text forms
+- multi-entity mutation or query semantics
 
 ## Lowering Contract
 
-The parser output maps to existing plan inputs:
+For admitted SQL shapes, IcyDB guarantees:
 
-- statement kind -> `QueryMode` (`Load` or `Delete`)
-- selection list -> projection/aggregate intent
-- `WHERE` -> predicate expression
-- `ORDER BY` -> `OrderSpec`
-- `LIMIT/OFFSET` -> page/window intent
-- `GROUP BY`/`HAVING`/`DISTINCT` -> grouped/distinct intent fields
+- single-entity normalization
+- alias-neutral lowering
+- schema-qualified and alias-qualified identifiers normalize to the same
+  canonical entity-field semantics
+- equivalent admitted SQL and equivalent typed/fluent query shapes are expected
+  to converge on the same canonical predicate/order/group semantics
 
-No additional intermediate semantic layer is introduced by this contract.
+This contract does not guarantee that every public entrypoint exposes every
+admitted SQL shape. The normative question answered here is whether a shape is
+part of the supported SQL language. The separate surface-mapping note answers
+which entrypoints expose that shape today.
 
 ## Error Contract
 
-- Invalid SQL syntax: parser error.
-- Valid SQL outside this subset: unsupported-feature error.
-- Reduced parser `UnsupportedFeature` labels are contract-stable within the
-  current `0.66` line.
-  - Session and generated SQL frontends (`query_from_sql`, `execute_sql`,
-    `execute_sql_dispatch`, `execute_sql_grouped`, `execute_sql_aggregate`,
-    generated `sql_dispatch::query`) preserve those labels in structured query
-    error detail.
-- Valid SQL parsed but non-executable in this baseline: lowering-gated
-  unsupported error.
-- Valid SQL in the executable subset but planner-ineligible shape: existing
-  planner/validation error path.
+Outside the listed subset, IcyDB SQL must fail closed.
 
-## Versioning Note
+Unsupported SQL shapes must not:
 
-This file is the normative SQL subset contract for the reduced parser baseline.
-If subset scope changes, update this file in the same patch as parser behavior.
+- silently widen into broader semantics
+- fall back to approximate behavior
+- reinterpret multi-entity SQL as single-entity SQL
+
+Errors may be raised at parse, lowering, validation, or execution boundaries,
+but the statement must remain rejected.
+
+## Stability Note
+
+This document defines the intended stable single-entity SQL boundary.
+
+If an admitted shape is removed, widened, or re-scoped, this document must be
+updated in the same change.

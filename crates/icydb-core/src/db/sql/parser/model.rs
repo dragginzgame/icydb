@@ -287,7 +287,8 @@ pub(crate) struct SqlAssignment {
 /// Canonical parsed `UPDATE` statement shape for reduced SQL.
 ///
 /// This stays intentionally narrow in the current slice: one `SET` list plus
-/// one optional reduced predicate that later session policy constrains further.
+/// one optional reduced predicate and one bounded ordered window that later
+/// session policy constrains further.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -295,6 +296,9 @@ pub(crate) struct SqlUpdateStatement {
     pub(crate) entity: String,
     pub(crate) assignments: Vec<SqlAssignment>,
     pub(crate) predicate: Option<Predicate>,
+    pub(crate) order_by: Vec<SqlOrderTerm>,
+    pub(crate) limit: Option<u32>,
+    pub(crate) offset: Option<u32>,
 }
 
 ///

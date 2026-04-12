@@ -153,6 +153,87 @@ fn finalized_grouped_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
     finalized
 }
 
+// Assert one grouped aggregate terminal remains semantically admissible for the
+// shared grouped-v1 contract.
+fn assert_grouped_terminal_accepts(
+    label: &str,
+    kind: AggregateKind,
+    target_field: Option<&str>,
+    distinct: bool,
+) {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind,
+            target_field: target_field.map(str::to_string),
+            distinct,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped)
+        .unwrap_or_else(|_| panic!("{label} should be accepted in grouped v1"));
+}
+
+// Assert one global DISTINCT grouped handoff lowers onto the expected executor
+// strategy for the aggregate kind under test.
+fn assert_global_distinct_execution_strategy(label: &str, kind: AggregateKind, target_field: &str) {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec![],
+        vec![GroupAggregateSpec {
+            kind,
+            target_field: Some(target_field.to_string()),
+            distinct: true,
+        }],
+    );
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+    let expected_target_slot = FieldSlot::resolve(model, target_field)
+        .expect("grouped DISTINCT target slot should resolve");
+    let expected_strategy = match kind {
+        AggregateKind::Count => GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
+            target_field: target_field.to_string(),
+            target_slot: expected_target_slot,
+        },
+        AggregateKind::Sum => GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
+            target_field: target_field.to_string(),
+            target_slot: expected_target_slot,
+        },
+        AggregateKind::Avg => GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
+            target_field: target_field.to_string(),
+            target_slot: expected_target_slot,
+        },
+        _ => unreachable!("helper only covers supported grouped DISTINCT field strategies"),
+    };
+    assert_eq!(
+        handoff.group_fields().len(),
+        0,
+        "{label}: wrong group field shape"
+    );
+    assert_eq!(
+        handoff.aggregate_projection_specs().len(),
+        1,
+        "{label}: wrong aggregate projection count",
+    );
+    assert_eq!(
+        handoff.distinct_execution_strategy(),
+        &expected_strategy,
+        "{label}: wrong DISTINCT execution strategy",
+    );
+    assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        None,
+        "{label}: executor lowering should not project scalar DISTINCT policy violations",
+    );
+}
+
 fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
     match err {
         PlanError::User(inner) => match inner.as_ref() {
@@ -770,111 +851,49 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
 }
 
 #[test]
-fn grouped_plan_accepts_min_field_aggregate_terminal_in_grouped_v1() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Min,
-            target_field: Some("rank".to_string()),
-            distinct: false,
-        }],
-    );
+fn grouped_plan_accepts_grouped_v1_aggregate_terminal_matrix() {
+    let cases = [
+        (
+            "grouped MIN(field)",
+            AggregateKind::Min,
+            Some("rank"),
+            false,
+        ),
+        (
+            "grouped MAX(field)",
+            AggregateKind::Max,
+            Some("rank"),
+            false,
+        ),
+        (
+            "grouped COUNT(field)",
+            AggregateKind::Count,
+            Some("rank"),
+            false,
+        ),
+        (
+            "grouped SUM(field)",
+            AggregateKind::Sum,
+            Some("rank"),
+            false,
+        ),
+        (
+            "grouped AVG(field)",
+            AggregateKind::Avg,
+            Some("rank"),
+            false,
+        ),
+        (
+            "grouped distinct COUNT(*)",
+            AggregateKind::Count,
+            None,
+            true,
+        ),
+    ];
 
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped MIN(field) should be accepted in grouped v1");
-}
-
-#[test]
-fn grouped_plan_accepts_max_field_aggregate_terminal_in_grouped_v1() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Max,
-            target_field: Some("rank".to_string()),
-            distinct: false,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped MAX(field) should be accepted in grouped v1");
-}
-
-#[test]
-fn grouped_plan_accepts_count_field_aggregate_terminal_in_grouped_v1() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: Some("rank".to_string()),
-            distinct: false,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped COUNT(field) should be accepted in grouped v1");
-}
-
-#[test]
-fn grouped_plan_accepts_sum_field_aggregate_terminal_in_grouped_v1() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Sum,
-            target_field: Some("rank".to_string()),
-            distinct: false,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped SUM(field) should be accepted in grouped v1");
-}
-
-#[test]
-fn grouped_plan_accepts_avg_field_aggregate_terminal_in_grouped_v1() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
-            distinct: false,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped AVG(field) should be accepted in grouped v1");
-}
-
-#[test]
-fn grouped_plan_accepts_distinct_count_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: true,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("grouped distinct count should be accepted in grouped v1");
+    for (label, kind, target_field, distinct) in cases {
+        assert_grouped_terminal_accepts(label, kind, target_field, distinct);
+    }
 }
 
 #[test]
@@ -901,57 +920,16 @@ fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
 }
 
 #[test]
-fn grouped_plan_accepts_distinct_count_field_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
+fn grouped_plan_accepts_distinct_field_aggregate_terminal_matrix() {
+    let cases = [
+        ("distinct COUNT(field)", AggregateKind::Count),
+        ("distinct SUM(field)", AggregateKind::Sum),
+        ("distinct AVG(field)", AggregateKind::Avg),
+    ];
 
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("distinct COUNT(field) grouped terminals should now be accepted");
-}
-
-#[test]
-fn grouped_plan_accepts_distinct_sum_field_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Sum,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("distinct SUM(field) grouped terminals should now be accepted");
-}
-
-#[test]
-fn grouped_plan_accepts_distinct_avg_field_aggregate_terminal() {
-    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    validate_group_query_semantics(schema, model, &grouped)
-        .expect("distinct AVG(field) grouped terminals should now be accepted");
+    for (label, kind) in cases {
+        assert_grouped_terminal_accepts(label, kind, Some("rank"), true);
+    }
 }
 
 #[test]
@@ -1227,33 +1205,16 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
 }
 
 #[test]
-fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
-    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
-    let grouped = grouped_plan(
-        base,
-        vec![],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: Some("tag".to_string()),
-            distinct: true,
-        }],
-    );
+fn grouped_executor_handoff_global_distinct_execution_strategy_matrix() {
+    let cases = [
+        ("global DISTINCT COUNT(field)", AggregateKind::Count, "tag"),
+        ("global DISTINCT SUM(field)", AggregateKind::Sum, "rank"),
+        ("global DISTINCT AVG(field)", AggregateKind::Avg, "rank"),
+    ];
 
-    let finalized = finalized_grouped_plan(&grouped);
-    let handoff =
-        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
-    assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
-    assert!(matches!(
-        handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field, .. }
-            if target_field == "tag"
-    ));
-    assert_eq!(
-        handoff.distinct_policy_violation_for_executor(),
-        None,
-        "global grouped DISTINCT execution strategy lowering should not project scalar DISTINCT policy violations",
-    );
+    for (label, kind, target_field) in cases {
+        assert_global_distinct_execution_strategy(label, kind, target_field);
+    }
 }
 
 #[test]
@@ -1277,66 +1238,6 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
         handoff.grouped_fold_path(),
         GroupedFoldPath::CountRowsDedicated,
         "single grouped COUNT(*) shapes must project the dedicated grouped count fold path",
-    );
-}
-
-#[test]
-fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
-    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
-    let grouped = grouped_plan(
-        base,
-        vec![],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Sum,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    let finalized = finalized_grouped_plan(&grouped);
-    let handoff =
-        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
-    assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
-    assert!(matches!(
-        handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field, .. }
-            if target_field == "rank"
-    ));
-    assert_eq!(
-        handoff.distinct_policy_violation_for_executor(),
-        None,
-        "global grouped DISTINCT SUM strategy lowering should not project scalar DISTINCT policy violations",
-    );
-}
-
-#[test]
-fn grouped_executor_handoff_lowers_global_distinct_avg_execution_strategy() {
-    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
-    let grouped = grouped_plan(
-        base,
-        vec![],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
-            distinct: true,
-        }],
-    );
-
-    let finalized = finalized_grouped_plan(&grouped);
-    let handoff =
-        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
-    assert_eq!(handoff.group_fields().len(), 0);
-    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
-    assert!(matches!(
-        handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field, .. }
-            if target_field == "rank"
-    ));
-    assert_eq!(
-        handoff.distinct_policy_violation_for_executor(),
-        None,
-        "global grouped DISTINCT AVG strategy lowering should not project scalar DISTINCT policy violations",
     );
 }
 

@@ -83,20 +83,20 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.69.3`
-- Latest tagged release in this repo: `v0.69.3`
+- Workspace version on `main`: `0.76.5`
+- Latest tagged release in this repo: `v0.76.5`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.69.x` notes: `docs/changelog/0.69.md`
+- Detailed `0.76.x` notes: `docs/changelog/0.76.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- `0.69.3` fixes generated canister memory registration on the newer `canic-memory` API and finishes the `demo` / `test` / `audit` canister split, so generated `db()` startup stays deterministic and routine test runs no longer depend on the heavyweight RPG demo canister.
-- `0.69.2` keeps the witness-backed covering routes unchanged and cuts about `7%–13%` from several `Character` and `ActiveUser` index-covered SQL reads by letting the shared execution kernel materialize those covering windows directly.
-- `0.69.1` keeps the new covering-read behavior intact while moving generated bootstrap, commit-slot wiring, and facade SQL tests onto the smaller public `canic-memory` API surface.
-- `0.69.0` turns covering reads into a real execution route, proves simple primary-key reads can skip row checks entirely, and adds the first explicit witness-backed secondary cohorts for common `ORDER BY` and filtered composite reads.
+- `0.76.5` broadens the reduced SQL write lane so typed-dispatch `UPDATE ... WHERE ...` can target rows selected by the admitted reduced predicate surface, and single-table aliases now work on that narrowed `UPDATE` path.
+- `0.76.4` adds single-table aliases for `SELECT` and `DELETE`, plus typed-dispatch `INSERT` widening for multi-row and positional `VALUES` forms.
+- `0.76.3` introduces the first reduced SQL write surface on typed dispatch with narrow `INSERT` and `UPDATE` support while keeping mutation ownership session-local.
+- `0.76.2` rounds out more of the read/query SQL surface with grouped top-level `DISTINCT`, grouped computed text projection, projection aliases, and narrow `ORDER BY` alias support.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
 
 ---
@@ -355,7 +355,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.69 Line)
+## Reduced SQL Scope (Current 0.76 Line)
 
 Executable SQL entrypoints:
 
@@ -365,6 +365,21 @@ Executable SQL entrypoints:
 - `execute_sql_grouped` for constrained grouped aggregates
 - `execute_sql_aggregate` for constrained global aggregates
 - `explain_sql` for `EXPLAIN` wrappers over executable reduced SQL
+
+Typed-dispatch SQL write shapes:
+
+- `INSERT INTO entity (field, ...) VALUES (...)`
+- multi-row `INSERT ... VALUES (...), (...)`
+- positional `INSERT INTO entity VALUES (...)`
+- `UPDATE entity SET field = literal [, ...] WHERE <reduced predicate>`
+- `UPDATE ... WHERE ... ORDER BY ... LIMIT/OFFSET`
+
+Single-table aliases are admitted on the reduced SQL lane for:
+
+- `SELECT`
+- `DELETE`
+- typed-dispatch `INSERT`
+- typed-dispatch `UPDATE`
 
 Dedicated SQL introspection commands through unified dispatch:
 
@@ -376,11 +391,11 @@ Dedicated SQL introspection commands through unified dispatch:
 
 Out of scope and fail-closed by design:
 
-- `INSERT`, `UPDATE`
 - joins/subqueries/CTEs
-- table aliases
 - quoted identifiers
 - window functions
+- `INSERT ... SELECT`
+- non-typed-dispatch SQL writes through `execute_sql(...)` / `query_from_sql(...)`
 - `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
 
 ---

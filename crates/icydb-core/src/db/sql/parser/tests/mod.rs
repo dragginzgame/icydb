@@ -1200,6 +1200,9 @@ fn parse_update_statement_with_assignments_and_predicate() {
                 Value::Int(7),
                 CoercionId::Strict,
             ))),
+            order_by: Vec::new(),
+            limit: None,
+            offset: None,
         }),
     );
 }
@@ -1229,33 +1232,71 @@ fn parse_update_statement_accepts_single_table_alias() {
                 Value::Int(7),
                 CoercionId::Strict,
             ))),
+            order_by: Vec::new(),
+            limit: None,
+            offset: None,
         }),
     );
 }
 
 #[test]
-fn parse_update_statement_rejects_order_by_limit_and_offset() {
+fn parse_update_statement_with_order_limit_and_offset() {
+    let statement = parse_sql(
+        "UPDATE users SET age = 22 WHERE active = true ORDER BY age DESC, id ASC LIMIT 2 OFFSET 1",
+    )
+    .expect("update statement with ordered window should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Update(SqlUpdateStatement {
+            entity: "users".to_string(),
+            assignments: vec![SqlAssignment {
+                field: "age".to_string(),
+                value: Value::Int(22),
+            }],
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Eq,
+                Value::Bool(true),
+                CoercionId::Strict,
+            ))),
+            order_by: vec![
+                SqlOrderTerm {
+                    field: "age".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                },
+                SqlOrderTerm {
+                    field: "id".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+            ],
+            limit: Some(2),
+            offset: Some(1),
+        }),
+    );
+}
+
+#[test]
+fn parse_update_statement_rejects_invalid_window_clause_order() {
     let cases = [
         (
-            "UPDATE users SET age = 22 WHERE id = 7 ORDER BY id",
-            "UPDATE ORDER BY",
+            "UPDATE users SET age = 22 WHERE id = 7 LIMIT 1 ORDER BY id",
+            "ORDER BY must appear before LIMIT/OFFSET in UPDATE",
         ),
         (
-            "UPDATE users SET age = 22 WHERE id = 7 LIMIT 1",
-            "UPDATE LIMIT",
-        ),
-        (
-            "UPDATE users SET age = 22 WHERE id = 7 OFFSET 1",
-            "UPDATE OFFSET",
+            "UPDATE users SET age = 22 WHERE id = 7 OFFSET 1 LIMIT 1",
+            "LIMIT must appear before OFFSET in UPDATE",
         ),
     ];
 
-    for (sql, feature) in cases {
-        let err = parse_sql(sql).expect_err("unsupported UPDATE modifiers should stay fail-closed");
+    for (sql, message) in cases {
+        let err = parse_sql(sql).expect_err("invalid UPDATE window clause order should fail");
         assert_eq!(
             err,
-            SqlParseError::UnsupportedFeature { feature },
-            "unsupported UPDATE modifier should preserve an explicit feature label",
+            SqlParseError::InvalidSyntax {
+                message: message.to_string(),
+            },
+            "invalid UPDATE window clause order should preserve an actionable parser message",
         );
     }
 }
@@ -1289,15 +1330,32 @@ fn parse_insert_statement_rejects_insert_select() {
 }
 
 #[test]
-fn parse_insert_statement_rejects_table_alias() {
-    let err = parse_sql("INSERT INTO users u (id, name) VALUES (1, 'Ada')")
-        .expect_err("insert table aliases should stay fail-closed");
+fn parse_insert_statement_accepts_single_table_alias() {
+    let statement = parse_sql("INSERT INTO users u (id, name) VALUES (1, 'Ada')")
+        .expect("insert table alias should parse");
 
     assert_eq!(
-        err,
-        SqlParseError::UnsupportedFeature {
-            feature: "table aliases",
-        }
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["id".to_string(), "name".to_string()],
+            values: vec![vec![Value::Int(1), Value::Text("Ada".to_string())]],
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
+    let statement = parse_sql("INSERT INTO users AS u VALUES (1)")
+        .expect("insert AS table alias without column list should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec![],
+            values: vec![vec![Value::Int(1)]],
+        }),
     );
 }
 

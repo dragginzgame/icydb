@@ -1,5 +1,15 @@
 # IcyDB Feature Inventory and Completeness Audit
 
+Historical note: this archive audit is pinned to the `0.56.1` checkout named
+below. It does not describe the current SQL surface.
+
+Later lines widened the admitted SQL language beyond what this audit reports,
+including reduced SQL writes and alias support. For the current SQL contract,
+see:
+
+- `docs/contracts/SQL_SUBSET.md`
+- `docs/architecture/sql-surface-mapping.md`
+
 Date: 2026-03-16  
 Scope: current checkout only (`workspace.version=0.56.1` in `Cargo.toml`)
 

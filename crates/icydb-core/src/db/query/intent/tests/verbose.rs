@@ -352,8 +352,7 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
     );
 }
 
-#[test]
-fn explain_execution_verbose_prefix_choice_prefers_order_compatible_index_when_rank_ties() {
+fn deterministic_prefix_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
@@ -366,30 +365,10 @@ fn explain_execution_verbose_prefix_choice_prefers_order_compatible_index_when_r
         .explain_execution_verbose()
         .expect("deterministic prefix explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_handle_idx)".to_string()),
-        "verbose explain must project the planner-selected order-compatible prefix index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "planner-choice explain must report the canonical order-compatibility tie-break when predicate rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "verbose explain must report the lexicographically earlier but order-incompatible index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_range_choice_prefers_order_compatible_index_when_rank_ties() {
+fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -411,30 +390,10 @@ fn explain_execution_verbose_range_choice_prefers_order_compatible_index_when_ra
         .explain_execution_verbose()
         .expect("deterministic range explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
-        "verbose explain must project the planner-selected order-compatible range index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "planner-choice explain must report the canonical order-compatibility tie-break when range rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_range_choice_desc_prefers_order_compatible_index_when_rank_ties() {
+fn deterministic_range_choice_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -456,31 +415,10 @@ fn explain_execution_verbose_range_choice_desc_prefers_order_compatible_index_wh
         .explain_execution_verbose()
         .expect("descending deterministic range explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
-        "descending verbose explain must project the planner-selected order-compatible range index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "descending planner-choice explain must report the canonical order-compatibility tie-break when range rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "descending verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_equality_prefix_suffix_order_prefers_order_compatible_index_when_rank_ties()
- {
+fn deterministic_equality_prefix_suffix_order_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -501,31 +439,10 @@ fn explain_execution_verbose_equality_prefix_suffix_order_prefers_order_compatib
         .explain_execution_verbose()
         .expect("deterministic equality-prefix suffix-order explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
-        "verbose explain must project the planner-selected order-compatible equality-prefix suffix-order index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "planner-choice explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_equality_prefix_suffix_order_desc_prefers_order_compatible_index_when_rank_ties()
- {
+fn deterministic_equality_prefix_suffix_order_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -546,61 +463,20 @@ fn explain_execution_verbose_equality_prefix_suffix_order_desc_prefers_order_com
         .explain_execution_verbose()
         .expect("descending deterministic equality-prefix suffix-order explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
-        "descending verbose explain must project the planner-selected order-compatible equality-prefix suffix-order index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "descending planner-choice explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
-            }),
-        "descending verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
+fn deterministic_order_only_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_by("alpha")
         .order_by("id")
         .explain_execution_verbose()
         .expect("deterministic order-only explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_alpha_idx)".to_string()),
-        "verbose explain must project the planner-selected order-compatible fallback index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "planner-choice explain must report the canonical order-compatibility tie-break when order-only ranking ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_beta_idx=order_compatible_preferred")
-            }),
-        "verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_composite_order_only_choice_prefers_order_compatible_index_when_rank_ties()
- {
+fn deterministic_composite_order_only_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_by("tier")
         .order_by("handle")
@@ -608,31 +484,10 @@ fn explain_execution_verbose_composite_order_only_choice_prefers_order_compatibl
         .explain_execution_verbose()
         .expect("deterministic composite order-only explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
-
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
-        "verbose explain must project the planner-selected order-compatible composite fallback index",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.access_choice_chosen_reason"),
-        Some(&"order_compatible_preferred".to_string()),
-        "planner-choice explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
-    );
-    assert!(
-        diagnostics
-            .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
-    );
+    verbose_diagnostics_map(&verbose)
 }
 
-#[test]
-fn explain_execution_verbose_composite_order_only_choice_desc_prefers_order_compatible_index_when_rank_ties()
- {
+fn deterministic_composite_order_only_choice_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("tier")
         .order_by_desc("handle")
@@ -640,25 +495,435 @@ fn explain_execution_verbose_composite_order_only_choice_desc_prefers_order_comp
         .explain_execution_verbose()
         .expect("descending deterministic composite order-only explain should build");
 
-    let diagnostics = verbose_diagnostics_map(&verbose);
+    verbose_diagnostics_map(&verbose)
+}
 
+fn assert_order_compatible_choice_diagnostics(
+    label: &str,
+    diagnostics: &BTreeMap<String, String>,
+    expected_chosen: &str,
+    expected_rejected_fragment: &str,
+) {
     assert_eq!(
         diagnostics.get("diag.r.access_choice_chosen"),
-        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
-        "descending verbose explain must project the planner-selected order-compatible composite fallback index",
+        Some(&expected_chosen.to_string()),
+        "{label}: verbose explain must project the planner-selected order-compatible index",
     );
     assert_eq!(
         diagnostics.get("diag.r.access_choice_chosen_reason"),
         Some(&"order_compatible_preferred".to_string()),
-        "descending planner-choice explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
+        "{label}: planner-choice explain must report the canonical order-compatibility tie-break",
     );
     assert!(
         diagnostics
             .get("diag.r.access_choice_rejections")
-            .is_some_and(|rejections| {
-                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
-            }),
-        "descending verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+            .is_some_and(|rejections| rejections.contains(expected_rejected_fragment)),
+        "{label}: verbose explain must report the order-incompatible candidate as planner-rejected",
+    );
+}
+
+fn empty_contract_is_null_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").is_null())
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn empty_contract_strict_in_empty_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").in_list(std::iter::empty::<Ulid>()))
+        .explain_execution_verbose()
+        .expect("strict IN [] verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_in_permuted_set_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").in_list([8_u32, 7_u32, 8_u32]))
+        .explain_execution_verbose()
+        .expect("permuted IN verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_in_canonical_set_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").in_list([7_u32, 8_u32]))
+        .explain_execution_verbose()
+        .expect("canonical IN verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_between_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-between verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_strict_eq_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Eq,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("strict-eq verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("starts-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn equivalent_prefix_like_range_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Gte,
+                Value::Text("foo".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Lt,
+                Value::Text("fop".to_string()),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-range verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn max_unicode_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text(prefix),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("max-unicode starts-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn max_unicode_prefix_like_lower_bound_diagnostics() -> BTreeMap<String, String> {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Gte,
+            Value::Text(prefix),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent lower-bound verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn non_strict_predicate_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict predicate verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn secondary_is_null_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").is_null())
+        .explain_execution_verbose()
+        .expect("secondary is-null verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn empty_prefix_starts_with_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_starts_with(""))
+        .explain_execution_verbose()
+        .expect("empty-prefix starts-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn non_empty_prefix_starts_with_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_starts_with("label"))
+        .explain_execution_verbose()
+        .expect("non-empty starts-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn text_contains_ci_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_contains_ci("label"))
+        .explain_execution_verbose()
+        .expect("text-contains-ci verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("ends-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn non_strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::TextCasefold,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict ends-with verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn collection_contains_fallback_diagnostics() -> BTreeMap<String, String> {
+    let verbose = Query::<PlanPhaseEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tags",
+            CompareOp::Contains,
+            Value::Uint(7),
+            CoercionId::CollectionElement,
+        )))
+        .explain_execution_verbose()
+        .expect("collection contains verbose explain should build");
+
+    verbose_diagnostics_map(&verbose)
+}
+
+fn assert_verbose_diagnostic_parity(
+    label: &str,
+    left: &BTreeMap<String, String>,
+    right: &BTreeMap<String, String>,
+    keys: &[&str],
+) {
+    for key in keys {
+        assert_eq!(
+            left.get(*key),
+            right.get(*key),
+            "{label}: equivalent forms should keep verbose diagnostic parity for key {key}",
+        );
+    }
+}
+
+fn assert_verbose_pushdown_reason_case(
+    label: &str,
+    diagnostics: &BTreeMap<String, String>,
+    expected_pushdown: &str,
+    expected_stage: Option<&str>,
+    forbidden_pushdown: Option<&str>,
+) {
+    assert_eq!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&expected_pushdown.to_string()),
+        "{label}: verbose explain must keep the expected predicate pushdown reason",
+    );
+
+    if let Some(expected_stage) = expected_stage {
+        assert_eq!(
+            diagnostics.get("diag.r.predicate_stage"),
+            Some(&expected_stage.to_string()),
+            "{label}: verbose explain must keep the expected route predicate-stage contract",
+        );
+    }
+
+    if let Some(forbidden_pushdown) = forbidden_pushdown {
+        assert_ne!(
+            diagnostics.get("diag.p.predicate_pushdown"),
+            Some(&forbidden_pushdown.to_string()),
+            "{label}: verbose explain must not collapse into the wrong fallback classification",
+        );
+    }
+}
+
+#[test]
+fn explain_execution_verbose_order_compatible_choice_matrix() {
+    let cases: &[(&str, fn() -> BTreeMap<String, String>, &str, &str)] = &[
+        (
+            "prefix choice",
+            deterministic_prefix_choice_diagnostics,
+            "IndexPrefix(z_tier_handle_idx)",
+            "index:a_tier_label_idx=order_compatible_preferred",
+        ),
+        (
+            "range choice",
+            deterministic_range_choice_diagnostics,
+            "IndexRange(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+        ),
+        (
+            "descending range choice",
+            deterministic_range_choice_desc_diagnostics,
+            "IndexRange(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+        ),
+        (
+            "equality-prefix suffix-order choice",
+            deterministic_equality_prefix_suffix_order_diagnostics,
+            "IndexPrefix(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+        ),
+        (
+            "descending equality-prefix suffix-order choice",
+            deterministic_equality_prefix_suffix_order_desc_diagnostics,
+            "IndexPrefix(z_tier_score_label_idx)",
+            "index:a_tier_score_handle_idx=order_compatible_preferred",
+        ),
+        (
+            "order-only choice",
+            deterministic_order_only_choice_diagnostics,
+            "IndexRange(z_alpha_idx)",
+            "index:a_beta_idx=order_compatible_preferred",
+        ),
+        (
+            "composite order-only choice",
+            deterministic_composite_order_only_choice_diagnostics,
+            "IndexRange(z_tier_handle_idx)",
+            "index:a_tier_label_idx=order_compatible_preferred",
+        ),
+        (
+            "descending composite order-only choice",
+            deterministic_composite_order_only_choice_desc_diagnostics,
+            "IndexRange(z_tier_handle_idx)",
+            "index:a_tier_label_idx=order_compatible_preferred",
+        ),
+    ];
+
+    for (label, build_diagnostics, expected_chosen, expected_rejected_fragment) in
+        cases.iter().copied()
+    {
+        let diagnostics = build_diagnostics();
+        assert_order_compatible_choice_diagnostics(
+            label,
+            &diagnostics,
+            expected_chosen,
+            expected_rejected_fragment,
+        );
+    }
+}
+
+#[test]
+fn explain_execution_verbose_equivalent_predicate_contract_matrix() {
+    type DiagnosticsBuilder = fn() -> BTreeMap<String, String>;
+
+    let cases: &[(&str, DiagnosticsBuilder, DiagnosticsBuilder, &[&str])] = &[
+        (
+            "empty contract",
+            empty_contract_is_null_diagnostics,
+            empty_contract_strict_in_empty_diagnostics,
+            &["diag.p.predicate_pushdown", "diag.r.predicate_stage"],
+        ),
+        (
+            "canonical IN set",
+            equivalent_in_permuted_set_diagnostics,
+            equivalent_in_canonical_set_diagnostics,
+            &["diag.r.predicate_stage"],
+        ),
+        (
+            "equivalent BETWEEN and strict equality",
+            equivalent_between_diagnostics,
+            equivalent_strict_eq_diagnostics,
+            &["diag.p.predicate_pushdown", "diag.r.predicate_stage"],
+        ),
+        (
+            "prefix-like and bounded range",
+            equivalent_prefix_like_starts_with_diagnostics,
+            equivalent_prefix_like_range_diagnostics,
+            &["diag.p.predicate_pushdown", "diag.r.predicate_stage"],
+        ),
+        (
+            "max-unicode prefix-like and lower bound",
+            max_unicode_prefix_like_starts_with_diagnostics,
+            max_unicode_prefix_like_lower_bound_diagnostics,
+            &["diag.p.predicate_pushdown", "diag.r.predicate_stage"],
+        ),
+    ];
+
+    for (label, build_left, build_right, keys) in cases.iter().copied() {
+        let left = build_left();
+        let right = build_right();
+
+        assert_verbose_diagnostic_parity(label, &left, &right, keys);
+    }
+
+    let empty_contract = empty_contract_is_null_diagnostics();
+    assert_eq!(
+        empty_contract.get("diag.p.predicate_pushdown"),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "empty-contract matrix must keep the explicit empty-access predicate reason frozen",
     );
 }
 
@@ -715,102 +980,6 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
 }
 
 #[test]
-fn explain_execution_verbose_reports_equivalent_empty_contract_reason_paths() {
-    let is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("id").is_null())
-        .explain_execution_verbose()
-        .expect("primary-key is-null verbose explain should build");
-    let strict_in_empty_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("id").in_list(std::iter::empty::<Ulid>()))
-        .explain_execution_verbose()
-        .expect("strict IN [] verbose explain should build");
-
-    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
-    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
-    assert_eq!(
-        is_null_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"applied(empty_access_contract)".to_string()),
-        "primary-key is-null should surface empty-contract predicate diagnostics",
-    );
-    assert_eq!(
-        strict_in_empty_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"applied(empty_access_contract)".to_string()),
-        "strict IN [] should surface empty-contract predicate diagnostics",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_equivalent_empty_contract_route_stage_parity() {
-    let is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("id").is_null())
-        .explain_execution_verbose()
-        .expect("primary-key is-null verbose explain should build");
-    let strict_in_empty_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("id").in_list(std::iter::empty::<Ulid>()))
-        .explain_execution_verbose()
-        .expect("strict IN [] verbose explain should build");
-
-    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
-    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
-    assert_eq!(
-        is_null_diagnostics.get("diag.r.predicate_stage"),
-        strict_in_empty_diagnostics.get("diag.r.predicate_stage"),
-        "equivalent empty-contract predicates should keep route predicate-stage diagnostics in parity",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_non_strict_predicate_fallback_reason_path() {
-    let non_strict_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "group",
-            CompareOp::Eq,
-            Value::Uint(7),
-            CoercionId::NumericWiden,
-        )))
-        .explain_execution_verbose()
-        .expect("non-strict predicate verbose explain should build");
-
-    let diagnostics = verbose_diagnostics_map(&non_strict_verbose);
-    assert_eq!(
-        diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(non_strict_compare_coercion)".to_string()),
-        "non-strict indexed compare should surface full-scan fallback predicate diagnostics",
-    );
-    assert_eq!(
-        diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
-        "non-strict indexed compare should execute as residual post-access predicate stage",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_is_null_predicate_pushdown_reason_paths() {
-    let primary_key_is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("id").is_null())
-        .explain_execution_verbose()
-        .expect("primary-key is-null verbose explain should build");
-    let secondary_is_null_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("group").is_null())
-        .explain_execution_verbose()
-        .expect("secondary is-null verbose explain should build");
-
-    let primary_key_diagnostics = verbose_diagnostics_map(&primary_key_is_null_verbose);
-    let secondary_diagnostics = verbose_diagnostics_map(&secondary_is_null_verbose);
-
-    assert_eq!(
-        primary_key_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"applied(empty_access_contract)".to_string()),
-        "impossible primary-key IS NULL should surface empty-contract predicate pushdown diagnostics",
-    );
-    assert_eq!(
-        secondary_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(is_null_full_scan)".to_string()),
-        "non-primary IS NULL should surface full-scan fallback predicate diagnostics",
-    );
-}
-
-#[test]
 fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
@@ -863,182 +1032,89 @@ fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
 }
 
 #[test]
-fn explain_execution_verbose_reports_empty_prefix_starts_with_fallback_reason_path() {
-    let empty_prefix_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("label").text_starts_with(""))
-        .explain_execution_verbose()
-        .expect("empty-prefix starts-with verbose explain should build");
-    let non_empty_prefix_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("label").text_starts_with("label"))
-        .explain_execution_verbose()
-        .expect("non-empty starts-with verbose explain should build");
+fn explain_execution_verbose_fallback_reason_matrix() {
+    type DiagnosticsBuilder = fn() -> BTreeMap<String, String>;
 
-    let empty_prefix_diagnostics = verbose_diagnostics_map(&empty_prefix_verbose);
-    let non_empty_prefix_diagnostics = verbose_diagnostics_map(&non_empty_prefix_verbose);
-    assert_eq!(
-        empty_prefix_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(starts_with_empty_prefix)".to_string()),
-        "empty-prefix starts-with should surface the explicit empty-prefix fallback reason",
-    );
-    assert_eq!(
-        non_empty_prefix_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(full_scan)".to_string()),
-        "non-empty starts-with over a non-indexed field should remain generic full-scan fallback",
-    );
-    assert_eq!(
-        empty_prefix_diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
-        "empty-prefix starts-with fallback should preserve residual predicate stage diagnostics",
-    );
+    let cases: &[(&str, DiagnosticsBuilder, &str, Option<&str>)] = &[
+        (
+            "non-strict indexed compare",
+            non_strict_predicate_fallback_diagnostics,
+            "fallback(non_strict_compare_coercion)",
+            Some("residual_post_access"),
+        ),
+        (
+            "primary-key is-null empty contract",
+            empty_contract_is_null_diagnostics,
+            "applied(empty_access_contract)",
+            None,
+        ),
+        (
+            "secondary is-null full scan",
+            secondary_is_null_fallback_diagnostics,
+            "fallback(is_null_full_scan)",
+            None,
+        ),
+        (
+            "empty-prefix starts-with",
+            empty_prefix_starts_with_fallback_diagnostics,
+            "fallback(starts_with_empty_prefix)",
+            Some("residual_post_access"),
+        ),
+        (
+            "non-empty starts-with full scan",
+            non_empty_prefix_starts_with_fallback_diagnostics,
+            "fallback(full_scan)",
+            None,
+        ),
+        (
+            "text contains-ci",
+            text_contains_ci_fallback_diagnostics,
+            "fallback(text_operator_full_scan)",
+            Some("residual_post_access"),
+        ),
+        (
+            "strict ends-with",
+            strict_ends_with_fallback_diagnostics,
+            "fallback(text_operator_full_scan)",
+            None,
+        ),
+    ];
+
+    for (label, build_diagnostics, expected_pushdown, expected_stage) in cases.iter().copied() {
+        let diagnostics = build_diagnostics();
+        assert_verbose_pushdown_reason_case(
+            label,
+            &diagnostics,
+            expected_pushdown,
+            expected_stage,
+            None,
+        );
+    }
 }
 
 #[test]
-fn explain_execution_verbose_reports_text_operator_fallback_reason_path() {
-    let text_contains_ci_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("label").text_contains_ci("label"))
-        .explain_execution_verbose()
-        .expect("text-contains-ci verbose explain should build");
-    let ends_with_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "label",
-            CompareOp::EndsWith,
-            Value::Text("fix".to_string()),
-            CoercionId::Strict,
-        )))
-        .explain_execution_verbose()
-        .expect("ends-with verbose explain should build");
+fn explain_execution_verbose_non_strict_fallback_precedence_matrix() {
+    let cases: &[(&str, fn() -> BTreeMap<String, String>)] = &[
+        (
+            "non-strict ends-with",
+            non_strict_ends_with_fallback_diagnostics,
+        ),
+        (
+            "collection-element contains",
+            collection_contains_fallback_diagnostics,
+        ),
+    ];
 
-    let text_contains_ci_diagnostics = verbose_diagnostics_map(&text_contains_ci_verbose);
-    let ends_with_diagnostics = verbose_diagnostics_map(&ends_with_verbose);
-    assert_eq!(
-        text_contains_ci_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(text_operator_full_scan)".to_string()),
-        "text contains-ci should surface dedicated text-operator full-scan fallback reason",
-    );
-    assert_eq!(
-        ends_with_diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(text_operator_full_scan)".to_string()),
-        "ends-with compare should surface dedicated text-operator full-scan fallback reason",
-    );
-    assert_eq!(
-        text_contains_ci_diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
-        "text-operator fallback should preserve residual predicate-stage diagnostics",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_equivalent_in_set_route_stage_parity() {
-    let in_permuted_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("group").in_list([8_u32, 7_u32, 8_u32]))
-        .explain_execution_verbose()
-        .expect("permuted IN verbose explain should build");
-    let in_canonical_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(FieldRef::new("group").in_list([7_u32, 8_u32]))
-        .explain_execution_verbose()
-        .expect("canonical IN verbose explain should build");
-
-    let in_permuted_diagnostics = verbose_diagnostics_map(&in_permuted_verbose);
-    let in_canonical_diagnostics = verbose_diagnostics_map(&in_canonical_verbose);
-    assert_eq!(
-        in_permuted_diagnostics.get("diag.r.predicate_stage"),
-        in_canonical_diagnostics.get("diag.r.predicate_stage"),
-        "equivalent canonical IN sets should keep route predicate-stage diagnostics in parity",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_equivalent_between_and_eq_parity() {
-    let equivalent_between_verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "code",
-                CompareOp::Gte,
-                Value::Uint(100),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "code",
-                CompareOp::Lte,
-                Value::Uint(100),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("code")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("equivalent-between verbose explain should build");
-    let strict_eq_verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "code",
-            CompareOp::Eq,
-            Value::Uint(100),
-            CoercionId::Strict,
-        )))
-        .order_by("code")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("strict-eq verbose explain should build");
-
-    let between_diagnostics = verbose_diagnostics_map(&equivalent_between_verbose);
-    let eq_diagnostics = verbose_diagnostics_map(&strict_eq_verbose);
-    assert_eq!(
-        between_diagnostics.get("diag.p.predicate_pushdown"),
-        eq_diagnostics.get("diag.p.predicate_pushdown"),
-        "equivalent BETWEEN-style bounds and strict equality should report identical pushdown reason labels",
-    );
-    assert_eq!(
-        between_diagnostics.get("diag.r.predicate_stage"),
-        eq_diagnostics.get("diag.r.predicate_stage"),
-        "equivalent BETWEEN-style bounds and strict equality should preserve route predicate-stage parity",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_equivalent_prefix_like_route_stage_parity() {
-    let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "label",
-            CompareOp::StartsWith,
-            Value::Text("foo".to_string()),
-            CoercionId::Strict,
-        )))
-        .order_by("label")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("starts-with verbose explain should build");
-    let equivalent_range_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "label",
-                CompareOp::Gte,
-                Value::Text("foo".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "label",
-                CompareOp::Lt,
-                Value::Text("fop".to_string()),
-                CoercionId::Strict,
-            )),
-        ]))
-        .order_by("label")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("equivalent-range verbose explain should build");
-
-    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
-    let equivalent_range_diagnostics = verbose_diagnostics_map(&equivalent_range_verbose);
-    assert_eq!(
-        starts_with_diagnostics.get("diag.p.predicate_pushdown"),
-        equivalent_range_diagnostics.get("diag.p.predicate_pushdown"),
-        "equivalent prefix-like and bounded-range forms should report identical predicate pushdown reason labels",
-    );
-    assert_eq!(
-        starts_with_diagnostics.get("diag.r.predicate_stage"),
-        equivalent_range_diagnostics.get("diag.r.predicate_stage"),
-        "equivalent prefix-like and bounded-range forms should preserve route predicate-stage parity",
-    );
+    for (label, build_diagnostics) in cases.iter().copied() {
+        let diagnostics = build_diagnostics();
+        assert_verbose_pushdown_reason_case(
+            label,
+            &diagnostics,
+            "fallback(non_strict_compare_coercion)",
+            None,
+            Some("fallback(text_operator_full_scan)"),
+        );
+    }
 }
 
 #[test]
@@ -1075,97 +1151,6 @@ fn explain_execution_verbose_reports_strict_text_prefix_like_index_range_pushdow
         diagnostics.get("diag.d.has_residual_predicate_filter"),
         Some(&"false".to_string()),
         "strict field-key text starts-with should not keep residual filtering once the bounded range is exact",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_reports_max_unicode_prefix_like_parity() {
-    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "label",
-            CompareOp::StartsWith,
-            Value::Text(prefix.clone()),
-            CoercionId::Strict,
-        )))
-        .order_by("label")
-        .order_by("id")
-        .explain_execution_verbose()
-        .expect("max-unicode starts-with verbose explain should build");
-    let equivalent_lower_bound_verbose =
-        Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-            .filter(Predicate::Compare(ComparePredicate::with_coercion(
-                "label",
-                CompareOp::Gte,
-                Value::Text(prefix),
-                CoercionId::Strict,
-            )))
-            .order_by("label")
-            .order_by("id")
-            .explain_execution_verbose()
-            .expect("equivalent lower-bound verbose explain should build");
-
-    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
-    let lower_bound_diagnostics = verbose_diagnostics_map(&equivalent_lower_bound_verbose);
-    assert_eq!(
-        starts_with_diagnostics.get("diag.p.predicate_pushdown"),
-        lower_bound_diagnostics.get("diag.p.predicate_pushdown"),
-        "max-unicode prefix-like and equivalent lower-bound forms should report identical predicate pushdown reason labels",
-    );
-    assert_eq!(
-        starts_with_diagnostics.get("diag.r.predicate_stage"),
-        lower_bound_diagnostics.get("diag.r.predicate_stage"),
-        "max-unicode prefix-like and equivalent lower-bound forms should preserve route predicate-stage parity",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_non_strict_ends_with_uses_non_strict_fallback_precedence() {
-    let non_strict_ends_with_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "label",
-            CompareOp::EndsWith,
-            Value::Text("fix".to_string()),
-            CoercionId::TextCasefold,
-        )))
-        .explain_execution_verbose()
-        .expect("non-strict ends-with verbose explain should build");
-
-    let diagnostics = verbose_diagnostics_map(&non_strict_ends_with_verbose);
-    assert_eq!(
-        diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(non_strict_compare_coercion)".to_string()),
-        "non-strict ends-with should report non-strict compare fallback reason",
-    );
-    assert_ne!(
-        diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(text_operator_full_scan)".to_string()),
-        "non-strict ends-with should not be classified as text-operator fallback",
-    );
-}
-
-#[test]
-fn explain_execution_verbose_keeps_collection_contains_on_generic_full_scan_fallback() {
-    let collection_contains_verbose = Query::<PlanPhaseEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tags",
-            CompareOp::Contains,
-            Value::Uint(7),
-            CoercionId::CollectionElement,
-        )))
-        .explain_execution_verbose()
-        .expect("collection contains verbose explain should build");
-
-    let diagnostics = verbose_diagnostics_map(&collection_contains_verbose);
-    assert_eq!(
-        diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(non_strict_compare_coercion)".to_string()),
-        "collection-element contains should continue to report non-strict compare fallback",
-    );
-    assert_ne!(
-        diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(text_operator_full_scan)".to_string()),
-        "collection-element contains should not be classified as text-operator fallback",
     );
 }
 
