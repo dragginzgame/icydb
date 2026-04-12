@@ -12,6 +12,11 @@ type GroupedIntentPlanContractCase<'a> = (
 type GroupedIntentErrorCase<'a> = (&'a str, fn() -> QueryError, fn(&QueryError) -> bool);
 type GroupedIntentPlanResultBuilder =
     fn() -> Result<crate::db::CompiledQuery<PlanEntity>, QueryError>;
+type GroupedIntentPlanResultCase<'a> = (
+    &'a str,
+    GroupedIntentPlanResultBuilder,
+    fn(Result<crate::db::CompiledQuery<PlanEntity>, QueryError>) -> bool,
+);
 
 fn assert_grouped_query_error_case(
     label: &str,
@@ -462,11 +467,7 @@ fn assert_grouped_builder_plan_contract(
 
 #[test]
 fn grouped_load_policy_matrix() {
-    let cases: &[(
-        &str,
-        GroupedIntentPlanResultBuilder,
-        fn(Result<crate::db::CompiledQuery<PlanEntity>, QueryError>) -> bool,
-    )] = &[
+    let cases: &[GroupedIntentPlanResultCase<'_>] = &[
         (
             "grouped limit without order",
             grouped_load_limit_without_order_result,
