@@ -267,13 +267,19 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
             let session = indexed_sql_session();
             seed_direct_starts_with_fixture(&session);
 
-            let deleted_rows = session
-                .execute_sql::<IndexedSessionSqlEntity>(sql)
-                .expect("indexed STARTS_WITH/LIKE delete should execute");
-            let deleted_names = deleted_rows
-                .iter()
-                .map(|row| row.entity_ref().name.clone())
-                .collect::<Vec<_>>();
+            let deleted_names = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+                &session,
+                format!("{sql} RETURNING name").as_str(),
+            )
+            .expect("indexed STARTS_WITH/LIKE delete should execute")
+            .into_iter()
+            .map(|row| {
+                let [Value::Text(name)] = row.as_slice() else {
+                    panic!("indexed delete returning should yield one projected name column");
+                };
+                name.clone()
+            })
+            .collect::<Vec<_>>();
             let remaining_names = session
                 .load::<IndexedSessionSqlEntity>()
                 .order_by("name")
