@@ -25,7 +25,8 @@ fn data_store_insert_stays_canonical_row_only() {
 #[test]
 fn prepared_row_write_payloads_stay_canonical() {
     let prepared_op = read_source("src/db/commit/prepared_op.rs");
-    let save = read_source("src/db/executor/mutation/save.rs");
+    let typed_save = read_source("src/db/executor/mutation/save/typed.rs");
+    let structural_save = read_source("src/db/executor/mutation/save/structural.rs");
 
     assert!(
         prepared_op.contains("pub(crate) data_value: Option<CanonicalRow>,"),
@@ -36,11 +37,11 @@ fn prepared_row_write_payloads_stay_canonical() {
         "prepared row commit ops must not regress to RawRow after-images",
     );
     assert!(
-        save.contains("let row_bytes = CanonicalRow::from_entity(entity)?"),
+        typed_save.contains("let row_bytes = CanonicalRow::from_entity(entity)?"),
         "typed save after-image construction must stay CanonicalRow-backed",
     );
     assert!(
-        save.contains("fn build_structural_after_image_row(\n        mode: MutationMode,\n        mutation: &MutationInput,\n        old_row: Option<&RawRow>,\n    ) -> Result<CanonicalRow, InternalError>"),
+        structural_save.contains("fn build_structural_after_image_row(\n        mode: MutationMode,\n        mutation: &MutationInput,\n        old_row: Option<&RawRow>,\n    ) -> Result<CanonicalRow, InternalError>"),
         "structural save after-image builder must return CanonicalRow",
     );
 }
