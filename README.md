@@ -83,8 +83,9 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.76.9`
-- Latest tagged release in this repo: `v0.76.9`
+- Workspace version on `main`: `0.76.12`
+- Latest tagged release in this repo: `v0.76.12`
+- Current branch work in progress: `0.76.13`
 - Changelog: `CHANGELOG.md`
 - Detailed `0.76.x` notes: `docs/changelog/0.76.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
@@ -93,14 +94,14 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
-- Current branch work on the `0.76` line keeps reduced SQL defaults explicit by widening schema-owned `generated(insert = "...")` only to one small allowlist, so typed-dispatch inserts can now synthesize `Timestamp::now` as well as `Ulid::generate` while ordinary `default = ...` values still stay a typed-Rust construction concern.
-- Current branch work on the `0.76` line freezes the reduced SQL write-result boundary too: `RETURNING` stays unsupported on reduced SQL writes, so write results remain the existing typed-dispatch after-image payloads instead of growing a second output contract.
-- Current branch work on the `0.76` line adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
+- Current branch work on the `0.76` line renames the new authored write companion surface from `TypeInsert` / `insert_typed(...)` to `TypeCreate` / `create(...)`, so the authored create contract now reads clearly next to the older full-entity `insert(...)` path.
+- `0.76.12` adds a separate authored typed write shape per entity, so generated fields and managed timestamps are structurally absent from the authored create payload instead of being rejected only after a full entity value is built.
+- `0.76.11` hardens insert-generated field ownership on the admitted authored write lanes, so typed-dispatch SQL and public structural writes now reject explicit values for `generated(insert = \"...\")` fields instead of letting caller-authored values compete with system-owned synthesis.
+- `0.76.10` keeps reduced SQL defaults explicit by widening schema-owned `generated(insert = \"...\")` only to a small allowlist, so typed-dispatch inserts can synthesize `Timestamp::now` as well as `Ulid::generate` while ordinary `default = ...` values still stay a typed-Rust construction concern.
+- `0.76.8` freezes the reduced SQL write-result boundary: `RETURNING` stays unsupported on reduced SQL writes, so write results remain the existing typed-dispatch after-image payloads instead of growing a second output contract.
+- `0.76.7` adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
 - `0.76.6` widens the reduced SQL write lane with ordered-window `UPDATE`, write-lane aliases, and generated-key `Ulid` inserts while keeping mutation ownership on typed dispatch.
 - `0.76.5` broadens the reduced SQL write lane so typed-dispatch `UPDATE ... WHERE ...` can target rows selected by the admitted reduced predicate surface, and single-table aliases now work on that narrowed `UPDATE` path.
-- `0.76.4` adds single-table aliases for `SELECT` and `DELETE`, plus typed-dispatch `INSERT` widening for multi-row and positional `VALUES` forms.
-- `0.76.3` introduces the first reduced SQL write surface on typed dispatch with narrow `INSERT` and `UPDATE` support while keeping mutation ownership session-local.
-- `0.76.2` rounds out more of the read/query SQL surface with grouped top-level `DISTINCT`, grouped computed text projection, projection aliases, and narrow `ORDER BY` alias support.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
 
 ---
@@ -131,14 +132,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.69.2" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.76.12" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.69.2", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.76.12", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
