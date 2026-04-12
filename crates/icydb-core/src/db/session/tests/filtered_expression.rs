@@ -143,175 +143,116 @@ fn assert_filtered_expression_materialized_descriptor(
 }
 
 #[test]
-fn execute_sql_projection_filtered_expression_order_only_covering_query_returns_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn execute_sql_projection_filtered_expression_order_only_matrix_returns_guarded_rows() {
+    let cases = [
+        (
+            "ascending filtered expression order-only query",
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            false,
+        ),
+        (
+            "descending filtered expression order-only query",
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            true,
+        ),
+    ];
 
-    // Phase 1: seed one deterministic filtered dataset where the active rows
-    // include one mixed-case `handle` value so `ORDER BY LOWER(handle)` has one
-    // real expression-ordering contract to preserve.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
+    for (context, sql, descending) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 2: require the projection lane to keep the guarded active-only
-    // window on the filtered `LOWER(handle)` route.
-    let sql = "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect("filtered expression order-only projection query should execute");
-    let entity_rows = session
-        .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
-        .expect("filtered expression order-only entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().handle.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = filtered_expression_order_only_expected_rows(false);
+        // Phase 1: seed the deterministic filtered dataset so the guarded
+        // `LOWER(handle)` order contract is the same in either direction.
+        seed_filtered_expression_indexed_session_sql_entities(&session);
 
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "guarded filtered expression order-only entity queries should preserve the canonical LOWER(handle) window",
-    );
-    assert_eq!(
-        projected_rows, expected_rows,
-        "guarded filtered expression order-only projection queries should preserve the canonical LOWER(handle) window",
-    );
+        // Phase 2: require both the projection and entity lanes to preserve
+        // the same guarded ordered window.
+        let projected_rows =
+            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
+        let entity_rows = session
+            .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
+        let entity_projected_rows = entity_rows
+            .iter()
+            .map(|row| {
+                vec![
+                    Value::Ulid(row.id().key()),
+                    Value::Text(row.entity_ref().handle.clone()),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let expected_rows = filtered_expression_order_only_expected_rows(descending);
+
+        assert_eq!(
+            entity_projected_rows, expected_rows,
+            "{context} entity queries should preserve the guarded LOWER(handle) window",
+        );
+        assert_eq!(
+            projected_rows, expected_rows,
+            "{context} projection queries should preserve the guarded LOWER(handle) window",
+        );
+    }
 }
 
 #[test]
-fn execute_sql_projection_filtered_expression_order_only_desc_covering_query_returns_guarded_rows()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the same mixed-case filtered dataset so reverse
-    // `LOWER(handle)` traversal keeps the same guarded route.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
-
-    // Phase 2: require reverse ordered projection rows from the same guarded
-    // filtered expression window.
-    let sql = "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect("descending filtered expression order-only projection query should execute");
-    let entity_rows = session
-        .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
-        .expect("descending filtered expression order-only entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().handle.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = filtered_expression_order_only_expected_rows(true);
-
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "descending guarded filtered expression order-only entity queries should preserve the reverse LOWER(handle) window",
-    );
-    assert_eq!(
-        projected_rows, expected_rows,
-        "descending guarded filtered expression order-only projection queries should preserve the reverse LOWER(handle) window",
-    );
-}
-
-#[test]
-fn execute_sql_projection_filtered_expression_equivalent_prefix_forms_match_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one mixed-case filtered dataset so the casefold
-    // `STARTS_WITH(LOWER(handle), ...)` spellings share one real guarded route.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
-
-    // Phase 2: require the accepted filtered expression prefix spellings to
-    // keep one guarded projection result set.
-    let (like_rows, starts_with_rows, range_rows) =
-        filtered_expression_prefix_spellings(&session, false);
-    let entity_rows = session
-        .execute_sql::<FilteredIndexedSessionSqlEntity>(
+fn execute_sql_projection_filtered_expression_prefix_matrix_matches_guarded_rows() {
+    let cases = [
+        (
+            "ascending filtered expression prefix query",
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        )
-        .expect("filtered expression LIKE prefix entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().handle.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = filtered_expression_prefix_expected_rows(false);
-
-    assert_eq!(
-        starts_with_rows, like_rows,
-        "guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        range_rows, like_rows,
-        "guarded filtered expression text-range and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "guarded filtered expression prefix entity queries should preserve the canonical LOWER(handle) window",
-    );
-    assert_eq!(
-        like_rows, expected_rows,
-        "guarded filtered expression prefix projection queries should preserve the canonical LOWER(handle) window",
-    );
-}
-
-#[test]
-fn execute_sql_projection_filtered_expression_equivalent_desc_prefix_forms_match_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the same mixed-case filtered dataset so reverse casefold
-    // prefix traversal stays on the same guarded route.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
-
-    // Phase 2: require the accepted descending filtered expression prefix
-    // spellings to keep one reverse guarded projection result set.
-    let (like_rows, starts_with_rows, range_rows) =
-        filtered_expression_prefix_spellings(&session, true);
-    let entity_rows = session
-        .execute_sql::<FilteredIndexedSessionSqlEntity>(
+            false,
+        ),
+        (
+            "descending filtered expression prefix query",
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        )
-        .expect("descending filtered expression LIKE prefix entity query should execute");
-    let entity_projected_rows = entity_rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Ulid(row.id().key()),
-                Value::Text(row.entity_ref().handle.clone()),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let expected_rows = filtered_expression_prefix_expected_rows(true);
+            true,
+        ),
+    ];
 
-    assert_eq!(
-        starts_with_rows, like_rows,
-        "descending guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        range_rows, like_rows,
-        "descending guarded filtered expression text-range and LIKE prefix projections should stay in parity",
-    );
-    assert_eq!(
-        entity_projected_rows, expected_rows,
-        "descending guarded filtered expression prefix entity queries should preserve the reverse LOWER(handle) window",
-    );
-    assert_eq!(
-        like_rows, expected_rows,
-        "descending guarded filtered expression prefix projection queries should preserve the reverse LOWER(handle) window",
-    );
+    for (context, entity_sql, descending) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+
+        // Phase 1: seed one mixed-case filtered dataset so the casefold
+        // spellings share one guarded route in either direction.
+        seed_filtered_expression_indexed_session_sql_entities(&session);
+
+        // Phase 2: require the admitted filtered expression prefix spellings
+        // to keep one guarded projection result set.
+        let (like_rows, starts_with_rows, range_rows) =
+            filtered_expression_prefix_spellings(&session, descending);
+        let entity_rows = session
+            .execute_sql::<FilteredIndexedSessionSqlEntity>(entity_sql)
+            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
+        let entity_projected_rows = entity_rows
+            .iter()
+            .map(|row| {
+                vec![
+                    Value::Ulid(row.id().key()),
+                    Value::Text(row.entity_ref().handle.clone()),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let expected_rows = filtered_expression_prefix_expected_rows(descending);
+
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "{context} should keep STARTS_WITH and LIKE prefix projections in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "{context} should keep text-range and LIKE prefix projections in parity",
+        );
+        assert_eq!(
+            entity_projected_rows, expected_rows,
+            "{context} entity queries should preserve the guarded LOWER(handle) window",
+        );
+        assert_eq!(
+            like_rows, expected_rows,
+            "{context} projection queries should preserve the guarded LOWER(handle) window",
+        );
+    }
 }
 
 #[test]

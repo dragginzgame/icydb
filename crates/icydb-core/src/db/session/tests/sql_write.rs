@@ -618,6 +618,20 @@ fn execute_sql_dispatch_insert_rejects_tuple_length_mismatch() {
 }
 
 #[test]
+fn execute_sql_dispatch_insert_rejects_returning_clause() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id",
+        )
+        .expect_err("SQL INSERT RETURNING should stay fail-closed");
+
+    assert_sql_unsupported_feature_detail(err, "RETURNING");
+}
+
+#[test]
 fn execute_sql_dispatch_update_requires_where_predicate() {
     reset_session_sql_store();
     let session = sql_session();
@@ -631,6 +645,20 @@ fn execute_sql_dispatch_update_requires_where_predicate() {
             .contains("SQL UPDATE requires WHERE predicate"),
         "UPDATE without WHERE predicate should keep an actionable boundary message",
     );
+}
+
+#[test]
+fn execute_sql_dispatch_update_rejects_returning_clause() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+        )
+        .expect_err("SQL UPDATE RETURNING should stay fail-closed");
+
+    assert_sql_unsupported_feature_detail(err, "RETURNING");
 }
 
 #[test]

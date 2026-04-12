@@ -45,6 +45,21 @@ where
     }
 }
 
+// Assert one specific unsupported SQL feature label is preserved through one
+// selected non-EXPLAIN SQL surface.
+fn assert_specific_sql_unsupported_feature_detail<T, F>(
+    sql: &str,
+    feature: &'static str,
+    mut execute: F,
+) where
+    F: FnMut(&str) -> Result<T, QueryError>,
+{
+    let Err(err) = execute(sql) else {
+        panic!("unsupported SQL feature should fail through the selected SQL surface");
+    };
+    assert_sql_unsupported_feature_detail(err, feature);
+}
+
 // Assert one SQL statement route surface against the expected route value and
 // the derived route classification helpers.
 fn assert_sql_statement_route_case(
@@ -784,5 +799,28 @@ fn explain_sql_preserves_parser_unsupported_feature_detail_labels() {
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         let explain_sql = format!("EXPLAIN {sql}");
         dispatch_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
+    });
+}
+
+#[test]
+fn non_explain_sql_surfaces_preserve_returning_unsupported_feature_detail() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
+
+    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
+        session.query_from_sql::<SessionSqlEntity>(sql)
+    });
+    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
+        session.execute_sql::<SessionSqlEntity>(sql)
+    });
+    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
+        dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+    });
+    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
+        session.execute_sql_grouped::<SessionSqlEntity>(sql, None)
+    });
+    assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {
+        session.execute_sql_aggregate::<SessionSqlEntity>(sql)
     });
 }

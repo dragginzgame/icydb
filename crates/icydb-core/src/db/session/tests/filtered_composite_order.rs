@@ -91,69 +91,57 @@ const fn filtered_composite_order_explain_queries() -> [(&'static str, &'static 
 }
 
 #[test]
-fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic filtered composite-index dataset where
-    // the guarded `tier = 'gold'` equality prefix should expose one ordered
-    // `handle` suffix window without needing an extra bounded text predicate.
-    seed_filtered_composite_order_fixture(&session);
-
-    // Phase 2: require the projection lane to return only the guarded
-    // equality-prefix subset under the `ORDER BY handle, id` suffix shape.
-    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect("filtered composite order-only covering projection query should execute");
-
-    assert_eq!(
-        projected_rows,
-        vec![
+fn execute_sql_projection_filtered_composite_order_only_matrix_returns_guarded_rows() {
+    let cases = [
+        (
+            "ascending filtered composite order-only covering projection query",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
             vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
+                vec![
+                    Value::Text("gold".to_string()),
+                    Value::Text("bravo".to_string()),
+                ],
+                vec![
+                    Value::Text("gold".to_string()),
+                    Value::Text("bristle".to_string()),
+                ],
             ],
+        ),
+        (
+            "descending filtered composite order-only covering projection query",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
             vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
+                vec![
+                    Value::Text("gold".to_string()),
+                    Value::Text("charlie".to_string()),
+                ],
+                vec![
+                    Value::Text("gold".to_string()),
+                    Value::Text("bristle".to_string()),
+                ],
             ],
-        ],
-        "guarded filtered composite order-only queries should return only rows admitted by the equality-prefix filtered window",
-    );
-}
+        ),
+    ];
 
-#[test]
-fn execute_sql_projection_filtered_composite_order_only_desc_covering_query_returns_guarded_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+    for (context, sql, expected_rows) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic filtered composite-index dataset where
-    // reverse traversal still depends on the same guarded `tier = 'gold'`
-    // equality prefix before ordering by the `handle` suffix.
-    seed_filtered_composite_order_fixture(&session);
+        // Phase 1: seed one deterministic filtered composite-index dataset so
+        // the guarded `tier = 'gold'` equality prefix exposes one ordered suffix window.
+        seed_filtered_composite_order_fixture(&session);
 
-    // Phase 2: require reverse ordered projection rows from the same guarded
-    // equality-prefix composite window.
-    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2";
-    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
-        .expect(
-            "descending filtered composite order-only covering projection query should execute",
+        // Phase 2: require the projection lane to return only the guarded
+        // equality-prefix subset under that ordered `handle, id` suffix shape.
+        let projected_rows =
+            dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+
+        assert_eq!(
+            projected_rows, expected_rows,
+            "{context} should preserve the guarded equality-prefix window",
         );
-
-    assert_eq!(
-        projected_rows,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("charlie".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-        ],
-        "descending guarded filtered composite order-only queries should return the reverse equality-prefix window",
-    );
+    }
 }
 
 #[test]

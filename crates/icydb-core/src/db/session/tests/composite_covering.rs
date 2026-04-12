@@ -1,140 +1,84 @@
 use super::*;
 
 #[test]
-fn session_explain_execution_order_only_composite_covering_query_uses_index_range_access() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic composite-index dataset so the SQL lane
-    // can prove planner-selected order-only access on the live `(code, serial)` index.
-    seed_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_221_u128, "alpha", 2),
-            (9_222, "alpha", 1),
-            (9_223, "beta", 1),
-        ],
-    );
-
-    // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
-    // composite index-range root and covering-read route.
-    let descriptor = session
-        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+fn session_explain_execution_order_only_composite_covering_matrix_uses_index_range_access() {
+    let cases = [
+        (
+            "ascending composite order-only covering SQL query",
+            vec![
+                (9_221_u128, "alpha", 2),
+                (9_222, "alpha", 1),
+                (9_223, "beta", 1),
+            ],
             "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
-        )
-        .expect("composite order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("composite order-only covering SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "order-only composite secondary queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "order-only composite coverable projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "order-only composite explain roots should expose the covering-read route label",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect("order-only composite explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "session-backed order-only composite covering nodes should inherit the planner-proven covering mode",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "order-only composite index-range roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "order-only composite index-range roots should report access-satisfied ordering",
-    );
-}
-
-#[test]
-fn session_explain_execution_order_only_composite_desc_covering_query_uses_index_range_access() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic composite-index dataset so the SQL lane
-    // can prove planner-selected descending order-only access on the live
-    // `(code, serial)` index instead of materializing a reverse sort.
-    seed_composite_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_231_u128, "alpha", 2),
-            (9_232, "alpha", 1),
-            (9_233, "beta", 1),
-        ],
-    );
-
-    // Phase 2: require EXPLAIN EXECUTION to surface the shared descending
-    // order-only composite index-range root and covering-read route.
-    let descriptor = session
-        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+        ),
+        (
+            "descending composite order-only covering SQL query",
+            vec![
+                (9_231_u128, "alpha", 2),
+                (9_232, "alpha", 1),
+                (9_233, "beta", 1),
+            ],
             "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code DESC, serial DESC, id DESC LIMIT 2",
-        )
-        .expect("descending composite order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("descending composite order-only covering SQL explain_execution should succeed");
+        ),
+    ];
 
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "descending order-only composite secondary queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "descending order-only composite coverable projections should keep the explicit covering-read route",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect(
-                "descending order-only composite explain tree should emit a covering-read node",
-            );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "descending session-backed order-only composite covering nodes should inherit the planner-proven covering mode",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "descending order-only composite explain roots should expose the covering-read route label",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending order-only composite index-range roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "descending order-only composite index-range roots should report access-satisfied ordering",
-    );
+    for (context, seed_rows, sql) in cases {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
+
+        // Phase 1: seed one deterministic composite-index dataset so the SQL lane
+        // proves planner-selected order-only access on the live `(code, serial)` index.
+        seed_composite_indexed_session_sql_entities(&session, seed_rows.as_slice());
+
+        // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
+        // composite index-range root and covering-read route.
+        let descriptor = session
+            .query_from_sql::<CompositeIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
+            .explain_execution()
+            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} should stay on the shared index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(true),
+            "{context} should keep the explicit covering-read route",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("cov_read_route"),
+            Some(&Value::Text("covering_read".to_string())),
+            "{context} should expose the covering-read route label",
+        );
+        let projection_node =
+            explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+                .unwrap_or_else(|| panic!("{context} should emit a covering-read node"));
+        assert_eq!(
+            projection_node.node_properties().get("existing_row_mode"),
+            Some(&Value::Text("planner_proven".to_string())),
+            "{context} should inherit the planner-proven covering mode",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::SecondaryOrderPushdown
+            )
+            .is_some(),
+            "{context} should report secondary order pushdown",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )
+            .is_some(),
+            "{context} should report access-satisfied ordering",
+        );
+    }
 }
 
 #[test]

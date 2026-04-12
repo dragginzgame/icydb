@@ -249,6 +249,7 @@ const fn keyword_from_ident(value: &str) -> Option<Keyword> {
         5 if value.eq_ignore_ascii_case("ORDER") => Some(Keyword::Order),
         5 if value.eq_ignore_ascii_case("UNION") => Some(Keyword::Union),
         5 if value.eq_ignore_ascii_case("WHERE") => Some(Keyword::Where),
+        9 if value.eq_ignore_ascii_case("RETURNING") => Some(Keyword::Returning),
         6 if value.eq_ignore_ascii_case("DELETE") => Some(Keyword::Delete),
         6 if value.eq_ignore_ascii_case("EXCEPT") => Some(Keyword::Except),
         6 if value.eq_ignore_ascii_case("HAVING") => Some(Keyword::Having),

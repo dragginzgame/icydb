@@ -133,7 +133,7 @@ fn execute_sql_entity_direct_starts_with_matches_indexed_like_rows() {
 }
 
 #[test]
-fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_rows() {
+fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
@@ -144,53 +144,26 @@ fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_ro
     )
     .expect("LOWER(field) LIKE projection should execute");
 
-    let starts_with_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC",
-    )
-    .expect("direct LOWER(field) STARTS_WITH projection should execute");
+    let cases = [
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC",
+            "direct LOWER(field) STARTS_WITH projection",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+            "LOWER(field) ordered text-range projection",
+        ),
+    ];
 
-    assert_eq!(
-        starts_with_rows, like_rows,
-        "direct LOWER(field) STARTS_WITH projection should match the established casefold LIKE prefix result set",
-    );
-}
+    for (sql, context) in cases {
+        let actual_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
-#[test]
-fn execute_sql_projection_direct_lower_text_range_matches_indexed_lower_like_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_direct_starts_with_fixture(&session);
-
-    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
-    )
-    .expect("LOWER(field) LIKE projection should execute");
-
-    let range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
-    )
-    .expect("LOWER(field) ordered text-range projection should execute");
-
-    assert_eq!(
-        range_rows, like_rows,
-        "LOWER(field) ordered text-range projection should match the established casefold LIKE prefix result set",
-    );
-}
-
-#[test]
-fn session_explain_execution_direct_lower_text_range_keeps_expression_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_direct_starts_with_fixture(&session);
-
-    assert_direct_casefold_expression_route(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
-        "LOWER(field) ordered text-range queries",
-    );
+        assert_eq!(
+            actual_rows, like_rows,
+            "{context} should match the established casefold LIKE prefix result set",
+        );
+    }
 }
 
 #[test]
@@ -221,7 +194,7 @@ fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expre
 }
 
 #[test]
-fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows() {
+fn execute_sql_entity_direct_upper_prefix_matrix_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_direct_starts_with_fixture(&session);
@@ -232,61 +205,31 @@ fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows()
         )
         .expect("UPPER(field) LIKE entity query should execute");
 
-    let starts_with_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+    let cases = [
+        (
             "SELECT * FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
-        )
-        .expect("direct UPPER(field) STARTS_WITH entity query should execute");
-
-    assert_eq!(starts_with_rows.len(), like_rows.len());
-    for (starts_with, like) in starts_with_rows.iter().zip(like_rows.iter()) {
-        assert_eq!(
-            starts_with.entity_ref(),
-            like.entity_ref(),
-            "direct UPPER(field) STARTS_WITH entity rows should match the established casefold LIKE prefix entity rows",
-        );
-    }
-}
-
-#[test]
-fn execute_sql_entity_direct_upper_text_range_matches_indexed_upper_like_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_direct_starts_with_fixture(&session);
-
-    let like_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(
-            "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
-        )
-        .expect("UPPER(field) LIKE entity query should execute");
-
-    let range_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(
+            "direct UPPER(field) STARTS_WITH entity rows",
+        ),
+        (
             "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-        )
-        .expect("UPPER(field) ordered text-range entity query should execute");
+            "UPPER(field) ordered text-range entity rows",
+        ),
+    ];
 
-    assert_eq!(range_rows.len(), like_rows.len());
-    for (range_row, like_row) in range_rows.iter().zip(like_rows.iter()) {
-        assert_eq!(
-            range_row.entity_ref(),
-            like_row.entity_ref(),
-            "UPPER(field) ordered text-range entity rows should match the established casefold LIKE prefix entity rows",
-        );
+    for (sql, context) in cases {
+        let actual_rows = session
+            .execute_sql::<IndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+
+        assert_eq!(actual_rows.len(), like_rows.len());
+        for (actual_row, like_row) in actual_rows.iter().zip(like_rows.iter()) {
+            assert_eq!(
+                actual_row.entity_ref(),
+                like_row.entity_ref(),
+                "{context} should match the established casefold LIKE prefix entity rows",
+            );
+        }
     }
-}
-
-#[test]
-fn session_explain_execution_direct_upper_text_range_keeps_expression_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_direct_starts_with_fixture(&session);
-
-    assert_direct_casefold_expression_route(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-        "UPPER(field) ordered text-range queries",
-    );
 }
 
 #[test]

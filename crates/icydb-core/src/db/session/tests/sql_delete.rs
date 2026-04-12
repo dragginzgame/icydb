@@ -121,6 +121,18 @@ fn execute_sql_delete_accepts_single_table_alias() {
 }
 
 #[test]
+fn execute_sql_delete_rejects_returning_clause() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>("DELETE FROM SessionSqlEntity WHERE age < 20 RETURNING id")
+        .expect_err("DELETE RETURNING should stay fail-closed");
+
+    assert_sql_unsupported_feature_detail(err, "RETURNING");
+}
+
+#[test]
 fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
     // Phase 1: define one shared seed dataset and table-driven DELETE cases.
     let seed_rows = [

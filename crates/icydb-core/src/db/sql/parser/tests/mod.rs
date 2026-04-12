@@ -1302,6 +1302,30 @@ fn parse_update_statement_rejects_invalid_window_clause_order() {
 }
 
 #[test]
+fn parse_insert_statement_rejects_returning_clause_with_stable_feature_label() {
+    let err = parse_sql("INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING id")
+        .expect_err("INSERT RETURNING should stay fail-closed");
+
+    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+}
+
+#[test]
+fn parse_update_statement_rejects_returning_clause_with_stable_feature_label() {
+    let err = parse_sql("UPDATE users SET name = 'Ada' WHERE id = 1 RETURNING id")
+        .expect_err("UPDATE RETURNING should stay fail-closed");
+
+    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+}
+
+#[test]
+fn parse_delete_statement_rejects_returning_clause_with_stable_feature_label() {
+    let err = parse_sql("DELETE FROM users WHERE id = 1 RETURNING id")
+        .expect_err("DELETE RETURNING should stay fail-closed");
+
+    assert_eq!(err, SqlParseError::unsupported_feature("RETURNING"));
+}
+
+#[test]
 fn parse_insert_statement_without_column_list_parses() {
     let statement =
         parse_sql("INSERT INTO users VALUES (1)").expect("insert without column list should parse");
@@ -1510,6 +1534,15 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SELECT len(name) FROM users",
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
+        (
+            "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING id",
+            "RETURNING",
+        ),
+        (
+            "UPDATE users SET name = 'Ada' WHERE id = 1 RETURNING id",
+            "RETURNING",
+        ),
+        ("DELETE FROM users WHERE id = 1 RETURNING id", "RETURNING"),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
