@@ -22,7 +22,7 @@ pub struct UiDataStore {}
 pub struct UiEntity {}
 
 fn main() {
-    let _ = UiEntityInsert {
+    let _ = UiEntityCreate {
         name: Some("Ada".to_string()),
         created_at: Some(Timestamp::now()),
         id: Some(1),

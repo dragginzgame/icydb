@@ -549,13 +549,13 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::write_response(self.inner.insert(entity)?))
     }
 
-    /// Insert one authored typed input.
-    pub fn insert_typed<I>(&self, input: I) -> Result<WriteResponse<I::Entity>, Error>
+    /// Create one authored typed input.
+    pub fn create<I>(&self, input: I) -> Result<WriteResponse<I::Entity>, Error>
     where
-        I: crate::traits::EntityInsertInput,
+        I: crate::traits::EntityCreateInput,
         I::Entity: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::write_response(self.inner.insert_typed(input)?))
+        Ok(Self::write_response(self.inner.create(input)?))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.

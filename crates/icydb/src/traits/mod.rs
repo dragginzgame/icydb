@@ -1,6 +1,6 @@
 pub use icydb_core::traits::{
     Add, AddAssign, Atomic, CanisterKind, Collection, Debug, Default, Deserialize,
-    DeserializeOwned, Div, DivAssign, EntityInsertInput, EntityInsertMaterialization, EntityKey,
+    DeserializeOwned, Div, DivAssign, EntityCreateInput, EntityCreateMaterialization, EntityKey,
     EntityKeyBytes, EntityKind, EntityPlacement, EntitySchema, EntityValue, EnumValue, Eq,
     FieldProjection, FieldTypeMeta, FieldValue, FieldValueKind, From, Hash, Inner, Kind,
     MapCollection, Mul, MulAssign, NumericValue, Ordering, PartialEq, Path, Rem, Sanitize,

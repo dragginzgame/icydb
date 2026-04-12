@@ -27,7 +27,7 @@ pub struct UiDataStore {}
 pub struct UiEntity {}
 
 fn main() {
-    let _ = UiEntityInsert {
+    let _ = UiEntityCreate {
         id: Some(Ulid::generate()),
         name: Some("Ada".to_string()),
     };

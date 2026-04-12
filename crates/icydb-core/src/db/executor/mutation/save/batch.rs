@@ -42,7 +42,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             schema_fingerprint,
             validate_relations,
             write_context,
-            authored_insert_slots: None,
+            authored_create_slots: None,
         };
         let mut batch_span = None;
         let mut batch_delta = PreparedRowOpDelta {
@@ -207,7 +207,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             schema_fingerprint,
             validate_relations,
             write_context,
-            authored_insert_slots: None,
+            authored_create_slots: None,
         };
 
         // Validate and stage all row ops before opening the commit window.
@@ -217,7 +217,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 preflight.schema,
                 preflight.validate_relations,
                 preflight.write_context,
-                preflight.authored_insert_slots,
+                preflight.authored_create_slots,
             )?;
             let marker_row_op = Self::prepare_typed_entity_row_op(
                 &ctx,

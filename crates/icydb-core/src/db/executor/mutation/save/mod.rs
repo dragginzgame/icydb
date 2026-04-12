@@ -12,7 +12,7 @@ use crate::{
     db::{Db, commit::CommitSchemaFingerprint, data::PersistedRow, schema::SchemaInfo},
     error::InternalError,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{EntityInsertInput, EntityValue},
+    traits::{EntityCreateInput, EntityValue},
     types::Timestamp,
 };
 use candid::CandidType;
@@ -82,7 +82,7 @@ struct SavePreflightInputs<'a> {
     schema_fingerprint: CommitSchemaFingerprint,
     validate_relations: bool,
     write_context: SanitizeWriteContext,
-    authored_insert_slots: Option<&'a [usize]>,
+    authored_create_slots: Option<&'a [usize]>,
 }
 
 //
@@ -150,12 +150,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_entity(SaveMode::Insert, entity)
     }
 
-    /// Insert one authored typed input, preserving authored-slot provenance.
-    pub(crate) fn insert_typed<I>(&self, input: I) -> Result<E, InternalError>
+    /// Create one authored typed input, preserving authored-slot provenance.
+    pub(crate) fn create<I>(&self, input: I) -> Result<E, InternalError>
     where
-        I: EntityInsertInput<Entity = E>,
+        I: EntityCreateInput<Entity = E>,
     {
-        self.save_typed_insert_input(input)
+        self.save_typed_create_input(input)
     }
 
     /// Update an existing entity (errors if it does not exist).

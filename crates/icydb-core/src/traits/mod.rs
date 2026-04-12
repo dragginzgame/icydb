@@ -212,20 +212,20 @@ pub trait EntityValue: EntityKey + FieldProjection + Sized {
 }
 
 ///
-/// EntityInsertMaterialization
+/// EntityCreateMaterialization
 ///
-/// Materialized authored insert payload produced by one generated insert input.
+/// Materialized authored create payload produced by one generated create input.
 /// Carries both the fully-typed entity after-image and the authored field-slot
 /// list so save preflight can still distinguish omission from authorship.
 ///
 
-pub struct EntityInsertMaterialization<E> {
+pub struct EntityCreateMaterialization<E> {
     entity: E,
     authored_slots: Vec<usize>,
 }
 
-impl<E> EntityInsertMaterialization<E> {
-    /// Build one materialized typed insert payload.
+impl<E> EntityCreateMaterialization<E> {
+    /// Build one materialized typed create payload.
     #[must_use]
     pub const fn new(entity: E, authored_slots: Vec<usize>) -> Self {
         Self {
@@ -248,18 +248,18 @@ impl<E> EntityInsertMaterialization<E> {
 }
 
 ///
-/// EntityInsertInput
+/// EntityCreateInput
 ///
-/// Insert-authored typed input for one entity.
+/// Create-authored typed input for one entity.
 /// This is intentionally distinct from the readable entity shape so generated
-/// and managed fields can stay structurally un-authorable on typed inserts.
+/// and managed fields can stay structurally un-authorable on typed creates.
 ///
 
-pub trait EntityInsertInput: Sized {
+pub trait EntityCreateInput: Sized {
     type Entity: EntityValue + Default;
 
-    /// Materialize one typed insert payload plus authored-slot provenance.
-    fn materialize_insert(self) -> EntityInsertMaterialization<Self::Entity>;
+    /// Materialize one typed create payload plus authored-slot provenance.
+    fn materialize_create(self) -> EntityCreateMaterialization<Self::Entity>;
 }
 
 /// Marker for entities with exactly one logical row.

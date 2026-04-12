@@ -1457,14 +1457,14 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_timestamp_field() {
 }
 
 #[test]
-fn facade_insert_typed_synthesizes_generated_and_managed_fields() {
+fn facade_create_synthesizes_generated_and_managed_fields() {
     let session = fresh_facade_session();
     let inserted = session
-        .insert_typed(FacadeSqlEntityInsert {
+        .create(FacadeSqlEntityCreate {
             name: Some("Ada".to_string()),
             age: Some(31),
         })
-        .expect("facade typed insert input should succeed")
+        .expect("facade create input should succeed")
         .entity();
 
     assert_ne!(inserted.id, crate::types::Ulid::default());
@@ -1473,14 +1473,14 @@ fn facade_insert_typed_synthesizes_generated_and_managed_fields() {
 }
 
 #[test]
-fn facade_insert_typed_synthesizes_generated_timestamp_field() {
+fn facade_create_synthesizes_generated_timestamp_field() {
     let session = fresh_facade_session();
     let inserted = session
-        .insert_typed(FacadeSqlGeneratedTimestampEntityInsert {
+        .create(FacadeSqlGeneratedTimestampEntityCreate {
             id: Some(1),
             name: Some("Ada".to_string()),
         })
-        .expect("facade typed insert input should synthesize generated timestamp fields")
+        .expect("facade create input should synthesize generated timestamp fields")
         .entity();
 
     assert_ne!(inserted.created_on_insert, crate::types::Timestamp::EPOCH);
@@ -1489,19 +1489,19 @@ fn facade_insert_typed_synthesizes_generated_timestamp_field() {
 }
 
 #[test]
-fn facade_insert_typed_rejects_omitted_authorable_fields() {
+fn facade_create_rejects_omitted_authorable_fields() {
     let session = fresh_facade_session();
     let err = session
-        .insert_typed(FacadeSqlDefaultOnlyEntityInsert {
+        .create(FacadeSqlDefaultOnlyEntityCreate {
             id: Some(1),
             nickname: None,
         })
-        .expect_err("typed insert input should keep omitted authorable fields fail-closed");
+        .expect_err("create input should keep omitted authorable fields fail-closed");
     let err_text = err.to_string();
 
     assert!(
-        err_text.contains("typed insert requires explicit values for authorable fields nickname"),
-        "typed insert input should keep the omitted-authorable boundary explicit: {err_text}",
+        err_text.contains("create requires explicit values for authorable fields nickname"),
+        "create input should keep the omitted-authorable boundary explicit: {err_text}",
     );
 }
 

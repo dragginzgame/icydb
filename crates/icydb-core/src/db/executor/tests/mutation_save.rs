@@ -1944,7 +1944,7 @@ fn structural_insert_matches_typed_insert_parity() {
             id: typed_id,
             email: typed_email.to_string(),
         })
-        .expect("typed insert should succeed");
+        .expect("typed create should succeed");
     let structural: UniqueEmailEntity = session
         .insert_structural(
             structural_id,
