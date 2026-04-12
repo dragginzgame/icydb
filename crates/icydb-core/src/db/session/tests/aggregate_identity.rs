@@ -464,41 +464,6 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
 }
 
 #[test]
-fn session_aggregate_numeric_field_prepared_strategy_explain_projects_sum_shape() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_2121, 7, 10),
-            (8_2122, 7, 20),
-            (8_2123, 7, 35),
-            (8_2124, 8, 99),
-        ],
-    );
-    let query = session
-        .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(7))
-        .order_by("rank");
-    let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
-        .expect("rank field slot should resolve");
-    let explain = session
-        .explain_query_prepared_aggregate_terminal_with_visible_indexes(
-            query.query(),
-            &PreparedFluentNumericFieldStrategy::sum_by_slot(rank_slot),
-        )
-        .expect("prepared numeric explain should build");
-    let node = explain.execution_node_descriptor();
-
-    assert_eq!(explain.terminal(), AggregateKind::Sum);
-    assert_eq!(node.node_type(), ExplainExecutionNodeType::AggregateSum);
-    assert_eq!(
-        node.node_properties().get("proj_field"),
-        Some(&Value::from("rank"))
-    );
-}
-
-#[test]
 fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection() {
     reset_session_sql_store();
     let session = sql_session();
@@ -540,6 +505,17 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
     let public_avg_distinct = load_window()
         .explain_avg_distinct_by("rank")
         .expect("public fluent AVG DISTINCT explain should build");
+
+    let prepared_sum_node = prepared_sum.execution_node_descriptor();
+    assert_eq!(prepared_sum.terminal(), AggregateKind::Sum);
+    assert_eq!(
+        prepared_sum_node.node_type(),
+        ExplainExecutionNodeType::AggregateSum
+    );
+    assert_eq!(
+        prepared_sum_node.node_properties().get("proj_field"),
+        Some(&Value::from("rank"))
+    );
 
     assert_eq!(
         session_aggregate_terminal_plan_snapshot(&public_sum),

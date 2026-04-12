@@ -94,6 +94,33 @@ fn assert_grouped_qualified_identifier_explain_case(
     );
 }
 
+// Execute one grouped-row equivalence pair and assert both SQL spellings keep
+// the same grouped payload rows and paging state.
+fn assert_grouped_row_equivalence_case(
+    session: &DbSession<SessionSqlCanister>,
+    left_sql: &str,
+    right_sql: &str,
+    context: &str,
+) {
+    let left = session
+        .execute_sql_grouped::<SessionSqlEntity>(left_sql, None)
+        .unwrap_or_else(|err| panic!("{context} left SQL should execute: {err}"));
+    let right = session
+        .execute_sql_grouped::<SessionSqlEntity>(right_sql, None)
+        .unwrap_or_else(|err| panic!("{context} right SQL should execute: {err}"));
+
+    assert_eq!(
+        left.rows(),
+        right.rows(),
+        "{context} should normalize onto the same grouped rows",
+    );
+    assert_eq!(
+        left.continuation_cursor(),
+        right.continuation_cursor(),
+        "{context} should preserve the same grouped paging state",
+    );
+}
+
 // Assert one indexed grouped SQL explain/execution pair stays on the ordered
 // grouped public contract.
 fn assert_indexed_grouped_ordered_public_case(
@@ -166,90 +193,53 @@ fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_message, context) in [
+    for (sql, expected_message, context, expect_unsupported_variant) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity",
             "execute_sql_grouped rejects computed text projection",
             "computed text projection",
+            false,
         ),
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
             "execute_sql_grouped rejects global aggregate SELECT",
             "global aggregate execution",
+            false,
+        ),
+        (
+            "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
+            "execute_sql_grouped rejects DELETE",
+            "delete execution",
+            false,
+        ),
+        (
+            "SELECT name FROM SessionSqlEntity",
+            "",
+            "non-grouped scalar SQL",
+            true,
         ),
     ] {
         let err = session
             .execute_sql_grouped::<SessionSqlEntity>(sql, None)
             .expect_err("grouped lane rejection matrix should stay fail-closed");
 
-        assert!(
-            err.to_string().contains(expected_message),
-            "{context} should preserve the actionable grouped-lane boundary message",
-        );
+        if expect_unsupported_variant {
+            assert!(
+                matches!(
+                    err,
+                    QueryError::Execute(
+                        crate::db::query::intent::QueryExecutionError::Unsupported(_)
+                    )
+                ),
+                "{context} should fail closed for unsupported grouped-lane shapes",
+            );
+        } else {
+            assert!(
+                err.to_string().contains(expected_message),
+                "{context} should preserve the actionable grouped-lane boundary message",
+            );
+        }
     }
-}
-
-#[test]
-fn execute_sql_grouped_supports_grouped_computed_text_projection_on_session_lane() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_session_sql_entities(
-        &session,
-        &[
-            (" alpha ", 20),
-            (" alpha ", 21),
-            ("beta", 30),
-            ("gamma  ", 40),
-        ],
-    );
-
-    let grouped = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT TRIM(name), COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            None,
-        )
-        .expect("execute_sql_grouped should support grouped computed text projection on the session-owned lane");
-
-    let grouped_rows = grouped
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        grouped_rows,
-        vec![
-            (Value::from("alpha"), Value::Uint(2)),
-            (Value::from("beta"), Value::Uint(1)),
-            (Value::from("gamma"), Value::Uint(1)),
-        ],
-        "grouped computed SQL projection should transform grouped key values after the base grouped query runs",
-    );
-}
-
-#[test]
-fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let query = session
-        .query_from_sql::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-        )
-        .expect("grouped aggregate projection SQL query should lower");
-    assert!(
-        query.has_grouping(),
-        "grouped aggregate SQL projection lowering should produce grouped query intent",
-    );
 }
 
 #[test]
@@ -270,6 +260,10 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
         )
         .expect("grouped explain SQL query should lower");
+    assert!(
+        query.has_grouping(),
+        "grouped aggregate SQL projection lowering should produce grouped query intent",
+    );
     let explain = query
         .explain()
         .expect("grouped logical explain should succeed");
@@ -909,94 +903,51 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
 }
 
 #[test]
-fn execute_sql_grouped_select_count_returns_grouped_aggregate_row() {
+fn execute_sql_grouped_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "aggregate-c".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let execution = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-            None,
-        )
-        .expect("grouped SQL aggregate execution should succeed");
-
-    assert!(
-        execution.continuation_cursor().is_none(),
-        "single-page grouped aggregate execution should not emit continuation cursor",
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("qualified-group-a", 20),
+            ("qualified-group-b", 20),
+            ("qualified-group-c", 32),
+        ],
     );
-    assert_eq!(execution.rows().len(), 2);
-    assert_eq!(execution.rows()[0].group_key(), [Value::Uint(20)]);
-    assert_eq!(execution.rows()[0].aggregate_values(), [Value::Uint(2)]);
-    assert_eq!(execution.rows()[1].group_key(), [Value::Uint(32)]);
-    assert_eq!(execution.rows()[1].aggregate_values(), [Value::Uint(1)]);
-}
 
-#[test]
-fn execute_sql_grouped_select_count_with_qualified_identifiers_executes() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-group-a".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-group-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "qualified-group-c".to_string(),
-            age: 32,
-        })
-        .expect("seed insert should succeed");
-
-    let execution = session
-        .execute_sql_grouped::<SessionSqlEntity>(
+    for (sql, context) in [
+        (
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+            "canonical grouped count SQL",
+        ),
+        (
             "SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 20 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age ASC LIMIT 10",
-            None,
-        )
-        .expect("qualified grouped SQL aggregate execution should succeed");
+            "qualified grouped count SQL",
+        ),
+    ] {
+        let execution = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-    assert!(execution.continuation_cursor().is_none());
-    assert_eq!(execution.rows().len(), 2);
-    assert_eq!(execution.rows()[0].group_key(), [Value::Uint(20)]);
-    assert_eq!(execution.rows()[0].aggregate_values(), [Value::Uint(2)]);
-    assert_eq!(execution.rows()[1].group_key(), [Value::Uint(32)]);
-    assert_eq!(execution.rows()[1].aggregate_values(), [Value::Uint(1)]);
+        assert!(
+            execution.continuation_cursor().is_none(),
+            "{context} should fully materialize under LIMIT 10",
+        );
+        assert_eq!(
+            execution.rows().len(),
+            2,
+            "{context} should return two groups"
+        );
+        assert_eq!(execution.rows()[0].group_key(), [Value::Uint(20)]);
+        assert_eq!(execution.rows()[0].aggregate_values(), [Value::Uint(2)]);
+        assert_eq!(execution.rows()[1].group_key(), [Value::Uint(32)]);
+        assert_eq!(execution.rows()[1].aggregate_values(), [Value::Uint(1)]);
+    }
 }
 
 #[test]
@@ -1161,33 +1112,12 @@ fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consis
 }
 
 #[test]
-fn execute_sql_grouped_rejects_invalid_cursor_token_payload() {
+fn execute_sql_grouped_cursor_rejection_matrix_preserves_cursor_plan_taxonomy() {
     reset_session_sql_store();
     let session = sql_session();
 
-    // Phase 1: execute one grouped query with an invalid cursor token payload.
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY age \
-             ORDER BY age ASC LIMIT 1",
-            Some("zz"),
-        )
-        .expect_err("grouped SQL should fail closed on invalid cursor token payload");
-
-    // Phase 2: assert decode failures stay in cursor-plan error taxonomy.
-    assert_query_error_is_cursor_plan(err, |inner| {
-        matches!(inner, CursorPlanError::InvalidContinuationCursor { .. })
-    });
-}
-
-#[test]
-fn execute_sql_grouped_rejects_cursor_token_from_different_query_signature() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: seed grouped buckets and capture one valid continuation cursor.
+    // Phase 1: seed grouped buckets and capture one valid continuation cursor
+    // for the signature-mismatch arm of the cursor rejection matrix.
     seed_session_sql_entities(
         &session,
         &[
@@ -1211,60 +1141,92 @@ fn execute_sql_grouped_rejects_cursor_token_from_different_query_signature() {
             .expect("first grouped SQL page should emit continuation cursor"),
     );
 
-    // Phase 2: replay cursor against a signature-incompatible grouped SQL shape.
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY age \
-             ORDER BY age DESC LIMIT 1",
+    // Phase 2: assert both decode and signature failures stay mapped onto the
+    // cursor-plan error taxonomy.
+    for (cursor, context, expect_invalid_payload) in [
+        (Some("zz"), "invalid grouped cursor token payload", true),
+        (
             Some(cursor.as_str()),
-        )
-        .expect_err("grouped SQL should reject cursor tokens from incompatible query signatures");
-
-    // Phase 3: assert mismatch stays in cursor-plan signature error taxonomy.
-    assert_query_error_is_cursor_plan(err, |inner| {
-        matches!(
-            inner,
-            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
-        )
-    });
-}
-
-#[test]
-fn execute_sql_grouped_rejects_scalar_sql_intent() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>("SELECT name FROM SessionSqlEntity", None)
-        .expect_err("grouped SQL API should reject non-grouped SQL queries");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+            "grouped cursor token from incompatible query signature",
+            false,
         ),
-        "grouped SQL API should fail closed for non-grouped SQL shapes",
-    );
+    ] {
+        let sql = match context {
+            "invalid grouped cursor token payload" => {
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 1"
+            }
+            "grouped cursor token from incompatible query signature" => {
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age DESC LIMIT 1"
+            }
+            _ => unreachable!("grouped cursor rejection matrix is fixed"),
+        };
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, cursor)
+            .expect_err("grouped cursor rejection matrix should stay fail-closed");
+
+        if expect_invalid_payload {
+            assert_query_error_is_cursor_plan(err, |inner| {
+                matches!(inner, CursorPlanError::InvalidContinuationCursor { .. })
+            });
+        } else {
+            assert_query_error_is_cursor_plan(err, |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+            });
+        }
+    }
 }
 
 #[test]
-fn execute_sql_rejects_grouped_sql_intent_without_grouped_api() {
+fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age")
-        .expect_err("scalar SQL API should reject grouped SQL intent");
+    for (sql, expected_message, context) in [
+        (
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            Some("execute_sql rejects grouped SELECT"),
+            "grouped SELECT on scalar API",
+        ),
+        (
+            "SELECT COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            None,
+            "group-by projection mismatch on scalar API",
+        ),
+        (
+            "SELECT age, TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            None,
+            "grouped computed projection widening on scalar API",
+        ),
+    ] {
+        let err = session
+            .execute_sql::<SessionSqlEntity>(sql)
+            .expect_err("scalar API grouped-shape matrix should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("execute_sql rejects grouped SELECT"),
-        "scalar SQL API must preserve grouped explicit-entrypoint guidance",
-    );
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "{context} should fail at the reduced scalar lowering boundary",
+        );
+        if let Some(expected_message) = expected_message {
+            assert!(
+                err.to_string().contains(expected_message),
+                "{context} should preserve explicit grouped entrypoint guidance",
+            );
+        }
+    }
 }
 
 #[test]
@@ -1279,6 +1241,22 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
                 (Value::Uint(32), vec![Value::Uint(1)]),
             ],
             2u32,
+            false,
+        ),
+        (
+            "dispatch grouped aliased computed SQL",
+            "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec!["trimmed_name", "total"],
+            vec![
+                (Value::from("alpha"), vec![Value::Uint(2)]),
+                (Value::from("beta"), vec![Value::Uint(1)]),
+                (Value::from("gamma"), vec![Value::Uint(1)]),
+            ],
+            3u32,
+            false,
         ),
         (
             "dispatch grouped computed SQL",
@@ -1293,10 +1271,13 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
                 (Value::from("gamma"), vec![Value::Uint(1)]),
             ],
             3u32,
+            true,
         ),
     ];
 
-    for (context, sql, expected_columns, expected_rows, expected_row_count) in cases {
+    for (context, sql, expected_columns, expected_rows, expected_row_count, check_grouped_api) in
+        cases
+    {
         reset_session_sql_store();
         let session = sql_session();
 
@@ -1324,7 +1305,7 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
                     })
                     .expect("seed insert should succeed");
             }
-            "dispatch grouped computed SQL" => {
+            "dispatch grouped aliased computed SQL" | "dispatch grouped computed SQL" => {
                 seed_session_sql_entities(
                     &session,
                     &[
@@ -1346,130 +1327,48 @@ fn execute_sql_dispatch_grouped_payload_matrix() {
             expected_row_count,
             context,
         );
+
+        if check_grouped_api {
+            let grouped = session
+                .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+                .unwrap_or_else(|err| {
+                    panic!("{context} should execute through grouped SQL lane too: {err}")
+                });
+            let grouped_rows = grouped
+                .rows()
+                .iter()
+                .map(|row| {
+                    (
+                        row.group_key()[0].clone(),
+                        vec![row.aggregate_values()[0].clone()],
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert!(
+                grouped.continuation_cursor().is_none(),
+                "{context} grouped SQL lane should fully materialize under LIMIT 10",
+            );
+            assert_eq!(
+                grouped_rows, expected_rows,
+                "{context} grouped SQL lane should preserve grouped key/value payloads",
+            );
+        }
     }
 }
 
 #[test]
-fn execute_sql_dispatch_grouped_projection_aliases_override_grouped_output_labels() {
+fn execute_sql_grouped_equivalent_row_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
     seed_session_sql_entities(
         &session,
         &[
-            (" alpha ", 20),
-            (" alpha ", 21),
-            ("beta", 30),
-            ("gamma  ", 40),
-        ],
-    );
-
-    let payload = session
-        .execute_sql_dispatch::<SessionSqlEntity>(
-            "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-        )
-        .expect("grouped SQL dispatch should preserve projection aliases");
-
-    let SqlDispatchResult::Grouped { columns, .. } = payload else {
-        panic!("grouped SQL dispatch should return grouped payload");
-    };
-
-    assert_eq!(
-        columns,
-        vec!["trimmed_name".to_string(), "total".to_string()],
-    );
-}
-
-#[test]
-fn execute_sql_grouped_order_by_group_field_alias_matches_canonical_rows() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_session_sql_entities(
-        &session,
-        &[("alpha", 20), ("beta", 20), ("gamma", 30), ("delta", 40)],
-    );
-
-    let aliased = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age years, COUNT(*) total \
-             FROM SessionSqlEntity \
-             GROUP BY age \
-             ORDER BY years ASC LIMIT 10",
-            None,
-        )
-        .expect("grouped ORDER BY field alias should execute");
-    let canonical = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY age \
-             ORDER BY age ASC LIMIT 10",
-            None,
-        )
-        .expect("canonical grouped ORDER BY field should execute");
-
-    assert_eq!(
-        aliased.rows(),
-        canonical.rows(),
-        "grouped ORDER BY field aliases should normalize onto the same canonical grouped order target",
-    );
-    assert_eq!(
-        aliased.continuation_cursor(),
-        canonical.continuation_cursor(),
-        "grouped ORDER BY field aliases should preserve grouped paging state",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_rejects_delete_execution_in_current_lane() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
-            None,
-        )
-        .expect_err("grouped SQL API should reject DELETE execution");
-
-    assert!(
-        err.to_string()
-            .contains("execute_sql_grouped rejects DELETE"),
-        "grouped SQL API must preserve explicit DELETE lane guidance",
-    );
-}
-
-#[test]
-fn execute_sql_rejects_unsupported_group_by_projection_shape() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity GROUP BY age")
-        .expect_err("group-by projection mismatch should fail closed");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "unsupported grouped SQL projection shapes should fail at reduced lowering boundary",
-    );
-}
-
-#[test]
-fn execute_sql_grouped_top_level_distinct_matches_plain_grouped_rows() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_sql_entities(
-        &session,
-        &[
+            ("alpha", 20),
+            ("beta", 20),
+            ("gamma", 30),
+            ("delta", 40),
             ("grouped-distinct-a", 10),
             ("grouped-distinct-b", 10),
             ("grouped-distinct-c", 20),
@@ -1479,57 +1378,32 @@ fn execute_sql_grouped_top_level_distinct_matches_plain_grouped_rows() {
         ],
     );
 
-    let distinct_execution = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-            None,
-        )
-        .expect("top-level grouped SELECT DISTINCT should execute");
-    let plain_execution = session
-        .execute_sql_grouped::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-            None,
-        )
-        .expect("plain grouped SQL should execute");
-
-    let distinct_rows = distinct_execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let plain_rows = plain_execution
-        .rows()
-        .iter()
-        .map(|row| {
-            (
-                row.group_key()[0].clone(),
-                row.aggregate_values()[0].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        distinct_rows, plain_rows,
-        "top-level grouped SELECT DISTINCT should normalize to the same grouped rows as the non-DISTINCT form",
-    );
-}
-
-#[test]
-fn execute_sql_rejects_grouped_computed_projection_over_non_grouped_field() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    assert_unsupported_sql_surface_result(
-        session.execute_sql::<SessionSqlEntity>(
-            "SELECT age, TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    for (left_sql, right_sql, context) in [
+        (
+            "SELECT age years, COUNT(*) total \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY years ASC LIMIT 10",
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "grouped ORDER BY field aliases",
         ),
-        "grouped projection expression widening should remain fail-closed in the current slice",
-    );
+        (
+            "SELECT DISTINCT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "top-level grouped SELECT DISTINCT",
+        ),
+    ] {
+        assert_grouped_row_equivalence_case(&session, left_sql, right_sql, context);
+    }
 }
 
 #[test]

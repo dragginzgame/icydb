@@ -112,7 +112,10 @@ pub mod visitor {
         VisitorMutCore, drive_sanitize_fields, drive_validate_fields, drive_visitable_fields,
         drive_visitable_fields_mut, perform_visit, perform_visit_mut,
     };
-    pub use icydb_core::{sanitize::sanitize, validate::validate};
+    pub use icydb_core::{
+        sanitize::{SanitizeWriteContext, SanitizeWriteMode, sanitize, sanitize_with_context},
+        validate::validate,
+    };
 }
 
 // facade modules
@@ -207,6 +210,7 @@ pub mod design {
             types::*,
             value::Value,
             visitor::VisitorContext,
+            visitor::{SanitizeWriteContext, SanitizeWriteMode},
         };
     }
 }

@@ -115,23 +115,21 @@ enum SlotBufferSlot {
 }
 
 ///
-/// SerializedPatchWriter
+/// CompleteSerializedPatchWriter
 ///
-/// SerializedPatchWriter
-///
-/// SerializedPatchWriter captures a dense typed entity slot image into the
-/// serialized patch artifact used by `0.64` mutation staging.
-/// Unlike `SlotBufferWriter`, this writer does not flatten into one row payload;
-/// it preserves slot-level ownership so later stages can replay the row through
-/// the structural patch boundary.
+/// CompleteSerializedPatchWriter captures a dense typed entity slot image into
+/// the serialized slot artifact used by typed save staging.
+/// Unlike `SlotBufferWriter`, this writer does not flatten into one row
+/// payload; it preserves slot-level ownership so later stages can emit the
+/// final complete row image through the structural row boundary.
 ///
 
-pub(in crate::db::data::persisted_row) struct SerializedPatchWriter {
+pub(in crate::db::data::persisted_row) struct CompleteSerializedPatchWriter {
     model: &'static EntityModel,
     slots: Vec<PatchWriterSlot>,
 }
 
-impl SerializedPatchWriter {
+impl CompleteSerializedPatchWriter {
     /// Build one empty serialized patch writer for one entity model.
     pub(in crate::db::data::persisted_row) fn for_model(model: &'static EntityModel) -> Self {
         Self {
@@ -140,9 +138,9 @@ impl SerializedPatchWriter {
         }
     }
 
-    /// Materialize one dense serialized patch, erroring if the writer failed
-    /// to emit any declared slot.
-    pub(in crate::db::data::persisted_row) fn finish_complete(
+    /// Materialize one dense serialized slot image, erroring if the writer
+    /// failed to emit any declared slot.
+    pub(in crate::db::data::persisted_row) fn finish_dense_slot_image(
         self,
     ) -> Result<SerializedUpdatePatch, InternalError> {
         let mut entries = Vec::with_capacity(self.slots.len());
@@ -167,7 +165,7 @@ impl SerializedPatchWriter {
     }
 }
 
-impl SlotWriter for SerializedPatchWriter {
+impl SlotWriter for CompleteSerializedPatchWriter {
     fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
         let entry = slot_cell_mut(self.slots.as_mut_slice(), slot)?;
         let payload =

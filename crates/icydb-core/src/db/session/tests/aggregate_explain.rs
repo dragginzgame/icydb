@@ -228,7 +228,7 @@ fn session_aggregate_explain_bytes_by_unknown_field_fails_before_planning() {
 }
 
 #[test]
-fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
+fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_contracts() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -240,23 +240,29 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
             (9_424, 8, 99),
         ],
     );
+    let query = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_predicate(7))
+            .order_by("rank")
+            .order_by("id")
+    };
 
-    let exists_terminal_plan = session
-        .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(7))
-        .order_by("rank")
-        .order_by("id")
+    let exists_plan = query()
         .explain_exists()
         .expect("session explain_exists should succeed");
+    let not_exists_plan = query()
+        .explain_not_exists()
+        .expect("session explain_not_exists should succeed");
 
-    assert_eq!(exists_terminal_plan.terminal(), AggregateKind::Exists);
+    assert_eq!(exists_plan.terminal(), AggregateKind::Exists);
     assert!(matches!(
-        exists_terminal_plan.execution().ordering_source(),
+        exists_plan.execution().ordering_source(),
         crate::db::ExplainExecutionOrderingSource::AccessOrder
             | crate::db::ExplainExecutionOrderingSource::Materialized
     ));
 
-    let exists_execution = exists_terminal_plan.execution();
+    let exists_execution = exists_plan.execution();
     assert_eq!(exists_execution.aggregation(), AggregateKind::Exists);
     assert!(matches!(
         exists_execution.ordering_source(),
@@ -265,7 +271,7 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
     ));
     assert_eq!(
         exists_execution.access_strategy(),
-        exists_terminal_plan.query().access()
+        exists_plan.query().access()
     );
     assert!(matches!(
         exists_execution.execution_mode(),
@@ -277,7 +283,7 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
         !exists_execution.covering_projection(),
         "ordered exists explain shape should not mark index-only covering projection",
     );
-    let exists_node = exists_terminal_plan.execution_node_descriptor();
+    let exists_node = exists_plan.execution_node_descriptor();
     assert_eq!(
         exists_node.node_type(),
         crate::db::ExplainExecutionNodeType::AggregateExists
@@ -296,36 +302,6 @@ fn session_aggregate_terminal_explain_reports_standard_route_for_exists() {
             .contains("AggregateExists execution_mode="),
         "text tree should render the standard aggregate node label",
     );
-}
-
-#[test]
-fn session_aggregate_terminal_explain_not_exists_alias_matches_exists_plan() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (9_431, 7, 10),
-            (9_432, 7, 20),
-            (9_433, 7, 30),
-            (9_434, 8, 99),
-        ],
-    );
-    let query = || {
-        session
-            .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
-            .order_by("id")
-    };
-
-    let exists_plan = query()
-        .explain_exists()
-        .expect("session explain_exists should succeed");
-    let not_exists_plan = query()
-        .explain_not_exists()
-        .expect("session explain_not_exists should succeed");
-
     assert_eq!(
         not_exists_plan.terminal(),
         AggregateKind::Exists,

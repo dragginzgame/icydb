@@ -151,107 +151,75 @@ fn execute_sql_aggregate_distinct_value_matrix_matches_expected_values() {
 }
 
 #[test]
-fn execute_sql_aggregate_honors_order_limit_offset_window() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn execute_sql_aggregate_window_matrix_returns_expected_values() {
+    // Phase 1: keep the aggregate window semantics table-driven so bounded
+    // windows and offset-empty windows stay covered under one contract.
+    let cases = [
+        (
+            "bounded aggregate window",
+            vec![
+                ("window-a", 10_u64),
+                ("window-b", 20_u64),
+                ("window-c", 30_u64),
+            ],
+            vec![
+                (
+                    "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+                    Value::Uint(2),
+                ),
+                (
+                    "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 1",
+                    Value::Decimal(crate::types::Decimal::from(20u64)),
+                ),
+                (
+                    "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
+                    Value::Decimal(crate::types::Decimal::from(25u64)),
+                ),
+            ],
+        ),
+        (
+            "offset beyond bounded window",
+            vec![("beyond-window-a", 10_u64), ("beyond-window-b", 20_u64)],
+            vec![
+                (
+                    "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+                    Value::Uint(0),
+                ),
+                (
+                    "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+                    Value::Null,
+                ),
+                (
+                    "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+                    Value::Null,
+                ),
+                (
+                    "SELECT MIN(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+                    Value::Null,
+                ),
+                (
+                    "SELECT MAX(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+                    Value::Null,
+                ),
+            ],
+        ),
+    ];
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "window-a".to_string(),
-            age: 10,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "window-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "window-c".to_string(),
-            age: 30,
-        })
-        .expect("seed insert should succeed");
+    // Phase 2: seed and assert each aggregate window case independently so
+    // setup stays local to the expected window semantics.
+    for (context, seed_rows, assertions) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(&session, seed_rows.as_slice());
 
-    let count = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("COUNT(*) SQL aggregate window execution should succeed");
-    let sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 1",
-        )
-        .expect("SUM(field) SQL aggregate window execution should succeed");
-    let avg = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
-        )
-        .expect("AVG(field) SQL aggregate window execution should succeed");
+        for (sql, expected) in assertions {
+            let actual = session
+                .execute_sql_aggregate::<SessionSqlEntity>(sql)
+                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
 
-    assert_eq!(count, Value::Uint(2));
-    assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(20u64)));
-    assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(25u64)));
-}
-
-#[test]
-fn execute_sql_aggregate_offset_beyond_window_returns_empty_aggregate_semantics() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: seed a small scalar window.
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "beyond-window-a".to_string(),
-            age: 10,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "beyond-window-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-
-    // Phase 2: execute aggregates where OFFSET removes all visible rows.
-    let count = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-        )
-        .expect("COUNT(*) aggregate with offset beyond window should execute");
-    let sum = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-        )
-        .expect("SUM aggregate with offset beyond window should execute");
-    let avg = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-        )
-        .expect("AVG aggregate with offset beyond window should execute");
-    let min = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT MIN(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-        )
-        .expect("MIN aggregate with offset beyond window should execute");
-    let max = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT MAX(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-        )
-        .expect("MAX aggregate with offset beyond window should execute");
-
-    // Phase 3: assert empty-window aggregate semantics.
-    assert_eq!(count, Value::Uint(0));
-    assert_eq!(sum, Value::Null);
-    assert_eq!(avg, Value::Null);
-    assert_eq!(min, Value::Null);
-    assert_eq!(max, Value::Null);
+            assert_eq!(actual, expected, "{context} aggregate window case: {sql}");
+        }
+    }
 }
 
 #[test]
@@ -358,45 +326,39 @@ fn execute_sql_aggregate_matrix_queries_match_expected_values() {
 }
 
 #[test]
-fn execute_sql_aggregate_rejects_unsupported_aggregate_shapes() {
+fn execute_sql_aggregate_rejects_unsupported_select_shapes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
-    let sql = "SELECT age FROM SessionSqlEntity";
-    let err = session
-        .execute_sql_aggregate::<SessionSqlEntity>(sql)
-        .expect_err("unsupported SQL aggregate shape should fail closed");
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+
+    for (sql, expected_message, context) in [
+        (
+            "SELECT age FROM SessionSqlEntity",
+            "execute_sql_aggregate requires constrained global aggregate SELECT",
+            "unsupported non-aggregate select shape",
         ),
-        "unsupported SQL aggregate shape should map to unsupported execution error boundary: {sql}",
-    );
-    assert!(
-        err.to_string()
-            .contains("execute_sql_aggregate requires constrained global aggregate SELECT"),
-        "execute_sql_aggregate should preserve a constrained aggregate-surface boundary message: {sql}",
-    );
-}
-
-#[test]
-fn execute_sql_aggregate_rejects_grouped_select_execution_in_current_lane() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
+        (
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-        )
-        .expect_err("grouped SQL should stay fail-closed for execute_sql_aggregate");
-
-    assert!(
-        err.to_string()
-            .contains("execute_sql_aggregate rejects grouped SELECT"),
-        "execute_sql_aggregate should preserve explicit grouped-entrypoint guidance",
-    );
+            "execute_sql_aggregate rejects grouped SELECT",
+            "grouped select on aggregate lane",
+        ),
+    ] {
+        let err = session
+            .execute_sql_aggregate::<SessionSqlEntity>(sql)
+            .expect_err("unsupported aggregate shape should stay fail-closed");
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "{context} should map to unsupported execution error boundary: {sql}",
+        );
+        assert!(
+            err.to_string().contains(expected_message),
+            "{context} should preserve the aggregate-surface boundary message: {sql}",
+        );
+    }
 }
 
 #[test]
@@ -457,49 +419,42 @@ fn execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
 }
 
 #[test]
-fn execute_sql_aggregate_rejects_unknown_target_field() {
+fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_aggregate::<SessionSqlEntity>(
-            "SELECT SUM(missing_field) FROM SessionSqlEntity",
-        )
-        .expect_err("unknown aggregate target field should fail");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    let cases = [
+        (
+            session
+                .execute_sql_aggregate::<SessionSqlEntity>(
+                    "SELECT SUM(missing_field) FROM SessionSqlEntity",
+                )
+                .map(|_| ()),
+            "execute_sql_aggregate unknown target field",
         ),
-        "unknown aggregate target field should map to unsupported execution error boundary",
-    );
-}
+        (
+            dispatch_explain_sql::<SessionSqlEntity>(
+                &session,
+                "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
+            )
+            .map(|_| ()),
+            "global aggregate EXPLAIN unknown target field",
+        ),
+    ];
 
-#[test]
-fn explain_sql_json_qualified_aggregate_matches_unqualified_output() {
-    reset_session_sql_store();
-    let session = sql_session();
+    for (result, context) in cases {
+        let err = result.expect_err("unknown aggregate target field should fail");
 
-    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
-             FROM public.SessionSqlEntity \
-             WHERE SessionSqlEntity.age >= 21",
-    )
-    .expect("qualified global aggregate EXPLAIN JSON should succeed");
-    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
-    )
-    .expect("unqualified global aggregate EXPLAIN JSON should succeed");
-
-    assert_eq!(
-        qualified, unqualified,
-        "qualified identifiers should normalize to the same global aggregate EXPLAIN JSON output",
-    );
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "{context} should map to unsupported execution error boundary",
+        );
+    }
 }
 
 #[test]
@@ -537,26 +492,22 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
             context,
         );
     }
-}
 
-#[test]
-fn explain_sql_global_aggregate_rejects_unknown_target_field() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = dispatch_explain_sql::<SessionSqlEntity>(
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
         &session,
-        "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
+        "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
+             FROM public.SessionSqlEntity \
+             WHERE SessionSqlEntity.age >= 21",
     )
-    .expect_err("global aggregate SQL explain should reject unknown target fields");
+    .expect("qualified global aggregate EXPLAIN JSON should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
+    )
+    .expect("unqualified global aggregate EXPLAIN JSON should succeed");
 
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "global aggregate SQL explain should map unknown target field to unsupported execution error boundary",
+    assert_eq!(
+        qualified, unqualified,
+        "qualified identifiers should normalize to the same global aggregate EXPLAIN JSON output",
     );
 }

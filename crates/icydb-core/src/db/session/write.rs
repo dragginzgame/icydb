@@ -74,10 +74,11 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_entity(|save| save.apply_structural_mutation(mode, key, patch))
     }
 
-    /// Apply one structural full-row replacement, inserting if missing.
+    /// Apply one structural replacement, inserting if missing.
     ///
-    /// Replace semantics rebuild the after-image from an empty row layout, so
-    /// omitted fields do not inherit old-row values implicitly.
+    /// Replace semantics still do not inherit omitted fields from the old row.
+    /// Missing fields must materialize through explicit defaults or managed
+    /// field preflight, or the write fails closed.
     #[cfg(test)]
     pub(in crate::db) fn replace_structural<E>(
         &self,
@@ -126,10 +127,11 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_entity(|save| save.update(entity))
     }
 
-    /// Apply one structural insert from a patch-defined full after-image.
+    /// Apply one structural insert from a patch-defined after-image.
     ///
-    /// Insert semantics require the patch to describe the full row payload
-    /// because no old-row baseline exists to fill missing fields.
+    /// Insert semantics no longer require a pre-built full row image.
+    /// Missing fields still fail closed unless derive-owned materialization can
+    /// supply them through explicit defaults or managed-field preflight.
     #[cfg(test)]
     pub(in crate::db) fn insert_structural<E>(
         &self,

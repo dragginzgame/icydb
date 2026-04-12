@@ -170,7 +170,7 @@ fn sql_projection_columns_matrix_matches_expected_labels() {
 }
 
 #[test]
-fn execute_sql_projection_order_by_field_alias_matches_canonical_rows() {
+fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -182,15 +182,12 @@ fn execute_sql_projection_order_by_field_alias_matches_canonical_rows() {
         "SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 3",
         "ORDER BY field aliases",
     );
-}
 
-#[test]
-fn execute_sql_projection_order_by_lower_alias_matches_canonical_rows() {
     reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+    let indexed_session = indexed_sql_session();
 
     seed_expression_indexed_session_sql_entities(
-        &session,
+        &indexed_session,
         &[
             (9_243_u128, "sam", 10),
             (9_244, "Alex", 20),
@@ -199,7 +196,7 @@ fn execute_sql_projection_order_by_lower_alias_matches_canonical_rows() {
     );
 
     assert_projection_alias_matches_canonical::<ExpressionIndexedSessionSqlEntity>(
-        &session,
+        &indexed_session,
         "SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 3",
         "SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 3",
         "ORDER BY LOWER(field) aliases",

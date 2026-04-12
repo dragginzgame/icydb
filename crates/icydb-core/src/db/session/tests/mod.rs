@@ -194,6 +194,23 @@ struct SessionSqlGeneratedFieldEntity {
 }
 
 ///
+/// SessionSqlGeneratedTimestampEntity
+///
+/// SQL write fixture used to lock one second schema-owned generator family so
+/// reduced SQL can omit explicit insert-time timestamps without consuming
+/// ordinary field defaults.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlGeneratedTimestampEntity {
+    id: u64,
+    created_on_insert: Timestamp,
+    name: String,
+}
+
+///
 /// SessionSqlManagedWriteEntity
 ///
 /// SQL write fixture used to lock explicit managed timestamp rejection while
@@ -208,6 +225,22 @@ struct SessionSqlManagedWriteEntity {
     name: String,
     created_at: Timestamp,
     updated_at: Timestamp,
+}
+
+///
+/// SessionSqlSignedWriteEntity
+///
+/// Signed-key SQL write fixture used to lock numeric literal widening at the
+/// reduced SQL write boundary without broadening the production numeric
+/// surface.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlSignedWriteEntity {
+    id: i64,
+    delta: i64,
 }
 
 ///
@@ -594,6 +627,23 @@ crate::test_entity_schema! {
 }
 
 crate::test_entity_schema! {
+    ident = SessionSqlGeneratedTimestampEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "SessionSqlGeneratedTimestampEntity",
+    entity_tag = EntityTag::new(0x1047),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Uint),
+        ("created_on_insert", FieldKind::Timestamp, @generated crate::model::field::FieldInsertGeneration::Timestamp),
+        ("name", FieldKind::Text),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
     ident = SessionSqlManagedWriteEntity,
     id = u64,
     id_field = id,
@@ -605,6 +655,22 @@ crate::test_entity_schema! {
         ("name", FieldKind::Text),
         ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
         ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlSignedWriteEntity,
+    id = i64,
+    id_field = id,
+    entity_name = "SessionSqlSignedWriteEntity",
+    entity_tag = EntityTag::new(0x1048),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Int),
+        ("delta", FieldKind::Int),
     ],
     indexes = [],
     store = SessionSqlStore,

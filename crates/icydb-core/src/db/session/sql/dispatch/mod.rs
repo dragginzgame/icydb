@@ -37,8 +37,9 @@ use crate::{
     },
     model::{
         entity::resolve_field_slot,
-        field::{FieldInsertGeneration, FieldKind, FieldModel, FieldWriteManagement},
+        field::{FieldInsertGeneration, FieldKind, FieldModel},
     },
+    sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityKind, EntityValue},
     types::{Timestamp, Ulid},
     value::Value,
@@ -314,27 +315,10 @@ where
 fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
     field
         .insert_generation()
-        .map(|FieldInsertGeneration::Ulid| Value::Ulid(Ulid::generate()))
-}
-
-// Synthesize one auto-managed SQL insert literal from schema-owned runtime
-// field metadata instead of relying on literal timestamp field names.
-fn sql_write_managed_insert_field_value(field: &FieldModel, now: &Value) -> Option<Value> {
-    match field.write_management() {
-        Some(FieldWriteManagement::CreatedAt | FieldWriteManagement::UpdatedAt) => {
-            Some(now.clone())
-        }
-        None => None,
-    }
-}
-
-// Synthesize one auto-managed SQL update literal from schema-owned runtime
-// field metadata.
-fn sql_write_managed_update_field_value(field: &FieldModel, now: &Value) -> Option<Value> {
-    match field.write_management() {
-        Some(FieldWriteManagement::UpdatedAt) => Some(now.clone()),
-        Some(FieldWriteManagement::CreatedAt) | None => None,
-    }
+        .map(|generation| match generation {
+            FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
+            FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
+        })
 }
 
 // Normalize one reduced-SQL write literal onto the target entity field kind
@@ -614,20 +598,6 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
 
-        // Phase 3: synthesize the derive-emitted managed write fields,
-        // keeping SQL insert aligned with typed writes without keying off
-        // hard-coded timestamp field names.
-        let now = Value::Timestamp(Timestamp::now());
-        for field in E::MODEL.fields() {
-            let Some(value) = sql_write_managed_insert_field_value(field, &now) else {
-                continue;
-            };
-
-            patch = patch
-                .set_field(E::MODEL, field.name(), value)
-                .map_err(QueryError::execute)?;
-        }
-
         Ok((key, patch))
     }
 
@@ -653,19 +623,6 @@ impl<C: CanisterKind> DbSession<C> {
 
             patch = patch
                 .set_field(E::MODEL, assignment.field.as_str(), normalized)
-                .map_err(QueryError::execute)?;
-        }
-
-        // Phase 2: keep structural SQL UPDATE aligned with schema-owned
-        // managed write metadata for auto-updated fields.
-        let now = Value::Timestamp(Timestamp::now());
-        for field in E::MODEL.fields() {
-            let Some(value) = sql_write_managed_update_field_value(field, &now) else {
-                continue;
-            };
-
-            patch = patch
-                .set_field(E::MODEL, field.name(), value)
                 .map_err(QueryError::execute)?;
         }
 
@@ -829,6 +786,7 @@ impl<C: CanisterKind> DbSession<C> {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let columns = sql_insert_columns::<E>(statement);
         validate_sql_insert_required_fields::<E>(columns.as_slice())?;
+        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let source_rows = match &statement.source {
             SqlInsertSource::Values(values) => {
                 validate_sql_insert_value_tuple_lengths(columns.as_slice(), values.as_slice())?;
@@ -847,7 +805,14 @@ impl<C: CanisterKind> DbSession<C> {
         for values in &source_rows {
             let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
             let entity = self
-                .mutate_structural::<E>(key, patch, MutationMode::Insert)
+                .execute_save_entity::<E>(|save| {
+                    save.apply_structural_mutation_with_write_context(
+                        MutationMode::Insert,
+                        key,
+                        patch,
+                        write_context,
+                    )
+                })
                 .map_err(QueryError::execute)?;
             entities.push(entity);
         }
@@ -868,6 +833,7 @@ impl<C: CanisterKind> DbSession<C> {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let selector = Self::sql_update_selector_query::<E>(statement)?;
         let patch = Self::sql_update_patch::<E>(statement)?;
+        let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
         let mut entities = Vec::with_capacity(matched.len());
 
@@ -875,7 +841,14 @@ impl<C: CanisterKind> DbSession<C> {
         // matched row in deterministic primary-key order.
         for entity in matched.entities() {
             let updated = self
-                .mutate_structural::<E>(entity.id().key(), patch.clone(), MutationMode::Update)
+                .execute_save_entity::<E>(|save| {
+                    save.apply_structural_mutation_with_write_context(
+                        MutationMode::Update,
+                        entity.id().key(),
+                        patch.clone(),
+                        write_context,
+                    )
+                })
                 .map_err(QueryError::execute)?;
             entities.push(updated);
         }

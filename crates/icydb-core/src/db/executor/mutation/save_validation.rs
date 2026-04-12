@@ -14,7 +14,7 @@ use crate::{
     },
     error::InternalError,
     model::field::FieldKind,
-    sanitize::sanitize,
+    sanitize::{SanitizeWriteContext, sanitize_with_context},
     traits::{EntityKind, EntityValue},
     validate::validate,
     value::Value,
@@ -23,12 +23,16 @@ use std::cmp::Ordering;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Execute the canonical save preflight pipeline before commit planning.
-    pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
+    pub(super) fn preflight_entity(
+        &self,
+        entity: &mut E,
+        write_context: SanitizeWriteContext,
+    ) -> Result<(), InternalError> {
         let authority = EntityAuthority::for_type::<E>();
         let schema = authority.schema_info();
         let validate_relations = authority.has_strong_relation_targets();
 
-        self.preflight_entity_with_cached_schema(entity, schema, validate_relations)
+        self.preflight_entity_with_cached_schema(entity, schema, validate_relations, write_context)
     }
 
     // Validate one persisted row against the current write-boundary invariants
@@ -59,8 +63,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         entity: &mut E,
         schema: &SchemaInfo,
         validate_relations: bool,
+        write_context: SanitizeWriteContext,
     ) -> Result<(), InternalError> {
-        sanitize(entity)?;
+        sanitize_with_context(entity, Some(write_context))?;
         validate(entity)?;
         Self::validate_entity_invariants(entity, schema)?;
         if validate_relations {

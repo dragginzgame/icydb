@@ -24,10 +24,10 @@ pub(in crate::db) use patch::apply_update_patch_to_raw_row;
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use patch::canonical_row_from_raw_row;
 pub(in crate::db) use patch::{
-    apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
-    canonical_row_from_serialized_update_patch, canonical_row_from_stored_raw_row,
-    canonical_row_from_structural_slot_reader, serialize_entity_slots_as_update_patch,
-    serialize_update_patch_fields,
+    apply_serialized_update_patch_to_raw_row, canonical_row_from_complete_serialized_update_patch,
+    canonical_row_from_entity, canonical_row_from_stored_raw_row,
+    canonical_row_from_structural_slot_reader, materialize_entity_from_serialized_update_patch,
+    serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
 };
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use reader::CachedSlotValue;
@@ -45,7 +45,9 @@ pub(in crate::db::data::persisted_row) use types::FieldSlot;
 pub(in crate::db) use types::{CanonicalSlotReader, SerializedUpdatePatch};
 pub use types::{PersistedRow, SlotReader, SlotWriter, UpdatePatch};
 #[cfg(test)]
-pub(in crate::db::data::persisted_row) use writer::{SerializedPatchWriter, SlotBufferWriter};
+pub(in crate::db::data::persisted_row) use writer::{
+    CompleteSerializedPatchWriter, SlotBufferWriter,
+};
 
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use codec::encode_scalar_slot_value;

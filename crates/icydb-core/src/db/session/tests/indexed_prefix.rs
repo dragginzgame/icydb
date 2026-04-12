@@ -156,35 +156,6 @@ fn execute_sql_projection_indexed_prefix_matrix_matches_covering_rows() {
 }
 
 #[test]
-fn execute_sql_entity_strict_like_prefix_matches_projection_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic uppercase-prefix dataset under the same
-    // secondary text index used by the projection regression.
-    seed_indexed_prefix_fixture(&session);
-
-    // Phase 2: verify entity-row execution agrees with the projection surface
-    // for the repaired strict LIKE prefix path.
-    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
-    )
-    .expect("strict LIKE prefix projection should execute");
-    let entity_rows = session
-        .execute_sql::<IndexedSessionSqlEntity>(
-            "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
-        )
-        .expect("strict LIKE prefix entity query should execute");
-    let entity_projected_names = entity_rows
-        .iter()
-        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
-        .collect::<Vec<_>>();
-
-    assert_eq!(entity_projected_names, projected_rows);
-}
-
-#[test]
 fn execute_sql_entity_indexed_prefix_matrix_matches_projection_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -196,6 +167,11 @@ fn execute_sql_entity_indexed_prefix_matrix_matches_projection_rows() {
     // Phase 2: verify both admitted strict prefix spellings agree with the
     // projection surface on the same ordered covering route.
     let cases = [
+        (
+            "strict LIKE prefix entity query without explicit id tie-break",
+            "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+            "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+        ),
         (
             "strict LIKE prefix entity query",
             "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC, id ASC",

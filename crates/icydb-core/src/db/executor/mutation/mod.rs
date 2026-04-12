@@ -13,7 +13,7 @@ use crate::{
         commit::ensure_recovered,
         data::{
             DataKey, PersistedRow, SerializedUpdatePatch, UpdatePatch,
-            serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+            serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
         },
         executor::{
             Context, EntityAuthority, route::build_execution_route_plan_for_mutation,
@@ -39,14 +39,16 @@ pub(super) use commit_window::{
 ///
 /// MutationInput is the shared internal mutation payload staged above
 /// the persisted-row patch boundary.
-/// It carries only the structural row key and the already serialized slot patch
-/// so later write-path stages do not need to keep full typed entities alive
-/// once save/update preflight has completed.
+/// It carries only the structural row key and the already serialized slots so
+/// later write-path stages do not need to keep full typed entities alive once
+/// save/update preflight has completed.
+/// Those slots may describe either one sparse structural patch or one complete
+/// typed after-image, depending on the ingress surface.
 ///
 
 pub(in crate::db::executor) struct MutationInput {
     data_key: DataKey,
-    serialized_patch: SerializedUpdatePatch,
+    serialized_slots: SerializedUpdatePatch,
 }
 
 impl MutationInput {
@@ -54,11 +56,11 @@ impl MutationInput {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         data_key: DataKey,
-        serialized_patch: SerializedUpdatePatch,
+        serialized_slots: SerializedUpdatePatch,
     ) -> Self {
         Self {
             data_key,
-            serialized_patch,
+            serialized_slots,
         }
     }
 
@@ -69,9 +71,9 @@ impl MutationInput {
     {
         let key = entity.id().key();
         let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
+        let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
 
-        Ok(Self::new(data_key, serialized_patch))
+        Ok(Self::new(data_key, serialized_slots))
     }
 
     /// Lower one key + structural patch pair into the shared mutation input.
@@ -86,9 +88,9 @@ impl MutationInput {
         E: PersistedRow + EntityValue,
     {
         let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_patch = serialize_update_patch_fields(E::MODEL, patch)?;
+        let serialized_slots = serialize_update_patch_fields(E::MODEL, patch)?;
 
-        Ok(Self::new(data_key, serialized_patch))
+        Ok(Self::new(data_key, serialized_slots))
     }
 
     /// Borrow the target row key for this mutation input.
@@ -97,10 +99,10 @@ impl MutationInput {
         &self.data_key
     }
 
-    /// Borrow the serialized slot patch for this mutation input.
+    /// Borrow the serialized slots for this mutation input.
     #[must_use]
-    pub(in crate::db::executor) const fn serialized_patch(&self) -> &SerializedUpdatePatch {
-        &self.serialized_patch
+    pub(in crate::db::executor) const fn serialized_slots(&self) -> &SerializedUpdatePatch {
+        &self.serialized_slots
     }
 }
 

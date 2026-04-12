@@ -109,12 +109,12 @@ fn generate_sanitizers(
             let ctor = sanitizer.quote_constructor();
             match &seg {
                 None => quote! {
-                    if let Err(msg) = #ctor.sanitize(&mut #target) {
+                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
                         ctx.issue(msg);
                     }
                 },
                 Some(seg) => quote! {
-                    if let Err(msg) = #ctor.sanitize(&mut #target) {
+                    if let Err(msg) = #ctor.sanitize_with_context(&mut #target, ctx) {
                         ctx.issue_at(#seg, msg);
                     }
                 },

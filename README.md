@@ -83,8 +83,8 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.76.6`
-- Latest tagged release in this repo: `v0.76.6`
+- Workspace version on `main`: `0.76.9`
+- Latest tagged release in this repo: `v0.76.9`
 - Changelog: `CHANGELOG.md`
 - Detailed `0.76.x` notes: `docs/changelog/0.76.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
@@ -93,7 +93,7 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
-- Current branch work on the `0.76` line moves reduced SQL insert omission onto a schema-owned `generated(insert = "...")` field contract, so only schema-marked generated fields can be omitted during typed-dispatch inserts and ordinary `default = ...` values stay a typed-Rust construction concern.
+- Current branch work on the `0.76` line keeps reduced SQL defaults explicit by widening schema-owned `generated(insert = "...")` only to one small allowlist, so typed-dispatch inserts can now synthesize `Timestamp::now` as well as `Ulid::generate` while ordinary `default = ...` values still stay a typed-Rust construction concern.
 - Current branch work on the `0.76` line freezes the reduced SQL write-result boundary too: `RETURNING` stays unsupported on reduced SQL writes, so write results remain the existing typed-dispatch after-image payloads instead of growing a second output contract.
 - Current branch work on the `0.76` line adds narrow typed-dispatch `INSERT ... SELECT` for the same entity lane, but keeps that copy-insert surface intentionally bounded: scalar source only, field-only or admitted scalar computed projection only, deterministic primary-key-backed ordering, and no grouped or aggregate source admission.
 - `0.76.6` widens the reduced SQL write lane with ordered-window `UPDATE`, write-lane aliases, and generated-key `Ulid` inserts while keeping mutation ownership on typed dispatch.

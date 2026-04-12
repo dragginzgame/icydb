@@ -1,5 +1,46 @@
 use super::*;
 
+fn assert_primary_key_covering_descriptor(
+    descriptor: &crate::db::ExplainExecutionNodeDescriptor,
+    expected_root: ExplainExecutionNodeType,
+    expected_row_mode: &str,
+    context: &str,
+) {
+    assert_eq!(
+        descriptor.node_type(),
+        expected_root,
+        "{context} should explain through the expected root node",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "{context} should expose the explicit covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "{context} should surface the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("PK-only covering explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "{context} should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
+        "{context} should expose the primary-key field source",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text(expected_row_mode.to_string())),
+        "{context} should surface the expected existing-row mode",
+    );
+}
+
 #[test]
 fn session_sql_global_aggregate_explain_execution_stays_off_secondary_authority_surface() {
     reset_session_sql_store();
@@ -465,8 +506,8 @@ fn session_explain_execution_primary_key_covering_full_scan_is_planner_proven() 
 }
 
 #[test]
-fn session_explain_execution_primary_key_covering_by_key_is_row_check_required() {
-    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes() {
+    let by_key = crate::db::query::intent::Query::<SessionSqlEntity>::new(
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
@@ -476,50 +517,10 @@ fn session_explain_execution_primary_key_covering_by_key_is_row_check_required()
         Value::Ulid(Ulid::from_u128(9_811)),
         CoercionId::Strict,
     )))
-    .order_by("id");
-
-    let descriptor = query
-        .explain_execution()
-        .expect("PK-only covering by-key explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::ByKeyLookup,
-        "PK-only exact-key projection should explain through the by-key root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "PK-only by-key projection should expose the explicit covering route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "PK-only by-key projection should surface the covering-read route label",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect("PK-only by-key explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "PK-only by-key explain should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
-        "PK-only by-key explain should expose the primary-key field source",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "PK-only by-key covering should surface the explicit row-check mode",
-    );
-}
-
-#[test]
-fn session_explain_execution_primary_key_covering_by_keys_is_row_check_required() {
-    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+    .order_by("id")
+    .explain_execution()
+    .expect("PK-only covering by-key explain_execution should succeed");
+    let by_keys = crate::db::query::intent::Query::<SessionSqlEntity>::new(
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
@@ -532,50 +533,10 @@ fn session_explain_execution_primary_key_covering_by_keys_is_row_check_required(
         ]),
         CoercionId::Strict,
     )))
-    .order_by("id");
-
-    let descriptor = query
-        .explain_execution()
-        .expect("PK-only covering by-keys explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::ByKeysLookup,
-        "PK-only exact-key-set projection should explain through the by-keys root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "PK-only by-keys projection should expose the explicit covering route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "PK-only by-keys projection should surface the covering-read route label",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect("PK-only by-keys explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "PK-only by-keys explain should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
-        "PK-only by-keys explain should expose the primary-key field source",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "PK-only by-keys covering should surface the explicit row-check mode",
-    );
-}
-
-#[test]
-fn session_explain_execution_primary_key_covering_key_range_is_planner_proven() {
-    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+    .order_by("id")
+    .explain_execution()
+    .expect("PK-only covering by-keys explain_execution should succeed");
+    let key_range = crate::db::query::intent::Query::<SessionSqlEntity>::new(
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
@@ -594,45 +555,37 @@ fn session_explain_execution_primary_key_covering_key_range_is_planner_proven() 
         )),
     ]))
     .order_by("id")
-    .limit(1);
+    .limit(1)
+    .explain_execution()
+    .expect("PK-only covering key-range explain_execution should succeed");
 
-    let descriptor = query
-        .explain_execution()
-        .expect("PK-only covering key-range explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::PrimaryKeyRangeScan,
-        "PK-only bounded primary-key projection should explain through the primary-key range scan node",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "PK-only primary-key range should expose the explicit covering route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "PK-only primary-key range should surface the covering-read route label",
-    );
-    let projection_node =
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
-            .expect("PK-only covering key-range explain tree should emit a covering-read node");
-    assert_eq!(
-        projection_node.node_properties().get("covering_fields"),
-        Some(&Value::List(vec![Value::Text("id".to_string())])),
-        "PK-only key-range covering explain should expose the projected field list",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("covering_sources"),
-        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
-        "PK-only key-range covering explain should expose the primary-key field source",
-    );
-    assert_eq!(
-        projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("planner_proven".to_string())),
-        "PK-only key-range covering should surface the planner-proven row mode",
-    );
+    for (descriptor, expected_root, expected_row_mode, context) in [
+        (
+            by_key,
+            ExplainExecutionNodeType::ByKeyLookup,
+            "row_check_required",
+            "PK-only exact-key projection",
+        ),
+        (
+            by_keys,
+            ExplainExecutionNodeType::ByKeysLookup,
+            "row_check_required",
+            "PK-only exact-key-set projection",
+        ),
+        (
+            key_range,
+            ExplainExecutionNodeType::PrimaryKeyRangeScan,
+            "planner_proven",
+            "PK-only bounded primary-key projection",
+        ),
+    ] {
+        assert_primary_key_covering_descriptor(
+            &descriptor,
+            expected_root,
+            expected_row_mode,
+            context,
+        );
+    }
 }
 
 #[test]
@@ -751,7 +704,7 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
 }
 
 #[test]
-fn session_explain_execution_hides_non_ready_secondary_indexes_from_planner_visibility() {
+fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(
@@ -759,10 +712,7 @@ fn session_explain_execution_hides_non_ready_secondary_indexes_from_planner_visi
         &[("Sam", 30), ("Sasha", 24), ("Soren", 18), ("Mira", 40)],
     );
 
-    // Phase 1: build one query shape that would normally plan through the
-    // secondary `name` index if that index remained planner-visible.
-    let query = session
-        .load::<IndexedSessionSqlEntity>()
+    let planner_query = Query::<IndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,
@@ -772,60 +722,8 @@ fn session_explain_execution_hides_non_ready_secondary_indexes_from_planner_visi
         .order_by("name")
         .order_by("id")
         .limit(1);
-
-    // Phase 2: flip the recovered store out of the ready/visible state after
-    // query construction so the explain path must re-read planner visibility
-    // instead of freezing the old secondary-index set on the builder.
-    mark_indexed_session_sql_index_building();
-
-    let descriptor = query
-        .explain_execution()
-        .expect("non-ready secondary index explain_execution should succeed");
-
-    // Phase 3: require the planner-owned descriptor root to stay off all
-    // secondary access nodes once the index is no longer visible.
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::FullScan,
-        "non-ready secondary indexes must disappear from planner visibility instead of downgrading in execution",
-    );
-    assert_ne!(
-        descriptor.covering_scan(),
-        Some(true),
-        "non-ready secondary indexes must not leave behind a covering-read route",
-    );
-
-    let rows = query
-        .execute()
-        .expect("non-ready secondary index query should still execute");
-
-    assert_eq!(
-        rows.len(),
-        1,
-        "planner visibility fallback must preserve the bounded query window",
-    );
-    assert_eq!(
-        rows[0].entity_ref().name,
-        "Sam",
-        "planner visibility fallback must preserve the filtered row identity",
-    );
-    assert_eq!(
-        rows[0].entity_ref().age,
-        30,
-        "planner visibility fallback must preserve the projected entity payload",
-    );
-}
-
-#[test]
-fn session_planning_hides_non_ready_secondary_indexes_from_access_selection() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    seed_indexed_session_sql_entities(
-        &session,
-        &[("Sam", 30), ("Sasha", 24), ("Soren", 18), ("Mira", 40)],
-    );
-
-    let query = Query::<IndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+    let execution_query = session
+        .load::<IndexedSessionSqlEntity>()
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,
@@ -849,12 +747,45 @@ fn session_planning_hides_non_ready_secondary_indexes_from_access_selection() {
         "planner boundary must hide non-ready secondary indexes before access selection",
     );
 
-    let compiled = query
+    let compiled = planner_query
         .plan_with_visible_indexes(&visible_indexes)
         .expect("planning with no visible secondary indexes should still succeed");
     assert!(
         matches!(compiled.explain().access(), ExplainAccessPath::FullScan),
         "planner output must fall back to FullScan once the secondary index is no longer ready",
+    );
+
+    let descriptor = execution_query
+        .explain_execution()
+        .expect("non-ready secondary index explain_execution should succeed");
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::FullScan,
+        "non-ready secondary indexes must disappear from planner visibility instead of downgrading in execution",
+    );
+    assert_ne!(
+        descriptor.covering_scan(),
+        Some(true),
+        "non-ready secondary indexes must not leave behind a covering-read route",
+    );
+
+    let rows = execution_query
+        .execute()
+        .expect("non-ready secondary index query should still execute");
+    assert_eq!(
+        rows.len(),
+        1,
+        "planner visibility fallback must preserve the bounded query window",
+    );
+    assert_eq!(
+        rows[0].entity_ref().name,
+        "Sam",
+        "planner visibility fallback must preserve the filtered row identity",
+    );
+    assert_eq!(
+        rows[0].entity_ref().age,
+        30,
+        "planner visibility fallback must preserve the projected entity payload",
     );
 }
 

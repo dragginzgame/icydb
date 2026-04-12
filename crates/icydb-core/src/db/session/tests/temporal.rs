@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn session_temporal_entities_and_projection_values_preserve_semantic_types() {
+fn session_temporal_projection_matrix_preserves_semantic_types() {
     reset_session_sql_store();
     let session = sql_session();
     let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
@@ -10,6 +10,8 @@ fn session_temporal_entities_and_projection_values_preserve_semantic_types() {
     let at_two = Timestamp::from_millis(1_760_954_400_000);
     let elapsed_one = Duration::from_millis(1_500);
     let elapsed_two = Duration::from_millis(2_750);
+    let id_one = Id::<SessionTemporalEntity>::from_key(Ulid::from_u128(8_941));
+    let id_two = Id::<SessionTemporalEntity>::from_key(Ulid::from_u128(8_942));
     seed_session_temporal_entities(
         &session,
         &[
@@ -17,11 +19,10 @@ fn session_temporal_entities_and_projection_values_preserve_semantic_types() {
             (8_942, day_two, at_two, elapsed_two),
         ],
     );
+    let load_window = || session.load::<SessionTemporalEntity>().order_by("id");
 
     // Phase 1: lock semantic entity-field projection types and values.
-    let response = session
-        .load::<SessionTemporalEntity>()
-        .order_by("id")
+    let response = load_window()
         .execute()
         .expect("temporal execute should succeed");
     let entities = response.entities();
@@ -38,22 +39,26 @@ fn session_temporal_entities_and_projection_values_preserve_semantic_types() {
     assert_eq!(first.elapsed, elapsed_one);
     assert_eq!(second.elapsed, elapsed_two);
 
-    // Phase 2: lock scalar projection value typing for temporal fields.
-    let day_values = session
-        .load::<SessionTemporalEntity>()
-        .order_by("id")
+    // Phase 2: lock scalar projection value typing and id/value pairing.
+    let day_values = load_window()
         .values_by("occurred_on")
         .expect("occurred_on projection should succeed");
-    let at_values = session
-        .load::<SessionTemporalEntity>()
-        .order_by("id")
+    let at_values = load_window()
         .values_by("occurred_at")
         .expect("occurred_at projection should succeed");
-    let elapsed_values = session
-        .load::<SessionTemporalEntity>()
-        .order_by("id")
+    let elapsed_values = load_window()
         .values_by("elapsed")
         .expect("elapsed projection should succeed");
+    let day_pairs = load_window()
+        .values_by_with_ids("occurred_on")
+        .expect("values_by_with_ids(occurred_on) should succeed");
+    let timestamp_pairs = load_window()
+        .values_by_with_ids("occurred_at")
+        .expect("values_by_with_ids(occurred_at) should succeed");
+    let duration_pairs = load_window()
+        .values_by_with_ids("elapsed")
+        .expect("values_by_with_ids(elapsed) should succeed");
+
     assert_eq!(day_values, vec![Value::Date(day_one), Value::Date(day_two)]);
     assert_eq!(
         at_values,
@@ -63,6 +68,55 @@ fn session_temporal_entities_and_projection_values_preserve_semantic_types() {
         elapsed_values,
         vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)]
     );
+    assert_eq!(
+        day_pairs,
+        vec![
+            (id_one, Value::Date(day_one)),
+            (id_two, Value::Date(day_two))
+        ],
+    );
+    assert_eq!(
+        timestamp_pairs,
+        vec![
+            (id_one, Value::Timestamp(at_one)),
+            (id_two, Value::Timestamp(at_two))
+        ],
+    );
+    assert_eq!(
+        duration_pairs,
+        vec![
+            (id_one, Value::Duration(elapsed_one)),
+            (id_two, Value::Duration(elapsed_two))
+        ],
+    );
+
+    // Phase 3: lock first/last scalar terminal typing on the same ordered
+    // temporal window.
+    let first_day = load_window()
+        .first_value_by("occurred_on")
+        .expect("first_value_by(occurred_on) should succeed");
+    let first_timestamp = load_window()
+        .first_value_by("occurred_at")
+        .expect("first_value_by(occurred_at) should succeed");
+    let first_duration = load_window()
+        .first_value_by("elapsed")
+        .expect("first_value_by(elapsed) should succeed");
+    let last_day = load_window()
+        .last_value_by("occurred_on")
+        .expect("last_value_by(occurred_on) should succeed");
+    let last_timestamp = load_window()
+        .last_value_by("occurred_at")
+        .expect("last_value_by(occurred_at) should succeed");
+    let last_duration = load_window()
+        .last_value_by("elapsed")
+        .expect("last_value_by(elapsed) should succeed");
+
+    assert_eq!(first_day, Some(Value::Date(day_one)));
+    assert_eq!(first_timestamp, Some(Value::Timestamp(at_one)));
+    assert_eq!(first_duration, Some(Value::Duration(elapsed_one)));
+    assert_eq!(last_day, Some(Value::Date(day_two)));
+    assert_eq!(last_timestamp, Some(Value::Timestamp(at_two)));
+    assert_eq!(last_duration, Some(Value::Duration(elapsed_two)));
 }
 
 #[test]
@@ -229,111 +283,6 @@ fn session_temporal_distinct_projection_values_preserve_semantic_types() {
 }
 
 #[test]
-fn session_temporal_first_last_projection_values_preserve_semantic_types() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
-    let at_one = Timestamp::from_millis(1_760_868_000_000);
-    let at_two = Timestamp::from_millis(1_760_954_400_000);
-    let elapsed_one = Duration::from_millis(1_500);
-    let elapsed_two = Duration::from_millis(2_750);
-    seed_session_temporal_entities(
-        &session,
-        &[
-            (8_949, day_one, at_one, elapsed_one),
-            (8_950, day_two, at_two, elapsed_two),
-        ],
-    );
-    let load_window = || session.load::<SessionTemporalEntity>().order_by("id");
-
-    // Phase 1: lock first-value temporal projection typing for scalar terminals.
-    let first_day = load_window()
-        .first_value_by("occurred_on")
-        .expect("first_value_by(occurred_on) should succeed");
-    let first_timestamp = load_window()
-        .first_value_by("occurred_at")
-        .expect("first_value_by(occurred_at) should succeed");
-    let first_duration = load_window()
-        .first_value_by("elapsed")
-        .expect("first_value_by(elapsed) should succeed");
-
-    // Phase 2: lock last-value temporal projection typing for scalar terminals.
-    let last_day = load_window()
-        .last_value_by("occurred_on")
-        .expect("last_value_by(occurred_on) should succeed");
-    let last_timestamp = load_window()
-        .last_value_by("occurred_at")
-        .expect("last_value_by(occurred_at) should succeed");
-    let last_duration = load_window()
-        .last_value_by("elapsed")
-        .expect("last_value_by(elapsed) should succeed");
-
-    assert_eq!(first_day, Some(Value::Date(day_one)));
-    assert_eq!(first_timestamp, Some(Value::Timestamp(at_one)));
-    assert_eq!(first_duration, Some(Value::Duration(elapsed_one)));
-    assert_eq!(last_day, Some(Value::Date(day_two)));
-    assert_eq!(last_timestamp, Some(Value::Timestamp(at_two)));
-    assert_eq!(last_duration, Some(Value::Duration(elapsed_two)));
-}
-
-#[test]
-fn session_temporal_values_with_ids_preserve_semantic_types() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
-    let at_one = Timestamp::from_millis(1_760_868_000_000);
-    let at_two = Timestamp::from_millis(1_760_954_400_000);
-    let elapsed_one = Duration::from_millis(1_500);
-    let elapsed_two = Duration::from_millis(2_750);
-    let id_one = Id::<SessionTemporalEntity>::from_key(Ulid::from_u128(8_951));
-    let id_two = Id::<SessionTemporalEntity>::from_key(Ulid::from_u128(8_952));
-    seed_session_temporal_entities(
-        &session,
-        &[
-            (8_951, day_one, at_one, elapsed_one),
-            (8_952, day_two, at_two, elapsed_two),
-        ],
-    );
-    let load_window = || session.load::<SessionTemporalEntity>().order_by("id");
-
-    // Phase 1: lock temporal typing for id/value projection pairs.
-    let day_pairs = load_window()
-        .values_by_with_ids("occurred_on")
-        .expect("values_by_with_ids(occurred_on) should succeed");
-    let timestamp_pairs = load_window()
-        .values_by_with_ids("occurred_at")
-        .expect("values_by_with_ids(occurred_at) should succeed");
-    let duration_pairs = load_window()
-        .values_by_with_ids("elapsed")
-        .expect("values_by_with_ids(elapsed) should succeed");
-
-    // Phase 2: assert semantic temporal variants are preserved alongside ids.
-    assert_eq!(
-        day_pairs,
-        vec![
-            (id_one, Value::Date(day_one)),
-            (id_two, Value::Date(day_two))
-        ]
-    );
-    assert_eq!(
-        timestamp_pairs,
-        vec![
-            (id_one, Value::Timestamp(at_one)),
-            (id_two, Value::Timestamp(at_two))
-        ]
-    );
-    assert_eq!(
-        duration_pairs,
-        vec![
-            (id_one, Value::Duration(elapsed_one)),
-            (id_two, Value::Duration(elapsed_two))
-        ]
-    );
-}
-
-#[test]
 #[expect(clippy::too_many_lines)]
 fn session_temporal_ranked_projection_values_preserve_semantic_types() {
     reset_session_sql_store();
@@ -444,32 +393,9 @@ fn session_temporal_ranked_projection_values_preserve_semantic_types() {
             (id_two, Value::Duration(elapsed_two))
         ]
     );
-}
 
-#[test]
-fn session_temporal_ranked_row_terminals_preserve_semantic_types() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
-    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
-    let day_three = Date::new_checked(2025, 10, 21).expect("date should build");
-    let at_one = Timestamp::from_millis(1_760_868_000_000);
-    let at_two = Timestamp::from_millis(1_760_954_400_000);
-    let at_three = Timestamp::from_millis(1_761_040_800_000);
-    let elapsed_one = Duration::from_millis(1_500);
-    let elapsed_two = Duration::from_millis(2_750);
-    let elapsed_three = Duration::from_millis(4_100);
-    seed_session_temporal_entities(
-        &session,
-        &[
-            (8_956, day_one, at_one, elapsed_one),
-            (8_957, day_two, at_two, elapsed_two),
-            (8_958, day_three, at_three, elapsed_three),
-        ],
-    );
-    let load_window = || session.load::<SessionTemporalEntity>();
-
-    // Phase 1: lock top-k row terminal typing and ordering for temporal ranking.
+    // Phase 3: lock top-k / bottom-k row terminal typing and ordering on the
+    // same ranked temporal fixture.
     let top_response = load_window()
         .top_k_by("occurred_on", 2)
         .expect("top_k_by(occurred_on, 2) should succeed");
@@ -485,7 +411,6 @@ fn session_temporal_ranked_row_terminals_preserve_semantic_types() {
     assert_eq!(top_entities[0].elapsed, elapsed_three);
     assert_eq!(top_entities[1].elapsed, elapsed_two);
 
-    // Phase 2: lock bottom-k row terminal typing and ordering for temporal ranking.
     let bottom_response = load_window()
         .bottom_k_by("elapsed", 2)
         .expect("bottom_k_by(elapsed, 2) should succeed");

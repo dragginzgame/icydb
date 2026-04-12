@@ -779,6 +779,16 @@ pub trait Repr {
 
 pub trait Sanitizer<T> {
     fn sanitize(&self, value: &mut T) -> Result<(), String>;
+
+    fn sanitize_with_context(
+        &self,
+        value: &mut T,
+        ctx: &mut dyn VisitorContext,
+    ) -> Result<(), String> {
+        let _ = ctx;
+
+        self.sanitize(value)
+    }
 }
 
 ///

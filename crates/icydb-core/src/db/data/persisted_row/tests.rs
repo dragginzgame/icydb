@@ -1,13 +1,15 @@
 use super::{
-    CachedSlotValue, FieldSlot, ScalarSlotValueRef, ScalarValueRef, SerializedFieldUpdate,
-    SerializedPatchWriter, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
+    CachedSlotValue, CompleteSerializedPatchWriter, FieldSlot, ScalarSlotValueRef, ScalarValueRef,
+    SerializedFieldUpdate, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
     UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-    decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    decode_persisted_non_null_slot_payload, decode_persisted_option_slot_payload,
-    decode_persisted_slot_payload, decode_slot_value_by_contract, decode_slot_value_from_bytes,
+    canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
+    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
+    decode_persisted_option_slot_payload, decode_persisted_slot_payload,
+    decode_slot_value_by_contract, decode_slot_value_from_bytes,
     encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
     encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
-    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+    materialize_entity_from_serialized_update_patch,
+    serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
     with_structural_read_metrics,
 };
 use crate::{
@@ -1044,7 +1046,7 @@ fn serialize_update_patch_fields_encodes_canonical_slot_payloads() {
 
 #[test]
 fn serialized_patch_writer_rejects_clear_slots() {
-    let mut writer = SerializedPatchWriter::for_model(&TEST_MODEL);
+    let mut writer = CompleteSerializedPatchWriter::for_model(&TEST_MODEL);
 
     let err = writer
         .write_slot(0, None)
@@ -1287,7 +1289,7 @@ fn apply_serialized_update_patch_to_raw_row_replays_preencoded_slots() {
 }
 
 #[test]
-fn serialize_entity_slots_as_update_patch_replays_full_typed_after_image() {
+fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_image() {
     let old_entity = PersistedRowPatchBridgeEntity {
         id: crate::types::Ulid::from_u128(7),
         name: "Ada".to_string(),
@@ -1300,11 +1302,13 @@ fn serialize_entity_slots_as_update_patch_replays_full_typed_after_image() {
     let old_decoded = raw_row
         .try_decode::<PersistedRowPatchBridgeEntity>()
         .expect("decode old entity");
-    let serialized =
-        serialize_entity_slots_as_update_patch(&new_entity).expect("serialize entity patch");
-    let direct =
-        RawRow::from_serialized_update_patch(PersistedRowPatchBridgeEntity::MODEL, &serialized)
-            .expect("direct row emission should succeed");
+    let serialized = serialize_entity_slots_as_complete_serialized_patch(&new_entity)
+        .expect("serialize complete entity slot image");
+    let direct = RawRow::from_complete_serialized_update_patch(
+        PersistedRowPatchBridgeEntity::MODEL,
+        &serialized,
+    )
+    .expect("direct row emission should succeed");
 
     let patched = raw_row
         .apply_serialized_update_patch(PersistedRowPatchBridgeEntity::MODEL, &serialized)
@@ -1319,6 +1323,125 @@ fn serialize_entity_slots_as_update_patch_replays_full_typed_after_image() {
     );
     assert_eq!(old_decoded, old_entity);
     assert_eq!(decoded, new_entity);
+}
+
+#[test]
+fn materialize_entity_from_serialized_update_patch_rejects_missing_required_field() {
+    let patch = UpdatePatch::new().set(
+        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+        Value::Text("Ada".to_string()),
+    );
+    let serialized = serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &patch)
+        .expect("serialize sparse patch");
+
+    let err = materialize_entity_from_serialized_update_patch::<PersistedRowPatchBridgeEntity>(
+        &serialized,
+    )
+    .expect_err("sparse typed bridge must fail closed when a required slot is absent");
+
+    assert_eq!(err.message, "row decode: missing required field 'id'");
+}
+
+#[test]
+fn materialize_entity_from_serialized_update_patch_rejects_noncanonical_scalar_payload() {
+    let patch = UpdatePatch::new()
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            Value::Ulid(crate::types::Ulid::from_u128(7)),
+        )
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            Value::Text("Ada".to_string()),
+        );
+    let valid = serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &patch)
+        .expect("serialize valid patch");
+    let serialized = SerializedUpdatePatch::new(vec![
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            vec![0xF6],
+        ),
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            valid.entries()[1].payload().to_vec(),
+        ),
+    ]);
+
+    let err = materialize_entity_from_serialized_update_patch::<PersistedRowPatchBridgeEntity>(
+        &serialized,
+    )
+    .expect_err("typed sparse patch bridge must reject malformed scalar payloads");
+
+    assert!(
+        err.message.contains("field 'id'"),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        err.message
+            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn canonical_row_from_complete_serialized_update_patch_rejects_noncanonical_scalar_payload() {
+    let patch = UpdatePatch::new()
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            Value::Ulid(crate::types::Ulid::from_u128(7)),
+        )
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            Value::Text("Ada".to_string()),
+        );
+    let valid = serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &patch)
+        .expect("serialize valid patch");
+    let serialized = SerializedUpdatePatch::new(vec![
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            vec![0xF6],
+        ),
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            valid.entries()[1].payload().to_vec(),
+        ),
+    ]);
+
+    let err = canonical_row_from_complete_serialized_update_patch(
+        PersistedRowPatchBridgeEntity::MODEL,
+        &serialized,
+    )
+    .expect_err("complete serialized patch row emission must reject malformed scalar payloads");
+
+    assert!(
+        err.message.contains("field 'id'"),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        err.message
+            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn canonical_row_from_complete_serialized_update_patch_rejects_incomplete_slot_image() {
+    let patch = UpdatePatch::new().set(
+        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+        Value::Text("Ada".to_string()),
+    );
+    let serialized = serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &patch)
+        .expect("serialize sparse patch");
+
+    let err = canonical_row_from_complete_serialized_update_patch(
+        PersistedRowPatchBridgeEntity::MODEL,
+        &serialized,
+    )
+    .expect_err("complete serialized patch row emission must reject missing declared slots");
+
+    assert!(
+        err.message.contains("serialized patch did not emit slot 0"),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]
@@ -1371,7 +1494,7 @@ fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
 }
 
 #[test]
-fn raw_row_from_serialized_update_patch_rejects_noncanonical_scalar_payload() {
+fn raw_row_from_complete_serialized_update_patch_rejects_noncanonical_scalar_payload() {
     let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
         .expect("encode value-storage payload");
     let serialized = SerializedUpdatePatch::new(vec![
@@ -1385,7 +1508,7 @@ fn raw_row_from_serialized_update_patch_rejects_noncanonical_scalar_payload() {
         ),
     ]);
 
-    let err = RawRow::from_serialized_update_patch(&TEST_MODEL, &serialized)
+    let err = RawRow::from_complete_serialized_update_patch(&TEST_MODEL, &serialized)
         .expect_err("fresh row emission must reject noncanonical serialized patch payloads");
 
     assert!(
@@ -1400,14 +1523,14 @@ fn raw_row_from_serialized_update_patch_rejects_noncanonical_scalar_payload() {
 }
 
 #[test]
-fn raw_row_from_serialized_update_patch_rejects_incomplete_slot_image() {
+fn raw_row_from_complete_serialized_update_patch_rejects_incomplete_slot_image() {
     let serialized = SerializedUpdatePatch::new(vec![SerializedFieldUpdate::new(
         FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
         crate::serialize::serialize(&Value::Text("payload".to_string()))
             .expect("encode value-storage payload"),
     )]);
 
-    let err = RawRow::from_serialized_update_patch(&TEST_MODEL, &serialized)
+    let err = RawRow::from_complete_serialized_update_patch(&TEST_MODEL, &serialized)
         .expect_err("fresh row emission must reject missing declared slots");
 
     assert!(

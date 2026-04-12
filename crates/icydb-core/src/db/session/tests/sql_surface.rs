@@ -108,84 +108,53 @@ fn assert_sql_statement_route_case(
 }
 
 #[test]
-fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
+fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    // Phase 1: define statement lanes that must stay outside query_from_sql.
-    let cases = [
-        (
-            "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "query_from_sql must reject EXPLAIN statements",
-        ),
-        (
-            "DESCRIBE SessionSqlEntity",
-            "query_from_sql must reject DESCRIBE statements",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "query_from_sql must reject SHOW INDEXES statements",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "query_from_sql must reject SHOW COLUMNS statements",
-        ),
-        (
-            "SHOW ENTITIES",
-            "query_from_sql must reject SHOW ENTITIES statements",
-        ),
-        (
-            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            "query_from_sql must reject INSERT statements",
-        ),
-        (
-            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-            "query_from_sql must reject INSERT statements",
-        ),
-        (
-            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-            "query_from_sql must reject UPDATE statements",
-        ),
-    ];
-
-    // Phase 2: assert each lane remains fail-closed through unsupported execution.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        session.query_from_sql::<SessionSqlEntity>(sql)
-    });
-}
-
-#[test]
-fn query_from_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .query_from_sql::<SessionSqlEntity>(
-            "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-        )
-        .expect_err("non-casefold direct STARTS_WITH delete should stay fail-closed");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "query_from_sql should reject non-casefold wrapped direct STARTS_WITH delete",
+    // Phase 1: keep the lowered query entrypoint fail-closed for every
+    // non-query statement family.
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "query_from_sql must reject EXPLAIN statements",
+            ),
+            (
+                "DESCRIBE SessionSqlEntity",
+                "query_from_sql must reject DESCRIBE statements",
+            ),
+            (
+                "SHOW INDEXES SessionSqlEntity",
+                "query_from_sql must reject SHOW INDEXES statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "query_from_sql must reject SHOW COLUMNS statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "query_from_sql must reject SHOW ENTITIES statements",
+            ),
+            (
+                "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
+                "query_from_sql must reject INSERT statements",
+            ),
+            (
+                "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+                "query_from_sql must reject INSERT statements",
+            ),
+            (
+                "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
+                "query_from_sql must reject UPDATE statements",
+            ),
+        ],
+        |sql| session.query_from_sql::<SessionSqlEntity>(sql),
     );
-    assert_sql_unsupported_feature_detail(
-        err,
-        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-    );
-}
 
-#[test]
-fn execute_sql_rejects_non_query_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let cases = [
+    // Phase 2: require both executable query entrypoints to preserve their
+    // own surface-local lane boundary messages for the same non-query SQL.
+    let message_cases = [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity",
             "execute_sql rejects EXPLAIN",
@@ -213,20 +182,13 @@ fn execute_sql_rejects_non_query_statement_lanes_matrix() {
             "execute_sql rejects UPDATE",
         ),
     ];
-
     assert_sql_surface_rejects_statement_lanes_with_message(
-        &cases,
+        &message_cases,
         |sql| session.execute_sql::<SessionSqlEntity>(sql),
         "execute_sql",
     );
-}
 
-#[test]
-fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let cases = [
+    let grouped_cases = [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity",
             "execute_sql_grouped rejects EXPLAIN",
@@ -259,69 +221,82 @@ fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
     ];
 
     assert_sql_surface_rejects_statement_lanes_with_message(
-        &cases,
+        &grouped_cases,
         |sql| session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
         "execute_sql_grouped",
     );
 }
 
 #[test]
-fn query_from_sql_select_field_projection_lowers_to_scalar_field_selection() {
+fn query_from_sql_projection_lowering_matrix_normalizes_to_scalar_fields() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let query = session
-        .query_from_sql::<SessionSqlEntity>("SELECT name, age FROM SessionSqlEntity")
-        .expect("field-list SQL query should lower");
-    let projection = query
-        .plan()
-        .expect("field-list SQL plan should build")
-        .projection_spec();
-    let field_names = projection
-        .fields()
-        .map(|field| match field {
-            ProjectionField::Scalar {
-                expr: Expr::Field(field),
-                alias: None,
-            } => field.as_str().to_string(),
-            other @ ProjectionField::Scalar { .. } => {
-                panic!("field-list SQL projection should lower to plain field exprs: {other:?}")
-            }
-        })
-        .collect::<Vec<_>>();
+    for (sql, expected_field_names, context) in [
+        (
+            "SELECT name, age FROM SessionSqlEntity",
+            vec!["name".to_string(), "age".to_string()],
+            "field-list SQL projection",
+        ),
+        (
+            "SELECT alias.name \
+             FROM SessionSqlEntity alias \
+             WHERE alias.age >= 21 \
+             ORDER BY alias.age DESC LIMIT 1",
+            vec!["name".to_string()],
+            "single-table alias SQL projection",
+        ),
+    ] {
+        let query = session
+            .query_from_sql::<SessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
+        let projection = query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} plan should build: {err}"))
+            .projection_spec();
+        let field_names = projection
+            .fields()
+            .map(|field| match field {
+                ProjectionField::Scalar {
+                    expr: Expr::Field(field),
+                    alias: None,
+                } => field.as_str().to_string(),
+                other @ ProjectionField::Scalar { .. } => {
+                    panic!("{context} should lower to canonical field exprs: {other:?}")
+                }
+            })
+            .collect::<Vec<_>>();
 
-    assert_eq!(field_names, vec!["name".to_string(), "age".to_string()]);
+        assert_eq!(
+            field_names, expected_field_names,
+            "{context} should normalize to scalar field selection",
+        );
+    }
 }
 
 #[test]
-fn query_from_sql_rejects_computed_text_projection_in_current_lane() {
+fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
+    let query_err = session
         .query_from_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err(
             "query_from_sql should stay on the structural lowered-query lane and reject computed text projection forms",
         );
-
     assert!(
-        err.to_string()
+        query_err
+            .to_string()
             .contains("query_from_sql does not accept computed text projection"),
         "query_from_sql should reject computed text projection with an actionable boundary message",
     );
-}
 
-#[test]
-fn execute_sql_rejects_computed_text_projection_in_current_lane() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
+    let execute_err = session
         .execute_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err("execute_sql should keep computed text projection on the dispatch-owned lane");
-
     assert!(
-        err.to_string()
+        execute_err
+            .to_string()
             .contains("execute_sql rejects computed text projection"),
         "execute_sql should reject computed text projection with an actionable boundary message",
     );
@@ -409,39 +384,6 @@ fn sql_statement_route_matrix_classifies_supported_surfaces() {
 }
 
 #[test]
-fn query_from_sql_accepts_single_table_alias_and_normalizes_to_canonical_fields() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let query = session
-        .query_from_sql::<SessionSqlEntity>(
-            "SELECT alias.name \
-             FROM SessionSqlEntity alias \
-             WHERE alias.age >= 21 \
-             ORDER BY alias.age DESC LIMIT 1",
-        )
-        .expect("single-table alias SQL query should lower");
-    let projection = query
-        .plan()
-        .expect("single-table alias SQL plan should build")
-        .projection_spec();
-    let field_names = projection
-        .fields()
-        .map(|field| match field {
-            ProjectionField::Scalar {
-                expr: Expr::Field(field),
-                alias: None,
-            } => field.as_str().to_string(),
-            other @ ProjectionField::Scalar { .. } => {
-                panic!("single-table alias SQL projection should lower to canonical field exprs: {other:?}")
-            }
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(field_names, vec!["name".to_string()]);
-}
-
-#[test]
 fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
     reset_session_sql_store();
     let session = sql_session();
@@ -459,111 +401,6 @@ fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
         ),
         "quoted identifiers should fail closed through unsupported SQL boundary",
     );
-}
-
-#[test]
-fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: define lanes that must remain outside describe_sql.
-    let cases = [
-        (
-            "SELECT * FROM SessionSqlEntity",
-            "describe_sql should reject SELECT statements",
-        ),
-        (
-            "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "describe_sql should reject EXPLAIN statements",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "describe_sql should reject SHOW INDEXES statements",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "describe_sql should reject SHOW COLUMNS statements",
-        ),
-        (
-            "SHOW ENTITIES",
-            "describe_sql should reject SHOW ENTITIES statements",
-        ),
-    ];
-
-    // Phase 2: assert each non-describe lane remains fail-closed.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        dispatch_describe_sql::<SessionSqlEntity>(&session, sql)
-    });
-}
-
-#[test]
-fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: define lanes that must remain outside show_indexes_sql.
-    let cases = [
-        (
-            "SELECT * FROM SessionSqlEntity",
-            "show_indexes_sql should reject SELECT statements",
-        ),
-        (
-            "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "show_indexes_sql should reject EXPLAIN statements",
-        ),
-        (
-            "DESCRIBE SessionSqlEntity",
-            "show_indexes_sql should reject DESCRIBE statements",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "show_indexes_sql should reject SHOW COLUMNS statements",
-        ),
-        (
-            "SHOW ENTITIES",
-            "show_indexes_sql should reject SHOW ENTITIES statements",
-        ),
-    ];
-
-    // Phase 2: assert each non-show-indexes lane remains fail-closed.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        dispatch_show_indexes_sql::<SessionSqlEntity>(&session, sql)
-    });
-}
-
-#[test]
-fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: define lanes that must remain outside show_columns_sql.
-    let cases = [
-        (
-            "SELECT * FROM SessionSqlEntity",
-            "show_columns_sql should reject SELECT statements",
-        ),
-        (
-            "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "show_columns_sql should reject EXPLAIN statements",
-        ),
-        (
-            "DESCRIBE SessionSqlEntity",
-            "show_columns_sql should reject DESCRIBE statements",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "show_columns_sql should reject SHOW INDEXES statements",
-        ),
-        (
-            "SHOW ENTITIES",
-            "show_columns_sql should reject SHOW ENTITIES statements",
-        ),
-    ];
-
-    // Phase 2: assert each non-show-columns lane remains fail-closed.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        dispatch_show_columns_sql::<SessionSqlEntity>(&session, sql)
-    });
 }
 
 #[test]
@@ -606,73 +443,135 @@ fn sql_metadata_surfaces_match_typed_payloads() {
 }
 
 #[test]
-fn show_entities_sql_rejects_non_show_entities_statement_lanes_matrix() {
+fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    // Phase 1: define lanes that must remain outside show_entities_sql.
-    let cases = [
-        (
-            "SELECT * FROM SessionSqlEntity",
-            "show_entities_sql should reject SELECT statements",
-        ),
-        (
-            "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "show_entities_sql should reject EXPLAIN statements",
-        ),
-        (
-            "DESCRIBE SessionSqlEntity",
-            "show_entities_sql should reject DESCRIBE statements",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "show_entities_sql should reject SHOW INDEXES statements",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "show_entities_sql should reject SHOW COLUMNS statements",
-        ),
-    ];
-
-    // Phase 2: assert each non-show-entities lane remains fail-closed.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        dispatch_show_entities_sql(&session, sql)
-    });
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "SELECT * FROM SessionSqlEntity",
+                "describe_sql should reject SELECT statements",
+            ),
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "describe_sql should reject EXPLAIN statements",
+            ),
+            (
+                "SHOW INDEXES SessionSqlEntity",
+                "describe_sql should reject SHOW INDEXES statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "describe_sql should reject SHOW COLUMNS statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "describe_sql should reject SHOW ENTITIES statements",
+            ),
+        ],
+        |sql| dispatch_describe_sql::<SessionSqlEntity>(&session, sql),
+    );
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "SELECT * FROM SessionSqlEntity",
+                "show_indexes_sql should reject SELECT statements",
+            ),
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "show_indexes_sql should reject EXPLAIN statements",
+            ),
+            (
+                "DESCRIBE SessionSqlEntity",
+                "show_indexes_sql should reject DESCRIBE statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "show_indexes_sql should reject SHOW COLUMNS statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "show_indexes_sql should reject SHOW ENTITIES statements",
+            ),
+        ],
+        |sql| dispatch_show_indexes_sql::<SessionSqlEntity>(&session, sql),
+    );
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "SELECT * FROM SessionSqlEntity",
+                "show_columns_sql should reject SELECT statements",
+            ),
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "show_columns_sql should reject EXPLAIN statements",
+            ),
+            (
+                "DESCRIBE SessionSqlEntity",
+                "show_columns_sql should reject DESCRIBE statements",
+            ),
+            (
+                "SHOW INDEXES SessionSqlEntity",
+                "show_columns_sql should reject SHOW INDEXES statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "show_columns_sql should reject SHOW ENTITIES statements",
+            ),
+        ],
+        |sql| dispatch_show_columns_sql::<SessionSqlEntity>(&session, sql),
+    );
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "SELECT * FROM SessionSqlEntity",
+                "show_entities_sql should reject SELECT statements",
+            ),
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity",
+                "show_entities_sql should reject EXPLAIN statements",
+            ),
+            (
+                "DESCRIBE SessionSqlEntity",
+                "show_entities_sql should reject DESCRIBE statements",
+            ),
+            (
+                "SHOW INDEXES SessionSqlEntity",
+                "show_entities_sql should reject SHOW INDEXES statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "show_entities_sql should reject SHOW COLUMNS statements",
+            ),
+        ],
+        |sql| dispatch_show_entities_sql(&session, sql),
+    );
+    assert_sql_surface_rejects_statement_lanes(
+        &[
+            (
+                "DESCRIBE SessionSqlEntity",
+                "explain_sql should reject DESCRIBE statements",
+            ),
+            (
+                "SHOW INDEXES SessionSqlEntity",
+                "explain_sql should reject SHOW INDEXES statements",
+            ),
+            (
+                "SHOW COLUMNS SessionSqlEntity",
+                "explain_sql should reject SHOW COLUMNS statements",
+            ),
+            (
+                "SHOW ENTITIES",
+                "explain_sql should reject SHOW ENTITIES statements",
+            ),
+        ],
+        |sql| dispatch_explain_sql::<SessionSqlEntity>(&session, sql),
+    );
 }
 
 #[test]
-fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: define lanes that must remain outside explain_sql.
-    let cases = [
-        (
-            "DESCRIBE SessionSqlEntity",
-            "explain_sql should reject DESCRIBE statements",
-        ),
-        (
-            "SHOW INDEXES SessionSqlEntity",
-            "explain_sql should reject SHOW INDEXES statements",
-        ),
-        (
-            "SHOW COLUMNS SessionSqlEntity",
-            "explain_sql should reject SHOW COLUMNS statements",
-        ),
-        (
-            "SHOW ENTITIES",
-            "explain_sql should reject SHOW ENTITIES statements",
-        ),
-    ];
-
-    // Phase 2: assert each non-explain lane remains fail-closed.
-    assert_sql_surface_rejects_statement_lanes(&cases, |sql| {
-        dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
-    });
-}
-
-#[test]
-fn sql_surfaces_preserve_parser_unsupported_feature_detail_labels() {
+fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -696,12 +595,11 @@ fn sql_surfaces_preserve_parser_unsupported_feature_detail_labels() {
         let explain_sql = format!("EXPLAIN {sql}");
         dispatch_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
     });
-}
-
-#[test]
-fn non_explain_sql_surfaces_preserve_returning_unsupported_feature_detail() {
-    reset_session_sql_store();
-    let session = sql_session();
+    assert_specific_sql_unsupported_feature_detail(
+        "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+        |sql| session.query_from_sql::<SessionSqlEntity>(sql),
+    );
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
     assert_specific_sql_unsupported_feature_detail(sql, "RETURNING", |sql| {

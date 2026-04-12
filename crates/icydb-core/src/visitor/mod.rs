@@ -10,6 +10,7 @@ pub(crate) mod validate;
 
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
+    sanitize::SanitizeWriteContext,
     traits::Visitable,
 };
 use candid::CandidType;
@@ -271,6 +272,7 @@ pub fn drive_validate_fields<T>(
 struct AdapterContext<'a> {
     path: &'a [PathSegment],
     issues: &'a mut VisitorIssues,
+    sanitize_write_context: Option<SanitizeWriteContext>,
 }
 
 impl VisitorContext for AdapterContext<'_> {
@@ -288,6 +290,10 @@ impl VisitorContext for AdapterContext<'_> {
             .entry(key)
             .or_default()
             .push(issue.into_message());
+    }
+
+    fn sanitize_write_context(&self) -> Option<SanitizeWriteContext> {
+        self.sanitize_write_context
     }
 }
 
@@ -368,6 +374,7 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
+            sanitize_write_context: None,
         };
         self.visitor.enter(node, &mut ctx);
     }
@@ -376,6 +383,7 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
+            sanitize_write_context: None,
         };
         self.visitor.exit(node, &mut ctx);
     }
@@ -438,17 +446,22 @@ pub(crate) struct VisitorMutAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,
     issues: VisitorIssues,
+    sanitize_write_context: Option<SanitizeWriteContext>,
 }
 
 impl<V> VisitorMutAdapter<V>
 where
     V: VisitorMut,
 {
-    pub(crate) const fn new(visitor: V) -> Self {
+    pub(crate) const fn with_sanitize_write_context(
+        visitor: V,
+        sanitize_write_context: Option<SanitizeWriteContext>,
+    ) -> Self {
         Self {
             visitor,
             path: Vec::new(),
             issues: VisitorIssues::new(),
+            sanitize_write_context,
         }
     }
 
@@ -479,6 +492,7 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
+            sanitize_write_context: self.sanitize_write_context,
         };
         self.visitor.enter_mut(node, &mut ctx);
     }
@@ -487,6 +501,7 @@ where
         let mut ctx = AdapterContext {
             path: &self.path,
             issues: &mut self.issues,
+            sanitize_write_context: self.sanitize_write_context,
         };
         self.visitor.exit_mut(node, &mut ctx);
     }

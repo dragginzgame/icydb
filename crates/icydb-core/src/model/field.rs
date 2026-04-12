@@ -158,6 +158,8 @@ pub struct FieldModel {
 pub enum FieldInsertGeneration {
     /// Generate one fresh `Ulid` value at insert time.
     Ulid,
+    /// Generate one current wall-clock `Timestamp` value at insert time.
+    Timestamp,
 }
 
 ///

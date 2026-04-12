@@ -2,23 +2,26 @@ use crate::{
     db::data::{CanonicalRow, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes},
     error::InternalError,
     model::entity::EntityModel,
+    value::Value,
 };
 use std::borrow::Cow;
 
 use crate::db::data::persisted_row::{
+    codec::ScalarSlotValueRef,
     contract::{
-        dense_canonical_slot_image_from_payload_source,
+        decode_slot_value_from_bytes, dense_canonical_slot_image_from_payload_source,
         dense_canonical_slot_image_from_value_source, emit_raw_row_from_slot_payloads,
-        encode_slot_value_from_value, serialized_patch_payload_by_slot,
+        encode_slot_value_from_value, field_model_for_slot, serialized_patch_payload_by_slot,
     },
     reader::StructuralSlotReader,
-    types::{PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, UpdatePatch},
-    writer::{SerializedPatchWriter, SlotBufferWriter},
+    types::{PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, SlotReader, UpdatePatch},
+    writer::{CompleteSerializedPatchWriter, SlotBufferWriter},
 };
 
-// Build one dense canonical slot image from a serialized patch, failing closed
-// when any declared slot is missing or any payload is non-canonical.
-fn dense_canonical_slot_image_from_serialized_patch(
+// Build one dense canonical slot image from a complete serialized slot image,
+// failing closed when any declared slot is missing or any payload is
+// non-canonical.
+fn dense_canonical_slot_image_from_complete_serialized_patch(
     model: &'static EntityModel,
     patch: &SerializedUpdatePatch,
 ) -> Result<Vec<Vec<u8>>, InternalError> {
@@ -34,13 +37,103 @@ fn dense_canonical_slot_image_from_serialized_patch(
     })
 }
 
-/// Build one canonical row from one serialized structural patch that already
-/// describes a full logical row image.
-pub(in crate::db) fn canonical_row_from_serialized_update_patch(
+///
+/// SerializedPatchSlotReader
+///
+/// Adapts a sparse serialized structural patch to the slot-reader contract so
+/// typed materialization can apply derive-owned missing-slot semantics before
+/// any dense row image is emitted.
+///
+struct SerializedPatchSlotReader<'a> {
+    model: &'static EntityModel,
+    payloads: Vec<Option<&'a [u8]>>,
+    decoded: Vec<Option<Value>>,
+}
+
+impl<'a> SerializedPatchSlotReader<'a> {
+    // Build one sparse patch-backed slot reader for one entity model.
+    fn new(
+        model: &'static EntityModel,
+        patch: &'a SerializedUpdatePatch,
+    ) -> Result<Self, InternalError> {
+        let payloads = serialized_patch_payload_by_slot(model, patch)?;
+        let decoded = vec![None; model.fields().len()];
+
+        Ok(Self {
+            model,
+            payloads,
+            decoded,
+        })
+    }
+}
+
+impl SlotReader for SerializedPatchSlotReader<'_> {
+    fn model(&self) -> &'static EntityModel {
+        self.model
+    }
+
+    fn has(&self, slot: usize) -> bool {
+        self.payloads.get(slot).is_some_and(Option::is_some)
+    }
+
+    fn get_bytes(&self, slot: usize) -> Option<&[u8]> {
+        self.payloads.get(slot).copied().flatten()
+    }
+
+    fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        let Some(raw_value) = self.get_bytes(slot) else {
+            return Ok(None);
+        };
+        let field = field_model_for_slot(self.model, slot)?;
+        let crate::model::field::LeafCodec::Scalar(codec) = field.leaf_codec() else {
+            return Ok(None);
+        };
+
+        crate::db::data::persisted_row::codec::decode_scalar_slot_value(
+            raw_value,
+            codec,
+            field.name(),
+        )
+        .map(Some)
+    }
+
+    fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
+        if slot >= self.decoded.len() {
+            return Ok(None);
+        }
+
+        if self.decoded[slot].is_none()
+            && let Some(raw_value) = self.get_bytes(slot)
+        {
+            self.decoded[slot] = Some(decode_slot_value_from_bytes(self.model, slot, raw_value)?);
+        }
+
+        Ok(self.decoded[slot].clone())
+    }
+}
+
+// Materialize one typed entity directly from a sparse serialized structural
+// patch so derive-owned missing-slot semantics run before final row emission.
+pub(in crate::db) fn materialize_entity_from_serialized_update_patch<E>(
+    patch: &SerializedUpdatePatch,
+) -> Result<E, InternalError>
+where
+    E: PersistedRow,
+{
+    let mut slots = SerializedPatchSlotReader::new(E::MODEL, patch)?;
+
+    E::materialize_from_slots(&mut slots)
+}
+
+/// Build one canonical row from one complete serialized slot image.
+///
+/// This helper is intentionally dense-image-only. Sparse structural insert and
+/// replace materialization now routes through typed preflight first.
+pub(in crate::db) fn canonical_row_from_complete_serialized_update_patch(
     model: &'static EntityModel,
     patch: &SerializedUpdatePatch,
 ) -> Result<CanonicalRow, InternalError> {
-    let slot_payloads = dense_canonical_slot_image_from_serialized_patch(model, patch)?;
+    let slot_payloads = dense_canonical_slot_image_from_complete_serialized_patch(model, patch)?;
 
     emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
 }
@@ -152,18 +245,19 @@ pub(in crate::db) fn serialize_update_patch_fields(
     Ok(SerializedUpdatePatch::new(entries))
 }
 
-/// Serialize one full typed entity image into the canonical serialized patch
-/// artifact used by row-boundary patch replay.
+/// Serialize one full typed entity image into one complete serialized slot
+/// image used by the typed save bridge.
 ///
-/// This keeps typed save/update APIs on the existing surface while moving the
-/// actual after-image staging onto the structural slot-patch boundary.
-pub(in crate::db) fn serialize_entity_slots_as_update_patch<E>(
+/// This keeps typed save/update APIs on the existing surface while making it
+/// explicit that the typed lane is staging a complete after-image, not a sparse
+/// structural update patch.
+pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch<E>(
     entity: &E,
 ) -> Result<SerializedUpdatePatch, InternalError>
 where
     E: PersistedRow,
 {
-    let mut writer = SerializedPatchWriter::for_model(E::MODEL);
+    let mut writer = CompleteSerializedPatchWriter::for_model(E::MODEL);
 
     // Phase 1: let the derive-owned persisted-row writer emit the complete
     // structural slot image for this entity.
@@ -171,7 +265,7 @@ where
 
     // Phase 2: require a dense slot image so save/update replay remains
     // equivalent to the existing full-row write semantics.
-    writer.finish_complete()
+    writer.finish_dense_slot_image()
 }
 
 /// Apply one serialized structural patch to one raw row.

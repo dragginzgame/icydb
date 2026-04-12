@@ -634,10 +634,13 @@ impl<C: CanisterKind> DbSession<C> {
     /// the write can succeed.
     ///
     /// `mode` semantics are explicit:
-    /// - `Insert`: patch must describe a full row; fails if the row already exists.
+    /// - `Insert`: sparse patches are allowed; missing fields must materialize
+    ///   through explicit defaults or managed-field preflight, and the write
+    ///   still fails if the row already exists.
     /// - `Update`: patch applies over the existing row; fails if the row is missing.
-    /// - `Replace`: patch must describe a full row; omitted fields are not inherited
-    ///   from the previous value, and the row is inserted if it is missing.
+    /// - `Replace`: sparse patches are allowed, but omitted fields are not inherited
+    ///   from the previous value; they must materialize through explicit defaults
+    ///   or managed-field preflight, and the row is inserted if it is missing.
     pub fn mutate_structural<E>(
         &self,
         key: E::Key,

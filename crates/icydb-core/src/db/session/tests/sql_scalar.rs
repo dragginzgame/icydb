@@ -1,44 +1,6 @@
 use super::*;
 
 #[test]
-fn execute_sql_select_star_honors_order_limit_offset() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "older".to_string(),
-            age: 37,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "younger".to_string(),
-            age: 19,
-        })
-        .expect("seed insert should succeed");
-
-    let response = session
-        .execute_sql::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
-        )
-        .expect("SELECT * should execute");
-
-    assert_eq!(response.count(), 1, "window should return one row");
-    let row = response
-        .iter()
-        .next()
-        .expect("windowed result should include one row");
-    assert_eq!(
-        row.entity_ref().name,
-        "older",
-        "ordered window should return the second age-ordered row",
-    );
-}
-
-#[test]
 fn execute_sql_scalar_matrix_queries_match_expected_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -94,6 +56,12 @@ fn execute_sql_scalar_matrix_queries_match_expected_rows() {
                 ("scalar-matrix-a".to_string(), 10_u64),
                 ("scalar-matrix-b".to_string(), 20_u64),
             ],
+        ),
+        (
+            "SELECT * \
+             FROM SessionSqlEntity \
+             ORDER BY age ASC LIMIT 1 OFFSET 2",
+            vec![("scalar-matrix-c".to_string(), 30_u64)],
         ),
     ];
 

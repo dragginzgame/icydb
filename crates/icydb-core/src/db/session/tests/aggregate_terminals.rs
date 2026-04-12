@@ -61,6 +61,25 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
         SessionAggregateResult::Values(vec![Value::Uint(30), Value::Uint(20), Value::Uint(10),]),
         "session distinct_values_by(rank) should preserve first-observed dedup order",
     );
+    let distinct_values = match distinct_values {
+        SessionAggregateResult::Values(values) => values,
+        other => panic!("distinct_values_by(rank) should stay on the values terminal: {other:?}"),
+    };
+    let mut expected_distinct = Vec::new();
+    for value in session_aggregate_values_by_rank(&expected) {
+        if expected_distinct.iter().any(|existing| existing == &value) {
+            continue;
+        }
+        expected_distinct.push(value);
+    }
+    assert!(
+        session_aggregate_values_by_rank(&expected).len() >= distinct_values.len(),
+        "values_by(field).len() must be >= distinct_values_by(field).len()",
+    );
+    assert_eq!(
+        distinct_values, expected_distinct,
+        "distinct_values_by(field) must equal values_by(field) deduped by first occurrence",
+    );
 
     assert!(
         load_window()
@@ -75,54 +94,6 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
             .expect("session aggregate last_value_by(rank) should succeed"),
         session_aggregate_last_value_by_rank(&expected),
         "session aggregate last_value_by(rank) should match execute() projection order",
-    );
-}
-
-#[test]
-fn session_aggregate_distinct_values_by_matches_values_by_first_observed_dedup() {
-    reset_session_sql_store();
-    let session = sql_session();
-    seed_session_aggregate_entities(
-        &session,
-        &[
-            (8_341, 7, 10),
-            (8_342, 7, 10),
-            (8_343, 7, 20),
-            (8_344, 7, 30),
-            (8_345, 7, 20),
-            (8_346, 8, 99),
-        ],
-    );
-    let load_window = || {
-        session
-            .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
-            .offset(1)
-            .limit(4)
-    };
-
-    let values = load_window()
-        .values_by("rank")
-        .expect("session values_by(rank) should succeed");
-    let distinct_values = load_window()
-        .distinct_values_by("rank")
-        .expect("session distinct_values_by(rank) should succeed");
-    let mut expected_distinct = Vec::new();
-    for value in &values {
-        if expected_distinct.iter().any(|existing| existing == value) {
-            continue;
-        }
-        expected_distinct.push(value.clone());
-    }
-
-    assert!(
-        values.len() >= distinct_values.len(),
-        "values_by(field).len() must be >= distinct_values_by(field).len()",
-    );
-    assert_eq!(
-        distinct_values, expected_distinct,
-        "distinct_values_by(field) must equal values_by(field) deduped by first occurrence",
     );
 }
 
@@ -220,7 +191,7 @@ fn session_aggregate_take_matches_execute_prefix() {
 }
 
 #[test]
-fn session_aggregate_top_and_bottom_k_match_execute_field_ordering() {
+fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_aggregate_entities(
@@ -234,7 +205,7 @@ fn session_aggregate_top_and_bottom_k_match_execute_field_ordering() {
             (8_3706, 8, 99),
         ],
     );
-    let load_window = || {
+    let ordering_window = || {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
@@ -242,10 +213,10 @@ fn session_aggregate_top_and_bottom_k_match_execute_field_ordering() {
             .offset(0)
             .limit(5)
     };
-    let expected = load_window()
+    let ordering_expected = ordering_window()
         .execute()
         .expect("baseline execute for ranked session aggregate parity should succeed");
-    let mut descending_rank = expected
+    let mut descending_rank = ordering_expected
         .iter()
         .map(|row| (row.entity_ref().rank, row.id().key()))
         .collect::<Vec<_>>();
@@ -261,10 +232,10 @@ fn session_aggregate_top_and_bottom_k_match_execute_field_ordering() {
             .then_with(|| left_id.cmp(right_id))
     });
 
-    let actual_top = load_window()
+    let actual_top = ordering_window()
         .top_k_by("rank", 3)
         .expect("session aggregate top_k_by(rank, 3) should succeed");
-    let actual_bottom = load_window()
+    let actual_bottom = ordering_window()
         .bottom_k_by("rank", 3)
         .expect("session aggregate bottom_k_by(rank, 3) should succeed");
 
@@ -286,10 +257,7 @@ fn session_aggregate_top_and_bottom_k_match_execute_field_ordering() {
             .collect::<Vec<_>>(),
         "session aggregate bottom_k_by(rank, 3) should match deterministic rank-asc ordering",
     );
-}
 
-#[test]
-fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
     let cases = [
         (
             &[

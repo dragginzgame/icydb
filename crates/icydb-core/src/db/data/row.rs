@@ -9,7 +9,7 @@ use crate::{
         data::{
             DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader,
             apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
-            persisted_row::canonical_row_from_serialized_update_patch,
+            persisted_row::canonical_row_from_complete_serialized_update_patch,
         },
     },
     error::InternalError,
@@ -61,13 +61,12 @@ impl CanonicalRow {
         canonical_row_from_entity(entity)
     }
 
-    /// Build one canonical row from one serialized structural patch that
-    /// already describes a full canonical row image.
-    pub(in crate::db) fn from_serialized_update_patch(
+    /// Build one canonical row from one complete serialized slot image.
+    pub(in crate::db) fn from_complete_serialized_update_patch(
         model: &'static EntityModel,
         patch: &SerializedUpdatePatch,
     ) -> Result<Self, InternalError> {
-        canonical_row_from_serialized_update_patch(model, patch)
+        canonical_row_from_complete_serialized_update_patch(model, patch)
     }
 }
 
@@ -148,13 +147,12 @@ impl RawRow {
         CanonicalRow::from_entity(entity).map(CanonicalRow::into_raw_row)
     }
 
-    /// Build one raw row from one serialized structural patch that already
-    /// describes a full canonical row image.
-    pub(in crate::db) fn from_serialized_update_patch(
+    /// Build one raw row from one complete serialized slot image.
+    pub(in crate::db) fn from_complete_serialized_update_patch(
         model: &'static EntityModel,
         patch: &SerializedUpdatePatch,
     ) -> Result<CanonicalRow, InternalError> {
-        CanonicalRow::from_serialized_update_patch(model, patch)
+        CanonicalRow::from_complete_serialized_update_patch(model, patch)
     }
 
     /// Apply one pre-serialized structural patch through the persisted-row boundary.

@@ -19,6 +19,8 @@ impl Imp<Entity> for PersistedRowTrait {
             let missing_expr = if field.default.is_some() {
                 let expr = field.default_expr();
                 quote!(#expr)
+            } else if field.write_management.is_some() {
+                quote!(Default::default())
             } else {
                 match field.value.cardinality() {
                     Cardinality::Opt => quote!(None),

@@ -1799,7 +1799,7 @@ fn structural_update_builder_rejects_unknown_field_names() {
 }
 
 #[test]
-fn structural_insert_requires_full_after_image_fields() {
+fn structural_insert_rejects_missing_required_fields_after_sparse_materialization() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -1812,12 +1812,12 @@ fn structural_insert_requires_full_after_image_fields() {
                 .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
                 .expect("resolve id slot"),
         )
-        .expect_err("structural insert without all required fields must fail");
+        .expect_err("structural insert without required fields must still fail");
 
-    assert_eq!(err.class, ErrorClass::Internal);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
     assert!(
-        err.message.contains("serialized patch did not emit slot 1"),
+        err.message.contains("missing required field 'email'"),
         "unexpected error: {err:?}"
     );
 }
@@ -1864,7 +1864,7 @@ fn structural_update_reuses_typed_unique_index_conflicts() {
 }
 
 #[test]
-fn structural_replace_requires_full_after_image_fields() {
+fn structural_replace_rejects_missing_required_fields_after_sparse_materialization() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
@@ -1884,12 +1884,12 @@ fn structural_replace_requires_full_after_image_fields() {
                 .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
                 .expect("resolve id slot"),
         )
-        .expect_err("structural replace without all required fields must fail");
+        .expect_err("structural replace without required fields must still fail");
 
-    assert_eq!(err.class, ErrorClass::Internal);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
     assert!(
-        err.message.contains("serialized patch did not emit slot 1"),
+        err.message.contains("missing required field 'email'"),
         "unexpected error: {err:?}"
     );
 }
@@ -2118,7 +2118,7 @@ fn structural_replace_matches_typed_replace_parity() {
 }
 
 #[test]
-fn structural_replace_inserts_missing_rows_with_full_after_image() {
+fn structural_replace_inserts_missing_rows_with_sparse_after_image_when_required_fields_present() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 

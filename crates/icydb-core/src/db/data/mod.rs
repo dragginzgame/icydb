@@ -24,7 +24,8 @@ pub(in crate::db) use persisted_row::{
     canonical_row_from_stored_raw_row, canonical_row_from_structural_slot_reader,
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
-    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+    materialize_entity_from_serialized_update_patch,
+    serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
 };
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,

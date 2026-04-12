@@ -9,15 +9,17 @@ fn seed_indexed_covering_order_fixture(session: &DbSession<SessionSqlCanister>) 
     );
 }
 
-// Assert the shared covering index-range contract for basic order-only
-// covering routes.
-fn assert_indexed_covering_descriptor(
+// Assert the shared covering index-range contract for both plain and filtered
+// order-only covering routes.
+fn assert_covering_index_range_descriptor<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     context: &str,
-) {
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
     let descriptor = session
-        .query_from_sql::<IndexedSessionSqlEntity>(sql)
+        .query_from_sql::<E>(sql)
         .expect("order-only covering SQL query should lower")
         .explain_execution()
         .expect("order-only covering SQL explain_execution should succeed");
@@ -137,22 +139,41 @@ fn execute_sql_projection_index_covering_matrix_matches_entity_rows() {
 }
 
 #[test]
-fn session_explain_execution_order_only_covering_query_uses_index_range_access() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
+fn session_explain_execution_covering_query_matrix_uses_index_range_access() {
+    // Phase 1: run both the plain and filtered covering shapes through the
+    // same root route contract.
+    for case in ["plain", "filtered"] {
+        reset_indexed_session_sql_store();
+        let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic secondary-order dataset so the SQL lane
-    // can prove planner-selected order-only index access instead of a
-    // materialized full scan that merely returns the same first row.
-    seed_indexed_covering_order_fixture(&session);
-
-    // Phase 2: require EXPLAIN EXECUTION to surface the shared planner/runtime
-    // order-only index-range path for one coverable `ORDER BY name, id` query.
-    assert_indexed_covering_descriptor(
-        &session,
-        "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
-        "order-only single-field secondary queries",
-    );
+        match case {
+            "plain" => {
+                seed_indexed_covering_order_fixture(&session);
+                assert_covering_index_range_descriptor::<IndexedSessionSqlEntity>(
+                    &session,
+                    "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
+                    "order-only single-field secondary queries",
+                );
+            }
+            "filtered" => {
+                seed_filtered_indexed_session_sql_entities(
+                    &session,
+                    &[
+                        (9_201, "amber", false, 10),
+                        (9_202, "bravo", true, 20),
+                        (9_203, "charlie", true, 30),
+                        (9_204, "delta", false, 40),
+                    ],
+                );
+                assert_covering_index_range_descriptor::<FilteredIndexedSessionSqlEntity>(
+                    &session,
+                    "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+                    "guarded filtered-order queries",
+                );
+            }
+            other => panic!("unexpected covering explain case: {other}"),
+        }
+    }
 }
 
 #[test]
@@ -186,67 +207,6 @@ fn execute_sql_projection_order_only_filtered_covering_query_returns_guarded_row
             vec![Value::Text("charlie".to_string())],
         ],
         "guarded order-only covering queries should return only rows admitted by the filtered index predicate",
-    );
-}
-
-#[test]
-fn session_explain_execution_order_only_filtered_covering_query_uses_index_range_access() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic filtered-index dataset so EXPLAIN
-    // EXECUTION can prove the guarded query uses the filtered secondary index
-    // instead of one materialized full scan.
-    seed_filtered_indexed_session_sql_entities(
-        &session,
-        &[
-            (9_201, "amber", false, 10),
-            (9_202, "bravo", true, 20),
-            (9_203, "charlie", true, 30),
-            (9_204, "delta", false, 40),
-        ],
-    );
-
-    // Phase 2: require the guarded order-only SQL lane to surface the shared
-    // planner/runtime index-range covering route.
-    let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
-            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-        )
-        .expect("filtered order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("filtered order-only covering SQL explain_execution should succeed");
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexRangeScan,
-        "guarded filtered-order queries should stay on the shared index-range root",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "guarded filtered-order coverable projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("cov_read_route"),
-        Some(&Value::Text("covering_read".to_string())),
-        "guarded filtered-order explain roots should expose the covering-read route label",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "guarded filtered-order index-range roots should report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_some(),
-        "guarded filtered-order index-range roots should report access-satisfied ordering",
     );
 }
 

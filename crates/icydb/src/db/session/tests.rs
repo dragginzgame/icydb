@@ -1,9 +1,12 @@
 use super::*;
 use crate::{
-    db::query::{avg, builder},
+    db::{
+        MutationMode, UpdatePatch,
+        query::{avg, builder},
+    },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     macros::{canister, entity, store},
-    traits::{Path as _, Sanitizer as _},
+    traits::{EntitySchema as _, Path as _, Sanitizer as _},
 };
 use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
 use canic_memory::api::MemoryApi;
@@ -58,6 +61,25 @@ pub struct FacadeSqlEntity {}
     )
 )]
 pub struct FacadeSqlDefaultOnlyEntity {}
+
+///
+/// FacadeSqlGeneratedTimestampEntity
+///
+#[entity(
+    store = "FacadeSqlStore",
+    pk(field = "id"),
+    fields(
+        field(ident = "id", value(item(prim = "Nat64"))),
+        field(
+            ident = "created_on_insert",
+            value(item(prim = "Timestamp")),
+            default = "crate::types::Timestamp::now",
+            generated(insert = "crate::types::Timestamp::now")
+        ),
+        field(ident = "name", value(item(prim = "Text")))
+    )
+)]
+pub struct FacadeSqlGeneratedTimestampEntity {}
 
 fn test_memory(id: u8, label: &str) -> VirtualMemory<DefaultMemoryImpl> {
     MemoryApi::bootstrap_owner_range(env!("CARGO_PKG_NAME"), 240, 250)
@@ -1334,6 +1356,10 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_primary_key() {
         !rows.rows[0][4].is_empty(),
         "facade insert projection should synthesize an updated_at timestamp",
     );
+    assert_eq!(
+        rows.rows[0][3], rows.rows[0][4],
+        "facade insert projection should route created_at and updated_at through one preflight-owned now",
+    );
 }
 
 #[test]
@@ -1352,6 +1378,248 @@ fn facade_execute_sql_dispatch_insert_rejects_omitted_default_only_field() {
         err_text.contains("SQL INSERT requires explicit values for non-generated fields nickname"),
         "facade insert should keep the default-only omission boundary explicit: {err_text}",
     );
+}
+
+#[test]
+fn facade_structural_insert_applies_default_only_missing_fields() {
+    let session = fresh_facade_session();
+    let expected_default = FacadeSqlDefaultOnlyEntity::default().nickname;
+    let inserted = session
+        .mutate_structural::<FacadeSqlDefaultOnlyEntity>(
+            1,
+            UpdatePatch::new()
+                .set_field(
+                    FacadeSqlDefaultOnlyEntity::MODEL,
+                    "id",
+                    crate::value::Value::Uint(1),
+                )
+                .expect("facade structural insert should resolve the id field"),
+            MutationMode::Insert,
+        )
+        .expect("facade structural insert should admit sparse default-backed fields")
+        .entity();
+
+    assert_eq!(inserted.id, 1);
+    assert_eq!(inserted.nickname, expected_default);
+}
+
+#[test]
+fn facade_structural_replace_missing_row_applies_default_only_missing_fields() {
+    let session = fresh_facade_session();
+    let expected_default = FacadeSqlDefaultOnlyEntity::default().nickname;
+    let replaced = session
+        .mutate_structural::<FacadeSqlDefaultOnlyEntity>(
+            2,
+            UpdatePatch::new()
+                .set_field(
+                    FacadeSqlDefaultOnlyEntity::MODEL,
+                    "id",
+                    crate::value::Value::Uint(2),
+                )
+                .expect("facade structural replace should resolve the id field"),
+            MutationMode::Replace,
+        )
+        .expect("facade structural replace should admit sparse default-backed missing rows")
+        .entity();
+
+    assert_eq!(replaced.id, 2);
+    assert_eq!(replaced.nickname, expected_default);
+}
+
+#[test]
+fn facade_execute_sql_dispatch_insert_omits_schema_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    let payload = session
+        .execute_sql_dispatch::<FacadeSqlGeneratedTimestampEntity>(
+            "INSERT INTO FacadeSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada')",
+        )
+        .expect("facade execute_sql_dispatch should admit inserts that omit schema-generated timestamps");
+
+    let SqlQueryResult::Projection(rows) = payload else {
+        panic!("facade execute_sql_dispatch insert should return projection payload");
+    };
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.rows.len(), 1);
+    assert_eq!(rows.rows[0][0], "1".to_string());
+    assert!(
+        !rows.rows[0][1].is_empty(),
+        "facade insert projection should synthesize the generated timestamp field",
+    );
+    assert_eq!(rows.rows[0][2], "Ada".to_string());
+}
+
+#[test]
+fn facade_typed_insert_sets_managed_timestamps_from_shared_preflight_now() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("typed facade insert should succeed")
+        .entity();
+
+    assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
+    assert_eq!(
+        inserted.created_at, inserted.updated_at,
+        "typed facade insert should set both managed timestamps from one preflight-owned now",
+    );
+}
+
+#[test]
+fn facade_typed_update_preserves_created_at_and_refreshes_updated_at() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("typed facade insert should succeed")
+        .entity();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+
+    let updated = session
+        .update(FacadeSqlEntity {
+            id: inserted.id,
+            name: "Bea".to_string(),
+            age: inserted.age,
+            created_at: inserted.created_at,
+            updated_at: inserted.updated_at,
+        })
+        .expect("typed facade update should succeed")
+        .entity();
+
+    assert_eq!(updated.created_at, inserted.created_at);
+    assert_ne!(updated.updated_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_execute_sql_dispatch_update_preserves_created_at_and_refreshes_updated_at() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "INSERT INTO FacadeSqlEntity (name, age) VALUES ('Ada', 31)",
+        )
+        .expect("facade SQL insert should succeed");
+    let SqlQueryResult::Projection(inserted_rows) = inserted else {
+        panic!("facade SQL insert should return projection payload");
+    };
+    std::thread::sleep(std::time::Duration::from_millis(2));
+
+    let updated = session
+        .execute_sql_dispatch::<FacadeSqlEntity>(
+            "UPDATE FacadeSqlEntity SET name = 'Bea' WHERE age = 31",
+        )
+        .expect("facade SQL update should succeed");
+    let SqlQueryResult::Projection(updated_rows) = updated else {
+        panic!("facade SQL update should return projection payload");
+    };
+
+    assert_eq!(updated_rows.rows.len(), 1);
+    assert_eq!(updated_rows.rows[0][3], inserted_rows.rows[0][3]);
+    assert_ne!(updated_rows.rows[0][4], inserted_rows.rows[0][4]);
+}
+
+#[test]
+fn facade_execute_sql_dispatch_write_keeps_incompatible_primary_key_boundary_message() {
+    let session = fresh_facade_session();
+    let err = session
+        .execute_sql_dispatch::<FacadeSqlDefaultOnlyEntity>(
+            "INSERT INTO FacadeSqlDefaultOnlyEntity (id, nickname) VALUES (-1, 'Ada')",
+        )
+        .expect_err("facade SQL write should keep incompatible key literals fail-closed");
+
+    assert!(
+        err.to_string().contains(
+            "SQL write primary key literal for 'id' is not compatible with entity key type"
+        ),
+        "facade SQL write should preserve the reduced-SQL primary-key boundary message",
+    );
+}
+
+#[test]
+fn facade_structural_insert_sets_managed_timestamps_from_shared_preflight_now() {
+    let session = fresh_facade_session();
+    let id = crate::types::Ulid::generate();
+    let patch = UpdatePatch::new()
+        .set_field(FacadeSqlEntity::MODEL, "id", crate::value::Value::Ulid(id))
+        .expect("facade structural insert should resolve the id field")
+        .set_field(
+            FacadeSqlEntity::MODEL,
+            "name",
+            crate::value::Value::Text("Ada".to_string()),
+        )
+        .expect("facade structural insert should resolve the name field")
+        .set_field(FacadeSqlEntity::MODEL, "age", crate::value::Value::Uint(31))
+        .expect("facade structural insert should resolve the age field");
+    let inserted = session
+        .mutate_structural::<FacadeSqlEntity>(id, patch, MutationMode::Insert)
+        .expect("facade structural insert should succeed")
+        .entity();
+
+    assert_ne!(inserted.created_at, crate::types::Timestamp::EPOCH);
+    assert_eq!(
+        inserted.created_at, inserted.updated_at,
+        "facade structural insert should set both managed timestamps from one preflight-owned now",
+    );
+}
+
+#[test]
+fn facade_structural_replace_missing_row_sets_managed_timestamps_from_shared_preflight_now() {
+    let session = fresh_facade_session();
+    let id = crate::types::Ulid::generate();
+    let patch = UpdatePatch::new()
+        .set_field(FacadeSqlEntity::MODEL, "id", crate::value::Value::Ulid(id))
+        .expect("facade structural replace should resolve the id field")
+        .set_field(
+            FacadeSqlEntity::MODEL,
+            "name",
+            crate::value::Value::Text("Ada".to_string()),
+        )
+        .expect("facade structural replace should resolve the name field")
+        .set_field(FacadeSqlEntity::MODEL, "age", crate::value::Value::Uint(31))
+        .expect("facade structural replace should resolve the age field");
+    let replaced = session
+        .mutate_structural::<FacadeSqlEntity>(id, patch, MutationMode::Replace)
+        .expect("facade structural replace should succeed for a missing row")
+        .entity();
+
+    assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
+    assert_eq!(
+        replaced.created_at, replaced.updated_at,
+        "facade structural replace should set both managed timestamps from one preflight-owned now",
+    );
+}
+
+#[test]
+fn facade_structural_update_preserves_created_at_and_refreshes_updated_at() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("typed facade insert should succeed")
+        .entity();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+
+    let patch = UpdatePatch::new()
+        .set_field(
+            FacadeSqlEntity::MODEL,
+            "name",
+            crate::value::Value::Text("Bea".to_string()),
+        )
+        .expect("facade structural update should resolve the name field");
+    let updated = session
+        .mutate_structural::<FacadeSqlEntity>(inserted.id, patch, MutationMode::Update)
+        .expect("facade structural update should succeed")
+        .entity();
+
+    assert_eq!(updated.created_at, inserted.created_at);
+    assert_ne!(updated.updated_at, inserted.updated_at);
 }
 
 #[test]

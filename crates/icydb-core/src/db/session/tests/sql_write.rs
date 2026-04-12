@@ -1,5 +1,4 @@
 use super::*;
-
 #[test]
 fn execute_sql_dispatch_single_row_insert_matrix_returns_projection_payload() {
     let cases = [
@@ -59,38 +58,63 @@ fn execute_sql_dispatch_single_row_insert_matrix_returns_projection_payload() {
 }
 
 #[test]
-fn execute_sql_dispatch_insert_with_multiple_values_tuples_returns_rows_in_input_order() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
-        &session,
-        "INSERT INTO SessionSqlWriteEntity (id, name, age) \
-         VALUES (2, 'Bea', 22), (3, 'Cid', 23)",
-    )
-    .expect("multi-row SQL INSERT dispatch should return value rows");
-    let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
-        &session,
-        "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
-    )
-    .expect("post-insert SQL projection should succeed");
-
-    assert_eq!(
-        rows,
-        vec![
+fn execute_sql_dispatch_multi_row_insert_matrix_preserves_input_order() {
+    for (sql, expected_rows, check_persisted, context) in [
+        (
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+             VALUES (2, 'Bea', 22), (3, 'Cid', 23)",
             vec![
-                Value::Uint(2),
-                Value::Text("Bea".to_string()),
-                Value::Uint(22),
+                vec![
+                    Value::Uint(2),
+                    Value::Text("Bea".to_string()),
+                    Value::Uint(22),
+                ],
+                vec![
+                    Value::Uint(3),
+                    Value::Text("Cid".to_string()),
+                    Value::Uint(23),
+                ],
             ],
+            true,
+            "explicit-column multi-row insert",
+        ),
+        (
+            "INSERT INTO SessionSqlWriteEntity VALUES (4, 'Dee', 24), (5, 'Eli', 25)",
             vec![
-                Value::Uint(3),
-                Value::Text("Cid".to_string()),
-                Value::Uint(23),
+                vec![
+                    Value::Uint(4),
+                    Value::Text("Dee".to_string()),
+                    Value::Uint(24),
+                ],
+                vec![
+                    Value::Uint(5),
+                    Value::Text("Eli".to_string()),
+                    Value::Uint(25),
+                ],
             ],
-        ],
-    );
-    assert_eq!(persisted, rows);
+            false,
+            "canonical-order multi-row insert",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should return value rows: {err}"));
+        assert_eq!(
+            rows, expected_rows,
+            "{context} should preserve returned row order",
+        );
+
+        if check_persisted {
+            let persisted = dispatch_projection_rows::<SessionSqlWriteEntity>(
+                &session,
+                "SELECT id, name, age FROM SessionSqlWriteEntity ORDER BY id ASC",
+            )
+            .unwrap_or_else(|err| panic!("{context} post-insert projection should succeed: {err}"));
+            assert_eq!(persisted, rows);
+        }
+    }
 }
 
 #[test]
@@ -149,94 +173,152 @@ fn execute_sql_dispatch_insert_with_schema_generated_primary_key_matrix_accepts_
 }
 
 #[test]
-fn execute_sql_dispatch_insert_without_column_list_accepts_multiple_values_tuples() {
+fn execute_sql_dispatch_insert_rejects_missing_required_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let rows = dispatch_projection_rows::<SessionSqlWriteEntity>(
-        &session,
-        "INSERT INTO SessionSqlWriteEntity VALUES (4, 'Dee', 24), (5, 'Eli', 25)",
-    )
-    .expect("multi-row SQL INSERT without column list should use canonical field order");
-
-    assert_eq!(
-        rows,
-        vec![
-            vec![
-                Value::Uint(4),
-                Value::Text("Dee".to_string()),
-                Value::Uint(24),
-            ],
-            vec![
-                Value::Uint(5),
-                Value::Text("Eli".to_string()),
-                Value::Uint(25),
-            ],
-        ],
-    );
-}
-
-#[test]
-fn execute_sql_dispatch_insert_rejects_omitted_non_generated_fields() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+    for (sql, expected_message, context) in [
+        (
             "INSERT INTO SessionSqlWriteEntity (id, name) VALUES (1, 'Ada')",
-        )
-        .expect_err("SQL INSERT should not consume omitted non-generated field defaults");
+            "SQL INSERT requires explicit values for non-generated fields age",
+            "missing non-generated field",
+        ),
+        (
+            "INSERT INTO SessionSqlWriteEntity (name, age) VALUES ('Ada', 21)",
+            "SQL INSERT requires primary key column 'id'",
+            "missing primary key field",
+        ),
+    ] {
+        let err = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+            .expect_err("missing required INSERT fields should stay fail-closed");
 
-    assert!(
-        err.to_string()
-            .contains("SQL INSERT requires explicit values for non-generated fields age"),
-        "INSERT should keep an actionable omitted-field boundary message",
-    );
+        assert!(
+            err.to_string().contains(expected_message),
+            "{context} should keep an actionable boundary message",
+        );
+    }
 }
 
 #[test]
-fn execute_sql_dispatch_insert_rejects_explicit_managed_timestamp_fields() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_dispatch::<SessionSqlManagedWriteEntity>(
+fn execute_sql_dispatch_write_rejects_explicit_managed_timestamp_fields_matrix() {
+    let cases = [
+        (
             "INSERT INTO SessionSqlManagedWriteEntity (id, name, created_at) VALUES (1, 'Ada', 0)",
-        )
-        .expect_err("SQL INSERT should reject explicit writes to managed timestamp fields");
-    let err_text = err.to_string();
+            "SQL INSERT does not allow explicit writes to managed field 'created_at'",
+            "INSERT explicit managed timestamp write",
+            false,
+        ),
+        (
+            "UPDATE SessionSqlManagedWriteEntity SET updated_at = 0 WHERE id = 1",
+            "SQL UPDATE does not allow explicit writes to managed field 'updated_at'",
+            "UPDATE explicit managed timestamp write",
+            true,
+        ),
+    ];
 
-    assert!(
-        err_text
-            .contains("SQL INSERT does not allow explicit writes to managed field 'created_at'"),
-        "INSERT should keep an actionable managed-field boundary message: {err_text}",
-    );
+    for (sql, expected_message, context, seed_row) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        if seed_row {
+            session
+                .insert(SessionSqlManagedWriteEntity {
+                    id: 1,
+                    name: "Ada".to_string(),
+                    created_at: Timestamp::from_nanos(1),
+                    updated_at: Timestamp::from_nanos(1),
+                })
+                .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
+        }
+
+        let err = session
+            .execute_sql_dispatch::<SessionSqlManagedWriteEntity>(sql)
+            .expect_err("managed timestamp writes should stay fail-closed");
+        let err_text = err.to_string();
+
+        assert!(
+            err_text.contains(expected_message),
+            "{context} should keep an actionable managed-field boundary message: {err_text}",
+        );
+    }
 }
 
 #[test]
-fn execute_sql_dispatch_insert_synthesizes_schema_generated_non_primary_fields() {
+fn execute_sql_dispatch_insert_synthesizes_schema_generated_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let rows = dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
-        &session,
-        "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
-    )
-    .expect("SQL INSERT should synthesize omitted schema-generated non-primary fields");
-    let positional_rows = dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
-        &session,
-        "INSERT INTO SessionSqlGeneratedFieldEntity VALUES (2, 'Bea')",
-    )
-    .expect("positional SQL INSERT should omit schema-generated non-primary fields by width");
-
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0][0], Value::Uint(1));
-    assert!(matches!(rows[0][1], Value::Ulid(_)));
-    assert_eq!(rows[0][2], Value::Text("Ada".to_string()));
-    assert_eq!(positional_rows.len(), 1);
-    assert_eq!(positional_rows[0][0], Value::Uint(2));
-    assert!(matches!(positional_rows[0][1], Value::Ulid(_)));
-    assert_eq!(positional_rows[0][2], Value::Text("Bea".to_string()));
+    for (named_rows, positional_rows, generated_kind, context) in [
+        (
+            dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
+                &session,
+                "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
+            )
+            .expect("SQL INSERT should synthesize omitted schema-generated non-primary fields"),
+            dispatch_projection_rows::<SessionSqlGeneratedFieldEntity>(
+                &session,
+                "INSERT INTO SessionSqlGeneratedFieldEntity VALUES (2, 'Bea')",
+            )
+            .expect(
+                "positional SQL INSERT should omit schema-generated non-primary fields by width",
+            ),
+            "ulid",
+            "schema-generated non-primary field",
+        ),
+        (
+            dispatch_projection_rows::<SessionSqlGeneratedTimestampEntity>(
+                &session,
+                "INSERT INTO SessionSqlGeneratedTimestampEntity (id, name) VALUES (1, 'Ada')",
+            )
+            .expect("SQL INSERT should synthesize omitted schema-generated timestamp fields"),
+            dispatch_projection_rows::<SessionSqlGeneratedTimestampEntity>(
+                &session,
+                "INSERT INTO SessionSqlGeneratedTimestampEntity VALUES (2, 'Bea')",
+            )
+            .expect("positional SQL INSERT should omit schema-generated timestamp fields by width"),
+            "timestamp",
+            "schema-generated timestamp field",
+        ),
+    ] {
+        assert_eq!(
+            named_rows.len(),
+            1,
+            "{context} named insert should return one row"
+        );
+        assert_eq!(
+            positional_rows.len(),
+            1,
+            "{context} positional insert should return one row",
+        );
+        assert_eq!(named_rows[0][0], Value::Uint(1));
+        assert_eq!(positional_rows[0][0], Value::Uint(2));
+        match generated_kind {
+            "ulid" => {
+                assert!(
+                    matches!(named_rows[0][1], Value::Ulid(_)),
+                    "{context} named insert should synthesize a Ulid field",
+                );
+                assert!(
+                    matches!(positional_rows[0][1], Value::Ulid(_)),
+                    "{context} positional insert should synthesize a Ulid field",
+                );
+            }
+            "timestamp" => {
+                assert!(
+                    matches!(named_rows[0][1], Value::Timestamp(_)),
+                    "{context} named insert should synthesize a timestamp field",
+                );
+                assert!(
+                    matches!(positional_rows[0][1], Value::Timestamp(_)),
+                    "{context} positional insert should synthesize a timestamp field",
+                );
+            }
+            other => panic!("unexpected generated field kind: {other}"),
+        }
+        assert_eq!(named_rows[0][2], Value::Text("Ada".to_string()));
+        assert_eq!(positional_rows[0][2], Value::Text("Bea".to_string()));
+    }
 }
 
 #[test]
@@ -289,73 +371,28 @@ fn execute_sql_dispatch_single_row_update_matrix_returns_projection_payload() {
 }
 
 #[test]
-fn execute_sql_dispatch_update_rejects_explicit_managed_timestamp_fields() {
+fn execute_sql_dispatch_signed_numeric_write_matrix_widens_parser_literals() {
     reset_session_sql_store();
     let session = sql_session();
     session
-        .execute_sql_dispatch::<SessionSqlManagedWriteEntity>(
-            "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada')",
-        )
-        .expect("setup insert should succeed");
+        .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
+        .expect("signed write setup insert should succeed");
 
-    let err = session
-        .execute_sql_dispatch::<SessionSqlManagedWriteEntity>(
-            "UPDATE SessionSqlManagedWriteEntity SET updated_at = 0 WHERE id = 1",
-        )
-        .expect_err("SQL UPDATE should reject explicit writes to managed timestamp fields");
-    let err_text = err.to_string();
-
-    assert!(
-        err_text
-            .contains("SQL UPDATE does not allow explicit writes to managed field 'updated_at'"),
-        "UPDATE should keep an actionable managed-field boundary message: {err_text}",
-    );
-}
-
-#[test]
-fn execute_sql_dispatch_insert_synthesizes_managed_timestamp_fields() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let rows = dispatch_projection_rows::<SessionSqlManagedWriteEntity>(
+    let rows = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
         &session,
-        "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada')",
+        "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
     )
-    .expect("SQL INSERT should synthesize managed timestamp fields");
+    .expect("signed SQL UPDATE should widen parser literals onto signed field contracts");
 
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0][0], Value::Uint(1));
-    assert_eq!(rows[0][1], Value::Text("Ada".to_string()));
-    assert!(matches!(rows[0][2], Value::Timestamp(_)));
-    assert!(matches!(rows[0][3], Value::Timestamp(_)));
-}
+    assert_eq!(rows, vec![vec![Value::Int(1), Value::Int(7)]]);
 
-#[test]
-fn execute_sql_dispatch_update_refreshes_managed_updated_at_field() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let inserted = dispatch_projection_rows::<SessionSqlManagedWriteEntity>(
+    let persisted = dispatch_projection_rows::<SessionSqlSignedWriteEntity>(
         &session,
-        "INSERT INTO SessionSqlManagedWriteEntity (id, name) VALUES (1, 'Ada')",
+        "SELECT id, delta FROM SessionSqlSignedWriteEntity ORDER BY id ASC",
     )
-    .expect("setup insert should succeed");
-    let inserted_updated_at = inserted[0][3].clone();
+    .expect("signed post-update projection should succeed");
 
-    let rows = dispatch_projection_rows::<SessionSqlManagedWriteEntity>(
-        &session,
-        "UPDATE SessionSqlManagedWriteEntity SET name = 'Bea' WHERE id = 1",
-    )
-    .expect("SQL UPDATE should refresh managed updated_at");
-
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0][0], Value::Uint(1));
-    assert_eq!(rows[0][1], Value::Text("Bea".to_string()));
-    assert!(matches!(rows[0][2], Value::Timestamp(_)));
-    assert!(matches!(rows[0][3], Value::Timestamp(_)));
-    assert_ne!(
-        rows[0][3], inserted_updated_at,
-        "managed updated_at should be refreshed on update",
-    );
+    assert_eq!(persisted, rows);
 }
 
 #[test]
@@ -535,104 +572,102 @@ fn execute_sql_dispatch_update_with_limit_and_offset_uses_primary_key_order_fall
 }
 
 #[test]
-fn execute_sql_dispatch_insert_requires_primary_key_column() {
+fn execute_sql_dispatch_write_rejects_entity_mismatch_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_dispatch::<SessionSqlWriteEntity>(
-            "INSERT INTO SessionSqlWriteEntity (name, age) VALUES ('Ada', 21)",
-        )
-        .expect_err("SQL INSERT without explicit primary key should stay fail-closed when the schema does not mark it generated");
+    for (sql, sql_entity, context) in [
+        (
+            "INSERT INTO SessionSqlGeneratedFieldEntity (id, name) VALUES (1, 'Ada')",
+            "SessionSqlGeneratedFieldEntity",
+            "insert entity mismatch",
+        ),
+        (
+            "UPDATE SessionSqlGeneratedTimestampEntity SET name = 'Ada' WHERE id = 1",
+            "SessionSqlGeneratedTimestampEntity",
+            "update entity mismatch",
+        ),
+    ] {
+        let err = session
+            .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+            .expect_err("write dispatch should keep typed entity matching fail-closed");
+        let err_text = err.to_string();
 
-    assert!(
-        err.to_string()
-            .contains("SQL INSERT requires primary key column 'id'"),
-        "INSERT without primary key should keep an actionable boundary message",
-    );
+        assert!(
+            err_text.contains(&format!(
+                "SQL entity '{sql_entity}' does not match requested entity type 'SessionSqlWriteEntity'"
+            )),
+            "{context} should keep the typed write route mismatch boundary explicit",
+        );
+    }
 }
 
 #[test]
-fn execute_sql_dispatch_insert_select_with_schema_generated_primary_key_copies_rows() {
-    reset_session_sql_store();
-    let session = sql_session();
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(1),
-            name: "Ada".to_string(),
-            age: 21,
-        })
-        .expect("typed setup insert should succeed");
+fn execute_sql_dispatch_insert_select_matrix_accepts_supported_source_shapes() {
+    for (sql, expected_inserted_name, persisted_sql, expected_persisted, context) in [
+        (
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
+            "Ada",
+            "SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY age ASC LIMIT 10",
+            vec![
+                vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+                vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+            ],
+            "plain INSERT SELECT",
+        ),
+        (
+            "INSERT INTO SessionSqlEntity (name, age) \
+             SELECT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
+            "ada",
+            "SELECT name, age FROM SessionSqlEntity ORDER BY name ASC LIMIT 10",
+            vec![
+                vec![Value::Text("Ada".to_string()), Value::Uint(21)],
+                vec![Value::Text("ada".to_string()), Value::Uint(21)],
+            ],
+            "computed INSERT SELECT",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::from_u128(1),
+                name: "Ada".to_string(),
+                age: 21,
+            })
+            .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
 
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "INSERT INTO SessionSqlEntity (name, age) \
-         SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
-    )
-    .expect(
-        "SQL INSERT SELECT should copy one schema-generated-key row on the typed dispatch lane",
-    );
-    let persisted = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY age ASC LIMIT 10",
-    )
-    .expect("post-insert-select SQL projection should succeed");
+        let rows = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        let persisted = dispatch_projection_rows::<SessionSqlEntity>(&session, persisted_sql)
+            .unwrap_or_else(|err| {
+                panic!("{context} post-insert-select projection should succeed: {err}")
+            });
 
-    assert_eq!(rows.len(), 1);
-    assert!(matches!(rows[0][0], Value::Ulid(_)));
-    assert_ne!(rows[0][0], Value::Ulid(Ulid::from_u128(1)));
-    assert_eq!(
-        rows[0][1..],
-        [Value::Text("Ada".to_string()), Value::Uint(21),],
-    );
-    assert_eq!(
-        persisted,
-        vec![
-            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
-            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
-        ],
-    );
-}
-
-#[test]
-fn execute_sql_dispatch_insert_select_accepts_scalar_computed_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::from_u128(1),
-            name: "Ada".to_string(),
-            age: 21,
-        })
-        .expect("typed setup insert should succeed");
-
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "INSERT INTO SessionSqlEntity (name, age) \
-         SELECT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada' ORDER BY id ASC LIMIT 1",
-    )
-    .expect("INSERT SELECT should reuse the admitted scalar computed-projection lane");
-    let persisted = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT name, age FROM SessionSqlEntity ORDER BY name ASC LIMIT 10",
-    )
-    .expect("post-insert-select SQL projection should succeed");
-
-    assert!(
-        matches!(rows[0][0], Value::Ulid(_)),
-        "computed INSERT SELECT should still synthesize one schema-generated Ulid primary key",
-    );
-    assert_eq!(
-        rows[0][1..],
-        [Value::Text("ada".to_string()), Value::Uint(21),],
-    );
-    assert_eq!(
-        persisted,
-        vec![
-            vec![Value::Text("Ada".to_string()), Value::Uint(21)],
-            vec![Value::Text("ada".to_string()), Value::Uint(21)],
-        ],
-    );
+        assert_eq!(rows.len(), 1, "{context} should insert one row");
+        assert!(
+            matches!(rows[0][0], Value::Ulid(_)),
+            "{context} should synthesize one schema-generated Ulid primary key",
+        );
+        assert_ne!(
+            rows[0][0],
+            Value::Ulid(Ulid::from_u128(1)),
+            "{context} should allocate a fresh generated primary key",
+        );
+        assert_eq!(
+            rows[0][1..],
+            [
+                Value::Text(expected_inserted_name.to_string()),
+                Value::Uint(21)
+            ],
+            "{context} should preserve the projected source payload",
+        );
+        assert_eq!(
+            persisted, expected_persisted,
+            "{context} should persist the expected post-insert rows",
+        );
+    }
 }
 
 #[test]
@@ -690,6 +725,25 @@ fn execute_sql_dispatch_insert_select_rejection_matrix_preserves_boundary_messag
 }
 
 #[test]
+fn execute_sql_dispatch_write_rejects_incompatible_primary_key_literal() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (-1, 'Ada', 21)",
+        )
+        .expect_err("unsigned SQL insert key boundary should stay fail-closed for signed literals");
+
+    assert!(
+        err.to_string().contains(
+            "SQL write primary key literal for 'id' is not compatible with entity key type"
+        ),
+        "incompatible primary-key literal should keep the reduced-SQL boundary explicit",
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_insert_rejects_tuple_length_mismatch() {
     reset_session_sql_store();
     let session = sql_session();
@@ -708,17 +762,31 @@ fn execute_sql_dispatch_insert_rejects_tuple_length_mismatch() {
 }
 
 #[test]
-fn execute_sql_dispatch_insert_rejects_returning_clause() {
+fn execute_sql_dispatch_write_rejects_returning_clause_matrix() {
     reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_dispatch::<SessionSqlEntity>(
+    for (entity_kind, sql) in [
+        (
+            "insert",
             "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id",
-        )
-        .expect_err("SQL INSERT RETURNING should stay fail-closed");
+        ),
+        (
+            "update",
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
+        ),
+    ] {
+        let session = sql_session();
+        let err = match entity_kind {
+            "insert" => session
+                .execute_sql_dispatch::<SessionSqlEntity>(sql)
+                .expect_err("SQL INSERT RETURNING should stay fail-closed"),
+            "update" => session
+                .execute_sql_dispatch::<SessionSqlWriteEntity>(sql)
+                .expect_err("SQL UPDATE RETURNING should stay fail-closed"),
+            other => panic!("unexpected write RETURNING case: {other}"),
+        };
 
-    assert_sql_unsupported_feature_detail(err, "RETURNING");
+        assert_sql_unsupported_feature_detail(err, "RETURNING");
+    }
 }
 
 #[test]
@@ -735,20 +803,6 @@ fn execute_sql_dispatch_update_requires_where_predicate() {
             .contains("SQL UPDATE requires WHERE predicate"),
         "UPDATE without WHERE predicate should keep an actionable boundary message",
     );
-}
-
-#[test]
-fn execute_sql_dispatch_update_rejects_returning_clause() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .execute_sql_dispatch::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1 RETURNING id",
-        )
-        .expect_err("SQL UPDATE RETURNING should stay fail-closed");
-
-    assert_sql_unsupported_feature_detail(err, "RETURNING");
 }
 
 #[test]

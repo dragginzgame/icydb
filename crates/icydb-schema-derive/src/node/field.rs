@@ -106,13 +106,13 @@ impl FromMeta for FieldGeneration {
         for item in items {
             let NestedMeta::Meta(syn::Meta::NameValue(name_value)) = item else {
                 return Err(DarlingError::custom(
-                    "generated(...) currently requires insert = \"Ulid::generate\"",
+                    "generated(...) currently requires insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
                 ));
             };
 
             if !name_value.path.is_ident("insert") {
                 return Err(DarlingError::custom(
-                    "generated(...) currently supports only insert = \"Ulid::generate\"",
+                    "generated(...) currently supports only insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
                 ));
             }
 
@@ -132,7 +132,7 @@ impl FromMeta for FieldGeneration {
 
         let Some(insert) = insert else {
             return Err(DarlingError::custom(
-                "generated(...) currently requires insert = \"Ulid::generate\"",
+                "generated(...) currently requires insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
             ));
         };
 
@@ -259,9 +259,17 @@ impl Field {
     }
 
     pub fn insert_generation_expr(&self) -> TokenStream {
-        match self.generated {
-            Some(FieldGeneration::Insert(_)) => {
+        match self.generated.as_ref().and_then(|generated| {
+            let FieldGeneration::Insert(generator) = generated;
+            generated_insert_contract(generator)
+        }) {
+            Some(GeneratedInsertContract::Ulid) => {
                 quote!(Some(::icydb::model::field::FieldInsertGeneration::Ulid))
+            }
+            Some(GeneratedInsertContract::Timestamp) => {
+                quote!(Some(
+                    ::icydb::model::field::FieldInsertGeneration::Timestamp
+                ))
             }
             None => quote!(None),
         }
@@ -319,13 +327,19 @@ impl Field {
         primitive_default_matches(primitive, default)
     }
 
-    // `generated(insert = "...")` is currently the schema-owned
-    // insert-generation contract for single-cardinality primitive Ulid fields
-    // only.
+    // `generated(insert = "...")` stays schema-owned and explicit. Only one
+    // small allowlist of write-time generators is admitted in this release.
     fn validate_generated(&self) -> Result<(), DarlingError> {
         let Some(FieldGeneration::Insert(generator)) = self.generated.as_ref() else {
             return Ok(());
         };
+
+        if self.write_management.is_some() {
+            return Err(DarlingError::custom(
+                "generated(insert = ...) cannot be combined with auto-managed write fields",
+            )
+            .with_span(&self.ident));
+        }
 
         if self.value.cardinality() != Cardinality::One {
             return Err(DarlingError::custom(
@@ -336,21 +350,48 @@ impl Field {
 
         if self.value.item.is.is_some() || self.value.item.relation.is_some() {
             return Err(DarlingError::custom(
-                "generated(insert = ...) currently supports only primitive Ulid fields",
+                "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
             )
             .with_span(&self.ident));
         }
 
-        if !matches!(self.value.item.primitive, Some(Primitive::Ulid)) {
+        let Some(contract) = generated_insert_contract(generator) else {
             return Err(DarlingError::custom(
-                "generated(insert = ...) currently supports only primitive Ulid fields",
+                "generated(insert = ...) currently supports only Ulid::generate or Timestamp::now",
             )
             .with_span(&self.ident));
+        };
+
+        match (self.value.item.primitive, contract) {
+            (Some(Primitive::Ulid), GeneratedInsertContract::Ulid)
+            | (Some(Primitive::Timestamp), GeneratedInsertContract::Timestamp) => {}
+            (Some(_), GeneratedInsertContract::Ulid) => {
+                return Err(DarlingError::custom(
+                    "generated(insert = \"Ulid::generate\") requires a primitive Ulid field",
+                )
+                .with_span(&self.ident));
+            }
+            (Some(_), GeneratedInsertContract::Timestamp) => {
+                return Err(DarlingError::custom(
+                    "generated(insert = \"Timestamp::now\") requires a primitive Timestamp field",
+                )
+                .with_span(&self.ident));
+            }
+            (None, _) => {
+                return Err(DarlingError::custom(
+                    "generated(insert = ...) currently supports only primitive Ulid or Timestamp fields",
+                )
+                .with_span(&self.ident));
+            }
         }
 
-        if !generated_insert_matches_ulid_generator(generator) {
+        if self
+            .default
+            .as_ref()
+            .is_some_and(|default| !generated_insert_default_matches(default, contract))
+        {
             return Err(DarlingError::custom(
-                "generated(insert = ...) currently supports only Ulid::generate",
+                "generated(insert = ...) and default = ... must use the same supported generator path when both are present",
             )
             .with_span(&self.ident));
         }
@@ -359,8 +400,38 @@ impl Field {
     }
 }
 
-fn generated_insert_matches_ulid_generator(generator: &Arg) -> bool {
-    matches!(generator, Arg::FuncPath(path) if path_ends_with_segments(path, &["Ulid", "generate"]))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GeneratedInsertContract {
+    Ulid,
+    Timestamp,
+}
+
+fn generated_insert_contract(generator: &Arg) -> Option<GeneratedInsertContract> {
+    match generator {
+        Arg::FuncPath(path) if path_ends_with_segments(path, &["Ulid", "generate"]) => {
+            Some(GeneratedInsertContract::Ulid)
+        }
+        Arg::FuncPath(path) if path_ends_with_segments(path, &["Timestamp", "now"]) => {
+            Some(GeneratedInsertContract::Timestamp)
+        }
+        Arg::Bool(_)
+        | Arg::Char(_)
+        | Arg::ConstPath(_)
+        | Arg::Number(_)
+        | Arg::String(_)
+        | Arg::FuncPath(_) => None,
+    }
+}
+
+fn generated_insert_default_matches(default: &Arg, contract: GeneratedInsertContract) -> bool {
+    match contract {
+        GeneratedInsertContract::Ulid => {
+            matches!(default, Arg::FuncPath(path) if path_ends_with_segments(path, &["Ulid", "generate"]))
+        }
+        GeneratedInsertContract::Timestamp => {
+            matches!(default, Arg::FuncPath(path) if path_ends_with_segments(path, &["Timestamp", "now"]))
+        }
+    }
 }
 
 // Explicit `None` or `Option::default()` matches the implicit optional default.
@@ -712,7 +783,31 @@ mod tests {
     }
 
     #[test]
-    fn generated_clause_rejects_non_ulid_fields() {
+    fn generated_clause_accepts_single_value_primitive_timestamp_fields() {
+        let field = Field {
+            ident: format_ident!("created_on_insert"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Timestamp),
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::FuncPath(parse_quote!(Timestamp::now))),
+            generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+                Timestamp::now
+            )))),
+            write_management: None,
+        };
+
+        field
+            .validate()
+            .expect("generated(insert = ...) should be admitted for primitive Timestamp fields");
+    }
+
+    #[test]
+    fn generated_clause_rejects_mismatched_field_and_generator_contracts() {
         let field = Field {
             ident: format_ident!("name"),
             value: Value {
@@ -732,10 +827,10 @@ mod tests {
 
         let err = field
             .validate()
-            .expect_err("generated(insert = ...) should stay fail-closed on non-Ulid fields");
+            .expect_err("generated(insert = ...) should stay fail-closed on mismatched fields");
         assert!(
             err.to_string()
-                .contains("generated(insert = ...) currently supports only primitive Ulid fields"),
+                .contains("generated(insert = \"Ulid::generate\") requires a primitive Ulid field"),
             "unexpected generated(insert = ...) validation error: {err}",
         );
     }
@@ -763,9 +858,40 @@ mod tests {
             .validate()
             .expect_err("generated(insert = ...) should stay fail-closed on non-Ulid generators");
         assert!(
-            err.to_string()
-                .contains("generated(insert = ...) currently supports only Ulid::generate"),
+            err.to_string().contains(
+                "generated(insert = ...) currently supports only Ulid::generate or Timestamp::now"
+            ),
             "unexpected generated(insert = ...) validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn generated_clause_rejects_mismatched_default_contracts() {
+        let field = Field {
+            ident: format_ident!("created_on_insert"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Timestamp),
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::ConstPath(parse_quote!(Timestamp::EPOCH))),
+            generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
+                Timestamp::now
+            )))),
+            write_management: None,
+        };
+
+        let err = field
+            .validate()
+            .expect_err("generated(insert = ...) should reject conflicting default contracts");
+        assert!(
+            err.to_string().contains(
+                "generated(insert = ...) and default = ... must use the same supported generator path when both are present"
+            ),
+            "unexpected generated/default conflict validation error: {err}",
         );
     }
 

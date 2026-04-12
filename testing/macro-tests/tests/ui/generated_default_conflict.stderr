@@ -1,0 +1,5 @@
+error: generated(insert = ...) and default = ... must use the same supported generator path when both are present
+  --> tests/ui/generated_default_conflict.rs:20:21
+   |
+20 |             ident = "created_on_insert",
+   |                     ^^^^^^^^^^^^^^^^^^^

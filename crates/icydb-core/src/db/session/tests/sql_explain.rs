@@ -40,6 +40,47 @@ fn assert_explain_alias_normalization_case<E>(
     );
 }
 
+// Execute one EXPLAIN equivalence pair and assert both SQL spellings preserve
+// the same public explain output.
+fn assert_explain_equivalence_case<E>(
+    session: &DbSession<SessionSqlCanister>,
+    left_sql: &str,
+    right_sql: &str,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let left = dispatch_explain_sql::<E>(session, left_sql)
+        .unwrap_or_else(|err| panic!("{context} left SQL should succeed: {err}"));
+    let right = dispatch_explain_sql::<E>(session, right_sql)
+        .unwrap_or_else(|err| panic!("{context} right SQL should succeed: {err}"));
+
+    assert_eq!(
+        left, right,
+        "{context} should normalize to the same EXPLAIN output",
+    );
+}
+
+fn assert_explain_json_index_range_case(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    tokens: &[&str],
+    context: &str,
+) {
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    assert!(
+        explain.starts_with('{') && explain.ends_with('}'),
+        "{context} should be one JSON object payload",
+    );
+    assert_explain_contains_tokens(explain.as_str(), tokens, context);
+    assert!(
+        !explain.contains("\"type\":\"FullScan\""),
+        "{context} must not fall back to full scan: {explain}",
+    );
+}
+
 #[test]
 fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     reset_session_sql_store();
@@ -325,11 +366,11 @@ fn explain_json_sql_direct_text_range_matrix_preserves_index_range_route() {
 }
 
 #[test]
-fn explain_json_sql_direct_upper_equivalent_prefix_forms_preserve_index_range_route() {
+fn explain_json_sql_direct_equivalent_prefix_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let cases = [
+    for (sql, context) in [
         (
             "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
             "direct UPPER(field) LIKE JSON explain route",
@@ -342,37 +383,6 @@ fn explain_json_sql_direct_upper_equivalent_prefix_forms_preserve_index_range_ro
             "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
             "direct UPPER(field) ordered text-range JSON explain route",
         ),
-    ];
-
-    for (sql, context) in cases {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
-            &[
-                "\"mode\":{\"type\":\"Load\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-            ],
-            context,
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
-        );
-    }
-}
-
-#[test]
-fn explain_json_sql_direct_lower_equivalent_prefix_forms_preserve_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let cases = [
         (
             "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
             "direct LOWER(field) LIKE JSON explain route",
@@ -385,27 +395,15 @@ fn explain_json_sql_direct_lower_equivalent_prefix_forms_preserve_index_range_ro
             "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
             "direct LOWER(field) ordered text-range JSON explain route",
         ),
-    ];
-
-    for (sql, context) in cases {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
+    ] {
+        assert_explain_json_index_range_case(
+            &session,
+            sql,
             &[
                 "\"mode\":{\"type\":\"Load\"",
                 "\"access\":{\"type\":\"IndexRange\"",
             ],
             context,
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
         );
     }
 }
@@ -450,11 +448,11 @@ fn explain_json_sql_delete_direct_text_range_matrix_preserves_index_range_route(
 }
 
 #[test]
-fn explain_json_sql_delete_direct_upper_equivalent_prefix_forms_preserve_index_range_route() {
+fn explain_json_sql_delete_direct_equivalent_prefix_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let cases = [
+    for (sql, context) in [
         (
             "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
             "direct UPPER(field) LIKE JSON delete explain route",
@@ -467,37 +465,6 @@ fn explain_json_sql_delete_direct_upper_equivalent_prefix_forms_preserve_index_r
             "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
             "direct UPPER(field) ordered text-range JSON delete explain route",
         ),
-    ];
-
-    for (sql, context) in cases {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
-            &[
-                "\"mode\":{\"type\":\"Delete\"",
-                "\"access\":{\"type\":\"IndexRange\"",
-            ],
-            context,
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
-        );
-    }
-}
-
-#[test]
-fn explain_json_sql_delete_direct_lower_equivalent_prefix_forms_preserve_index_range_route() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    let cases = [
         (
             "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
             "direct LOWER(field) LIKE JSON delete explain route",
@@ -510,27 +477,15 @@ fn explain_json_sql_delete_direct_lower_equivalent_prefix_forms_preserve_index_r
             "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
             "direct LOWER(field) ordered text-range JSON delete explain route",
         ),
-    ];
-
-    for (sql, context) in cases {
-        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
+    ] {
+        assert_explain_json_index_range_case(
+            &session,
+            sql,
             &[
                 "\"mode\":{\"type\":\"Delete\"",
                 "\"access\":{\"type\":\"IndexRange\"",
             ],
             context,
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
         );
     }
 }
@@ -582,59 +537,26 @@ fn explain_sql_identifier_normalization_matrix_matches_unqualified_output() {
 }
 
 #[test]
-fn explain_sql_execution_select_distinct_star_returns_execution_descriptor_text() {
+fn explain_sql_distinct_surface_matrix_returns_expected_tokens() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN EXECUTION SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-    )
-    .expect("EXPLAIN EXECUTION SELECT DISTINCT * should succeed");
-
-    assert!(
-        explain.contains("node_id=0"),
-        "execution explain output should include the root descriptor node id",
-    );
-}
-
-#[test]
-fn explain_sql_supports_distinct_without_pk_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity",
-    )
-    .expect("EXPLAIN SELECT DISTINCT without PK projection should succeed");
-
-    assert!(
-        explain.contains("distinct=true"),
-        "EXPLAIN SELECT DISTINCT without PK projection should preserve scalar distinct intent",
-    );
-}
-
-#[test]
-fn explain_sql_grouped_top_level_distinct_matches_plain_grouped_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let distinct_explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-    )
-    .expect("EXPLAIN should support top-level grouped SELECT DISTINCT");
-    let plain_explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-    )
-    .expect("EXPLAIN should support plain grouped aggregate projection");
-
-    assert_eq!(
-        distinct_explain, plain_explain,
-        "top-level grouped SELECT DISTINCT should normalize to the same logical EXPLAIN output as the non-DISTINCT form",
-    );
+    for (sql, tokens, context) in [
+        (
+            "EXPLAIN EXECUTION SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            &["node_id=0"][..],
+            "execution explain distinct star",
+        ),
+        (
+            "EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity",
+            &["distinct=true"][..],
+            "logical explain distinct scalar projection",
+        ),
+    ] {
+        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        assert_explain_contains_tokens(explain.as_str(), tokens, context);
+    }
 }
 
 #[test]
@@ -660,6 +582,14 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
             context,
         );
     }
+    reset_indexed_session_sql_store();
+    let indexed_session = indexed_sql_session();
+    assert_explain_alias_normalization_case::<ExpressionIndexedSessionSqlEntity>(
+        &indexed_session,
+        "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
+        "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
+        "ORDER BY LOWER(field) aliases",
+    );
 }
 
 #[test]
@@ -690,65 +620,44 @@ fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
 }
 
 #[test]
-fn explain_sql_order_by_lower_alias_matches_canonical_plan_output() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    assert_explain_alias_normalization_case::<ExpressionIndexedSessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
-        "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
-        "ORDER BY LOWER(field) aliases",
-    );
-}
-
-#[test]
-fn explain_sql_supports_computed_text_projection_in_dispatch_lane() {
+fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+    let scalar_explain = dispatch_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age LIMIT 1",
-    );
-
-    let explain = explain
-        .expect("EXPLAIN should support computed text projection on the narrowed dispatch lane");
+    )
+    .expect("EXPLAIN should support computed text projection on the narrowed dispatch lane");
     assert!(
-        explain.contains("mode=Load"),
+        scalar_explain.contains("mode=Load"),
         "computed text projection explain should still render the base load plan",
     );
     assert!(
-        explain.contains("access="),
+        scalar_explain.contains("access="),
         "computed text projection explain should still expose the routed access shape",
     );
-}
 
-#[test]
-fn explain_sql_grouped_computed_text_projection_matches_base_grouped_output() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let computed_explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT TRIM(name), COUNT(*) \
-         FROM SessionSqlEntity \
-         GROUP BY name \
-         ORDER BY name ASC LIMIT 10",
-    )
-    .expect("EXPLAIN should support grouped computed text projection on the session-owned lane");
-    let base_explain = dispatch_explain_sql::<SessionSqlEntity>(
-        &session,
-        "EXPLAIN SELECT name, COUNT(*) \
-         FROM SessionSqlEntity \
-         GROUP BY name \
-         ORDER BY name ASC LIMIT 10",
-    )
-    .expect("EXPLAIN should support the rewritten base grouped query");
-
-    assert_eq!(
-        computed_explain, base_explain,
-        "grouped computed SQL projection explain should stay on the rewritten base grouped query",
-    );
+    for (left_sql, right_sql, context) in [
+        (
+            "EXPLAIN SELECT TRIM(name), COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            "EXPLAIN SELECT name, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            "grouped computed SQL projection explain",
+        ),
+        (
+            "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            "top-level grouped SELECT DISTINCT explain",
+        ),
+    ] {
+        assert_explain_equivalence_case::<SessionSqlEntity>(&session, left_sql, right_sql, context);
+    }
 }
 
 #[test]
