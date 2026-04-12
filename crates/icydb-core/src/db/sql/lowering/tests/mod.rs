@@ -678,6 +678,45 @@ fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_
 }
 
 #[test]
+fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT alias.name, alias.age \
+         FROM SqlLowerEntity alias \
+         WHERE alias.age >= 21 \
+         ORDER BY alias.age DESC LIMIT 5 OFFSET 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("table-alias field-list SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .select_fields(["name", "age"])
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Gte,
+            Value::Int(21),
+            CoercionId::NumericWiden,
+        )))
+        .order_by_desc("age")
+        .limit(5)
+        .offset(1);
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("table-alias SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("unqualified fluent plan should build")
+            .into_inner(),
+        "single-table alias SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
+    );
+}
+
+#[test]
 fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity \

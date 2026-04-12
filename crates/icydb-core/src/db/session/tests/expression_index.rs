@@ -88,6 +88,38 @@ fn assert_expression_covering_read_descriptor(
     );
 }
 
+const fn expression_covering_read_queries(desc: bool) -> [(&'static str, &'static str); 2] {
+    if desc {
+        [
+            (
+                "descending expression key-only order queries",
+                "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            ),
+            (
+                "descending expression key-only strict text-range queries",
+                "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            ),
+        ]
+    } else {
+        [
+            (
+                "expression key-only order queries",
+                "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            ),
+            (
+                "expression key-only strict text-range queries",
+                "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            ),
+        ]
+    }
+}
+
+fn assert_expression_covering_read_route(session: &DbSession<SessionSqlCanister>, desc: bool) {
+    for (context, sql) in expression_covering_read_queries(desc) {
+        assert_expression_covering_read_descriptor(session, sql, context);
+    }
+}
+
 #[test]
 fn execute_sql_projection_expression_order_query_matches_entity_rows() {
     reset_indexed_session_sql_store();
@@ -301,110 +333,49 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
 }
 
 #[test]
-fn session_explain_execution_order_only_expression_key_only_query_uses_covering_read_route() {
+fn session_explain_execution_expression_key_only_covering_routes_stay_on_covering_family() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic mixed-case dataset so the key-only
-    // expression-order sibling can prove true covering eligibility without
-    // claiming original `name` reconstruction from the lowered key.
+    // Phase 1: seed one deterministic mixed-case dataset so both the
+    // order-only and bounded text-range key-only siblings can prove covering
+    // eligibility without claiming original `name` reconstruction.
     seed_expression_order_fixture(
         &session,
         &[
             (9_261_u128, "sam", 10),
             (9_262, "Alex", 20),
-            (9_263, "bob", 30),
+            (9_263, "amy", 30),
+            (9_264, "bob", 40),
         ],
     );
 
-    // Phase 2: require the session-backed query-builder explain to reuse the
-    // planner-proven covering-read route for the `id`-only projection.
-    assert_expression_covering_read_descriptor(
-        &session,
-        "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        "expression key-only order queries",
-    );
+    // Phase 2: require the ascending key-only expression routes to stay on
+    // the same planner-proven covering-read family.
+    assert_expression_covering_read_route(&session, false);
 }
 
 #[test]
-fn session_explain_execution_order_only_expression_key_only_desc_query_uses_covering_read_route() {
+fn session_explain_execution_expression_key_only_desc_covering_routes_stay_on_covering_family() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
     // Phase 1: seed one deterministic mixed-case dataset so the descending
-    // key-only expression-order sibling stays on the same honest covering
-    // family.
+    // order-only and bounded text-range key-only siblings stay on the same
+    // honest covering family.
     seed_expression_order_fixture(
         &session,
         &[
-            (9_264_u128, "sam", 10),
-            (9_265, "Alex", 20),
-            (9_266, "bob", 30),
+            (9_265_u128, "sam", 10),
+            (9_266, "Alex", 20),
+            (9_267, "amy", 30),
+            (9_268, "bob", 40),
         ],
     );
 
-    // Phase 2: require the session-backed query-builder explain to surface the
-    // covering route and the planner-proven existing-row mode.
-    assert_expression_covering_read_descriptor(
-        &session,
-        "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        "descending expression key-only order queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_expression_key_only_strict_text_range_query_uses_covering_read_route()
-{
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic mixed-case dataset so the bounded
-    // expression-key sibling can prove true covering eligibility without
-    // claiming original `name` reconstruction from the lowered key.
-    seed_expression_order_fixture(
-        &session,
-        &[
-            (9_267_u128, "sam", 10),
-            (9_268, "Alex", 20),
-            (9_269, "amy", 30),
-            (9_270, "bob", 40),
-        ],
-    );
-
-    // Phase 2: require the session-backed query-builder explain to reuse the
-    // planner-proven covering-read route for the bounded `id`-only projection.
-    assert_expression_covering_read_descriptor(
-        &session,
-        "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        "expression key-only strict text-range queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_expression_key_only_strict_text_range_desc_query_uses_covering_read_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic mixed-case dataset so the descending
-    // bounded expression-key sibling stays on the same honest covering family.
-    seed_expression_order_fixture(
-        &session,
-        &[
-            (9_271_u128, "sam", 10),
-            (9_272, "Alex", 20),
-            (9_273, "amy", 30),
-            (9_274, "bob", 40),
-        ],
-    );
-
-    // Phase 2: require the session-backed query-builder explain to surface the
-    // covering route and the planner-proven existing-row mode.
-    assert_expression_covering_read_descriptor(
-        &session,
-        "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
-        "descending expression key-only strict text-range queries",
-    );
+    // Phase 2: require the descending key-only expression routes to surface
+    // the covering route and planner-proven existing-row mode consistently.
+    assert_expression_covering_read_route(&session, true);
 }
 
 #[test]

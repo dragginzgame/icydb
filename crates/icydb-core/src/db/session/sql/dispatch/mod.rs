@@ -343,22 +343,59 @@ where
     None
 }
 
+// Resolve the effective INSERT column list for one reduced SQL write:
+// explicit column lists pass through, while omitted-column-list INSERT uses
+// canonical model field order only when no hidden timestamp synthesis would be
+// required.
+fn sql_insert_columns<E>(statement: &SqlInsertStatement) -> Result<Vec<String>, QueryError>
+where
+    E: EntityKind,
+{
+    if !statement.columns.is_empty() {
+        return Ok(statement.columns.clone());
+    }
+    if sql_write_system_timestamp_fields::<E>().is_some() {
+        return Err(QueryError::unsupported_query(
+            "SQL INSERT without explicit column list is not supported for entities with system timestamp fields in this release",
+        ));
+    }
+
+    Ok(E::MODEL
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .collect())
+}
+
+// Validate one INSERT tuple list against the resolved effective column list so
+// every VALUES tuple stays full-width and deterministic.
+fn validate_sql_insert_tuple_lengths(
+    columns: &[String],
+    values: &[Vec<Value>],
+) -> Result<(), QueryError> {
+    for tuple in values {
+        if tuple.len() != columns.len() {
+            return Err(QueryError::from_sql_parse_error(
+                crate::db::sql::parser::SqlParseError::invalid_syntax(
+                    "INSERT column list and VALUES tuple length must match",
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 impl<C: CanisterKind> DbSession<C> {
-    // Render one typed entity returned by SQL write dispatch as a single
-    // projection payload row so write statements reuse the same outward result
-    // family as row-producing SELECT and DELETE dispatch.
-    fn sql_write_dispatch_projection<E>(entity: E) -> Result<SqlDispatchResult, QueryError>
+    // Project one typed SQL write after-image into one outward SQL row using
+    // the persisted model field order.
+    fn sql_write_dispatch_row<E>(entity: E) -> Result<Vec<Value>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: freeze the outward full-row SQL column contract from the
-        // persisted model declaration order.
-        let columns = projection_labels_from_fields(E::MODEL.fields());
-        let mut row = Vec::with_capacity(columns.len());
+        let mut row = Vec::with_capacity(E::MODEL.fields().len());
 
-        // Phase 2: project one value row directly from the typed after-image
-        // returned by the shared save/mutation path.
-        for index in 0..columns.len() {
+        for index in 0..E::MODEL.fields().len() {
             let value = entity.get_value_by_index(index).ok_or_else(|| {
                 QueryError::invariant(
                     "SQL write dispatch projection row must include every declared field",
@@ -367,17 +404,35 @@ impl<C: CanisterKind> DbSession<C> {
             row.push(value);
         }
 
+        Ok(row)
+    }
+
+    // Render one or more typed entities returned by SQL write dispatch as one
+    // projection payload so write statements reuse the same outward result
+    // family as row-producing SELECT and DELETE dispatch.
+    fn sql_write_dispatch_projection<E>(entities: Vec<E>) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let columns = projection_labels_from_fields(E::MODEL.fields());
+        let rows = entities
+            .into_iter()
+            .map(Self::sql_write_dispatch_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+
         Ok(SqlDispatchResult::Projection {
             columns,
-            rows: vec![row],
-            row_count: 1,
+            rows,
+            row_count,
         })
     }
 
     // Build the structural insert patch and resolved primary key expected by
     // the shared structural mutation entrypoint.
     fn sql_insert_patch_and_key<E>(
-        statement: &SqlInsertStatement,
+        columns: &[String],
+        values: &[Value],
     ) -> Result<(E::Key, UpdatePatch), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -385,12 +440,12 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: resolve the required primary-key literal from the explicit
         // INSERT column/value list.
         let pk_name = E::MODEL.primary_key.name;
-        let Some(pk_index) = statement.columns.iter().position(|field| field == pk_name) else {
+        let Some(pk_index) = columns.iter().position(|field| field == pk_name) else {
             return Err(QueryError::unsupported_query(format!(
                 "SQL INSERT requires primary key column '{pk_name}' in this release"
             )));
         };
-        let pk_value = statement.values.get(pk_index).ok_or_else(|| {
+        let pk_value = values.get(pk_index).ok_or_else(|| {
             QueryError::invariant("INSERT primary key column must align with one VALUES literal")
         })?;
         let key = sql_write_key_from_literal::<E>(pk_value, pk_name)?;
@@ -398,7 +453,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 2: lower the explicit column/value pairs onto the structural
         // patch program consumed by the shared save path.
         let mut patch = UpdatePatch::new();
-        for (field, value) in statement.columns.iter().zip(statement.values.iter()) {
+        for (field, value) in columns.iter().zip(values.iter()) {
             let normalized = sql_write_value_for_field::<E>(field, value)?;
             patch = patch
                 .set_field(E::MODEL, field, normalized)
@@ -482,12 +537,19 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
-        let (key, patch) = Self::sql_insert_patch_and_key::<E>(statement)?;
-        let entity = self
-            .mutate_structural::<E>(key, patch, MutationMode::Insert)
-            .map_err(QueryError::execute)?;
+        let columns = sql_insert_columns::<E>(statement)?;
+        validate_sql_insert_tuple_lengths(columns.as_slice(), statement.values.as_slice())?;
+        let mut entities = Vec::with_capacity(statement.values.len());
 
-        Self::sql_write_dispatch_projection(entity)
+        for values in &statement.values {
+            let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
+            let entity = self
+                .mutate_structural::<E>(key, patch, MutationMode::Insert)
+                .map_err(QueryError::execute)?;
+            entities.push(entity);
+        }
+
+        Self::sql_write_dispatch_projection(entities)
     }
 
     // Execute one narrow SQL UPDATE statement through the existing structural
@@ -505,7 +567,7 @@ impl<C: CanisterKind> DbSession<C> {
             .mutate_structural::<E>(key, patch, MutationMode::Update)
             .map_err(QueryError::execute)?;
 
-        Self::sql_write_dispatch_projection(entity)
+        Self::sql_write_dispatch_projection(vec![entity])
     }
 
     // Build the shared structural SQL projection execution inputs once so

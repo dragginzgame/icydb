@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
+- `0.76.4` keeps the SQL-only line moving by adding single-table aliases for `SELECT` and `DELETE`, widening narrow `INSERT` forms on the typed dispatch lane, and then tightening the session-owned SQL boundary plus the related session test suites so the new SQL work lands on clearer ownership seams without changing query semantics.
 - `0.76.3` adds a first reduced SQL write surface by admitting narrow `INSERT` and primary-key-only `UPDATE` statements on the typed dispatch lane, and also pulls SQL projection/materialization shaping back behind the session boundary so shared executor contracts stay structural while the branch-level cleanup remains local.
 - `0.76.0` opens the `0.76` SQL-surface line by locking the remaining non-`JOIN` gaps into one explicit tracker, documenting which shapes are intentionally still fail-closed, and setting the boundary for later SQL-only follow-up patches without changing execution behavior yet.
 - `0.76.2` keeps the same SQL-only completion line moving without changing the runtime model: grouped top-level `SELECT DISTINCT ... GROUP BY ...` now normalizes away during lowering, grouped `TRIM(...)`-style projection over grouped fields now runs through the session-owned grouped SQL lane, projection aliases now work as output-label syntax, and narrow `ORDER BY` aliases now work for already-supported field and `LOWER/UPPER(...)` order targets without widening planner or runtime semantics.

@@ -1,7 +1,5 @@
 use super::*;
 
-type ProjectedRows = Vec<Vec<Value>>;
-
 // Seed the canonical guarded filtered-composite expression fixture used by the
 // parity and EXPLAIN route checks in this file.
 fn seed_filtered_composite_expression_fixture(session: &DbSession<SessionSqlCanister>) {
@@ -45,6 +43,62 @@ fn filtered_composite_expression_prefix_spellings(
             .expect("filtered composite expression text-range projection should execute");
 
     (like_rows, starts_with_rows, range_rows)
+}
+
+// Return the canonical guarded equality-prefix projection rows for the
+// bounded `br*` suffix window in either direction.
+fn filtered_composite_expression_prefix_expected_rows(descending: bool) -> ProjectedRows {
+    if descending {
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+        ]
+    } else {
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ]
+    }
+}
+
+// Return the canonical guarded equality-prefix order-only rows for the full
+// projection surface in either direction.
+fn filtered_composite_expression_order_only_expected_rows(descending: bool) -> ProjectedRows {
+    if descending {
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("charlie".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ]
+    } else {
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ]
+    }
 }
 
 // Assert the shared materialized filtered-composite expression route contract
@@ -170,6 +224,43 @@ fn assert_filtered_composite_expression_covering_descriptor(
     );
 }
 
+const fn filtered_composite_expression_materialized_queries()
+-> [(&'static str, &'static str, ExplainExecutionNodeType); 3] {
+    [
+        (
+            "guarded filtered composite expression order-only queries",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            ExplainExecutionNodeType::IndexPrefixScan,
+        ),
+        (
+            "guarded filtered composite expression-prefix queries",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            ExplainExecutionNodeType::IndexRangeScan,
+        ),
+        (
+            "guarded filtered composite expression text-range queries",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            ExplainExecutionNodeType::IndexRangeScan,
+        ),
+    ]
+}
+
+const fn filtered_composite_expression_covering_queries(
+    desc: bool,
+) -> [(&'static str, &'static str); 1] {
+    if desc {
+        [(
+            "descending guarded filtered composite expression key-only strict text-range queries",
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )]
+    } else {
+        [(
+            "guarded filtered composite expression key-only strict text-range queries",
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )]
+    }
+}
+
 #[test]
 fn execute_sql_projection_filtered_composite_expression_order_only_query_returns_guarded_rows() {
     reset_indexed_session_sql_store();
@@ -187,16 +278,7 @@ fn execute_sql_projection_filtered_composite_expression_order_only_query_returns
 
     assert_eq!(
         projected_rows,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-        ],
+        filtered_composite_expression_order_only_expected_rows(false),
         "guarded filtered composite expression order-only projections should preserve the canonical LOWER(handle) suffix window",
     );
 }
@@ -306,16 +388,7 @@ fn execute_sql_projection_filtered_composite_expression_order_only_desc_query_re
 
     assert_eq!(
         projected_rows,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("charlie".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-        ],
+        filtered_composite_expression_order_only_expected_rows(true),
         "descending guarded filtered composite expression order-only projections should preserve the reverse LOWER(handle) suffix window",
     );
 }
@@ -345,16 +418,7 @@ fn execute_sql_projection_filtered_composite_expression_equivalent_prefix_forms_
     );
     assert_eq!(
         like_rows,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-        ],
+        filtered_composite_expression_prefix_expected_rows(false),
         "guarded filtered composite expression prefix projections should preserve the canonical LOWER(handle) equality-prefix window",
     );
 }
@@ -384,57 +448,30 @@ fn execute_sql_projection_filtered_composite_expression_equivalent_desc_prefix_f
     );
     assert_eq!(
         like_rows,
-        vec![
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bristle".to_string()),
-            ],
-            vec![
-                Value::Text("gold".to_string()),
-                Value::Text("bravo".to_string()),
-            ],
-        ],
+        filtered_composite_expression_prefix_expected_rows(true),
         "descending guarded filtered composite expression prefix projections should preserve the reverse LOWER(handle) equality-prefix window",
     );
 }
 
 #[test]
-fn session_explain_execution_filtered_composite_expression_order_only_query_uses_index_range_access()
- {
+fn session_explain_execution_filtered_composite_expression_materialized_route_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
-    // prove the filtered composite `tier, LOWER(handle)` order-only route.
+    // Phase 1: seed one guarded mixed-case dataset so the order-only, prefix,
+    // and bounded text-range spellings all share the same expression family.
     seed_filtered_composite_expression_fixture(&session);
 
-    // Phase 2: require the guarded equality-prefix composite expression lane
-    // to stay on one shared index-prefix root with materialized projection rows.
-    assert_filtered_composite_expression_materialized_descriptor(
-        &session,
-        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "guarded filtered composite expression order-only queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_filtered_composite_expression_prefix_query_uses_index_range_access() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
-    // prove the filtered composite bounded `LOWER(handle)` suffix route.
-    seed_filtered_composite_expression_fixture(&session);
-
-    // Phase 2: require the guarded equality-prefix composite expression prefix
-    // lane to preserve the same shared index-range root.
-    assert_filtered_composite_expression_materialized_descriptor(
-        &session,
-        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        ExplainExecutionNodeType::IndexRangeScan,
-        "guarded filtered composite expression-prefix queries",
-    );
+    // Phase 2: require each admitted full-projection spelling to preserve the
+    // shared materialized route contract.
+    for (context, sql, expected_node) in filtered_composite_expression_materialized_queries() {
+        assert_filtered_composite_expression_materialized_descriptor(
+            &session,
+            sql,
+            expected_node,
+            context,
+        );
+    }
 }
 
 #[test]
@@ -591,60 +628,19 @@ fn execute_sql_dispatch_filtered_composite_expression_prefix_key_only_keeps_trac
 }
 
 #[test]
-fn session_explain_execution_filtered_composite_expression_text_range_query_uses_index_range_access()
- {
+fn session_explain_execution_filtered_composite_expression_covering_route_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
-    // prove explicit casefold bounds keep the equality-prefix expression route.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
-
-    // Phase 2: require the guarded equality-prefix composite expression
-    // text-range lane to preserve the shared index-range root.
-    assert_filtered_composite_expression_materialized_descriptor(
-        &session,
-        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        ExplainExecutionNodeType::IndexRangeScan,
-        "guarded filtered composite expression text-range queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_filtered_composite_expression_key_only_strict_text_range_query_uses_covering_read_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the guarded mixed-case dataset so the key-only bounded
-    // sibling can prove true covering eligibility on the same equality-prefix
-    // expression route.
+    // Phase 1: seed one guarded mixed-case dataset so the ascending and
+    // descending key-only bounded siblings stay on the same covering family.
     seed_filtered_composite_expression_fixture(&session);
 
-    // Phase 2: require the session-backed query-builder explain to reuse the
-    // planner-proven covering-read route for the narrower `(id, tier)` projection.
-    assert_filtered_composite_expression_covering_descriptor(
-        &session,
-        "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        "guarded filtered composite expression key-only strict text-range queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_filtered_composite_expression_key_only_strict_text_range_desc_query_uses_covering_read_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed the guarded mixed-case dataset so the descending bounded
-    // sibling stays on the same honest filtered composite covering family.
-    seed_filtered_composite_expression_fixture(&session);
-
-    // Phase 2: require the session-backed query-builder explain to reuse the
-    // planner-proven reverse covering-read route for the narrower projection.
-    assert_filtered_composite_expression_covering_descriptor(
-        &session,
-        "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        "descending guarded filtered composite expression key-only strict text-range queries",
-    );
+    // Phase 2: require the narrower key-only text-range surface to keep the
+    // planner-proven covering-read contract in both directions.
+    for desc in [false, true] {
+        for (context, sql) in filtered_composite_expression_covering_queries(desc) {
+            assert_filtered_composite_expression_covering_descriptor(&session, sql, context);
+        }
+    }
 }

@@ -4577,6 +4577,42 @@ fn sql_canister_perf_typed_dispatch_customer_account_order_by_lower_alias_surfac
 }
 
 #[test]
+fn sql_canister_perf_typed_dispatch_customer_table_alias_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "SELECT customer.name FROM Customer customer WHERE customer.name = 'alice' ORDER BY customer.id ASC LIMIT 1";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomer,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.customer.table_alias::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch table-alias perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Customer"),
+            "typed dispatch table-alias perf sample should stay on the Customer route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(1),
+            "typed dispatch table-alias perf sample should emit the expected ordered row count for `{sql}`",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_typed_dispatch_sql_write_probe_insert_surfaces_expected_values() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let sql = "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)";
@@ -4612,6 +4648,46 @@ fn sql_canister_perf_typed_dispatch_sql_write_probe_insert_surfaces_expected_val
             sample.outcome.row_count,
             Some(1),
             "typed dispatch SQL INSERT perf sample should emit one projected after-image row for `{sql}`",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_typed_dispatch_sql_write_probe_multi_insert_surfaces_expected_values() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)";
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert_positive_perf_sample(
+            &format!("typed.dispatch.sql_write_probe.multi_insert::{sql}"),
+            &sample,
+        );
+        assert!(
+            sample.outcome.success,
+            "typed dispatch SQL multi-row INSERT perf sample should succeed for `{sql}`: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind, "projection",
+            "typed dispatch SQL multi-row INSERT perf sample should emit the projection result kind for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("SqlWriteProbe"),
+            "typed dispatch SQL multi-row INSERT perf sample should stay on the SqlWriteProbe route for `{sql}`",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "typed dispatch SQL multi-row INSERT perf sample should emit two projected after-image rows for `{sql}`",
         );
     });
 }
@@ -6586,10 +6662,30 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.dispatch.table_alias.customer_name_limit1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
+                    sql: "SELECT customer.name FROM Customer customer WHERE customer.name = 'alice' ORDER BY customer.id ASC LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.sql_write_probe.insert.id2",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
                     sql: "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted', 22)"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.sql_write_probe.insert.id2_id3",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchSqlWriteProbe,
+                    sql: "INSERT INTO SqlWriteProbe (id, name, age) VALUES (2, 'inserted-a', 22), (3, 'inserted-b', 23)"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 1,

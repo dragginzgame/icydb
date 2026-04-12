@@ -202,40 +202,65 @@ fn assert_prefix_route_descriptor(
 }
 
 #[test]
-fn session_explain_execution_equality_prefix_suffix_order_uses_top_n_seek_on_chosen_prefix_route() {
+fn session_explain_execution_equality_prefix_suffix_order_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    let descriptor = equality_prefix_suffix_order_descriptor(&session, false, None);
 
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: PrefixScanDirectionExpectation::Asc,
-            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
-        },
-        "equality-prefix suffix-order roots",
-    );
-}
+    // Phase 1: lock the four directional/window variants for the same
+    // equality-prefix suffix-order family under one matrix so the explain
+    // contract stays explicit without four near-identical wrappers.
+    let cases = [
+        (
+            false,
+            None,
+            PrefixRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: PrefixScanDirectionExpectation::Asc,
+                ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
+            },
+            "equality-prefix suffix-order roots",
+        ),
+        (
+            true,
+            None,
+            PrefixRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: PrefixScanDirectionExpectation::Desc,
+                ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
+            },
+            "descending equality-prefix suffix-order roots",
+        ),
+        (
+            false,
+            Some(1),
+            PrefixRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: PrefixScanDirectionExpectation::Asc,
+                ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
+            },
+            "equality-prefix suffix-order offset roots",
+        ),
+        (
+            true,
+            Some(1),
+            PrefixRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: PrefixScanDirectionExpectation::Desc,
+                ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
+            },
+            "descending equality-prefix suffix-order offset roots",
+        ),
+    ];
 
-#[test]
-fn session_explain_execution_equality_prefix_suffix_order_desc_materializes_order_on_chosen_prefix_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = equality_prefix_suffix_order_descriptor(&session, true, None);
-
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: PrefixScanDirectionExpectation::Desc,
-            ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Forbidden,
-        },
-        "descending equality-prefix suffix-order roots",
-    );
+    // Phase 2: run the shared descriptor assertion across every route variant.
+    for (descending, offset, expectations, context) in cases {
+        let descriptor = equality_prefix_suffix_order_descriptor(&session, descending, offset);
+        assert_prefix_route_descriptor(&descriptor, expectations, context);
+    }
 }
 
 #[test]
@@ -333,44 +358,6 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
 }
 
 #[test]
-fn session_explain_execution_equality_prefix_suffix_order_offset_uses_top_n_seek_on_chosen_prefix_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = equality_prefix_suffix_order_descriptor(&session, false, Some(1));
-
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: PrefixScanDirectionExpectation::Asc,
-            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
-        },
-        "equality-prefix suffix-order offset roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_equality_prefix_suffix_order_desc_offset_materializes_order_on_chosen_prefix_route()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = equality_prefix_suffix_order_descriptor(&session, true, Some(1));
-
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: PrefixScanDirectionExpectation::Desc,
-            ordered_route: PrefixOrderedRouteExpectation::MaterializedSort,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
-        },
-        "descending equality-prefix suffix-order offset roots",
-    );
-}
-
-#[test]
 fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -436,37 +423,39 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 }
 
 #[test]
-fn session_explain_execution_unique_prefix_offset_uses_top_n_seek() {
+fn session_explain_execution_unique_prefix_offset_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    let descriptor = unique_prefix_offset_descriptor(&session, false);
 
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "tier_handle_unique",
-            scan_direction: PrefixScanDirectionExpectation::Asc,
-            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
-        },
-        "unique-prefix offset roots",
-    );
-}
+    // Phase 1: lock the ascending and descending unique-prefix offset routes
+    // under one small matrix because both variants share the same direct
+    // Top-N contract with only scan direction changing.
+    let cases = [
+        (
+            false,
+            PrefixRouteExpectations {
+                access_name: "tier_handle_unique",
+                scan_direction: PrefixScanDirectionExpectation::Asc,
+                ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
+            },
+            "unique-prefix offset roots",
+        ),
+        (
+            true,
+            PrefixRouteExpectations {
+                access_name: "tier_handle_unique",
+                scan_direction: PrefixScanDirectionExpectation::Desc,
+                ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
+                index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
+            },
+            "descending unique-prefix offset roots",
+        ),
+    ];
 
-#[test]
-fn session_explain_execution_unique_prefix_offset_desc_uses_top_n_seek() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = unique_prefix_offset_descriptor(&session, true);
-
-    assert_prefix_route_descriptor(
-        &descriptor,
-        PrefixRouteExpectations {
-            access_name: "tier_handle_unique",
-            scan_direction: PrefixScanDirectionExpectation::Desc,
-            ordered_route: PrefixOrderedRouteExpectation::TopNSeekAccessSatisfied,
-            index_range_limit_pushdown: IndexRangeLimitPushdownExpectation::Allowed,
-        },
-        "descending unique-prefix offset roots",
-    );
+    // Phase 2: reuse the shared explain assertion across both directions.
+    for (descending, expectations, context) in cases {
+        let descriptor = unique_prefix_offset_descriptor(&session, descending);
+        assert_prefix_route_descriptor(&descriptor, expectations, context);
+    }
 }

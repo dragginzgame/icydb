@@ -1,5 +1,87 @@
 use super::*;
 
+// Seed the shared text-function projection fixture used by the computed
+// projection tests in this file.
+fn seed_projection_text_fixture(session: &DbSession<SessionSqlCanister>) {
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+}
+
+// Seed the deterministic ordered projection fixture used by the matrix/window
+// checks in this file.
+fn seed_projection_window_fixture(session: &DbSession<SessionSqlCanister>) {
+    seed_session_sql_entities(
+        session,
+        &[
+            ("matrix-a", 10),
+            ("matrix-b", 20),
+            ("matrix-c", 30),
+            ("matrix-d", 40),
+        ],
+    );
+}
+
+// Execute one projection SQL query and assert both the derived column labels
+// and the projected rows against one explicit expected surface.
+fn assert_projection_columns_and_rows(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_columns: &[&str],
+    expected_rows: ProjectedRows,
+    context: &str,
+) {
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} projection columns should derive: {err:?}"));
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
+
+    assert_eq!(
+        columns,
+        expected_columns
+            .iter()
+            .map(|column| (*column).to_string())
+            .collect::<Vec<_>>(),
+        "{context} should expose the expected projection column labels",
+    );
+    assert_eq!(
+        rows, expected_rows,
+        "{context} should expose the expected projection row payloads",
+    );
+}
+
+// Assert that one field-alias surface still normalizes to the same projected
+// rows as the equivalent canonical SQL spelling.
+fn assert_projection_alias_matches_canonical<E>(
+    session: &DbSession<SessionSqlCanister>,
+    aliased_sql: &str,
+    canonical_sql: &str,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let aliased_rows = dispatch_projection_rows::<E>(session, aliased_sql)
+        .unwrap_or_else(|err| panic!("{context} aliased SQL should execute: {err:?}"));
+    let canonical_rows = dispatch_projection_rows::<E>(session, canonical_sql)
+        .unwrap_or_else(|err| panic!("{context} canonical SQL should execute: {err:?}"));
+
+    assert_eq!(
+        aliased_rows, canonical_rows,
+        "{context} should normalize onto the same scalar execution order",
+    );
+}
+
 #[test]
 fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
     reset_session_sql_store();
@@ -73,20 +155,11 @@ fn execute_sql_projection_order_by_field_alias_matches_canonical_rows() {
 
     seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
 
-    let aliased_rows = dispatch_projection_rows::<SessionSqlEntity>(
+    assert_projection_alias_matches_canonical::<SessionSqlEntity>(
         &session,
         "SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 3",
-    )
-    .expect("ORDER BY field alias should execute");
-    let canonical_rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
         "SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 3",
-    )
-    .expect("canonical ORDER BY field should execute");
-
-    assert_eq!(
-        aliased_rows, canonical_rows,
-        "ORDER BY field aliases should normalize onto the same scalar execution order",
+        "ORDER BY field aliases",
     );
 }
 
@@ -104,20 +177,11 @@ fn execute_sql_projection_order_by_lower_alias_matches_canonical_rows() {
         ],
     );
 
-    let aliased_rows = dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+    assert_projection_alias_matches_canonical::<ExpressionIndexedSessionSqlEntity>(
         &session,
         "SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 3",
-    )
-    .expect("ORDER BY LOWER(field) alias should execute");
-    let canonical_rows = dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(
-        &session,
         "SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 3",
-    )
-    .expect("canonical ORDER BY LOWER(field) should execute");
-
-    assert_eq!(
-        aliased_rows, canonical_rows,
-        "ORDER BY LOWER(field) aliases should normalize onto the same scalar execution order",
+        "ORDER BY LOWER(field) aliases",
     );
 }
 
@@ -216,46 +280,20 @@ fn execute_sql_projection_trim_ltrim_rtrim_lower_upper_and_length_dispatch_from_
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "  Ada  ".to_string(),
-            age: 33,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "\tBob".to_string(),
-            age: 21,
-        })
-        .expect("seed insert should succeed");
+    seed_projection_text_fixture(&session);
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+    assert_projection_columns_and_rows(
         &session,
         "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("computed SQL projection columns should derive");
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("computed SQL projection rows should execute");
-
-    assert_eq!(
-        columns,
-        vec![
-            "TRIM(name)".to_string(),
-            "LTRIM(name)".to_string(),
-            "RTRIM(name)".to_string(),
-            "LOWER(name)".to_string(),
-            "UPPER(name)".to_string(),
-            "LENGTH(name)".to_string(),
-            "age".to_string(),
+        &[
+            "TRIM(name)",
+            "LTRIM(name)",
+            "RTRIM(name)",
+            "LOWER(name)",
+            "UPPER(name)",
+            "LENGTH(name)",
+            "age",
         ],
-    );
-    assert_eq!(
-        rows,
         vec![
             vec![
                 Value::Text("Ada".to_string()),
@@ -276,6 +314,7 @@ fn execute_sql_projection_trim_ltrim_rtrim_lower_upper_and_length_dispatch_from_
                 Value::Uint(21),
             ],
         ],
+        "computed trim/case/length projections",
     );
 }
 
@@ -284,42 +323,12 @@ fn execute_sql_projection_left_and_right_dispatch_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "  Ada  ".to_string(),
-            age: 33,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "\tBob".to_string(),
-            age: 21,
-        })
-        .expect("seed insert should succeed");
+    seed_projection_text_fixture(&session);
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+    assert_projection_columns_and_rows(
         &session,
         "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("left/right SQL projection columns should derive");
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("left/right SQL projection rows should execute");
-
-    assert_eq!(
-        columns,
-        vec![
-            "LEFT(name, 2)".to_string(),
-            "RIGHT(name, 3)".to_string(),
-            "LEFT(name, NULL)".to_string(),
-        ],
-    );
-    assert_eq!(
-        rows,
+        &["LEFT(name, 2)", "RIGHT(name, 3)", "LEFT(name, NULL)"],
         vec![
             vec![
                 Value::Text("  ".to_string()),
@@ -332,6 +341,7 @@ fn execute_sql_projection_left_and_right_dispatch_from_session_boundary() {
                 Value::Null,
             ],
         ],
+        "left/right projections",
     );
 }
 
@@ -340,44 +350,18 @@ fn execute_sql_projection_starts_ends_and_position_dispatch_from_session_boundar
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "  Ada  ".to_string(),
-            age: 33,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "\tBob".to_string(),
-            age: 21,
-        })
-        .expect("seed insert should succeed");
+    seed_projection_text_fixture(&session);
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+    assert_projection_columns_and_rows(
         &session,
         "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("text predicate SQL projection columns should derive");
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("text predicate SQL projection rows should execute");
-
-    assert_eq!(
-        columns,
-        vec![
-            "STARTS_WITH(name, ' ')".to_string(),
-            "ENDS_WITH(name, 'b')".to_string(),
-            "CONTAINS(name, 'da')".to_string(),
-            "POSITION('da', name)".to_string(),
-            "POSITION(NULL, name)".to_string(),
+        &[
+            "STARTS_WITH(name, ' ')",
+            "ENDS_WITH(name, 'b')",
+            "CONTAINS(name, 'da')",
+            "POSITION('da', name)",
+            "POSITION(NULL, name)",
         ],
-    );
-    assert_eq!(
-        rows,
         vec![
             vec![
                 Value::Bool(true),
@@ -394,6 +378,7 @@ fn execute_sql_projection_starts_ends_and_position_dispatch_from_session_boundar
                 Value::Null,
             ],
         ],
+        "text predicate projections",
     );
 }
 
@@ -402,45 +387,17 @@ fn execute_sql_projection_replace_dispatch_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "  Ada  ".to_string(),
-            age: 33,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "\tBob".to_string(),
-            age: 21,
-        })
-        .expect("seed insert should succeed");
+    seed_projection_text_fixture(&session);
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+    assert_projection_columns_and_rows(
         &session,
         "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("replace SQL projection columns should derive");
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("replace SQL projection rows should execute");
-
-    assert_eq!(
-        columns,
-        vec![
-            "REPLACE(name, 'A', 'E')".to_string(),
-            "REPLACE(name, NULL, 'x')".to_string(),
-        ],
-    );
-    assert_eq!(
-        rows,
+        &["REPLACE(name, 'A', 'E')", "REPLACE(name, NULL, 'x')"],
         vec![
             vec![Value::Text("  Eda  ".to_string()), Value::Null],
             vec![Value::Text("\tBob".to_string()), Value::Null],
         ],
+        "replace projections",
     );
 }
 
@@ -449,42 +406,16 @@ fn execute_sql_projection_substring_dispatch_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "  Ada  ".to_string(),
-            age: 33,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "\tBob".to_string(),
-            age: 21,
-        })
-        .expect("seed insert should succeed");
+    seed_projection_text_fixture(&session);
 
-    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+    assert_projection_columns_and_rows(
         &session,
         "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("substring SQL projection columns should derive");
-    let rows = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
-    )
-    .expect("substring SQL projection rows should execute");
-
-    assert_eq!(
-        columns,
-        vec![
-            "SUBSTRING(name, 3, 3)".to_string(),
-            "SUBSTRING(name, 3)".to_string(),
-            "SUBSTRING(name, NULL, 2)".to_string(),
+        &[
+            "SUBSTRING(name, 3, 3)",
+            "SUBSTRING(name, 3)",
+            "SUBSTRING(name, NULL, 2)",
         ],
-    );
-    assert_eq!(
-        rows,
         vec![
             vec![
                 Value::Text("Ada".to_string()),
@@ -497,6 +428,7 @@ fn execute_sql_projection_substring_dispatch_from_session_boundary() {
                 Value::Null,
             ],
         ],
+        "substring projections",
     );
 }
 
@@ -556,7 +488,7 @@ fn execute_sql_select_schema_qualified_entity_executes() {
 }
 
 #[test]
-fn execute_sql_projection_select_table_qualified_fields_executes() {
+fn execute_sql_projection_select_qualified_field_forms_execute() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -568,83 +500,35 @@ fn execute_sql_projection_select_table_qualified_fields_executes() {
         })
         .expect("seed insert should succeed");
 
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT SessionSqlEntity.name \
-         FROM SessionSqlEntity \
-         WHERE SessionSqlEntity.age >= 40 \
-         ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-    )
-    .expect("table-qualified projection SQL should execute");
-    let row = response
-        .first()
-        .expect("table-qualified projection SQL response should contain one row");
+    for (sql, context) in [
+        (
+            "SELECT SessionSqlEntity.name \
+             FROM SessionSqlEntity \
+             WHERE SessionSqlEntity.age >= 40 \
+             ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+            "table-qualified projection SQL",
+        ),
+        (
+            "SELECT alias.name \
+             FROM SessionSqlEntity alias \
+             WHERE alias.age >= 40 \
+             ORDER BY alias.age DESC LIMIT 1",
+            "table-alias projection SQL",
+        ),
+    ] {
+        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+        let row = response
+            .first()
+            .unwrap_or_else(|| panic!("{context} response should contain one row"));
 
-    assert_eq!(response.len(), 1);
-    assert_eq!(row, &[Value::Text("qualified-projection".to_string())]);
-}
-
-#[test]
-fn execute_sql_projection_select_field_list_honors_order_limit_offset_window() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    // Phase 1: seed deterministic age-ordered rows.
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "projection-window-a".to_string(),
-            age: 10,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "projection-window-b".to_string(),
-            age: 20,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "projection-window-c".to_string(),
-            age: 30,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "projection-window-d".to_string(),
-            age: 40,
-        })
-        .expect("seed insert should succeed");
-
-    // Phase 2: execute one projection query with explicit window controls.
-    let response = dispatch_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT name, age \
-         FROM SessionSqlEntity \
-         ORDER BY age DESC LIMIT 2 OFFSET 1",
-    )
-    .expect("projection SQL window execution should succeed");
-    let rows = response;
-
-    // Phase 3: assert projected row payloads follow ordered window semantics.
-    assert_eq!(rows.len(), 2);
-    assert_eq!(
-        rows[0],
-        [
-            Value::Text("projection-window-c".to_string()),
-            Value::Uint(30)
-        ],
-    );
-    assert_eq!(
-        rows[1],
-        [
-            Value::Text("projection-window-b".to_string()),
-            Value::Uint(20)
-        ],
-    );
+        assert_eq!(response.len(), 1, "{context} should return one row");
+        assert_eq!(
+            row,
+            &[Value::Text("qualified-projection".to_string())],
+            "{context} should preserve the projected field value",
+        );
+    }
 }
 
 #[test]
@@ -734,20 +618,7 @@ fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-pk-a".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-pk-b".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
+    seed_session_sql_entities(&session, &[("distinct-pk-a", 25), ("distinct-pk-b", 25)]);
 
     let response = dispatch_projection_rows::<SessionSqlEntity>(
         &session,
@@ -763,27 +634,14 @@ fn execute_sql_projection_select_distinct_without_pk_projection_executes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-no-pk-a".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-no-pk-b".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-no-pk-c".to_string(),
-            age: 30,
-        })
-        .expect("seed insert should succeed");
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("distinct-no-pk-a", 25),
+            ("distinct-no-pk-b", 25),
+            ("distinct-no-pk-c", 30),
+        ],
+    );
 
     let response = dispatch_projection_rows::<SessionSqlEntity>(
         &session,
@@ -799,34 +657,15 @@ fn execute_sql_projection_select_distinct_without_pk_projection_applies_page_aft
     reset_session_sql_store();
     let session = sql_session();
 
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-window-a".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-window-b".to_string(),
-            age: 25,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-window-c".to_string(),
-            age: 30,
-        })
-        .expect("seed insert should succeed");
-    session
-        .insert(SessionSqlEntity {
-            id: Ulid::generate(),
-            name: "distinct-window-d".to_string(),
-            age: 35,
-        })
-        .expect("seed insert should succeed");
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("distinct-window-a", 25),
+            ("distinct-window-b", 25),
+            ("distinct-window-c", 30),
+            ("distinct-window-d", 35),
+        ],
+    );
 
     let response = dispatch_projection_rows::<SessionSqlEntity>(
         &session,
@@ -843,15 +682,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
     let session = sql_session();
 
     // Phase 1: seed deterministic rows used by matrix projections.
-    seed_session_sql_entities(
-        &session,
-        &[
-            ("matrix-a", 10),
-            ("matrix-b", 20),
-            ("matrix-c", 30),
-            ("matrix-d", 40),
-        ],
-    );
+    seed_projection_window_fixture(&session);
 
     // Phase 2: execute table-driven projection SQL cases.
     let cases = vec![

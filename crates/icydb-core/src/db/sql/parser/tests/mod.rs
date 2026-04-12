@@ -390,6 +390,33 @@ fn parse_delete_statement_with_limit_and_offset() {
 }
 
 #[test]
+fn parse_delete_statement_accepts_single_table_alias() {
+    let statement = parse_sql(
+        "DELETE FROM users u WHERE u.age < 18 ORDER BY LOWER(u.name) ASC LIMIT 3 OFFSET 1",
+    )
+    .expect("delete statement with one table alias should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Delete(SqlDeleteStatement {
+            entity: "users".to_string(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Lt,
+                Value::Int(18),
+                CoercionId::NumericWiden,
+            ))),
+            order_by: vec![SqlOrderTerm {
+                field: "LOWER(name)".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(3),
+            offset: Some(1),
+        }),
+    );
+}
+
+#[test]
 fn parse_delete_statement_with_direct_starts_with_family() {
     let cases = [
         (
@@ -1112,10 +1139,37 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
-            values: vec![
+            values: vec![vec![
                 Value::Int(7),
                 Value::Text("Ada".to_string()),
-                Value::Int(21)
+                Value::Int(21),
+            ]],
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_with_multiple_values_tuples() {
+    let statement =
+        parse_sql("INSERT INTO users (id, name, age) VALUES (7, 'Ada', 21), (8, 'Bea', 22)")
+            .expect("multi-row insert statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
+            values: vec![
+                vec![
+                    Value::Int(7),
+                    Value::Text("Ada".to_string()),
+                    Value::Int(21)
+                ],
+                vec![
+                    Value::Int(8),
+                    Value::Text("Bea".to_string()),
+                    Value::Int(22)
+                ],
             ],
         }),
     );
@@ -1152,14 +1206,55 @@ fn parse_update_statement_with_assignments_and_predicate() {
 
 #[test]
 fn parse_insert_statement_rejects_missing_column_list() {
-    let err = parse_sql("INSERT INTO users VALUES (1)")
-        .expect_err("insert without explicit column list should stay fail-closed");
+    let statement =
+        parse_sql("INSERT INTO users VALUES (1)").expect("insert without column list should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec![],
+            values: vec![vec![Value::Int(1)]],
+        }),
+    );
+}
+
+#[test]
+fn parse_insert_statement_rejects_tuple_length_mismatch_in_any_values_tuple() {
+    let err = parse_sql("INSERT INTO users (id, name, age) VALUES (7, 'Ada', 21), (8, 'Bea')")
+        .expect_err("multi-row insert with tuple length mismatch should stay fail-closed");
 
     assert_eq!(
         err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "INSERT without explicit column list"
+        super::SqlParseError::InvalidSyntax {
+            message: "INSERT column list and VALUES tuple length must match".to_string(),
         }
+    );
+}
+
+#[test]
+fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
+    let statement = parse_sql("INSERT INTO users VALUES (1, 'Ada', 21), (2, 'Bea', 22)")
+        .expect("multi-row insert without column list should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "users".to_string(),
+            columns: vec![],
+            values: vec![
+                vec![
+                    Value::Int(1),
+                    Value::Text("Ada".to_string()),
+                    Value::Int(21)
+                ],
+                vec![
+                    Value::Int(2),
+                    Value::Text("Bea".to_string()),
+                    Value::Int(22)
+                ],
+            ],
+        }),
     );
 }
 
@@ -1200,7 +1295,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SELECT len(name) FROM users",
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
-        ("SELECT * FROM public.users AS u", "table aliases"),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
@@ -1361,41 +1455,90 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
 }
 
 #[test]
-fn parse_sql_rejects_table_alias_identifier_form() {
-    let err = parse_sql("SELECT * FROM users u")
-        .expect_err("table alias should be rejected in reduced parser");
+fn parse_sql_accepts_table_alias_identifier_form() {
+    let statement = parse_sql("SELECT * FROM users u").expect("single-table alias should parse");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "table aliases"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
     );
 }
 
 #[test]
-fn parse_sql_rejects_table_alias_as_form() {
-    let err = parse_sql("SELECT * FROM users AS u")
-        .expect_err("table alias should be rejected in reduced parser");
+fn parse_sql_accepts_table_alias_as_form() {
+    let statement = parse_sql(
+        "SELECT u.name FROM users AS u WHERE u.age >= 21 ORDER BY LOWER(u.name) ASC LIMIT 1",
+    )
+    .expect("single-table AS alias should parse");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "table aliases"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
+            projection_aliases: vec![None],
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "LOWER(name)".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
     );
 }
 
 #[test]
-fn parse_sql_rejects_table_alias_for_schema_qualified_entity() {
-    let err = parse_sql("SELECT * FROM public.users AS u")
-        .expect_err("table alias should be rejected for schema-qualified entity names");
+fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
+    let statement = parse_sql(
+        "SELECT u.name, u.age FROM public.users AS u WHERE u.age >= 21 ORDER BY u.age DESC",
+    )
+    .expect("single-table alias should parse for schema-qualified entity names");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "table aliases"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "public.users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("name".to_string()),
+                SqlSelectItem::Field("age".to_string()),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Desc,
+            }],
+            limit: None,
+            offset: None,
+        }),
     );
 }
 

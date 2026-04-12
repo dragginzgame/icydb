@@ -207,105 +207,60 @@ fn assert_range_route_descriptor(
 }
 
 #[test]
-fn session_explain_execution_range_choice_uses_bounded_index_range_hints() {
+fn session_explain_execution_range_choice_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    let descriptor = deterministic_range_choice_descriptor(&session, false, None);
 
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: RangeScanDirectionExpectation::Asc,
-            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
-        },
-        "range-choice roots",
-    );
-}
+    // Phase 1: keep the bounded range-choice family under one matrix so the
+    // route stays visibly materialized across direction and optional offset.
+    let cases = [
+        (
+            false,
+            None,
+            RangeRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: RangeScanDirectionExpectation::Asc,
+                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+            },
+            "range-choice roots",
+        ),
+        (
+            true,
+            None,
+            RangeRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: RangeScanDirectionExpectation::Desc,
+                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+            },
+            "descending range-choice roots",
+        ),
+        (
+            false,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: RangeScanDirectionExpectation::Asc,
+                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+            },
+            "range-choice offset roots",
+        ),
+        (
+            true,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_tier_score_label_idx",
+                scan_direction: RangeScanDirectionExpectation::Desc,
+                ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
+            },
+            "descending range-choice offset roots",
+        ),
+    ];
 
-#[test]
-fn session_explain_execution_range_choice_desc_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = deterministic_range_choice_descriptor(&session, true, None);
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: RangeScanDirectionExpectation::Desc,
-            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
-        },
-        "descending range-choice roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_range_choice_offset_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = deterministic_range_choice_descriptor(&session, false, Some(1));
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: RangeScanDirectionExpectation::Asc,
-            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
-        },
-        "range-choice offset roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_range_choice_desc_offset_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = deterministic_range_choice_descriptor(&session, true, Some(1));
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_score_label_idx",
-            scan_direction: RangeScanDirectionExpectation::Desc,
-            ordered_route: RangeOrderedRouteExpectation::MaterializedSort,
-        },
-        "descending range-choice offset roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_composite_order_only_choice_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, true, false, None);
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_handle_idx",
-            scan_direction: RangeScanDirectionExpectation::Asc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "composite order-only roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_order_only_choice_offset_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, false, false, Some(1));
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_alpha_idx",
-            scan_direction: RangeScanDirectionExpectation::Asc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "order-only offset roots",
-    );
+    // Phase 2: reuse the shared assertion across all range-choice variants.
+    for (descending, offset, expectations, context) in cases {
+        let descriptor = deterministic_range_choice_descriptor(&session, descending, offset);
+        assert_range_route_descriptor(&descriptor, expectations, context);
+    }
 }
 
 #[test]
@@ -380,54 +335,86 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 }
 
 #[test]
-fn session_explain_execution_order_only_choice_desc_offset_uses_bounded_index_range_hints() {
+fn session_explain_execution_order_only_choice_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, false, true, Some(1));
 
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_alpha_idx",
-            scan_direction: RangeScanDirectionExpectation::Desc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "descending order-only offset roots",
-    );
-}
+    // Phase 1: keep the scalar and composite fallback families explicit while
+    // removing the repetitive one-wrapper-per-variant shape.
+    let cases = [
+        (
+            false,
+            false,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_alpha_idx",
+                scan_direction: RangeScanDirectionExpectation::Asc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "order-only offset roots",
+        ),
+        (
+            false,
+            true,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_alpha_idx",
+                scan_direction: RangeScanDirectionExpectation::Desc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "descending order-only offset roots",
+        ),
+        (
+            true,
+            false,
+            None,
+            RangeRouteExpectations {
+                access_name: "z_tier_handle_idx",
+                scan_direction: RangeScanDirectionExpectation::Asc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "composite order-only roots",
+        ),
+        (
+            true,
+            true,
+            None,
+            RangeRouteExpectations {
+                access_name: "z_tier_handle_idx",
+                scan_direction: RangeScanDirectionExpectation::Desc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "descending composite order-only roots",
+        ),
+        (
+            true,
+            false,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_tier_handle_idx",
+                scan_direction: RangeScanDirectionExpectation::Asc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "composite order-only offset roots",
+        ),
+        (
+            true,
+            true,
+            Some(1),
+            RangeRouteExpectations {
+                access_name: "z_tier_handle_idx",
+                scan_direction: RangeScanDirectionExpectation::Desc,
+                ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
+            },
+            "descending composite order-only offset roots",
+        ),
+    ];
 
-#[test]
-fn session_explain_execution_composite_order_only_choice_desc_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, true, true, None);
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_handle_idx",
-            scan_direction: RangeScanDirectionExpectation::Desc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "descending composite order-only roots",
-    );
-}
-
-#[test]
-fn session_explain_execution_composite_order_only_choice_offset_uses_bounded_index_range_hints() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, true, false, Some(1));
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_handle_idx",
-            scan_direction: RangeScanDirectionExpectation::Asc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "composite order-only offset roots",
-    );
+    // Phase 2: reuse the shared assertion across every fallback variant.
+    for (composite, descending, offset, expectations, context) in cases {
+        let descriptor = order_only_fallback_descriptor(&session, composite, descending, offset);
+        assert_range_route_descriptor(&descriptor, expectations, context);
+    }
 }
 
 #[test]
@@ -510,23 +497,5 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         handles,
         vec!["charlie", "delta"],
         "composite order-only offset windows should preserve the shifted index order on the public entity surface",
-    );
-}
-
-#[test]
-fn session_explain_execution_composite_order_only_choice_desc_offset_uses_bounded_index_range_hints()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-    let descriptor = order_only_fallback_descriptor(&session, true, true, Some(1));
-
-    assert_range_route_descriptor(
-        &descriptor,
-        RangeRouteExpectations {
-            access_name: "z_tier_handle_idx",
-            scan_direction: RangeScanDirectionExpectation::Desc,
-            ordered_route: RangeOrderedRouteExpectation::TopNSeekAccessSatisfied,
-        },
-        "descending composite order-only offset roots",
     );
 }

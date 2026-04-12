@@ -135,6 +135,9 @@ static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64
     (9_235, "charlie-user", true, "gold", "charlie", 50),
 ];
 
+// Shared projected-row shape used by the session SQL projection tests.
+type ProjectedRows = Vec<Vec<Value>>;
+
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
 }
@@ -1953,7 +1956,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 7] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
@@ -1963,7 +1966,6 @@ const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 7] {
             "SELECT \"name\" FROM SessionSqlEntity",
             "quoted identifiers",
         ),
-        ("SELECT * FROM SessionSqlEntity alias", "table aliases"),
         (
             "SELECT * FROM SessionSqlEntity WHERE name LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",

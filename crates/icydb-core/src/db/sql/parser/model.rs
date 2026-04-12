@@ -259,14 +259,14 @@ pub(crate) struct SqlDeleteStatement {
 /// Canonical parsed `INSERT` statement shape for reduced SQL.
 ///
 /// This stays intentionally narrow in the current slice: one explicit column
-/// list and one single-row literal `VALUES` tuple.
+/// list and one or more literal `VALUES` tuples.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlInsertStatement {
     pub(crate) entity: String,
     pub(crate) columns: Vec<String>,
-    pub(crate) values: Vec<Value>,
+    pub(crate) values: Vec<Vec<Value>>,
 }
 
 ///

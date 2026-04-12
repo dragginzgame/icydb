@@ -707,6 +707,34 @@ fn explain_sql_execution_qualified_identifiers_match_unqualified_output() {
 }
 
 #[test]
+fn explain_sql_table_alias_identifiers_match_unqualified_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let aliased = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT alias.name \
+             FROM SessionSqlEntity alias \
+             WHERE alias.age >= 21 \
+             ORDER BY alias.age DESC LIMIT 1",
+    )
+    .expect("table-alias EXPLAIN execution SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+             FROM SessionSqlEntity \
+             WHERE age >= 21 \
+             ORDER BY age DESC LIMIT 1",
+    )
+    .expect("unqualified EXPLAIN execution SQL should succeed");
+
+    assert_eq!(
+        aliased, unqualified,
+        "single-table alias identifiers should normalize to the same execution EXPLAIN descriptor output",
+    );
+}
+
+#[test]
 fn explain_sql_plan_select_distinct_star_marks_distinct_true() {
     reset_session_sql_store();
     let session = sql_session();

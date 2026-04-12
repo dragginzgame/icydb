@@ -6,7 +6,7 @@
 use crate::{
     db::{
         predicate::CompareOp,
-        reduced_sql::{Keyword, SqlParseError, TokenKind},
+        reduced_sql::{Keyword, SqlParseError},
         sql::parser::{
             Parser, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm,
             SqlTextFunction,
@@ -110,18 +110,6 @@ impl Parser {
         }
 
         Ok(fields)
-    }
-
-    // Keep reduced-parser table ownership explicit: aliases are intentionally
-    // unsupported in this baseline and must fail closed.
-    pub(super) fn reject_table_alias_if_present(&self) -> Result<(), SqlParseError> {
-        if self.peek_keyword(Keyword::As)
-            || matches!(self.peek_kind(), Some(TokenKind::Identifier(_)))
-        {
-            return Err(SqlParseError::unsupported_feature("table aliases"));
-        }
-
-        Ok(())
     }
 
     fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {

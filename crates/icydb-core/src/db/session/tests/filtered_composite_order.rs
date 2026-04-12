@@ -66,6 +66,30 @@ fn assert_filtered_composite_order_descriptor(
     );
 }
 
+const fn filtered_composite_order_explain_queries() -> [(&'static str, &'static str, bool, bool); 3]
+{
+    [
+        (
+            "guarded filtered composite-order queries",
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            true,
+            false,
+        ),
+        (
+            "descending guarded filtered composite-order queries",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+            false,
+            false,
+        ),
+        (
+            "descending filtered composite order-only offset roots",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+            false,
+            true,
+        ),
+    ]
+}
+
 #[test]
 fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_guarded_rows() {
     reset_indexed_session_sql_store();
@@ -133,146 +157,99 @@ fn execute_sql_projection_filtered_composite_order_only_desc_covering_query_retu
 }
 
 #[test]
-fn session_explain_execution_order_only_filtered_composite_covering_query_uses_index_prefix_access()
-{
+fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    // Phase 1: seed one deterministic filtered composite-index dataset so
-    // EXPLAIN EXECUTION can prove the guarded equality-prefix query uses the
-    // composite filtered secondary index instead of materializing rows.
-    seed_filtered_composite_order_fixture(&session);
-    // Phase 2: require the guarded composite order-only SQL lane to surface
-    // the shared index-prefix covering route with access-satisfied suffix ordering.
-    let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
-            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-        )
-        .expect("filtered composite order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("filtered composite order-only covering SQL explain_execution should succeed");
-
-    assert_filtered_composite_order_descriptor(
-        &descriptor,
-        true,
-        "guarded filtered composite-order queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_order_only_filtered_composite_desc_covering_query_uses_index_prefix_access()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic filtered composite-index dataset so
-    // reverse EXPLAIN EXECUTION can prove the same guarded equality-prefix
-    // route instead of a materialized reverse sort.
+    // Phase 1: seed one deterministic filtered composite-index dataset so the
+    // guarded equality-prefix covering and materialized-boundary variants all
+    // share the same route family under one matrix.
     seed_filtered_composite_order_fixture(&session);
 
-    // Phase 2: require the descending guarded composite order-only SQL lane
-    // to surface the shared index-prefix covering route.
-    let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
-            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-        )
-        .expect("descending filtered composite order-only covering SQL query should lower")
-        .explain_execution()
-        .expect("descending filtered composite order-only covering SQL explain_execution should succeed");
+    // Phase 2: keep the covering vs boundary distinction explicit while
+    // removing the repetitive one-wrapper-per-query shape.
+    for (context, sql, expect_access_satisfied, expect_offset_boundary) in
+        filtered_composite_order_explain_queries()
+    {
+        let descriptor = session
+            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("{context} SQL explain_execution should succeed: {err:?}")
+            });
 
-    assert_filtered_composite_order_descriptor(
-        &descriptor,
-        false,
-        "descending guarded filtered composite-order queries",
-    );
-}
-
-#[test]
-fn session_explain_execution_order_only_filtered_composite_desc_offset_query_stays_on_materialized_boundary()
- {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
-    // Phase 1: seed one deterministic filtered composite-index dataset where
-    // the `tier = 'gold'` equality prefix keeps the suffix order meaningful
-    // even though reverse offset paging must still stay on the shared
-    // materialized boundary.
-    seed_filtered_composite_order_fixture(&session);
-
-    // Phase 2: require the descending offset composite filtered order-only
-    // shape to keep the index-prefix route but stop before Top-N derivation.
-    let descriptor = session
-        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
-            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("descending filtered composite order-only offset SQL query should lower")
-        .explain_execution()
-        .expect(
-            "descending filtered composite order-only offset SQL explain_execution should succeed",
-        );
-
-    assert_eq!(
-        descriptor.node_type(),
-        ExplainExecutionNodeType::IndexPrefixScan,
-        "descending filtered composite order-only offset queries should keep the shared index-prefix root",
-    );
-    assert_eq!(
-        descriptor.execution_mode(),
-        crate::db::ExplainExecutionMode::Materialized,
-        "descending filtered composite order-only offset queries should stay on the materialized boundary",
-    );
-    assert_eq!(
-        descriptor.covering_scan(),
-        Some(true),
-        "descending filtered composite order-only offset projections should keep the explicit covering-read route",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_len"),
-        Some(&Value::Uint(1)),
-        "descending filtered composite order-only offset roots should report one equality-prefix slot",
-    );
-    assert_eq!(
-        descriptor.node_properties().get("prefix_values"),
-        Some(&Value::List(vec![Value::Text("gold".to_string())])),
-        "descending filtered composite order-only offset roots should expose the concrete equality-prefix value",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::SecondaryOrderPushdown
-        )
-        .is_some(),
-        "descending filtered composite order-only offset roots should still report secondary order pushdown",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        )
-        .is_some(),
-        "descending filtered composite order-only offset roots should stay on the materialized boundary sort contract",
-    );
-    assert!(
-        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
-            .is_none(),
-        "descending filtered composite order-only offset roots must not derive Top-N seek",
-    );
-    assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )
-        .is_none(),
-        "descending filtered composite order-only offset roots must not report direct access-satisfied ordering",
-    );
-    let limit_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::LimitOffset,
-    )
-    .expect("descending filtered composite order-only offset roots should expose one limit node");
-    assert_eq!(
-        limit_node.node_properties().get("offset"),
-        Some(&Value::Uint(1)),
-        "descending filtered composite order-only offset roots should expose the retained offset window",
-    );
+        if expect_offset_boundary {
+            assert_eq!(
+                descriptor.node_type(),
+                ExplainExecutionNodeType::IndexPrefixScan,
+                "{context} should keep the shared index-prefix root",
+            );
+            assert_eq!(
+                descriptor.execution_mode(),
+                crate::db::ExplainExecutionMode::Materialized,
+                "{context} should stay on the materialized boundary",
+            );
+            assert_eq!(
+                descriptor.covering_scan(),
+                Some(true),
+                "{context} projections should keep the explicit covering-read route",
+            );
+            assert_eq!(
+                descriptor.node_properties().get("prefix_len"),
+                Some(&Value::Uint(1)),
+                "{context} should report one equality-prefix slot",
+            );
+            assert_eq!(
+                descriptor.node_properties().get("prefix_values"),
+                Some(&Value::List(vec![Value::Text("gold".to_string())])),
+                "{context} should expose the concrete equality-prefix value",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    &descriptor,
+                    ExplainExecutionNodeType::SecondaryOrderPushdown
+                )
+                .is_some(),
+                "{context} should still report secondary order pushdown",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    &descriptor,
+                    ExplainExecutionNodeType::OrderByMaterializedSort
+                )
+                .is_some(),
+                "{context} should stay on the materialized boundary sort contract",
+            );
+            assert!(
+                explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+                    .is_none(),
+                "{context} must not derive Top-N seek",
+            );
+            assert!(
+                explain_execution_find_first_node(
+                    &descriptor,
+                    ExplainExecutionNodeType::OrderByAccessSatisfied
+                )
+                .is_none(),
+                "{context} must not report direct access-satisfied ordering",
+            );
+            let limit_node = explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::LimitOffset,
+            )
+            .unwrap_or_else(|| panic!("{context} should expose one limit node"));
+            assert_eq!(
+                limit_node.node_properties().get("offset"),
+                Some(&Value::Uint(1)),
+                "{context} should expose the retained offset window",
+            );
+        } else {
+            assert_filtered_composite_order_descriptor(
+                &descriptor,
+                expect_access_satisfied,
+                context,
+            );
+        }
+    }
 }
