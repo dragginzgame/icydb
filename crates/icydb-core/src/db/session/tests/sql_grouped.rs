@@ -871,7 +871,7 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
 
     assert!(
         err.to_string()
-            .contains("projection row statement only supports value-row SQL projection payloads"),
+            .contains("projection row SQL only supports value-row SQL projection payloads"),
         "projection row helper must preserve its value-row-only contract for grouped payloads",
     );
 }

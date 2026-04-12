@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+
+## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
+
+- `0.77.1` finishes the SQL cleanup by deleting the last old lane-shaped SQL runtime wrappers, hard-cutting the remaining dead SQL scaffolding instead of silencing it, and leaving only `execute_sql_query::<E>(...)` plus `execute_sql_update::<E>(...)` as the live SQL executors.
+- `0.77.0` removes public SQL dispatch entirely, replaces the older mixed SQL entrypoint story with one single-entity SQL query executor plus one matching SQL mutation executor, and deletes the broad SQL parity canister/test scaffolding that only existed to exercise the old routed SQL surface.
+
+See detailed breakdown:
+[docs/changelog/0.77.md](docs/changelog/0.77.md)
+
+---
+
 ## [0.76.x] 🧩 - 2026-04-11 - SQL Surface Completion
 
 - `0.76.14` makes mutation results follow one clearer rule: `SELECT` and every admitted row-producing mutation surface now share the same row payload family (`... RETURNING` on SQL dispatch, fluent delete returning, and typed create/insert/update returning), while non-returning writes share one mutation-result family across typed create/insert/update/replace/delete surfaces.
@@ -25,16 +36,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 See detailed breakdown:
 [docs/changelog/0.76.md](docs/changelog/0.76.md)
-
----
-
-## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
-
-- `0.77.1` finishes the SQL cleanup by deleting the last old lane-shaped SQL runtime wrappers from `icydb-core`, keeping only `execute_sql_query::<E>(...)` and `execute_sql_update::<E>(...)` as the live SQL executors while moving the remaining compatibility checks into test-only helpers.
-- `0.77.0` removes public SQL dispatch entirely, moves `query_from_sql(...)` behind the public boundary, keeps one single-entity SQL query executor plus one matching SQL mutation executor, and deletes the broad SQL parity canister/test scaffolding that only existed to exercise the old routed SQL surface.
-
-See detailed breakdown:
-[docs/changelog/0.77.md](docs/changelog/0.77.md)
 
 ---
 
