@@ -182,7 +182,7 @@ fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
     for (sql, expected_message, context, expect_unsupported_variant) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity",
-            "execute_sql_grouped rejects computed text projection",
+            "execute_sql_grouped rejects scalar computed text projection",
             "computed text projection",
             false,
         ),
