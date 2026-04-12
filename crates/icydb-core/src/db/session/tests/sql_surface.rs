@@ -583,6 +583,10 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "this matrix test intentionally proves one shared unsupported-feature contract across several SQL surfaces"
+)]
 fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();

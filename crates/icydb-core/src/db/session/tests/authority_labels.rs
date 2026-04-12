@@ -1,6 +1,10 @@
 use super::*;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "this matrix test locks several related authority-label removals on one shared surface contract"
+)]
 fn secondary_route_surfaces_stay_off_removed_authority_labels_matrix() {
     let explain_cases = [
         (

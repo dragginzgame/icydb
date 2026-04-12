@@ -1678,14 +1678,8 @@ where
     let plan = structural
         .build_plan()
         .expect("store-backed execution descriptor plan should build");
-    let descriptor = assemble_load_execution_node_descriptor(
-        E::MODEL.fields(),
-        E::MODEL.primary_key().name(),
-        &plan,
-    )
-    .expect("store-backed execution descriptor should assemble");
-
-    descriptor
+    assemble_load_execution_node_descriptor(E::MODEL.fields(), E::MODEL.primary_key().name(), &plan)
+        .expect("store-backed execution descriptor should assemble")
 }
 
 #[derive(Default)]
