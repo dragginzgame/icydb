@@ -12,7 +12,6 @@ mod covering;
 use crate::{
     db::{
         data::{DataKey, DataRow},
-        direction::Direction,
         executor::{
             CoveringProjectionComponentRows, ExecutionKernel, PreparedAggregatePlan,
             PreparedExecutionPlan,
@@ -24,9 +23,7 @@ use crate::{
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_from_decoded_slot,
-                    extract_orderable_field_value_with_slot_ref_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot,
-                    resolve_orderable_aggregate_target_slot_from_planner_slot,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
@@ -65,17 +62,12 @@ type PreparedScalarProjectionExecution<'ctx> = (
 );
 
 // Typed boundary request for one scalar field-projection terminal family call.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
     DistinctValues,
-    #[allow(dead_code)]
-    CountNonNull,
     CountDistinct,
     ValuesWithIds,
-    TerminalValue {
-        terminal_kind: AggregateKind,
-    },
+    TerminalValue { terminal_kind: AggregateKind },
 }
 
 // Typed boundary output for one scalar field-projection terminal family call.
@@ -143,36 +135,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Execute one `MIN(field)` / `MAX(field)` value request through the
-    // aggregate field-extrema path and then project the winning row's field
-    // value. This keeps aggregate extrema on the dedicated aggregate
-    // route instead of the two-step ranked-id plus follow-up field load path.
-    #[allow(dead_code)]
-    pub(in crate::db) fn execute_scalar_extrema_value_boundary(
-        &self,
-        plan: PreparedExecutionPlan<E>,
-        target_field: PlannedFieldSlot,
-        terminal_kind: AggregateKind,
-    ) -> Result<Option<Value>, InternalError> {
-        if !terminal_kind.is_extrema() {
-            return Err(InternalError::query_executor_invariant(
-                "scalar extrema value boundary requires MIN/MAX aggregate kind",
-            ));
-        }
-
-        let plan = plan.into_prepared_aggregate_plan();
-        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
-
-        self.execute_selected_value_field_projection_with_slot(
-            prepared,
-            target_field.field(),
-            field_slot,
-            terminal_kind,
-        )
-    }
-
     // Execute one scalar field-projection terminal family request from the
     // typed API boundary, lower plan-derived policy into one prepared
     // projection contract, and then execute that contract.
@@ -231,11 +193,6 @@ where
         match strategy {
             PreparedScalarProjectionStrategy::Materialized => {
                 self.execute_materialized_scalar_projection_boundary(boundary, prepared)
-            }
-            PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
-                Self::execute_streaming_count_non_null_scalar_projection_boundary(
-                    boundary, prepared, direction,
-                )
             }
             PreparedScalarProjectionStrategy::CoveringIndex {
                 context,
@@ -299,18 +256,6 @@ where
                     return PreparedScalarProjectionStrategy::CoveringConstant { value };
                 }
             }
-            PreparedScalarProjectionOp::CountNonNull => {
-                if let Some(value) =
-                    Self::constant_covering_projection_value_if_eligible(prepared, target_field)
-                {
-                    return PreparedScalarProjectionStrategy::CoveringConstant { value };
-                }
-                if prepared.supports_streaming_existing_row_field_fold() {
-                    return PreparedScalarProjectionStrategy::StreamingCountNonNull {
-                        direction: prepared.streaming_existing_row_field_direction(),
-                    };
-                }
-            }
             PreparedScalarProjectionOp::ValuesWithIds => {}
         }
 
@@ -359,24 +304,6 @@ where
                     };
 
                     return Ok(ScalarProjectionBoundaryOutput::Values(values));
-                }
-            }
-            PreparedScalarProjectionOp::CountNonNull => {
-                if let Some(covering_projection) =
-                    Self::covering_index_projection_values_with_context_from_prepared(
-                        &prepared, context, window,
-                    )?
-                {
-                    let mut count = 0usize;
-                    for value in covering_projection.values {
-                        if !matches!(value, Value::Null) {
-                            count = count.saturating_add(1);
-                        }
-                    }
-
-                    return Ok(ScalarProjectionBoundaryOutput::Count(
-                        u32::try_from(count).unwrap_or(u32::MAX),
-                    ));
                 }
             }
             PreparedScalarProjectionOp::CountDistinct => {
@@ -473,20 +400,6 @@ where
                     Vec::new()
                 }))
             }
-            PreparedScalarProjectionOp::CountNonNull => Ok(ScalarProjectionBoundaryOutput::Count(
-                if matches!(value, Value::Null) {
-                    0
-                } else {
-                    ExecutionKernel::execute_prepared_aggregate_state(
-                        self,
-                        ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-                            prepared,
-                            PreparedAggregateSpec::terminal(AggregateKind::Count),
-                        ),
-                    )?
-                    .into_count("projection COUNT helper result kind mismatch")?
-                },
-            )),
             PreparedScalarProjectionOp::CountDistinct => {
                 let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
                     self,
@@ -562,15 +475,6 @@ where
                 .and_then(project_distinct_field_values_from_structural_projection)
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
-            PreparedScalarProjectionOp::CountNonNull => {
-                Self::count_non_null_field_values_from_materialized_structural(
-                    rows,
-                    &row_layout,
-                    &boundary.target_field_name,
-                    boundary.field_slot,
-                )
-                .map(ScalarProjectionBoundaryOutput::Count)
-            }
             PreparedScalarProjectionOp::CountDistinct => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
@@ -598,32 +502,6 @@ where
                 Err(boundary.op.materialized_branch_unreachable())
             }
         }
-    }
-
-    // Execute COUNT(field) directly from one ordered existing-row stream when
-    // the prepared aggregate shape preserves the canonical streaming contract.
-    fn execute_streaming_count_non_null_scalar_projection_boundary(
-        boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
-        prepared: PreparedAggregateStreamingInputs<'_>,
-        direction: Direction,
-    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        let prepared = prepared.into_core();
-        let mut count = 0u32;
-        Self::for_each_existing_stream_row(prepared, direction, |row| {
-            let mut read_slot = |index: usize| row.slot_ref(index);
-            let value = extract_orderable_field_value_with_slot_ref_reader(
-                &boundary.target_field_name,
-                boundary.field_slot,
-                &mut read_slot,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-            if !matches!(value, Value::Null) {
-                count = count.saturating_add(1);
-            }
-            Ok(())
-        })?;
-
-        Ok(ScalarProjectionBoundaryOutput::Count(count))
     }
 
     // Execute one field-target selected-value projection (`first_value_by` /
@@ -679,35 +557,6 @@ where
         };
 
         Ok(Some(value))
-    }
-
-    // Count non-null field values directly from materialized rows without
-    // retaining the intermediate projection vector.
-    fn count_non_null_field_values_from_materialized_structural(
-        rows: Vec<DataRow>,
-        row_layout: &RowLayout,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<u32, InternalError> {
-        let mut count = 0_u32;
-
-        for (data_key, raw_row) in rows {
-            let value = RowDecoder::decode_required_slot_value(
-                row_layout,
-                data_key.storage_key(),
-                &raw_row,
-                field_slot.index,
-            )?;
-            let value =
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
-
-            if !matches!(value, Value::Null) {
-                count = count.saturating_add(1);
-            }
-        }
-
-        Ok(count)
     }
 
     // Project materialized structural rows into structural `(data_key, value)`

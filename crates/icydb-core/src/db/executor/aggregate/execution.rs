@@ -437,7 +437,6 @@ pub(in crate::db::executor) enum PreparedCoveringDistinctStrategy {
 pub(in crate::db::executor) enum PreparedScalarProjectionOp {
     Values,
     DistinctValues,
-    CountNonNull,
     CountDistinct,
     ValuesWithIds,
     TerminalValue { terminal_kind: AggregateKind },
@@ -453,10 +452,7 @@ impl PreparedScalarProjectionOp {
             Self::CountDistinct => {
                 "covering COUNT DISTINCT projection requires prepared distinct strategy"
             }
-            Self::Values
-            | Self::CountNonNull
-            | Self::ValuesWithIds
-            | Self::TerminalValue { .. } => {
+            Self::Values | Self::ValuesWithIds | Self::TerminalValue { .. } => {
                 "covering DISTINCT strategy requirement is only valid for DISTINCT projection ops"
             }
         };
@@ -472,7 +468,6 @@ impl PreparedScalarProjectionOp {
             }
             Self::Values
             | Self::DistinctValues
-            | Self::CountNonNull
             | Self::CountDistinct
             | Self::TerminalValue { .. } => {
                 "constant covering projection rejection is only valid for values-with-ids"
@@ -488,11 +483,7 @@ impl PreparedScalarProjectionOp {
             Self::TerminalValue { .. } => {
                 "terminal value projection materialized branch must execute before row materialization"
             }
-            Self::Values
-            | Self::DistinctValues
-            | Self::CountNonNull
-            | Self::CountDistinct
-            | Self::ValuesWithIds => {
+            Self::Values | Self::DistinctValues | Self::CountDistinct | Self::ValuesWithIds => {
                 "materialized branch terminal-value invariant is only valid for terminal-value projection ops"
             }
         };
@@ -512,7 +503,6 @@ impl PreparedScalarProjectionOp {
             }
             Self::Values
             | Self::DistinctValues
-            | Self::CountNonNull
             | Self::CountDistinct
             | Self::ValuesWithIds
             | Self::TerminalValue { .. } => Ok(()),
@@ -546,9 +536,6 @@ pub(in crate::db::executor) struct ScalarProjectionWindow {
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
     Materialized,
-    StreamingCountNonNull {
-        direction: Direction,
-    },
     CoveringIndex {
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
@@ -770,7 +757,6 @@ impl PreparedScalarProjectionOp {
         match request {
             ScalarProjectionBoundaryRequest::Values => Self::Values,
             ScalarProjectionBoundaryRequest::DistinctValues => Self::DistinctValues,
-            ScalarProjectionBoundaryRequest::CountNonNull => Self::CountNonNull,
             ScalarProjectionBoundaryRequest::CountDistinct => Self::CountDistinct,
             ScalarProjectionBoundaryRequest::ValuesWithIds => Self::ValuesWithIds,
             ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind } => {

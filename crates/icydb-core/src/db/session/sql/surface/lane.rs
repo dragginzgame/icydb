@@ -38,7 +38,6 @@ pub(in crate::db::session::sql) const fn session_sql_lane(
 }
 
 // Render one deterministic unsupported-lane message for one SQL surface.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::session::sql) const fn unsupported_sql_lane_message(
     surface: SqlSurface,
     lane: SqlLaneKind,
