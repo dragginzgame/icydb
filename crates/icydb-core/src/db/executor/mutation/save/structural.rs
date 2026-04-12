@@ -44,19 +44,42 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<E, InternalError> {
         let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
 
-        self.save_structural_mutation(mode, mutation, write_context)
+        self.save_structural_mutation(mode, mutation, Some(&patch), write_context)
+    }
+
+    // Apply one structurally staged mutation whose patch was synthesized by an
+    // internal write lane instead of authored directly by a public caller.
+    pub(in crate::db) fn apply_internal_structural_mutation_with_write_context(
+        &self,
+        mode: MutationMode,
+        key: E::Key,
+        patch: UpdatePatch,
+        write_context: SanitizeWriteContext,
+    ) -> Result<E, InternalError> {
+        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
+
+        self.save_structural_mutation(mode, mutation, None, write_context)
     }
 
     fn save_structural_mutation(
         &self,
         mode: MutationMode,
         mutation: MutationInput,
+        authored_patch: Option<&UpdatePatch>,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = mutation_write_context::<E>(&self.db)?;
         let data_key = mutation.data_key().clone();
         let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
+
+        // Phase 0: reject authored values for insert-generated fields on every
+        // public structural lane. These fields are system-owned on authored
+        // writes: callers may omit them so the system can synthesize them, but
+        // may not author them directly during create or later rewrites.
+        if let Some(authored_patch) = authored_patch {
+            Self::reject_explicit_generated_fields(mode, authored_patch, old_raw.as_ref())?;
+        }
 
         // Phase 1: materialize and preflight the structural after-image under
         // the same save contract as typed writes.
@@ -109,6 +132,39 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         )?;
 
         Ok(entity)
+    }
+
+    // Reject structural patches that try to author schema insert-generated
+    // fields directly. Public structural writes must not bypass system-owned
+    // generation on create or later rewrites.
+    fn reject_explicit_generated_fields(
+        mode: MutationMode,
+        patch: &UpdatePatch,
+        old_row: Option<&RawRow>,
+    ) -> Result<(), InternalError> {
+        let rejects_generated_fields = match mode {
+            MutationMode::Insert | MutationMode::Update => true,
+            MutationMode::Replace => {
+                let _ = old_row;
+                true
+            }
+        };
+
+        if !rejects_generated_fields {
+            return Ok(());
+        }
+
+        for entry in patch.entries() {
+            let field = &E::MODEL.fields()[entry.slot().index()];
+            if field.insert_generation().is_some() {
+                return Err(InternalError::mutation_generated_field_explicit(
+                    E::PATH,
+                    field.name(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     // Build the final persisted after-image under one explicit structural mode.

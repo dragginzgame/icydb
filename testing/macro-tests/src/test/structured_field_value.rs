@@ -169,6 +169,17 @@ mod tests {
     )]
     pub struct StructuredPersistenceMatrixEntityHarness {}
 
+    #[entity(
+        store = "TestStore",
+        pk(field = "id"),
+        fields(
+            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(ident = "nickname", value(item(prim = "Text")), default = "\"guest\""),
+            field(ident = "note", value(opt, item(prim = "Text")))
+        )
+    )]
+    pub struct StructuredDefaultedEntityHarness {}
+
     fn profile_with(bio: &str, visits: u32) -> StructuredProfileHarness {
         StructuredProfileHarness {
             bio: bio.to_string(),
@@ -451,5 +462,26 @@ mod tests {
                 entity.profile_history.iter().map(profile_value).collect(),
             )),
         );
+    }
+
+    #[test]
+    fn generated_persisted_row_materializes_default_and_optional_missing_slots() {
+        let entity = StructuredDefaultedEntityHarness {
+            id: Ulid::from_parts(713, 1),
+            nickname: "custom".to_string(),
+            note: Some("memo".to_string()),
+            ..Default::default()
+        };
+        let mut slots = capture_entity_slots(&entity);
+
+        slots[1] = None;
+        slots[2] = None;
+
+        let decoded =
+            decode_entity_from_captured_slots::<StructuredDefaultedEntityHarness>(slots.as_slice());
+
+        assert_eq!(decoded.id, entity.id);
+        assert_eq!(decoded.nickname, "\"guest\"".to_string());
+        assert_eq!(decoded.note, None);
     }
 }

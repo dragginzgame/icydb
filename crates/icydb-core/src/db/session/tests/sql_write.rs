@@ -1,4 +1,6 @@
 use super::*;
+use crate::db::{MutationMode, UpdatePatch};
+
 #[test]
 fn execute_sql_dispatch_single_row_insert_matrix_returns_projection_payload() {
     let cases = [
@@ -245,6 +247,35 @@ fn execute_sql_dispatch_write_rejects_explicit_managed_timestamp_fields_matrix()
 }
 
 #[test]
+fn execute_sql_dispatch_insert_rejects_explicit_generated_fields_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_message, context) in [
+        (
+            "INSERT INTO SessionSqlGeneratedTimestampEntity (id, created_on_insert, name) VALUES (1, 7, 'Ada')",
+            "SQL INSERT does not allow explicit writes to generated field 'created_on_insert'",
+            "named-column generated timestamp insert",
+        ),
+        (
+            "INSERT INTO SessionSqlGeneratedTimestampEntity VALUES (2, 9, 'Bea')",
+            "SQL INSERT does not allow explicit writes to generated field 'created_on_insert'",
+            "positional generated timestamp insert",
+        ),
+    ] {
+        let err = session
+            .execute_sql_dispatch::<SessionSqlGeneratedTimestampEntity>(sql)
+            .expect_err("insert-generated fields should stay system-owned on SQL INSERT");
+        let err_text = err.to_string();
+
+        assert!(
+            err_text.contains(expected_message),
+            "{context} should keep an actionable generated-field boundary message: {err_text}",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_dispatch_insert_synthesizes_schema_generated_fields_matrix() {
     reset_session_sql_store();
     let session = sql_session();
@@ -322,6 +353,161 @@ fn execute_sql_dispatch_insert_synthesizes_schema_generated_fields_matrix() {
 }
 
 #[test]
+fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
+    let cases = [
+        (
+            MutationMode::Insert,
+            1_u64,
+            UpdatePatch::new()
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "id",
+                    Value::Uint(1),
+                )
+                .expect("generated timestamp structural insert should resolve id")
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "created_on_insert",
+                    Value::Timestamp(Timestamp::from_nanos(7)),
+                )
+                .expect("generated timestamp structural insert should resolve generated field")
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "name",
+                    Value::Text("Ada".to_string()),
+                )
+                .expect("generated timestamp structural insert should resolve name"),
+            "created_on_insert",
+            "structural insert explicit generated timestamp",
+        ),
+        (
+            MutationMode::Replace,
+            2_u64,
+            UpdatePatch::new()
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "id",
+                    Value::Uint(2),
+                )
+                .expect("generated timestamp structural replace should resolve id")
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "created_on_insert",
+                    Value::Timestamp(Timestamp::from_nanos(9)),
+                )
+                .expect("generated timestamp structural replace should resolve generated field")
+                .set_field(
+                    SessionSqlGeneratedTimestampEntity::MODEL,
+                    "name",
+                    Value::Text("Bea".to_string()),
+                )
+                .expect("generated timestamp structural replace should resolve name"),
+            "created_on_insert",
+            "structural replace-on-missing explicit generated timestamp",
+        ),
+    ];
+
+    for (mode, key, patch, field_name, context) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .mutate_structural::<SessionSqlGeneratedTimestampEntity>(key, patch, mode)
+            .expect_err("structural create lanes should reject explicit insert-generated fields");
+
+        assert_eq!(err.class(), ErrorClass::Unsupported);
+        assert!(
+            err.message
+                .contains("generated field may not be explicitly written"),
+            "{context} should preserve the generated-field ownership message: {}",
+            err.message,
+        );
+        assert!(
+            err.message.contains(field_name),
+            "{context} should name the rejected generated field: {}",
+            err.message,
+        );
+    }
+}
+
+#[test]
+fn execute_sql_dispatch_update_rejects_explicit_generated_fields_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlGeneratedTimestampEntity {
+            id: 1,
+            created_on_insert: Timestamp::from_nanos(1),
+            name: "Ada".to_string(),
+        })
+        .expect("generated timestamp update setup insert should succeed");
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlGeneratedTimestampEntity>(
+            "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
+        )
+        .expect_err("insert-generated fields should stay system-owned on SQL UPDATE");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains(
+            "SQL UPDATE does not allow explicit writes to generated field 'created_on_insert'",
+        ),
+        "SQL UPDATE should keep the generated-field ownership boundary explicit: {err_text}",
+    );
+}
+
+#[test]
+fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
+    let cases = [
+        (
+            MutationMode::Update,
+            "structural update explicit generated timestamp",
+        ),
+        (
+            MutationMode::Replace,
+            "structural replace-existing explicit generated timestamp",
+        ),
+    ];
+
+    for (mode, context) in cases {
+        reset_session_sql_store();
+        let session = sql_session();
+        session
+            .insert(SessionSqlGeneratedTimestampEntity {
+                id: 1,
+                created_on_insert: Timestamp::from_nanos(1),
+                name: "Ada".to_string(),
+            })
+            .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
+
+        let patch = UpdatePatch::new()
+            .set_field(
+                SessionSqlGeneratedTimestampEntity::MODEL,
+                "created_on_insert",
+                Value::Timestamp(Timestamp::from_nanos(9)),
+            )
+            .expect("generated timestamp structural rewrite should resolve generated field");
+        let err = session
+            .mutate_structural::<SessionSqlGeneratedTimestampEntity>(1, patch, mode)
+            .expect_err("structural rewrites should reject explicit insert-generated fields");
+
+        assert_eq!(err.class(), ErrorClass::Unsupported);
+        assert!(
+            err.message
+                .contains("generated field may not be explicitly written"),
+            "{context} should preserve the generated-field ownership message: {}",
+            err.message,
+        );
+        assert!(
+            err.message.contains("created_on_insert"),
+            "{context} should name the rejected generated field: {}",
+            err.message,
+        );
+    }
+}
+
+#[test]
 fn execute_sql_dispatch_single_row_update_matrix_returns_projection_payload() {
     let cases = [
         (
@@ -393,6 +579,27 @@ fn execute_sql_dispatch_signed_numeric_write_matrix_widens_parser_literals() {
     .expect("signed post-update projection should succeed");
 
     assert_eq!(persisted, rows);
+}
+
+#[test]
+fn execute_sql_dispatch_rejects_incompatible_assignment_literal_for_signed_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
+        .expect("signed write setup insert should succeed");
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlSignedWriteEntity>(
+            "UPDATE SessionSqlSignedWriteEntity SET delta = 'Ada' WHERE id = 1",
+        )
+        .expect_err("signed field assignment should stay fail-closed for incompatible literals");
+
+    assert!(
+        err.to_string()
+            .contains("invalid literal for field 'delta': literal type does not match field type"),
+        "incompatible signed assignment should keep the literal-type boundary explicit",
+    );
 }
 
 #[test]

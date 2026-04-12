@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::EntityAuthority;
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
 // statement lanes that belong to some other surface.
@@ -230,6 +231,29 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
         &grouped_cases,
         |sql| session.execute_sql_grouped::<SessionSqlEntity>(sql, None),
         "execute_sql_grouped",
+    );
+}
+
+#[test]
+fn generated_query_surface_rejects_unsupported_entity_with_supported_list() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let attempt = session.execute_generated_query_surface_sql(
+        "SELECT * FROM SessionSqlWriteEntity",
+        &[EntityAuthority::for_type::<SessionSqlEntity>()],
+    );
+    let err = attempt
+        .into_result()
+        .expect_err("generated query surface should reject entities outside the authority table");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("query endpoint does not support entity 'SessionSqlWriteEntity'"),
+        "generated query surface should name the unsupported entity: {err_text}",
+    );
+    assert!(
+        err_text.contains("supported: SessionSqlEntity"),
+        "generated query surface should keep the supported-entity list explicit: {err_text}",
     );
 }
 

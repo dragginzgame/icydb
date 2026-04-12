@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        MutationMode, UpdatePatch,
+        EntityAuthority, MutationMode, UpdatePatch,
         query::{avg, builder},
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
@@ -1449,6 +1449,52 @@ fn facade_execute_sql_dispatch_insert_omits_schema_generated_timestamp_field() {
 }
 
 #[test]
+fn facade_execute_sql_dispatch_insert_rejects_explicit_schema_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    let err = session
+        .execute_sql_dispatch::<FacadeSqlGeneratedTimestampEntity>(
+            "INSERT INTO FacadeSqlGeneratedTimestampEntity (id, created_on_insert, name) VALUES (1, 7, 'Ada')",
+        )
+        .expect_err("facade SQL insert should reject explicit generated timestamp fields");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains(
+            "SQL INSERT does not allow explicit writes to generated field 'created_on_insert'"
+        ),
+        "facade SQL insert should keep the generated-field ownership boundary explicit: {err_text}",
+    );
+}
+
+#[test]
+fn facade_execute_sql_dispatch_update_rejects_explicit_schema_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlGeneratedTimestampEntity {
+            id: 1,
+            created_on_insert: crate::types::Timestamp::from_nanos(1),
+            name: "Ada".to_string(),
+            created_at: crate::types::Timestamp::EPOCH,
+            updated_at: crate::types::Timestamp::EPOCH,
+        })
+        .expect("facade generated timestamp update setup insert should succeed");
+
+    let err = session
+        .execute_sql_dispatch::<FacadeSqlGeneratedTimestampEntity>(
+            "UPDATE FacadeSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
+        )
+        .expect_err("facade SQL update should reject explicit generated timestamp fields");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains(
+            "SQL UPDATE does not allow explicit writes to generated field 'created_on_insert'"
+        ),
+        "facade SQL update should keep the generated-field ownership boundary explicit: {err_text}",
+    );
+}
+
+#[test]
 fn facade_typed_insert_sets_managed_timestamps_from_shared_preflight_now() {
     let session = fresh_facade_session();
     let inserted = session
@@ -1496,6 +1542,38 @@ fn facade_typed_update_preserves_created_at_and_refreshes_updated_at() {
 }
 
 #[test]
+fn facade_typed_replace_existing_row_refreshes_managed_timestamps() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("typed facade insert should succeed")
+        .entity();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+
+    let replaced = session
+        .replace(FacadeSqlEntity {
+            id: inserted.id,
+            name: "Bea".to_string(),
+            age: 32,
+            created_at: crate::types::Timestamp::EPOCH,
+            updated_at: crate::types::Timestamp::EPOCH,
+        })
+        .expect("typed facade replace should succeed")
+        .entity();
+
+    assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
+    assert_ne!(replaced.created_at, inserted.created_at);
+    assert_eq!(
+        replaced.created_at, replaced.updated_at,
+        "typed facade replace should restamp both managed timestamps from one replace-owned now",
+    );
+}
+
+#[test]
 fn facade_execute_sql_dispatch_update_preserves_created_at_and_refreshes_updated_at() {
     let session = fresh_facade_session();
     let inserted = session
@@ -1536,6 +1614,78 @@ fn facade_execute_sql_dispatch_write_keeps_incompatible_primary_key_boundary_mes
             "SQL write primary key literal for 'id' is not compatible with entity key type"
         ),
         "facade SQL write should preserve the reduced-SQL primary-key boundary message",
+    );
+}
+
+#[test]
+fn facade_structural_insert_rejects_explicit_schema_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    let patch = UpdatePatch::new()
+        .set_field(
+            FacadeSqlGeneratedTimestampEntity::MODEL,
+            "id",
+            crate::value::Value::Uint(1),
+        )
+        .expect("facade structural insert should resolve the id field")
+        .set_field(
+            FacadeSqlGeneratedTimestampEntity::MODEL,
+            "created_on_insert",
+            crate::value::Value::Timestamp(crate::types::Timestamp::from_nanos(7)),
+        )
+        .expect("facade structural insert should resolve the generated timestamp field")
+        .set_field(
+            FacadeSqlGeneratedTimestampEntity::MODEL,
+            "name",
+            crate::value::Value::Text("Ada".to_string()),
+        )
+        .expect("facade structural insert should resolve the name field");
+    let err = session
+        .mutate_structural::<FacadeSqlGeneratedTimestampEntity>(1, patch, MutationMode::Insert)
+        .expect_err("facade structural insert should reject explicit generated timestamp fields");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("generated field may not be explicitly written"),
+        "facade structural insert should keep the generated-field ownership boundary explicit: {err_text}",
+    );
+    assert!(
+        err_text.contains("created_on_insert"),
+        "facade structural insert should name the rejected generated field: {err_text}",
+    );
+}
+
+#[test]
+fn facade_structural_update_rejects_explicit_schema_generated_timestamp_field() {
+    let session = fresh_facade_session();
+    session
+        .insert(FacadeSqlGeneratedTimestampEntity {
+            id: 1,
+            created_on_insert: crate::types::Timestamp::from_nanos(1),
+            name: "Ada".to_string(),
+            created_at: crate::types::Timestamp::EPOCH,
+            updated_at: crate::types::Timestamp::EPOCH,
+        })
+        .expect("facade generated timestamp structural update setup insert should succeed");
+
+    let patch = UpdatePatch::new()
+        .set_field(
+            FacadeSqlGeneratedTimestampEntity::MODEL,
+            "created_on_insert",
+            crate::value::Value::Timestamp(crate::types::Timestamp::from_nanos(7)),
+        )
+        .expect("facade structural update should resolve the generated timestamp field");
+    let err = session
+        .mutate_structural::<FacadeSqlGeneratedTimestampEntity>(1, patch, MutationMode::Update)
+        .expect_err("facade structural update should reject explicit generated timestamp fields");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("generated field may not be explicitly written"),
+        "facade structural update should keep the generated-field ownership boundary explicit: {err_text}",
+    );
+    assert!(
+        err_text.contains("created_on_insert"),
+        "facade structural update should name the rejected generated field: {err_text}",
     );
 }
 
@@ -1594,6 +1744,47 @@ fn facade_structural_replace_missing_row_sets_managed_timestamps_from_shared_pre
 }
 
 #[test]
+fn facade_structural_replace_existing_row_refreshes_managed_timestamps() {
+    let session = fresh_facade_session();
+    let inserted = session
+        .insert(FacadeSqlEntity {
+            name: "Ada".to_string(),
+            age: 31,
+            ..Default::default()
+        })
+        .expect("typed facade insert should succeed")
+        .entity();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+
+    let patch = UpdatePatch::new()
+        .set_field(
+            FacadeSqlEntity::MODEL,
+            "id",
+            crate::value::Value::Ulid(inserted.id),
+        )
+        .expect("facade structural replace should resolve the id field")
+        .set_field(
+            FacadeSqlEntity::MODEL,
+            "name",
+            crate::value::Value::Text("Bea".to_string()),
+        )
+        .expect("facade structural replace should resolve the name field")
+        .set_field(FacadeSqlEntity::MODEL, "age", crate::value::Value::Uint(32))
+        .expect("facade structural replace should resolve the age field");
+    let replaced = session
+        .mutate_structural::<FacadeSqlEntity>(inserted.id, patch, MutationMode::Replace)
+        .expect("facade structural replace should succeed for an existing row")
+        .entity();
+
+    assert_ne!(replaced.created_at, crate::types::Timestamp::EPOCH);
+    assert_ne!(replaced.created_at, inserted.created_at);
+    assert_eq!(
+        replaced.created_at, replaced.updated_at,
+        "facade structural replace should restamp both managed timestamps from one replace-owned now",
+    );
+}
+
+#[test]
 fn facade_structural_update_preserves_created_at_and_refreshes_updated_at() {
     let session = fresh_facade_session();
     let inserted = session
@@ -1620,6 +1811,29 @@ fn facade_structural_update_preserves_created_at_and_refreshes_updated_at() {
 
     assert_eq!(updated.created_at, inserted.created_at);
     assert_ne!(updated.updated_at, inserted.updated_at);
+}
+
+#[test]
+fn facade_generated_query_surface_rejects_unsupported_entity_with_supported_list() {
+    let session = fresh_facade_session();
+    let err = crate::db::session::generated::execute_generated_sql_query(
+        &session,
+        "SELECT * FROM FacadeSqlDefaultOnlyEntity",
+        &[EntityAuthority::for_type::<FacadeSqlEntity>()],
+    )
+    .expect_err(
+        "facade generated query surface should reject entities outside the authority table",
+    );
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("query endpoint does not support entity 'FacadeSqlDefaultOnlyEntity'"),
+        "facade generated query surface should name the unsupported entity: {err_text}",
+    );
+    assert!(
+        err_text.contains("supported: FacadeSqlEntity"),
+        "facade generated query surface should keep the supported-entity list explicit: {err_text}",
+    );
 }
 
 #[test]

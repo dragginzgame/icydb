@@ -2,10 +2,10 @@ use super::{
     CachedSlotValue, CompleteSerializedPatchWriter, FieldSlot, ScalarSlotValueRef, ScalarValueRef,
     SerializedFieldUpdate, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
     UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-    canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
-    decode_persisted_option_slot_payload, decode_persisted_slot_payload,
-    decode_slot_value_by_contract, decode_slot_value_from_bytes,
+    canonical_row_from_complete_serialized_update_patch, canonical_row_from_entity,
+    decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
+    decode_persisted_non_null_slot_payload, decode_persisted_option_slot_payload,
+    decode_persisted_slot_payload, decode_slot_value_by_contract, decode_slot_value_from_bytes,
     encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
     encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
     materialize_entity_from_serialized_update_patch,
@@ -61,6 +61,25 @@ crate::test_store! {
 struct PersistedRowPatchBridgeEntity {
     id: crate::types::Ulid,
     name: String,
+}
+
+///
+/// PersistedRowPatchConvergenceEntity
+///
+/// PersistedRowPatchConvergenceEntity extends the sparse bridge fixture with
+/// one optional slot and managed timestamps so the tests can prove sparse
+/// typed materialization and dense canonical row emission converge on the same
+/// after-image semantics.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct PersistedRowPatchConvergenceEntity {
+    id: crate::types::Ulid,
+    note: Option<String>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -119,6 +138,47 @@ crate::test_entity_schema! {
     store = PersistedRowPatchBridgeStore,
     canister = PersistedRowPatchBridgeCanister,
 }
+
+crate::impl_test_entity_markers!(PersistedRowPatchConvergenceEntity);
+
+crate::impl_test_entity_model_storage!(
+    PersistedRowPatchConvergenceEntity,
+    "PersistedRowPatchConvergenceEntity",
+    0,
+    fields = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "note",
+            FieldKind::Text,
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "created_at",
+            FieldKind::Timestamp,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            Some(crate::model::field::FieldWriteManagement::CreatedAt),
+        ),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "updated_at",
+            FieldKind::Timestamp,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            Some(crate::model::field::FieldWriteManagement::UpdatedAt),
+        )
+    ],
+    indexes = [],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    PersistedRowPatchConvergenceEntity,
+    crate::types::Ulid,
+    "PersistedRowPatchConvergenceEntity",
+    MODEL_DEF
+);
 
 static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     "Loaded",
@@ -1441,6 +1501,95 @@ fn canonical_row_from_complete_serialized_update_patch_rejects_incomplete_slot_i
     assert!(
         err.message.contains("serialized patch did not emit slot 0"),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn materialize_entity_from_serialized_update_patch_duplicate_slot_prefers_last_payload() {
+    let first_name_patch = UpdatePatch::new().set(
+        FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+        Value::Text("Ada".to_string()),
+    );
+    let final_patch = UpdatePatch::new()
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            Value::Ulid(crate::types::Ulid::from_u128(7)),
+        )
+        .set(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            Value::Text("Grace".to_string()),
+        );
+    let first_name_serialized =
+        serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &first_name_patch)
+            .expect("serialize first-name patch");
+    let final_serialized =
+        serialize_update_patch_fields(PersistedRowPatchBridgeEntity::MODEL, &final_patch)
+            .expect("serialize final patch");
+    let serialized = SerializedUpdatePatch::new(vec![
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 0).expect("resolve slot"),
+            final_serialized.entries()[0].payload().to_vec(),
+        ),
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            first_name_serialized.entries()[0].payload().to_vec(),
+        ),
+        SerializedFieldUpdate::new(
+            FieldSlot::from_index(PersistedRowPatchBridgeEntity::MODEL, 1).expect("resolve slot"),
+            final_serialized.entries()[1].payload().to_vec(),
+        ),
+    ]);
+
+    let entity = materialize_entity_from_serialized_update_patch::<PersistedRowPatchBridgeEntity>(
+        &serialized,
+    )
+    .expect("duplicate sparse patch slot should keep the last payload");
+
+    assert_eq!(
+        entity,
+        PersistedRowPatchBridgeEntity {
+            id: crate::types::Ulid::from_u128(7),
+            name: "Grace".to_string(),
+        },
+    );
+}
+
+#[test]
+fn sparse_typed_materialization_converges_with_dense_canonical_row_emission() {
+    let id = crate::types::Ulid::from_u128(17);
+    let sparse_patch = UpdatePatch::new().set(
+        FieldSlot::from_index(PersistedRowPatchConvergenceEntity::MODEL, 0)
+            .expect("resolve convergence id slot"),
+        Value::Ulid(id),
+    );
+    let sparse_serialized =
+        serialize_update_patch_fields(PersistedRowPatchConvergenceEntity::MODEL, &sparse_patch)
+            .expect("serialize sparse convergence patch");
+
+    let materialized = materialize_entity_from_serialized_update_patch::<
+        PersistedRowPatchConvergenceEntity,
+    >(&sparse_serialized)
+    .expect("sparse typed bridge should materialize optional and managed defaults");
+
+    assert_eq!(materialized.id, id);
+    assert_eq!(materialized.note, None);
+    assert_eq!(materialized.created_at, Timestamp::EPOCH);
+    assert_eq!(materialized.updated_at, Timestamp::EPOCH);
+
+    let sparse_canonical =
+        canonical_row_from_entity(&materialized).expect("typed convergence row should encode");
+    let dense_patch = serialize_entity_slots_as_complete_serialized_patch(&materialized)
+        .expect("dense convergence patch should encode");
+    let dense_canonical = canonical_row_from_complete_serialized_update_patch(
+        PersistedRowPatchConvergenceEntity::MODEL,
+        &dense_patch,
+    )
+    .expect("dense convergence row should encode");
+
+    assert_eq!(
+        sparse_canonical.as_bytes(),
+        dense_canonical.as_bytes(),
+        "sparse typed bridge and dense canonical row emission should converge on identical bytes",
     );
 }
 

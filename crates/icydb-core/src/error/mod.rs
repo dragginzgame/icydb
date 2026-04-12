@@ -390,6 +390,13 @@ impl InternalError {
         ))
     }
 
+    /// Construct an executor-origin generated-field authored-write rejection.
+    pub(crate) fn mutation_generated_field_explicit(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_unsupported(format!(
+            "generated field may not be explicitly written: {entity_path} field={field_name}",
+        ))
+    }
+
     /// Construct an executor-origin mutation result invariant.
     ///
     /// This constructor lands ahead of the public structural mutation surface,

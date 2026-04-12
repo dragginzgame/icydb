@@ -14,6 +14,7 @@ use crate::{
         executor::{EntityAuthority, MutationMode},
         identifiers_tail_match,
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
+        schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
             SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
             aggregate::parsed_requires_dedicated_sql_aggregate_lane,
@@ -340,6 +341,14 @@ where
         _ => value.clone(),
     };
 
+    let field_type = field_type_from_model_kind(&field_kind);
+    if !literal_matches_type(&normalized, &field_type) {
+        return Err(QueryError::unsupported_query(
+            ValidateError::invalid_literal(field_name, "literal type does not match field type")
+                .to_string(),
+        ));
+    }
+
     Ok(normalized)
 }
 
@@ -360,6 +369,46 @@ where
     if field.write_management().is_some() {
         return Err(QueryError::unsupported_query(format!(
             "SQL {statement_kind} does not allow explicit writes to managed field '{field_name}' in this release"
+        )));
+    }
+
+    Ok(())
+}
+
+// Reject explicit user-authored INSERT values for schema-generated fields so
+// reduced SQL keeps generated insert ownership on the server side.
+fn reject_explicit_sql_insert_to_generated_field<E>(field_name: &str) -> Result<(), QueryError>
+where
+    E: EntityKind,
+{
+    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
+        return Ok(());
+    };
+    let field = &E::MODEL.fields()[field_slot];
+
+    if field.insert_generation().is_some() {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL INSERT does not allow explicit writes to generated field '{field_name}' in this release"
+        )));
+    }
+
+    Ok(())
+}
+
+// Reject explicit user-authored UPDATE assignments to insert-generated fields
+// so system-owned generation remains immutable after creation.
+fn reject_explicit_sql_update_to_generated_field<E>(field_name: &str) -> Result<(), QueryError>
+where
+    E: EntityKind,
+{
+    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
+        return Ok(());
+    };
+    let field = &E::MODEL.fields()[field_slot];
+
+    if field.insert_generation().is_some() {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL UPDATE does not allow explicit writes to generated field '{field_name}' in this release"
         )));
     }
 
@@ -591,6 +640,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
+            reject_explicit_sql_insert_to_generated_field::<E>(field)?;
             reject_explicit_sql_write_to_managed_field::<E>(field, "INSERT")?;
             let normalized = sql_write_value_for_field::<E>(field, value)?;
             patch = patch
@@ -617,6 +667,7 @@ impl<C: CanisterKind> DbSession<C> {
                     "SQL UPDATE does not allow primary key mutation for '{pk_name}' in this release"
                 )));
             }
+            reject_explicit_sql_update_to_generated_field::<E>(assignment.field.as_str())?;
             reject_explicit_sql_write_to_managed_field::<E>(assignment.field.as_str(), "UPDATE")?;
             let normalized =
                 sql_write_value_for_field::<E>(assignment.field.as_str(), &assignment.value)?;
@@ -806,7 +857,7 @@ impl<C: CanisterKind> DbSession<C> {
             let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
             let entity = self
                 .execute_save_entity::<E>(|save| {
-                    save.apply_structural_mutation_with_write_context(
+                    save.apply_internal_structural_mutation_with_write_context(
                         MutationMode::Insert,
                         key,
                         patch,
@@ -842,7 +893,7 @@ impl<C: CanisterKind> DbSession<C> {
         for entity in matched.entities() {
             let updated = self
                 .execute_save_entity::<E>(|save| {
-                    save.apply_structural_mutation_with_write_context(
+                    save.apply_internal_structural_mutation_with_write_context(
                         MutationMode::Update,
                         entity.id().key(),
                         patch.clone(),
