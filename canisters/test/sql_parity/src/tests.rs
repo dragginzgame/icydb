@@ -8,7 +8,10 @@ mod tests {
     };
     use candid::encode_one;
     use icydb::{
-        db::{PersistedRow, response::PagedGroupedResponse, sql::SqlQueryRowsOutput},
+        db::{
+            MutationResult, PersistedRow, response::PagedGroupedResponse,
+            sql::{SqlDispatchResponse, SqlQueryRowsOutput},
+        },
         error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
         traits::EntityValue,
         types::Decimal,
@@ -59,6 +62,40 @@ mod tests {
         db()
     }
 
+    fn typed_dispatch_result_for_sql_as_query_result<E>(
+        payload: SqlDispatchResponse<E>,
+    ) -> SqlQueryResult
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        match payload {
+            SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) => {
+                SqlQueryResult::Count {
+                    entity: E::MODEL.name().to_string(),
+                    row_count,
+                }
+            }
+            SqlDispatchResponse::Projection(rows) => SqlQueryResult::Projection(rows),
+            SqlDispatchResponse::Grouped(rows) => SqlQueryResult::Grouped(rows),
+            SqlDispatchResponse::Explain { entity, explain } => {
+                SqlQueryResult::Explain { entity, explain }
+            }
+            SqlDispatchResponse::Describe(description) => SqlQueryResult::Describe(description),
+            SqlDispatchResponse::ShowIndexes { entity, indexes } => {
+                SqlQueryResult::ShowIndexes { entity, indexes }
+            }
+            SqlDispatchResponse::ShowColumns { entity, columns } => {
+                SqlQueryResult::ShowColumns { entity, columns }
+            }
+            SqlDispatchResponse::ShowEntities { entities } => {
+                SqlQueryResult::ShowEntities { entities }
+            }
+            SqlDispatchResponse::Mutation(_) => {
+                panic!("typed SQL parity helper should only see count mutations")
+            }
+        }
+    }
+
     fn reload_default_fixtures() {
         ensure_sql_test_memory_range();
         fixtures_load_default().expect("fixture reload should succeed");
@@ -75,9 +112,11 @@ mod tests {
     where
         E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
     {
-        test_db()
+        let payload = test_db()
             .execute_sql_dispatch::<E>(sql)
-            .expect("typed execute_sql_dispatch should succeed")
+            .expect("typed execute_sql_dispatch should succeed");
+
+        typed_dispatch_result_for_sql_as_query_result::<E>(payload)
     }
 
     fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
@@ -88,7 +127,9 @@ mod tests {
     where
         E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
     {
-        test_db().execute_sql_dispatch::<E>(sql)
+        test_db()
+            .execute_sql_dispatch::<E>(sql)
+            .map(typed_dispatch_result_for_sql_as_query_result::<E>)
     }
 
     // Execute one constrained global aggregate SQL statement through the typed

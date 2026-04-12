@@ -65,6 +65,7 @@ fn sql_users() -> Vec<SqlTestUser> {
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::{SqlQueryResult, SqlTestUser, db, fixtures_load_default, sql_dispatch};
+    use icydb::db::{MutationResult, sql::SqlDispatchResponse};
     use icydb_testing_test_sql_fixtures::sql::SqlTestCanister;
 
     const SQL_TEST_MEMORY_MIN: u8 = 155;
@@ -100,12 +101,45 @@ mod tests {
         db()
     }
 
+    fn typed_dispatch_result_for_sql_as_query_result(
+        payload: SqlDispatchResponse<SqlTestUser>,
+    ) -> SqlQueryResult {
+        match payload {
+            SqlDispatchResponse::Mutation(MutationResult::Count { row_count }) => {
+                SqlQueryResult::Count {
+                    entity: SqlTestUser::MODEL.name().to_string(),
+                    row_count,
+                }
+            }
+            SqlDispatchResponse::Projection(rows) => SqlQueryResult::Projection(rows),
+            SqlDispatchResponse::Grouped(rows) => SqlQueryResult::Grouped(rows),
+            SqlDispatchResponse::Explain { entity, explain } => {
+                SqlQueryResult::Explain { entity, explain }
+            }
+            SqlDispatchResponse::Describe(description) => SqlQueryResult::Describe(description),
+            SqlDispatchResponse::ShowIndexes { entity, indexes } => {
+                SqlQueryResult::ShowIndexes { entity, indexes }
+            }
+            SqlDispatchResponse::ShowColumns { entity, columns } => {
+                SqlQueryResult::ShowColumns { entity, columns }
+            }
+            SqlDispatchResponse::ShowEntities { entities } => {
+                SqlQueryResult::ShowEntities { entities }
+            }
+            SqlDispatchResponse::Mutation(_) => {
+                panic!("typed SQL dispatch smoke helper should only see count mutations")
+            }
+        }
+    }
+
     // Execute one typed SQL dispatch query against the sql-test fixture
     // canister surface.
     fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
-        test_db()
+        let payload = test_db()
             .execute_sql_dispatch::<SqlTestUser>(sql)
-            .expect("typed execute_sql_dispatch should succeed")
+            .expect("typed execute_sql_dispatch should succeed");
+
+        typed_dispatch_result_for_sql_as_query_result(payload)
     }
 
     // Compare one generated sql_dispatch payload against the typed SQL
