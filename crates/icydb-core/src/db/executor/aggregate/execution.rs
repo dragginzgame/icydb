@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::AccessPathKind,
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
@@ -19,10 +18,7 @@ use crate::{
         },
         index::IndexPredicateProgram,
         predicate::MissingRowPolicy,
-        query::plan::{
-            AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract, OrderSpec,
-            PageSpec,
-        },
+        query::plan::{AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec},
         registry::StoreHandle,
     },
     error::InternalError,
@@ -562,62 +558,7 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
     pub(in crate::db::executor) op: PreparedScalarProjectionOp,
 }
 
-impl PreparedAggregateStreamingInputs<'_> {
-    /// Return whether a scalar projection can preserve one direct streaming
-    /// existing-row fold without materializing the full response page.
-    #[must_use]
-    pub(in crate::db::executor) fn supports_streaming_existing_row_field_fold(&self) -> bool {
-        if self.has_predicate() || self.logical_plan.scalar_plan().distinct {
-            return false;
-        }
-
-        let access_strategy = self.logical_plan.access.resolve_strategy();
-        let Some(path) = access_strategy.as_path() else {
-            return false;
-        };
-        let path_kind = path.capabilities().kind();
-        if !Self::streaming_existing_row_field_path_safe(path_kind) {
-            return false;
-        }
-
-        self.streaming_existing_row_field_page_window_safe(path_kind)
-    }
-
-    /// Return the canonical primary scan direction for one streaming
-    /// existing-row field fold.
-    #[must_use]
-    pub(in crate::db::executor) fn streaming_existing_row_field_direction(&self) -> Direction {
-        ExecutionOrderContract::from_plan(false, self.order_spec()).primary_scan_direction()
-    }
-
-    /// Return whether the resolved access path can preserve one direct
-    /// existing-row field fold without duplication.
-    #[must_use]
-    const fn streaming_existing_row_field_path_safe(path_kind: AccessPathKind) -> bool {
-        path_kind.supports_streaming_numeric_fold()
-    }
-
-    /// Return whether the effective page window preserves one direct
-    /// existing-row field fold under primary-key order constraints.
-    #[must_use]
-    fn streaming_existing_row_field_page_window_safe(&self, path_kind: AccessPathKind) -> bool {
-        if self.page_spec().is_none() {
-            return true;
-        }
-        let Some(_order) = self.order_spec() else {
-            return false;
-        };
-        if self
-            .order_spec()
-            .and_then(|order| order.primary_key_only_direction(self.authority.primary_key_name()))
-            .is_none()
-        {
-            return false;
-        }
-
-        path_kind.supports_streaming_numeric_fold_for_paged_primary_key_window()
-    }
-}
+impl PreparedAggregateStreamingInputs<'_> {}
 
 ///
 /// PreparedScalarTerminalOp

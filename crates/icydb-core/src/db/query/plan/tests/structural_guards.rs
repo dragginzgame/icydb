@@ -129,13 +129,14 @@ fn executor_entry_contract_requires_planned_query_wrapping() {
     // Signature checks compile under trait bounds and fail if executor entrypoints
     // drift away from planned-query + executable-plan contracts.
     // Compile-time only helper; no runtime call is required for this guard.
-    #[expect(dead_code)]
     fn compile_only<E>()
     where
         E: PersistedRow + EntityValue,
     {
         assert_executor_entry_signatures::<E>();
     }
+
+    compile_only::<PlanModelEntity>();
 }
 
 #[test]
