@@ -127,6 +127,29 @@ if [[ -n "$lowering_reparse_leaks" ]]; then
   status=1
 fi
 
+# -----------------------------------------------------------------------------
+# D. Duplicate-decision metric: recomputed semantic decisions are a hard
+# failure, while propagated decisions remain informational.
+# -----------------------------------------------------------------------------
+
+duplicate_decision_metric="$(bash scripts/audit/sql_duplicate_decision_count.sh)"
+while IFS= read -r line; do
+  echo "[INFO] $line"
+done <<<"$duplicate_decision_metric"
+
+recomputed_decision_count="$(
+  awk -F= '/^recomputed_decision_count=/{print $2}' <<<"$duplicate_decision_metric"
+)"
+
+if [[ -z "$recomputed_decision_count" ]]; then
+  echo "[ERROR] SQL duplicate-decision metric did not report recomputed_decision_count." >&2
+  status=1
+elif [[ "$recomputed_decision_count" != 0 ]]; then
+  echo "[ERROR] SQL branch ownership invariants found recomputed semantic decisions." >&2
+  echo "[ERROR] Semantic decisions must be made once and propagated, not re-derived across lowering and execution." >&2
+  status=1
+fi
+
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] SQL branch ownership invariants failed." >&2
   exit 1

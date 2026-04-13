@@ -6,9 +6,15 @@
 use crate::{
     db::executor::route::{
         AGGREGATE_FAST_PATH_ORDER, GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER,
-        RouteIntent, RouteShapeKind, planner::RouteIntentStage,
+        RouteIntent, RouteShapeKind,
+        aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
+        planner::RouteIntentStage,
     },
-    db::query::plan::AggregateKind,
+    db::{
+        executor::ExecutionPreparation,
+        query::plan::{AccessPlannedQuery, AggregateKind, GroupedPlanStrategy},
+    },
+    error::InternalError,
 };
 
 // Keep route-shape intent mapping in one helper so grouped/count/non-count
@@ -90,4 +96,56 @@ pub(in crate::db::executor::planning::route::planner) fn derive_route_intent_sta
     );
 
     stage
+}
+
+// Derive the canonical staged load intent without exposing RouteIntent wiring
+// at route entrypoints that only need the load shape contract.
+pub(in crate::db::executor::planning::route::planner) fn derive_load_route_intent_stage()
+-> RouteIntentStage<'static> {
+    derive_route_intent_stage(RouteIntent::Load)
+}
+
+// Derive the canonical staged aggregate intent, including the one
+// preparation-owned materialization forcing policy input.
+pub(in crate::db::executor::planning::route::planner) fn derive_aggregate_route_intent_stage<'a>(
+    aggregate: crate::db::executor::route::AggregateRouteShape<'a>,
+    execution_preparation: &ExecutionPreparation,
+) -> RouteIntentStage<'a> {
+    derive_route_intent_stage(RouteIntent::Aggregate {
+        aggregate,
+        aggregate_force_materialized_due_to_predicate_uncertainty:
+            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                execution_preparation,
+            ),
+    })
+}
+
+// Derive the canonical staged grouped-aggregate intent from planner strategy
+// plus the same preparation-owned materialization forcing policy contract.
+pub(in crate::db::executor::planning::route::planner) fn derive_grouped_route_intent_stage(
+    grouped_plan_strategy: GroupedPlanStrategy,
+    execution_preparation: &ExecutionPreparation,
+) -> RouteIntentStage<'static> {
+    derive_route_intent_stage(RouteIntent::AggregateGrouped {
+        grouped_plan_strategy,
+        aggregate_force_materialized_due_to_predicate_uncertainty:
+            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                execution_preparation,
+            ),
+    })
+}
+
+// Mutation routing only accepts delete-mode scalar plans. Keep that admission
+// decision under the route-intent owner instead of re-encoding it inline at
+// entrypoint call sites.
+pub(in crate::db::executor::planning::route::planner) fn ensure_mutation_route_plan_is_delete(
+    plan: &AccessPlannedQuery,
+) -> Result<(), InternalError> {
+    if plan.scalar_plan().mode.is_delete() {
+        return Ok(());
+    }
+
+    Err(InternalError::query_executor_invariant(
+        "mutation route planning requires delete plans",
+    ))
 }

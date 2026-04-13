@@ -1,4 +1,4 @@
-//! Module: db::executor::route::planner::execution::shape_load
+//! Module: db::executor::route::planner::execution::load_scalar
 //! Shapes executor plans for scalar load routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

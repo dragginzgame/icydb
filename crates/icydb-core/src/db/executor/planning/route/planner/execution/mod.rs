@@ -3,10 +3,10 @@
 //! Does not own: intent normalization or feasibility derivation.
 //! Boundary: execution-stage derivation for route planning.
 
-mod shape_aggregate_count;
-mod shape_aggregate_grouped;
-mod shape_aggregate_non_count;
-mod shape_load;
+mod aggregate_count;
+mod aggregate_grouped;
+mod aggregate_non_count;
+mod load_scalar;
 
 use crate::db::executor::planning::route::{
     IndexRangeLimitSpec, RouteExecutionMode, RouteShapeKind,
@@ -14,10 +14,10 @@ use crate::db::executor::planning::route::{
 };
 
 use crate::db::executor::planning::route::planner::execution::{
-    shape_aggregate_count::build_execution_stage_for_aggregate_count,
-    shape_aggregate_grouped::build_execution_stage_for_aggregate_grouped,
-    shape_aggregate_non_count::build_execution_stage_for_aggregate_non_count,
-    shape_load::build_execution_stage_for_load,
+    aggregate_count::build_execution_stage_for_aggregate_count,
+    aggregate_grouped::build_execution_stage_for_aggregate_grouped,
+    aggregate_non_count::build_execution_stage_for_aggregate_non_count,
+    load_scalar::build_execution_stage_for_load,
 };
 
 pub(in crate::db::executor::planning::route::planner) const fn index_range_limit_spec_for_execution_mode(

@@ -5,7 +5,8 @@
 
 use crate::{
     db::scalar_expr::{
-        ScalarExprValue, derive_non_null_scalar_expression_value, scalar_index_expression_op,
+        ScalarExprValue, derive_non_null_scalar_expression_value, scalar_expr_value_into_value,
+        scalar_index_expression_op,
     },
     model::index::IndexExpression,
     value::Value,
@@ -45,26 +46,6 @@ fn derive_temporal_expression_value(
     derive_non_null_scalar_expression_value(op, source)
         .map(scalar_expr_value_into_value)
         .map(Some)
-}
-
-fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) -> Value {
-    match value {
-        ScalarExprValue::Null => Value::Null,
-        ScalarExprValue::Blob(value) => Value::Blob(value.into_owned()),
-        ScalarExprValue::Bool(value) => Value::Bool(value),
-        ScalarExprValue::Date(value) => Value::Date(value),
-        ScalarExprValue::Duration(value) => Value::Duration(value),
-        ScalarExprValue::Float32(value) => Value::Float32(value),
-        ScalarExprValue::Float64(value) => Value::Float64(value),
-        ScalarExprValue::Int(value) => Value::Int(value),
-        ScalarExprValue::Principal(value) => Value::Principal(value),
-        ScalarExprValue::Subaccount(value) => Value::Subaccount(value),
-        ScalarExprValue::Text(value) => Value::Text(value.into_owned()),
-        ScalarExprValue::Timestamp(value) => Value::Timestamp(value),
-        ScalarExprValue::Uint(value) => Value::Uint(value),
-        ScalarExprValue::Ulid(value) => Value::Ulid(value),
-        ScalarExprValue::Unit => Value::Unit,
-    }
 }
 
 /// Apply one canonical index expression to one source field value.

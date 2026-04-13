@@ -213,35 +213,16 @@ where
         })
     }
 
-    // Apply one shared text projection to a terminal values payload while
-    // preserving row order and cardinality.
-    fn project_terminal_values(
+    // Apply one shared text projection to iterator-like terminal output while
+    // preserving source order and cardinality.
+    fn project_terminal_items<T, U>(
         projection: &TextProjectionExpr,
-        values: Vec<Value>,
-    ) -> Result<Vec<Value>, QueryError> {
+        values: impl IntoIterator<Item = T>,
+        mut map: impl FnMut(&TextProjectionExpr, T) -> Result<U, QueryError>,
+    ) -> Result<Vec<U>, QueryError> {
         values
             .into_iter()
-            .map(|value| projection.apply_value(value))
-            .collect()
-    }
-
-    // Apply one shared text projection to an optional terminal value.
-    fn project_terminal_optional_value(
-        projection: &TextProjectionExpr,
-        value: Option<Value>,
-    ) -> Result<Option<Value>, QueryError> {
-        value.map(|value| projection.apply_value(value)).transpose()
-    }
-
-    // Apply one shared text projection to `(id, value)` terminal output while
-    // preserving identifier alignment.
-    fn project_terminal_values_with_ids(
-        projection: &TextProjectionExpr,
-        values: Vec<(Id<E>, Value)>,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError> {
-        values
-            .into_iter()
-            .map(|(id, value)| Ok((id, projection.apply_value(value)?)))
+            .map(|value| map(projection, value))
             .collect()
     }
 
@@ -710,7 +691,9 @@ where
                 .into_values()
                 .map_err(QueryError::execute)?;
 
-            Self::project_terminal_values(projection, values)
+            Self::project_terminal_items(projection, values, |projection, value| {
+                projection.apply_value(value)
+            })
         })
     }
 
@@ -979,7 +962,9 @@ where
                 .into_values_with_ids::<E>()
                 .map_err(QueryError::execute)?;
 
-            Self::project_terminal_values_with_ids(projection, values)
+            Self::project_terminal_items(projection, values, |projection, (id, value)| {
+                Ok((id, projection.apply_value(value)?))
+            })
         })
     }
 
@@ -1036,7 +1021,12 @@ where
                 .into_terminal_value()
                 .map_err(QueryError::execute)?;
 
-            Self::project_terminal_optional_value(projection, value)
+            let mut projected =
+                Self::project_terminal_items(projection, value, |projection, value| {
+                    projection.apply_value(value)
+                })?;
+
+            Ok(projected.pop())
         })
     }
 
@@ -1093,7 +1083,12 @@ where
                 .into_terminal_value()
                 .map_err(QueryError::execute)?;
 
-            Self::project_terminal_optional_value(projection, value)
+            let mut projected =
+                Self::project_terminal_items(projection, value, |projection, value| {
+                    projection.apply_value(value)
+                })?;
+
+            Ok(projected.pop())
         })
     }
 

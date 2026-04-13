@@ -18,14 +18,15 @@ use crate::{
         },
         sql::parser::{SqlStatement, parse_sql},
     },
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityValue},
 };
 
 #[cfg(test)]
 use crate::db::{
     MissingRowPolicy, PagedGroupedExecutionWithTrace,
     sql::lowering::{
-        bind_lowered_sql_query, lower_sql_command_from_prepared_statement, prepare_sql_statement,
+        LoweredSelectQueryShape, bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
+        prepare_sql_statement,
     },
 };
 
@@ -89,39 +90,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((visible_indexes, plan))
     }
 
-    // Enforce that the public typed SQL executors stay hard-bound to the
-    // typed entity `E` instead of silently reusing unrelated entity names.
-    fn ensure_typed_sql_statement_matches<E>(statement: &SqlStatement) -> Result<(), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let Some(sql_entity) = (match statement {
-            SqlStatement::Select(select) => Some(select.entity.as_str()),
-            SqlStatement::Delete(delete) => Some(delete.entity.as_str()),
-            SqlStatement::Insert(insert) => Some(insert.entity.as_str()),
-            SqlStatement::Update(update) => Some(update.entity.as_str()),
-            SqlStatement::Explain(explain) => Some(match &explain.statement {
-                crate::db::sql::parser::SqlExplainTarget::Select(select) => select.entity.as_str(),
-                crate::db::sql::parser::SqlExplainTarget::Delete(delete) => delete.entity.as_str(),
-            }),
-            SqlStatement::Describe(describe) => Some(describe.entity.as_str()),
-            SqlStatement::ShowIndexes(show_indexes) => Some(show_indexes.entity.as_str()),
-            SqlStatement::ShowColumns(show_columns) => Some(show_columns.entity.as_str()),
-            SqlStatement::ShowEntities(_) => None,
-        }) else {
-            return Ok(());
-        };
-
-        if crate::db::identifiers_tail_match(sql_entity, E::MODEL.name()) {
-            return Ok(());
-        }
-
-        Err(QueryError::unsupported_query(format!(
-            "typed SQL only supports entity '{}', but received '{sql_entity}'",
-            E::MODEL.name()
-        )))
-    }
-
     // Keep the public SQL query surface aligned with its name and with
     // query-shaped canister entrypoints.
     fn ensure_sql_query_statement_supported(statement: &SqlStatement) -> Result<(), QueryError> {
@@ -180,7 +148,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let parsed = parse_sql_statement(sql)?;
 
-        Self::ensure_typed_sql_statement_matches::<E>(&parsed)?;
         Self::ensure_sql_query_statement_supported(&parsed)?;
 
         self.execute_sql_statement_inner::<E>(&parsed)
@@ -196,7 +163,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let parsed = parse_sql_statement(sql)?;
 
-        Self::ensure_typed_sql_statement_matches::<E>(&parsed)?;
         Self::ensure_sql_update_statement_supported(&parsed)?;
 
         self.execute_sql_statement_inner::<E>(&parsed)
@@ -224,14 +190,13 @@ impl<C: CanisterKind> DbSession<C> {
                 "grouped SELECT helper requires grouped SELECT",
             ));
         };
-        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
-            .map_err(QueryError::from_sql_lowering_error)?;
-
-        if !query.has_grouping() {
+        if query.select_shape() != Some(LoweredSelectQueryShape::Grouped) {
             return Err(QueryError::unsupported_query(
                 "grouped SELECT helper requires grouped SELECT",
             ));
         }
+        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)?;
 
         self.execute_grouped(&query, cursor_token)
     }

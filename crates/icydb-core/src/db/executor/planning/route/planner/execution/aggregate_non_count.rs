@@ -1,4 +1,4 @@
-//! Module: db::executor::route::planner::execution::shape_aggregate_non_count
+//! Module: db::executor::route::planner::execution::aggregate_non_count
 //! Shapes executor plans for non-`COUNT` scalar aggregate routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

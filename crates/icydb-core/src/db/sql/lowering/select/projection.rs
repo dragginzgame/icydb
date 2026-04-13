@@ -11,6 +11,269 @@ use crate::{
     value::Value,
 };
 
+// One bounded lowering spec for one admitted SQL text function.
+#[derive(Clone, Copy)]
+struct TextFnSpec {
+    sql_function: SqlTextFunction,
+    function: Function,
+    builder: TextFnBuilder,
+    contract: TextFnLiteralContract,
+}
+
+// Build shape for one admitted SQL text function.
+#[derive(Clone, Copy)]
+enum TextFnBuilder {
+    Unary,
+    WithLiteral,
+    Position,
+    WithTwoLiterals,
+    Substring,
+}
+
+// Literal contract for one admitted SQL text function.
+#[derive(Clone, Copy)]
+enum TextFnLiteralContract {
+    None,
+    OptionalPrimaryText,
+    RequiredPrimaryNumeric,
+    RequiredPrimaryTextRequiredSecondText,
+    RequiredPrimaryNumericOptionalSecondNumeric,
+}
+
+const TEXT_FN_SPECS: [TextFnSpec; 14] = [
+    TextFnSpec::new(
+        SqlTextFunction::Trim,
+        Function::Trim,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Ltrim,
+        Function::Ltrim,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Rtrim,
+        Function::Rtrim,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Lower,
+        Function::Lower,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Upper,
+        Function::Upper,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Length,
+        Function::Length,
+        TextFnBuilder::Unary,
+        TextFnLiteralContract::None,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Left,
+        Function::Left,
+        TextFnBuilder::WithLiteral,
+        TextFnLiteralContract::RequiredPrimaryNumeric,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Right,
+        Function::Right,
+        TextFnBuilder::WithLiteral,
+        TextFnLiteralContract::RequiredPrimaryNumeric,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::StartsWith,
+        Function::StartsWith,
+        TextFnBuilder::WithLiteral,
+        TextFnLiteralContract::OptionalPrimaryText,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::EndsWith,
+        Function::EndsWith,
+        TextFnBuilder::WithLiteral,
+        TextFnLiteralContract::OptionalPrimaryText,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Contains,
+        Function::Contains,
+        TextFnBuilder::WithLiteral,
+        TextFnLiteralContract::OptionalPrimaryText,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Position,
+        Function::Position,
+        TextFnBuilder::Position,
+        TextFnLiteralContract::OptionalPrimaryText,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Replace,
+        Function::Replace,
+        TextFnBuilder::WithTwoLiterals,
+        TextFnLiteralContract::RequiredPrimaryTextRequiredSecondText,
+    ),
+    TextFnSpec::new(
+        SqlTextFunction::Substring,
+        Function::Substring,
+        TextFnBuilder::Substring,
+        TextFnLiteralContract::RequiredPrimaryNumericOptionalSecondNumeric,
+    ),
+];
+
+impl TextFnSpec {
+    const fn new(
+        sql_function: SqlTextFunction,
+        function: Function,
+        builder: TextFnBuilder,
+        contract: TextFnLiteralContract,
+    ) -> Self {
+        Self {
+            sql_function,
+            function,
+            builder,
+            contract,
+        }
+    }
+
+    fn lower_expr(self, call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
+        self.validate(call)?;
+
+        Ok(self.build_projection(call).expr().clone())
+    }
+
+    fn validate(self, call: &SqlTextFunctionCall) -> Result<(), SqlLoweringError> {
+        let function_name = self.function.sql_label();
+        let field = call.field.as_str();
+
+        match self.contract {
+            TextFnLiteralContract::None | TextFnLiteralContract::OptionalPrimaryText => {
+                ensure_text_or_null_literal(
+                    function_name,
+                    field,
+                    "literal",
+                    call.literal.as_ref(),
+                )?;
+                ensure_literal_absent(
+                    call.literal2.as_ref(),
+                    "only REPLACE and SUBSTRING should carry a second projection literal",
+                )?;
+                ensure_literal_absent(
+                    call.literal3.as_ref(),
+                    "only numeric text projection helpers should carry extra literal arguments",
+                )?;
+            }
+            TextFnLiteralContract::RequiredPrimaryNumeric => {
+                validate_numeric_projection_literal(
+                    function_name,
+                    field,
+                    "length",
+                    call.literal.as_ref(),
+                    true,
+                )?;
+                if call.literal2.is_some() || call.literal3.is_some() {
+                    return Err(QueryError::invariant(format!(
+                        "{function_name} projection item carried unexpected extra literal arguments",
+                    ))
+                    .into());
+                }
+            }
+            TextFnLiteralContract::RequiredPrimaryTextRequiredSecondText => {
+                ensure_text_or_null_literal(
+                    function_name,
+                    field,
+                    "literal",
+                    call.literal.as_ref(),
+                )?;
+                match call.literal2.as_ref() {
+                    Some(Value::Null | Value::Text(_)) => {}
+                    Some(other) => {
+                        return Err(QueryError::unsupported_query(format!(
+                            "REPLACE({field}, ..., ...) requires text or NULL replacement literal, found {other:?}",
+                        ))
+                        .into());
+                    }
+                    None => {
+                        return Err(QueryError::invariant(
+                            "REPLACE projection item was missing its replacement literal",
+                        )
+                        .into());
+                    }
+                }
+                ensure_literal_absent(
+                    call.literal3.as_ref(),
+                    "only numeric text projection helpers should carry extra literal arguments",
+                )?;
+            }
+            TextFnLiteralContract::RequiredPrimaryNumericOptionalSecondNumeric => {
+                validate_numeric_projection_literal(
+                    function_name,
+                    field,
+                    "start",
+                    call.literal.as_ref(),
+                    true,
+                )?;
+                validate_numeric_projection_literal(
+                    function_name,
+                    field,
+                    "length",
+                    call.literal2.as_ref(),
+                    false,
+                )?;
+                if call.literal3.is_some() {
+                    return Err(QueryError::invariant(
+                        "SUBSTRING projection item carried an unexpected extra literal",
+                    )
+                    .into());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn build_projection(self, call: &SqlTextFunctionCall) -> TextProjectionExpr {
+        let field = call.field.clone();
+
+        match self.builder {
+            TextFnBuilder::Unary => TextProjectionExpr::unary(field, self.function),
+            TextFnBuilder::WithLiteral => TextProjectionExpr::with_literal(
+                field,
+                self.function,
+                call.literal.clone().unwrap_or(Value::Null),
+            ),
+            TextFnBuilder::Position => {
+                TextProjectionExpr::position(field, call.literal.clone().unwrap_or(Value::Null))
+            }
+            TextFnBuilder::WithTwoLiterals => TextProjectionExpr::with_two_literals(
+                field,
+                self.function,
+                call.literal.clone().unwrap_or(Value::Null),
+                call.literal2.clone().unwrap_or(Value::Null),
+            ),
+            TextFnBuilder::Substring => match call.literal2.clone() {
+                Some(length) => TextProjectionExpr::with_two_literals(
+                    field,
+                    self.function,
+                    call.literal.clone().unwrap_or(Value::Null),
+                    length,
+                ),
+                None => TextProjectionExpr::with_literal(
+                    field,
+                    self.function,
+                    call.literal.clone().unwrap_or(Value::Null),
+                ),
+            },
+        }
+    }
+}
+
 pub(super) fn lower_scalar_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
@@ -131,182 +394,38 @@ fn lower_projection_field(
 }
 
 fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
-    validate_text_function_literal_contract(call)?;
-
-    let projection = match call.function {
-        SqlTextFunction::Trim => TextProjectionExpr::unary(call.field.clone(), Function::Trim),
-        SqlTextFunction::Ltrim => TextProjectionExpr::unary(call.field.clone(), Function::Ltrim),
-        SqlTextFunction::Rtrim => TextProjectionExpr::unary(call.field.clone(), Function::Rtrim),
-        SqlTextFunction::Lower => TextProjectionExpr::unary(call.field.clone(), Function::Lower),
-        SqlTextFunction::Upper => TextProjectionExpr::unary(call.field.clone(), Function::Upper),
-        SqlTextFunction::Length => TextProjectionExpr::unary(call.field.clone(), Function::Length),
-        SqlTextFunction::Left => TextProjectionExpr::with_literal(
-            call.field.clone(),
-            Function::Left,
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::Right => TextProjectionExpr::with_literal(
-            call.field.clone(),
-            Function::Right,
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::StartsWith => TextProjectionExpr::with_literal(
-            call.field.clone(),
-            Function::StartsWith,
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::EndsWith => TextProjectionExpr::with_literal(
-            call.field.clone(),
-            Function::EndsWith,
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::Contains => TextProjectionExpr::with_literal(
-            call.field.clone(),
-            Function::Contains,
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::Position => TextProjectionExpr::position(
-            call.field.clone(),
-            call.literal.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::Replace => TextProjectionExpr::with_two_literals(
-            call.field.clone(),
-            Function::Replace,
-            call.literal.clone().unwrap_or(Value::Null),
-            call.literal2.clone().unwrap_or(Value::Null),
-        ),
-        SqlTextFunction::Substring => match call.literal2.clone() {
-            Some(length) => TextProjectionExpr::with_two_literals(
-                call.field.clone(),
-                Function::Substring,
-                call.literal.clone().unwrap_or(Value::Null),
-                length,
-            ),
-            None => TextProjectionExpr::with_literal(
-                call.field.clone(),
-                Function::Substring,
-                call.literal.clone().unwrap_or(Value::Null),
-            ),
-        },
-    };
-
-    Ok(projection.expr().clone())
+    text_function_spec(call.function).lower_expr(call)
 }
 
-fn validate_text_function_literal_contract(
-    call: &SqlTextFunctionCall,
-) -> Result<(), SqlLoweringError> {
-    validate_text_function_primary_literal(
-        call.function,
-        call.field.as_str(),
-        call.literal.as_ref(),
-    )?;
-    validate_text_function_second_literal(
-        call.function,
-        call.field.as_str(),
-        call.literal2.as_ref(),
-    )?;
-    validate_text_function_numeric_literals(
-        call.function,
-        call.field.as_str(),
-        call.literal.as_ref(),
-        call.literal2.as_ref(),
-        call.literal3.as_ref(),
-    )?;
-
-    Ok(())
+fn text_function_spec(function: SqlTextFunction) -> TextFnSpec {
+    TEXT_FN_SPECS
+        .iter()
+        .copied()
+        .find(|spec| spec.sql_function == function)
+        .expect("every admitted SQL text function should have one lowering spec")
 }
 
-fn validate_text_function_primary_literal(
-    function: SqlTextFunction,
+fn ensure_text_or_null_literal(
+    function_name: &str,
     field: &str,
+    label: &str,
     literal: Option<&Value>,
 ) -> Result<(), SqlLoweringError> {
-    if matches!(
-        function,
-        SqlTextFunction::Substring | SqlTextFunction::Left | SqlTextFunction::Right
-    ) {
-        return Ok(());
-    }
-
     match literal {
         None | Some(Value::Null | Value::Text(_)) => Ok(()),
         Some(other) => Err(QueryError::unsupported_query(format!(
-            "{}({field}, ...) requires text or NULL literal argument, found {other:?}",
-            sql_text_function_to_function(function).sql_label(),
+            "{function_name}({field}, ...) requires text or NULL {label} argument, found {other:?}",
         ))
         .into()),
     }
 }
 
-fn validate_text_function_second_literal(
-    function: SqlTextFunction,
-    field: &str,
+fn ensure_literal_absent(
     literal: Option<&Value>,
+    message: &'static str,
 ) -> Result<(), SqlLoweringError> {
-    match (function, literal) {
-        (SqlTextFunction::Replace, Some(Value::Null | Value::Text(_)))
-        | (SqlTextFunction::Substring, _) => Ok(()),
-        (SqlTextFunction::Replace, Some(other)) => Err(QueryError::unsupported_query(format!(
-            "REPLACE({field}, ..., ...) requires text or NULL replacement literal, found {other:?}",
-        ))
-        .into()),
-        (SqlTextFunction::Replace, None) => Err(QueryError::invariant(
-            "REPLACE projection item was missing its replacement literal",
-        )
-        .into()),
-        (_, None) => Ok(()),
-        (_, Some(_)) => Err(QueryError::invariant(
-            "only REPLACE and SUBSTRING should carry a second projection literal",
-        )
-        .into()),
-    }
-}
-
-fn validate_text_function_numeric_literals(
-    function: SqlTextFunction,
-    field: &str,
-    start: Option<&Value>,
-    len: Option<&Value>,
-    extra: Option<&Value>,
-) -> Result<(), SqlLoweringError> {
-    if !matches!(
-        function,
-        SqlTextFunction::Substring | SqlTextFunction::Left | SqlTextFunction::Right
-    ) {
-        if extra.is_some() {
-            return Err(QueryError::invariant(
-                "only numeric text projection helpers should carry extra literal arguments",
-            )
-            .into());
-        }
-
-        return Ok(());
-    }
-
-    if matches!(function, SqlTextFunction::Left | SqlTextFunction::Right) {
-        let function_name = sql_text_function_to_function(function).sql_label();
-
-        validate_numeric_projection_literal(function_name, field, "length", start, true)?;
-        if len.is_some() || extra.is_some() {
-            return Err(QueryError::invariant(format!(
-                "{function_name} projection item carried unexpected extra literal arguments",
-            ))
-            .into());
-        }
-
-        return Ok(());
-    }
-
-    let function_name = sql_text_function_to_function(function).sql_label();
-
-    validate_numeric_projection_literal(function_name, field, "start", start, true)?;
-    validate_numeric_projection_literal(function_name, field, "length", len, false)?;
-    if extra.is_some() {
-        return Err(QueryError::invariant(
-            "SUBSTRING projection item carried an unexpected extra literal",
-        )
-        .into());
+    if literal.is_some() {
+        return Err(QueryError::invariant(message).into());
     }
 
     Ok(())
@@ -330,24 +449,5 @@ fn validate_numeric_projection_literal(
         ))
         .into()),
         None => Ok(()),
-    }
-}
-
-const fn sql_text_function_to_function(function: SqlTextFunction) -> Function {
-    match function {
-        SqlTextFunction::Trim => Function::Trim,
-        SqlTextFunction::Ltrim => Function::Ltrim,
-        SqlTextFunction::Rtrim => Function::Rtrim,
-        SqlTextFunction::Lower => Function::Lower,
-        SqlTextFunction::Upper => Function::Upper,
-        SqlTextFunction::Length => Function::Length,
-        SqlTextFunction::Left => Function::Left,
-        SqlTextFunction::Right => Function::Right,
-        SqlTextFunction::StartsWith => Function::StartsWith,
-        SqlTextFunction::EndsWith => Function::EndsWith,
-        SqlTextFunction::Contains => Function::Contains,
-        SqlTextFunction::Position => Function::Position,
-        SqlTextFunction::Replace => Function::Replace,
-        SqlTextFunction::Substring => Function::Substring,
     }
 }

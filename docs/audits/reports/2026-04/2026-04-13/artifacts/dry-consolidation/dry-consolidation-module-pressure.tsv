@@ -1,0 +1,7 @@
+module	size	duplication_families	pressure_type	risk
+crates/icydb-core/src/db/predicate/runtime.rs	1859	1	under-splitting	medium
+crates/icydb-core/src/db/query/fluent/load/terminals.rs	1258	1	under-splitting	medium-low
+crates/icydb-core/src/db/sql/lowering/select/projection.rs	337	1	under-splitting	medium
+crates/icydb-core/src/db/query/intent/query.rs	1270	0	safety-neutral	low-medium
+crates/icydb-core/src/db/commit/store.rs	1079	1	safety-neutral	low-medium
+crates/icydb-core/src/db/executor/planning/route/hints/load.rs	145	1	safety-neutral	low-medium

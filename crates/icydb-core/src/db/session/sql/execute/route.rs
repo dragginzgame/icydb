@@ -4,8 +4,9 @@ use crate::{
         executor::EntityAuthority,
         session::sql::SqlStatementResult,
         sql::lowering::{
-            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlLaneKind,
-            LoweredSqlQuery, lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
+            LoweredBaseQueryShape, LoweredSelectQueryShape, LoweredSelectShape, LoweredSqlCommand,
+            LoweredSqlLaneKind, LoweredSqlQuery, SqlLoweringError,
+            lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
             prepare_sql_statement,
         },
         sql::parser::SqlStatement,
@@ -15,6 +16,9 @@ use crate::{
 
 // Keep query-lane lowering beside the unified statement executor because no
 // other runtime surface needs a separate lowered query-lane boundary anymore.
+// The public query/update facade already classifies statement families, so this
+// helper only enforces the narrower postcondition that query-lane lowering
+// stays on one query-compatible lowered route.
 fn lower_sql_query_lane_for_entity(
     statement: &SqlStatement,
     expected_entity: &'static str,
@@ -25,7 +29,12 @@ fn lower_sql_query_lane_for_entity(
             .map_err(QueryError::from_sql_lowering_error)?,
         primary_key_field,
     )
-    .map_err(QueryError::from_sql_lowering_error)?;
+    .map_err(|err| match err {
+        SqlLoweringError::UnexpectedQueryLaneStatement => QueryError::invariant(
+            "query-lane SQL lowering reached a non query-compatible statement",
+        ),
+        other => QueryError::from_sql_lowering_error(other),
+    })?;
     let lane = lowered_sql_command_lane(&lowered);
 
     match lane {
@@ -33,9 +42,9 @@ fn lower_sql_query_lane_for_entity(
         LoweredSqlLaneKind::Describe
         | LoweredSqlLaneKind::ShowIndexes
         | LoweredSqlLaneKind::ShowColumns
-        | LoweredSqlLaneKind::ShowEntities => {
-            Err(QueryError::unsupported_query_lane_sql_statement())
-        }
+        | LoweredSqlLaneKind::ShowEntities => Err(QueryError::invariant(
+            "query-lane SQL lowering produced a non query-compatible lowered lane",
+        )),
     }
 }
 
@@ -95,10 +104,10 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             unsupported_message,
         )?;
-        let grouped_surface = query.has_grouping();
 
         match query {
             LoweredSqlQuery::Select(select) => {
+                let grouped_surface = select.shape() == LoweredSelectQueryShape::Grouped;
                 execute_select(self, select, authority, grouped_surface)
             }
             LoweredSqlQuery::Delete(delete) => execute_delete(self, delete, authority),

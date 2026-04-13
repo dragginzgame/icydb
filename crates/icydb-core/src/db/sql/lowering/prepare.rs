@@ -179,7 +179,7 @@ fn lower_prepared_statement(
             LoweredSqlQuery::Delete(lower_delete_shape(statement)),
         ))),
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
-            Err(QueryError::unsupported_query_lane_sql_statement().into())
+            Err(SqlLoweringError::unexpected_query_lane_statement())
         }
         SqlStatement::Explain(statement) => lower_explain_prepared(statement, primary_key_field),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),

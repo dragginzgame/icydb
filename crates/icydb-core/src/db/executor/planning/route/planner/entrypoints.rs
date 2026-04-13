@@ -12,9 +12,7 @@ use crate::{
                 continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan,
             },
             route::{
-                AggregateRouteShape, ExecutionRoutePlan, GroupedExecutionMode,
-                GroupedExecutionModeProjection, LoadTerminalFastPathContract, RouteIntent,
-                aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
+                AggregateRouteShape, ExecutionRoutePlan, LoadTerminalFastPathContract,
                 derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_plan,
                 pk_order_stream_fast_path_shape_supported,
@@ -26,9 +24,9 @@ use crate::{
 };
 
 use crate::db::executor::planning::route::planner::{
-    RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
-    derive_execution_feasibility_stage_for_model, derive_route_execution_stage,
-    derive_route_intent_stage,
+    RouteIntentStage, build_execution_route_plan_from_stages, derive_aggregate_route_intent_stage,
+    derive_execution_feasibility_stage_for_model, derive_grouped_route_intent_stage,
+    derive_load_route_intent_stage, ensure_mutation_route_plan_is_delete,
 };
 
 /// Build canonical execution routing for load execution from structural model authority.
@@ -46,7 +44,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan,
         continuation,
         probe_fetch_hint,
-        RouteIntent::Load,
+        derive_load_route_intent_stage(),
         derive_load_terminal_fast_path_contract_for_plan(authority, plan),
     ))
 }
@@ -64,7 +62,7 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load(
     Ok(build_initial_execution_route_plan(
         plan,
         probe_fetch_hint,
-        RouteIntent::Load,
+        derive_load_route_intent_stage(),
         derive_load_terminal_fast_path_contract_for_plan(authority, plan),
     ))
 }
@@ -88,7 +86,7 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
     Ok(build_initial_execution_route_plan(
         plan,
         probe_fetch_hint,
-        RouteIntent::Load,
+        derive_load_route_intent_stage(),
         load_terminal_fast_path,
     ))
 }
@@ -98,11 +96,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
     _authority: EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, InternalError> {
-    if !plan.scalar_plan().mode.is_delete() {
-        return Err(InternalError::query_executor_invariant(
-            "mutation route planning requires delete plans",
-        ));
-    }
+    ensure_mutation_route_plan_is_delete(plan)?;
 
     let capabilities = derive_execution_capabilities_for_model(plan, Direction::Asc, None);
 
@@ -116,13 +110,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
     execution_preparation: &ExecutionPreparation,
 ) -> ExecutionPlan {
     let planner_route_profile = plan.planner_route_profile();
-    let intent_stage = derive_route_intent_stage(RouteIntent::Aggregate {
-        aggregate,
-        aggregate_force_materialized_due_to_predicate_uncertainty:
-            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                execution_preparation,
-            ),
-    });
+    let intent_stage = derive_aggregate_route_intent_stage(aggregate, execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         &ScalarContinuationContext::initial(),
@@ -138,11 +126,10 @@ fn build_execution_route_plan(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
-    intent: RouteIntent<'_>,
+    intent_stage: RouteIntentStage<'_>,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> ExecutionRoutePlan {
     let planner_route_profile = plan.planner_route_profile();
-    let intent_stage = derive_route_intent_stage(intent);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         continuation,
@@ -161,13 +148,8 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
     let execution_preparation =
         ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let planner_route_profile = plan.planner_route_profile();
-    let intent_stage = derive_route_intent_stage(RouteIntent::AggregateGrouped {
-        grouped_plan_strategy,
-        aggregate_force_materialized_due_to_predicate_uncertainty:
-            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                &execution_preparation,
-            ),
-    });
+    let intent_stage =
+        derive_grouped_route_intent_stage(grouped_plan_strategy, &execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         &ScalarContinuationContext::initial(),
@@ -184,7 +166,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
 fn build_initial_execution_route_plan(
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
-    intent: RouteIntent<'_>,
+    intent_stage: RouteIntentStage<'_>,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> ExecutionRoutePlan {
     let continuation = ScalarContinuationContext::initial();
@@ -193,78 +175,7 @@ fn build_initial_execution_route_plan(
         plan,
         &continuation,
         probe_fetch_hint,
-        intent,
-        load_terminal_fast_path,
-    )
-}
-
-// Build one shared execution route contract from intent + feasibility stages.
-fn build_execution_route_plan_from_stages(
-    intent_stage: RouteIntentStage<'_>,
-    feasibility_stage: RouteFeasibilityStage,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
-) -> ExecutionRoutePlan {
-    // Phase 1: resolve execution mode and fold-mode from feasibility + intent.
-    let execution_stage = derive_route_execution_stage(&intent_stage, &feasibility_stage);
-
-    // Phase 2: assemble one immutable route contract.
-    assemble_execution_route_plan(
         intent_stage,
-        feasibility_stage,
-        execution_stage,
         load_terminal_fast_path,
     )
-}
-
-fn assemble_execution_route_plan(
-    intent_stage: RouteIntentStage<'_>,
-    feasibility_stage: RouteFeasibilityStage,
-    execution_stage: RouteExecutionStage,
-    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
-) -> ExecutionRoutePlan {
-    let RouteFeasibilityStage {
-        continuation,
-        derivation,
-        index_range_limit_spec: _,
-    } = feasibility_stage;
-    debug_assert!(
-        intent_stage.grouped == derivation.grouped_execution_mode.is_some(),
-        "grouped route assembly must align grouped intent with grouped execution-mode projection",
-    );
-    if let Some(grouped_plan_strategy) = intent_stage.grouped_plan_strategy {
-        debug_assert!(
-            derivation.grouped_execution_mode
-                == Some(GroupedExecutionMode::from_planner_strategy(
-                    grouped_plan_strategy,
-                    GroupedExecutionModeProjection::from_route_inputs(
-                        derivation.direction,
-                        derivation.support.desc_physical_reverse_supported,
-                        derivation
-                            .capabilities
-                            .load_order_route_contract
-                            .allows_ordered_group_projection(),
-                    ),
-                )),
-            "grouped route assembly must not drift from the canonical grouped execution-mode projection",
-        );
-    }
-
-    ExecutionRoutePlan {
-        direction: derivation.direction,
-        route_shape_kind: execution_stage.route_shape_kind,
-        continuation,
-        execution_mode: execution_stage.execution_mode,
-        desc_physical_reverse_supported: derivation.support.desc_physical_reverse_supported,
-        secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,
-        index_range_limit_spec: execution_stage.index_range_limit_spec,
-        capabilities: derivation.capabilities,
-        fast_path_order: intent_stage.fast_path_order,
-        top_n_seek_spec: derivation.top_n_seek_spec,
-        aggregate_seek_spec: derivation.aggregate_seek_spec,
-        scan_hints: derivation.scan_hints,
-        aggregate_fold_mode: execution_stage.aggregate_fold_mode,
-        grouped_plan_strategy: intent_stage.grouped_plan_strategy,
-        grouped_execution_mode: derivation.grouped_execution_mode,
-        load_terminal_fast_path,
-    }
 }

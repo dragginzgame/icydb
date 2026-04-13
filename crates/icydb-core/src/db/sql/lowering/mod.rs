@@ -41,6 +41,7 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
+pub(in crate::db) use select::LoweredSelectQueryShape;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;
@@ -158,11 +159,13 @@ pub(crate) enum LoweredSqlQuery {
 }
 
 impl LoweredSqlQuery {
-    // Report whether this lowered query carries grouped execution semantics.
-    pub(crate) const fn has_grouping(&self) -> bool {
+    // Surface the lowered query execution family without re-deriving it from
+    // grouped fields or statement syntax in downstream layers.
+    #[cfg(test)]
+    pub(crate) const fn select_shape(&self) -> Option<LoweredSelectQueryShape> {
         match self {
-            Self::Select(select) => select.has_grouping(),
-            Self::Delete(_) => false,
+            Self::Select(select) => Some(select.shape()),
+            Self::Delete(_) => None,
         }
     }
 }
@@ -202,6 +205,9 @@ pub(crate) enum SqlLoweringError {
 
     #[error("ORDER BY alias '{alias}' does not resolve to a supported order target")]
     UnsupportedOrderByAlias { alias: String },
+
+    #[error("query-lane lowering reached a non query-compatible statement")]
+    UnexpectedQueryLaneStatement,
 }
 
 impl SqlLoweringError {
@@ -216,6 +222,11 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT projection SQL lowering error.
     const fn unsupported_select_projection() -> Self {
         Self::UnsupportedSelectProjection
+    }
+
+    /// Construct one query-lane lowering misuse error.
+    pub(crate) const fn unexpected_query_lane_statement() -> Self {
+        Self::UnexpectedQueryLaneStatement
     }
 
     /// Construct one unsupported SELECT DISTINCT SQL lowering error.

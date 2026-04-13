@@ -2,7 +2,7 @@ use crate::db::sql::lowering::SqlLoweringError;
 use crate::db::{
     predicate::Predicate,
     query::plan::expr::{
-        parse_supported_order_expr, render_supported_order_expr,
+        Expr, FieldId, Function, parse_supported_order_expr, render_supported_order_expr,
         rewrite_supported_order_expr_field, supported_order_expr_field,
     },
     sql::{
@@ -210,14 +210,20 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
             literal: None,
             literal2: None,
             literal3: None,
-        }) => Some(format!("LOWER({field})")),
+        }) => render_supported_order_expr(&Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![Expr::Field(FieldId::new(field.clone()))],
+        }),
         SqlSelectItem::TextFunction(SqlTextFunctionCall {
             function: SqlTextFunction::Upper,
             field,
             literal: None,
             literal2: None,
             literal3: None,
-        }) => Some(format!("UPPER({field})")),
+        }) => render_supported_order_expr(&Expr::FunctionCall {
+            function: Function::Upper,
+            args: vec![Expr::Field(FieldId::new(field.clone()))],
+        }),
         SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
     }
 }

@@ -109,6 +109,9 @@ impl QueryError {
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature { feature }) => {
                 Self::unsupported_sql_feature(feature)
             }
+            SqlLoweringError::UnexpectedQueryLaneStatement => {
+                Self::unsupported_query_lane_sql_statement()
+            }
             other => Self::unsupported_query(format!(
                 "SQL query is not executable in this release: {other}"
             )),

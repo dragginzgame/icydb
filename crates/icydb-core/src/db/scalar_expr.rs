@@ -154,7 +154,6 @@ impl ScalarExprValue<'_> {
 
 /// Convert one shared scalar expression value into the runtime `Value` enum.
 #[must_use]
-#[cfg(test)]
 pub(in crate::db) fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) -> Value {
     match value {
         ScalarExprValue::Null => Value::Null,
