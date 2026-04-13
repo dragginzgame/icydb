@@ -8,7 +8,7 @@ mod tests;
 
 use crate::{
     db::{
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
         reduced_sql::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
     },
     value::Value,
@@ -189,6 +189,11 @@ fn parse_plain_field_predicate(
     }
 
     let op = cursor.parse_compare_operator()?;
+    if matches!(cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
+        let right_field = cursor.expect_identifier()?;
+        return Ok(predicate_compare_fields(field, op, right_field));
+    }
+
     let value = cursor.parse_literal()?;
 
     Ok(predicate_compare(field, op, value))
@@ -429,4 +434,18 @@ fn predicate_compare_with_coercion(
     coercion: CoercionId,
 ) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(field, op, value, coercion))
+}
+
+fn predicate_compare_fields(left_field: String, op: CompareOp, right_field: String) -> Predicate {
+    let coercion = match op {
+        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => CoercionId::NumericWiden,
+        _ => CoercionId::Strict,
+    };
+
+    Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+        left_field,
+        op,
+        right_field,
+        coercion,
+    ))
 }

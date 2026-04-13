@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.79.x] ⚖️ - 2026-04-13 - Predicate Expressions
+
+- `0.79.0` starts the next SQL/fluent slice by adding bounded field-to-field predicate comparison on the shared predicate path, keeping those comparisons residual-only in planning and grouped-fail-closed for now, surfacing them clearly in explain output, letting scalar field-vs-field compares stay on the lightweight scalar predicate runtime instead of falling back to the generic structural lane, and folding the local SQL shell over to a real Rust-backed CLI with multiline input, history, boxed tables, and instruction-count footers.
+
+See detailed breakdown:
+[docs/changelog/0.79.md](docs/changelog/0.79.md)
+
+---
+
 ## [0.78.x] 🧮 - 2026-04-13 - Simple Scalar Projection Expressions
 
+- `0.78.2` locks the new scalar arithmetic and `ROUND(..., n)` projection slice at the shipped edges too, by adding direct public SQL result-packaging coverage and a live PocketIC SQL canister smoke test for subtraction and rounding without changing the bounded feature surface.
 - `0.78.1` widens the same bounded scalar projection slice so SQL and fluent now support `+`, `-`, `*`, `/`, and explicit `ROUND(..., n)` over a single field expression, while grouped arithmetic, predicate arithmetic, order-by arithmetic, and generic expression parsing still stay intentionally fail-closed.
 - `0.78.0` starts the next SQL/fluent slice by adding one bounded computed projection shape, so both SQL and fluent can now project `field + numeric_literal` through the same shared expression and evaluation path without widening grouping, filtering, ordering, or generic expression support.
 

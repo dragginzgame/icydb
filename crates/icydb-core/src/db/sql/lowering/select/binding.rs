@@ -32,6 +32,7 @@ pub(in crate::db) fn canonicalize_sql_predicate_for_model(
             canonicalize_sql_compare_for_model(model, &mut cmp);
             Predicate::Compare(cmp)
         }
+        Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
         Predicate::True
         | Predicate::False
         | Predicate::IsNull { .. }

@@ -8,6 +8,7 @@ Usage:
   sql.sh [--canister NAME] [--deploy] [--reset] [--init]
 
 Examples:
+  sql.sh
   sql.sh "select name, charisma from character order by charisma desc"
   sql.sh "select species, count(*) from character group by species order by species asc"
   sql.sh "explain select count(*) from character"
@@ -23,11 +24,15 @@ Examples:
 
 Environment:
   SQLQ_CANISTER  Default canister name (default: demo_rpg)
+  SQLQ_HISTORY_FILE  Interactive history path (default: .cache/sql_history)
 
 Flags:
   --deploy  Deploy canister only.
   --reset   Destructive: erase all fixtures, then load default fixtures.
   --init    Convenience: equivalent to --deploy --reset.
+
+With no SQL argument, `sql.sh` starts an interactive readline shell with
+history and arrow-key navigation through the Rust SQL shell binary.
 USAGE
 }
 
@@ -95,93 +100,7 @@ if [[ "$reset_requested" == true ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-    if [[ "$deploy_requested" == true || "$reset_requested" == true ]]; then
-        exit 0
-    fi
-
-    usage
-    exit 2
+    exec cargo run --quiet -p icydb --bin sql_shell -- --canister "$canister"
 fi
 
-sql="$*"
-
-# Escape characters that would break the Candid string argument.
-sql=${sql//\\/\\\\}
-sql=${sql//\"/\\\"}
-
-raw_json="$(dfx canister call "$canister" query "(\"$sql\")" --output json)"
-
-# Print one readable text surface for successful SQL results, or one readable error.
-printf '%s\n' "$raw_json" | jq -r '
-  def projection_lines($p):
-    [
-      "surface=projection entity=\($p.entity) row_count=\($p.row_count)",
-      ("columns: " + ($p.columns | join(", ")))
-    ] + ($p.rows | map("row: " + join(" | ")));
-
-  def grouped_lines($g):
-    [
-      "surface=grouped entity=\($g.entity) row_count=\($g.row_count) next_cursor=\($g.next_cursor // "none")",
-      ("columns: " + ($g.columns | join(", ")))
-    ] + ($g.rows | map("row: " + join(" | ")));
-
-  def describe_lines($d):
-    [
-      "entity: \($d.entity_name)",
-      "path: \($d.entity_path)",
-      "primary_key: \($d.primary_key)",
-      "fields:"
-    ]
-    + ($d.fields | map(
-        "  - \(.name): \(.kind) (primary_key=\(.primary_key), queryable=\(.queryable))"
-      ))
-    + (if ($d.indexes | length) == 0 then
-         ["indexes: []"]
-       else
-         ["indexes:"]
-         + ($d.indexes | map(
-             "  - \(.name)(\(.fields | join(", ")))"
-             + (if .unique then ", unique" else "" end)
-           ))
-       end)
-    + (if ($d.relations | length) == 0 then
-         ["relations: []"]
-       else
-         ["relations:"]
-         + ($d.relations | map(
-             "  - \(.field) -> \(.target_entity_name) (\(.strength), \(.cardinality))"
-           ))
-       end);
-
-  def query_result_lines($ok):
-    if ($ok | has("Projection")) then
-      projection_lines($ok.Projection)
-    elif ($ok | has("Grouped")) then
-      grouped_lines($ok.Grouped)
-    elif ($ok | has("Explain")) then
-      ["surface=explain"] + ($ok.Explain.explain | split("\n"))
-    elif ($ok | has("Describe")) then
-      describe_lines($ok.Describe)
-    elif ($ok | has("ShowIndexes")) then
-      ["surface=indexes entity=\($ok.ShowIndexes.entity) index_count=\($ok.ShowIndexes.indexes | length)"]
-      + $ok.ShowIndexes.indexes
-    elif ($ok | has("ShowColumns")) then
-      ["surface=columns entity=\($ok.ShowColumns.entity) column_count=\($ok.ShowColumns.columns | length)"]
-      + ($ok.ShowColumns.columns | map(
-          "\(.name): \(.kind) (primary_key=\(.primary_key), queryable=\(.queryable))"
-        ))
-    elif ($ok | has("ShowEntities")) then
-      ["surface=entities"] + ($ok.ShowEntities.entities | map("entity=\(.)"))
-    else
-      ["ERROR: unexpected query payload: " + ($ok | tostring)]
-    end;
-
-  first(.. | objects | select(has("Ok") or has("Err"))) as $r
-  | if $r == null then
-      "ERROR: unexpected response shape"
-    elif ($r | has("Ok")) then
-      query_result_lines($r.Ok)[]
-    else
-      "ERROR: " + ($r.Err | tostring)
-    end
-'
+exec cargo run --quiet -p icydb --bin sql_shell -- --canister "$canister" --sql "$*"

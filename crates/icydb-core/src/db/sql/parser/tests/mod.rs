@@ -13,7 +13,7 @@ use super::{
     SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+    db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     value::Value,
 };
 
@@ -217,6 +217,40 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
 }
 
 #[test]
+fn parse_select_statement_with_field_to_field_predicate() {
+    let statement =
+        parse_sql("SELECT * FROM users WHERE age > rank AND name = label ORDER BY age ASC")
+            .expect("field-to-field predicate select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: vec![],
+            predicate: Some(Predicate::And(vec![
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Gt,
+                    "rank",
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::eq_fields("name".to_string(), "label".to_string()),
+            ])),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_round_projection_items() {
     for (sql, expected_item, context) in [
         (
@@ -284,6 +318,24 @@ fn parse_select_statement_rejects_arithmetic_predicates_outside_projection_slice
         .expect_err("arithmetic predicates should remain outside the shipped slice");
 
     assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+}
+
+#[test]
+fn parse_select_statement_rejects_expression_predicate_near_misses_after_field_compare_slice() {
+    for sql in [
+        "SELECT * FROM users WHERE strength = dexterity + 1",
+        "SELECT * FROM users WHERE strength + dexterity = 10",
+        "SELECT * FROM users WHERE ROUND(strength, 1) = dexterity",
+    ] {
+        let err = parse_sql(sql).expect_err(
+            "expression predicates should stay outside the bounded field-compare slice",
+        );
+
+        assert!(
+            matches!(err, SqlParseError::InvalidSyntax { .. }),
+            "expression predicate near-miss should fail at syntax boundary: {sql}",
+        );
+    }
 }
 
 #[test]

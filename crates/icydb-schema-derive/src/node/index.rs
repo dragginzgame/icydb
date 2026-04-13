@@ -1,9 +1,10 @@
 use crate::{node::Entity, prelude::*};
 use icydb_core::{
     db::{
-        CoercionId as CoreCoercionId, CompareOp as CoreCompareOp,
-        ComparePredicate as CoreComparePredicate, Predicate as CorePredicate,
-        parse_generated_index_predicate_sql, validate_generated_index_predicate_fields,
+        CoercionId as CoreCoercionId, CompareFieldsPredicate as CoreCompareFieldsPredicate,
+        CompareOp as CoreCompareOp, ComparePredicate as CoreComparePredicate,
+        Predicate as CorePredicate, parse_generated_index_predicate_sql,
+        validate_generated_index_predicate_fields,
     },
     model::{
         FieldKind as CoreFieldKind, FieldModel as CoreFieldModel,
@@ -465,6 +466,10 @@ fn push_referenced_predicate_fields(predicate: &CorePredicate, fields: &mut Vec<
         }
         CorePredicate::Not(inner) => push_referenced_predicate_fields(inner, fields),
         CorePredicate::Compare(compare) => push_unique_field(compare.field(), fields),
+        CorePredicate::CompareFields(compare) => {
+            push_unique_field(compare.left_field(), fields);
+            push_unique_field(compare.right_field(), fields);
+        }
         CorePredicate::IsNull { field }
         | CorePredicate::IsNotNull { field }
         | CorePredicate::IsMissing { field }
@@ -508,6 +513,10 @@ fn predicate_runtime_tokens(predicate: &CorePredicate) -> Result<TokenStream, Da
         CorePredicate::Compare(compare) => {
             let compare = compare_predicate_runtime_tokens(compare)?;
             quote! { ::icydb::db::Predicate::Compare(#compare) }
+        }
+        CorePredicate::CompareFields(compare) => {
+            let compare = compare_fields_predicate_runtime_tokens(compare)?;
+            quote! { ::icydb::db::Predicate::CompareFields(#compare) }
         }
         CorePredicate::IsNull { field } => {
             quote! { ::icydb::db::Predicate::IsNull { field: #field.to_string() } }
@@ -561,6 +570,30 @@ fn compare_predicate_runtime_tokens(
 
     Ok(quote! {
         ::icydb::db::ComparePredicate::with_coercion(#field, #op, #value, #coercion)
+    })
+}
+
+fn compare_fields_predicate_runtime_tokens(
+    compare: &CoreCompareFieldsPredicate,
+) -> Result<TokenStream, DarlingError> {
+    if !compare.coercion().params().is_empty() {
+        return Err(DarlingError::custom(
+            "generated filtered index predicates do not support coercion parameters",
+        ));
+    }
+
+    let left_field = compare.left_field();
+    let op = compare_op_runtime_tokens(compare.op());
+    let right_field = compare.right_field();
+    let coercion = coercion_id_runtime_tokens(compare.coercion().id());
+
+    Ok(quote! {
+        ::icydb::db::CompareFieldsPredicate::with_coercion(
+            #left_field,
+            #op,
+            #right_field,
+            #coercion,
+        )
     })
 }
 

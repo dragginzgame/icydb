@@ -4,10 +4,11 @@
 //! Boundary: validates predicate/type semantics before planning and execution.
 
 use crate::{
+    db::schema::types::ScalarType,
     db::{
         predicate::{
-            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-            UnsupportedQueryFeature, supports_coercion,
+            CoercionId, CoercionSpec, CompareFieldsPredicate, CompareOp, ComparePredicate,
+            Predicate, UnsupportedQueryFeature, supports_coercion,
         },
         schema::{FieldType, SchemaInfo, ValidateError, literal_matches_type},
     },
@@ -22,6 +23,7 @@ pub(crate) fn reject_unsupported_query_features(
         Predicate::True
         | Predicate::False
         | Predicate::Compare(_)
+        | Predicate::CompareFields(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
@@ -54,6 +56,7 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
         }
         Predicate::Not(inner) => validate(schema, inner),
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
+        Predicate::CompareFields(cmp) => validate_compare_fields(schema, cmp),
         Predicate::IsNull { field }
         | Predicate::IsNotNull { field }
         | Predicate::IsMissing { field } => {
@@ -105,6 +108,42 @@ fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), V
     }
 }
 
+fn validate_compare_fields(
+    schema: &SchemaInfo,
+    cmp: &CompareFieldsPredicate,
+) -> Result<(), ValidateError> {
+    let left_type = ensure_field(schema, &cmp.left_field)?;
+    let right_type = ensure_field(schema, &cmp.right_field)?;
+
+    match cmp.op {
+        CompareOp::Eq | CompareOp::Ne => validate_compare_fields_eq_ne(
+            &cmp.left_field,
+            left_type,
+            &cmp.right_field,
+            right_type,
+            &cmp.coercion,
+        ),
+        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+            validate_compare_fields_ordering(
+                &cmp.left_field,
+                left_type,
+                &cmp.right_field,
+                right_type,
+                &cmp.coercion,
+                cmp.op,
+            )
+        }
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => Err(ValidateError::invalid_operator(
+            &cmp.left_field,
+            format!("{:?}", cmp.op),
+        )),
+    }
+}
+
 fn validate_eq_ne(
     field: &str,
     field_type: &FieldType,
@@ -118,6 +157,30 @@ fn validate_eq_ne(
     }
 
     ensure_coercion(field, field_type, value, coercion)
+}
+
+fn validate_compare_fields_eq_ne(
+    left_field: &str,
+    left_type: &FieldType,
+    right_field: &str,
+    right_type: &FieldType,
+    coercion: &CoercionSpec,
+) -> Result<(), ValidateError> {
+    if !field_types_support_field_compare_eq_ne(left_type, right_type) {
+        return Err(ValidateError::invalid_literal(
+            left_field,
+            format!("cannot compare field '{left_field}' with field '{right_field}'").as_str(),
+        ));
+    }
+
+    if !compare_fields_coercion_supported(left_type, right_type, coercion) {
+        return Err(ValidateError::InvalidCoercion {
+            field: left_field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_ordering(
@@ -141,6 +204,31 @@ fn validate_ordering(
     ensure_scalar_literal(field, value)?;
 
     ensure_coercion(field, field_type, value, coercion)
+}
+
+fn validate_compare_fields_ordering(
+    left_field: &str,
+    left_type: &FieldType,
+    right_field: &str,
+    right_type: &FieldType,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Result<(), ValidateError> {
+    if !field_types_support_field_compare_ordering(left_type, right_type) {
+        return Err(ValidateError::invalid_operator(
+            left_field,
+            format!("{op:?} against field '{right_field}'"),
+        ));
+    }
+
+    if !compare_fields_coercion_supported(left_type, right_type, coercion) {
+        return Err(ValidateError::InvalidCoercion {
+            field: left_field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
+    Ok(())
 }
 
 /// Validate list membership predicates.
@@ -272,6 +360,44 @@ fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> 
     }
 
     Ok(())
+}
+
+const fn field_types_support_field_compare_eq_ne(left: &FieldType, right: &FieldType) -> bool {
+    field_types_are_both_numeric(left, right)
+        || field_types_are_both_text(left, right)
+        || field_types_are_both_bool(left, right)
+}
+
+const fn field_types_support_field_compare_ordering(left: &FieldType, right: &FieldType) -> bool {
+    field_types_are_both_numeric(left, right) || field_types_are_both_text(left, right)
+}
+
+const fn field_types_are_both_text(left: &FieldType, right: &FieldType) -> bool {
+    left.is_text() && right.is_text()
+}
+
+const fn field_types_are_both_numeric(left: &FieldType, right: &FieldType) -> bool {
+    left.supports_numeric_coercion() && right.supports_numeric_coercion()
+}
+
+const fn field_types_are_both_bool(left: &FieldType, right: &FieldType) -> bool {
+    matches!(left, FieldType::Scalar(ScalarType::Bool))
+        && matches!(right, FieldType::Scalar(ScalarType::Bool))
+}
+
+const fn compare_fields_coercion_supported(
+    left_type: &FieldType,
+    right_type: &FieldType,
+    coercion: &CoercionSpec,
+) -> bool {
+    match coercion.id {
+        CoercionId::Strict => {
+            field_types_are_both_text(left_type, right_type)
+                || field_types_are_both_bool(left_type, right_type)
+        }
+        CoercionId::NumericWiden => field_types_are_both_numeric(left_type, right_type),
+        CoercionId::CollectionElement | CoercionId::TextCasefold => false,
+    }
 }
 
 // Reject list literals when scalar comparisons are required.

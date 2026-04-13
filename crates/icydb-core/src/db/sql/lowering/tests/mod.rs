@@ -184,6 +184,31 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
 }
 
 #[test]
+fn compile_sql_command_field_to_field_predicate_matches_fluent_intent() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age > age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("field-to-field predicate should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(crate::db::FieldRef::new("age").gt_field("age"));
+
+    assert_eq!(
+        query.plan().expect("SQL plan should build").into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent field-to-field plan should build")
+            .into_inner(),
+        "field-to-field SQL lowering should match the canonical fluent predicate leaf",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_distinct_star_lowers_to_distinct_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT DISTINCT * FROM SqlLowerEntity",
@@ -1403,6 +1428,40 @@ fn compile_sql_command_rejects_grouped_round_projection_in_current_slice() {
     .expect_err("grouped ROUND projection should remain fail-closed");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_field_to_field_predicate_in_current_slice() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity WHERE name > name GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped field-to-field predicate SQL should still lower structurally");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    let err = query.plan().expect_err(
+        "grouped field-to-field predicate should remain fail-closed at planner validation",
+    );
+
+    assert!(matches!(
+        err,
+        crate::db::query::intent::QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::PredicateFieldCompareUnsupported
+                            )
+                    )
+            )
+    ));
 }
 
 #[test]

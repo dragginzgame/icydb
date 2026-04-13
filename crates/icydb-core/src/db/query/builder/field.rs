@@ -4,7 +4,7 @@
 //! Boundary: ergonomic query-builder surface for field expressions.
 
 use crate::{
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+    db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     traits::FieldValue,
     value::Value,
 };
@@ -44,6 +44,16 @@ impl FieldRef {
             self.0,
             op,
             value.to_value(),
+            coercion,
+        ))
+    }
+
+    /// Internal field-to-field comparison predicate builder.
+    fn cmp_field(self, op: CompareOp, other: impl AsRef<str>, coercion: CoercionId) -> Predicate {
+        Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+            self.0,
+            op,
+            other.as_ref(),
             coercion,
         ))
     }
@@ -92,6 +102,42 @@ impl FieldRef {
     #[must_use]
     pub fn gte(self, value: impl FieldValue) -> Predicate {
         self.cmp(CompareOp::Gte, value, CoercionId::NumericWiden)
+    }
+
+    /// Strict equality comparison against another field.
+    #[must_use]
+    pub fn eq_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Eq, other, CoercionId::Strict)
+    }
+
+    /// Strict inequality comparison against another field.
+    #[must_use]
+    pub fn ne_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Ne, other, CoercionId::Strict)
+    }
+
+    /// Less-than comparison against another numeric or text field.
+    #[must_use]
+    pub fn lt_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Lt, other, CoercionId::NumericWiden)
+    }
+
+    /// Less-than-or-equal comparison against another numeric or text field.
+    #[must_use]
+    pub fn lte_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Lte, other, CoercionId::NumericWiden)
+    }
+
+    /// Greater-than comparison against another numeric or text field.
+    #[must_use]
+    pub fn gt_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Gt, other, CoercionId::NumericWiden)
+    }
+
+    /// Greater-than-or-equal comparison against another numeric or text field.
+    #[must_use]
+    pub fn gte_field(self, other: impl AsRef<str>) -> Predicate {
+        self.cmp_field(CompareOp::Gte, other, CoercionId::NumericWiden)
     }
 
     /// Membership test against a fixed list (strict).
@@ -232,5 +278,18 @@ mod tests {
         assert_eq!(compare.op, CompareOp::StartsWith);
         assert_eq!(compare.coercion.id, CoercionId::TextCasefold);
         assert_eq!(compare.value, Value::Text("AL".to_string()));
+    }
+
+    #[test]
+    fn field_ref_gt_field_builds_compare_fields_predicate() {
+        let predicate = FieldRef::new("age").gt_field("rank");
+        let Predicate::CompareFields(compare) = predicate else {
+            panic!("expected field-to-field compare predicate");
+        };
+
+        assert_eq!(compare.left_field(), "age");
+        assert_eq!(compare.op(), CompareOp::Gt);
+        assert_eq!(compare.right_field(), "rank");
+        assert_eq!(compare.coercion().id, CoercionId::NumericWiden);
     }
 }

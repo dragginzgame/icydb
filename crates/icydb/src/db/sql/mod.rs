@@ -4,7 +4,10 @@
 //! endpoint-friendly row payloads; parsing and execution stay in `icydb-core`.
 
 use candid::CandidType;
-use icydb_core::db::{GroupedRow, SqlStatementResult};
+use icydb_core::{
+    db::{GroupedRow, SqlStatementResult},
+    types::Decimal,
+};
 use serde::Deserialize;
 
 use crate::{
@@ -165,14 +168,9 @@ pub(crate) fn sql_query_result_from_statement(
             rows,
             row_count,
         } => {
-            let rows = rows
-                .into_iter()
-                .map(|row| {
-                    row.into_iter()
-                        .map(|value| render_value_text(&value))
-                        .collect::<Vec<String>>()
-                })
-                .collect::<Vec<Vec<String>>>();
+            // Preserve projection-local display contracts such as
+            // `ROUND(..., scale)` before packaging the outward shell rows.
+            let rows = render_projection_rows(columns.as_slice(), rows);
 
             SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
                 entity_name,
@@ -245,6 +243,83 @@ pub fn render_value_text(value: &Value) -> String {
         Value::Ulid(v) => v.to_string(),
         Value::Unit => "()".to_string(),
     }
+}
+
+fn render_projection_rows(columns: &[String], rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
+    rows.into_iter()
+        .map(|row| {
+            row.into_iter()
+                .enumerate()
+                .map(|(index, value)| render_projection_value_text(columns.get(index), &value))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn render_projection_value_text(column: Option<&String>, value: &Value) -> String {
+    let Some(scale) = column.and_then(|label| round_projection_scale(label.as_str())) else {
+        return render_value_text(value);
+    };
+
+    match value {
+        Value::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
+        _ => render_value_text(value),
+    }
+}
+
+fn round_projection_scale(column: &str) -> Option<u32> {
+    let body = column
+        .trim()
+        .strip_prefix("ROUND(")?
+        .strip_suffix(')')?
+        .trim();
+    let (_, scale) = body.rsplit_once(',')?;
+
+    scale.trim().parse::<u32>().ok()
+}
+
+fn render_decimal_with_fixed_scale(decimal: &Decimal, scale: u32) -> String {
+    let rounded = decimal.round_dp(scale);
+
+    if rounded.mantissa() == 0 {
+        if scale == 0 {
+            return "0".to_string();
+        }
+
+        return format!("0.{:0<width$}", "", width = scale as usize);
+    }
+
+    let negative = rounded.mantissa().is_negative();
+    let digits = rounded.mantissa().unsigned_abs().to_string();
+    let fixed = decimal_digits_with_scale(digits.as_str(), rounded.scale(), scale);
+
+    if negative { format!("-{fixed}") } else { fixed }
+}
+
+fn decimal_digits_with_scale(digits: &str, current_scale: u32, target_scale: u32) -> String {
+    if target_scale == 0 {
+        return digits.to_string();
+    }
+
+    let current_scale = current_scale as usize;
+    let target_scale = target_scale as usize;
+    let (integer, fraction) = if digits.len() <= current_scale {
+        let zeros = "0".repeat(current_scale - digits.len());
+        ("0".to_string(), format!("{zeros}{digits}"))
+    } else {
+        let split = digits.len() - current_scale;
+        (digits[..split].to_string(), digits[split..].to_string())
+    };
+
+    let mut rendered = integer;
+    rendered.push('.');
+    rendered.push_str(fraction.as_str());
+
+    for _ in current_scale..target_scale {
+        rendered.push('0');
+    }
+
+    rendered
 }
 
 fn sql_grouped_rows_output(
@@ -460,12 +535,9 @@ pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
     doc = "Render one SQL projection payload into pretty table lines for shell output."
 )]
 #[must_use]
-pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
-    // Phase 1: seed surface header and handle empty-projection output.
-    let mut lines = vec![format!(
-        "surface=projection entity={entity} row_count={}",
-        projection.row_count()
-    )];
+pub fn render_projection_lines(_entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
+    // Phase 1: handle empty-projection output before table layout.
+    let mut lines = Vec::new();
     if projection.columns().is_empty() {
         lines.push("(no projected columns)".to_string());
         return lines;
@@ -495,7 +567,11 @@ pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> 
     for row in projection.rows() {
         lines.push(render_table_row(row.as_slice(), widths.as_slice()));
     }
-    lines.push(separator);
+    if !projection.rows().is_empty() {
+        lines.push(separator);
+    }
+    lines.push(String::new());
+    lines.push(render_result_row_count_line(projection.row_count()));
 
     lines
 }
@@ -506,12 +582,9 @@ pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> 
 )]
 #[must_use]
 pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
-    // Phase 1: seed grouped header metadata and expose the outward continuation
-    // cursor on its own line when grouped pagination has more rows.
-    let mut lines = vec![format!(
-        "surface=grouped entity={} row_count={}",
-        grouped.entity, grouped.row_count
-    )];
+    // Phase 1: expose the outward continuation cursor on its own line when
+    // grouped pagination has more rows.
+    let mut lines = Vec::new();
     if let Some(next_cursor) = &grouped.next_cursor {
         lines.push(format!("next_cursor={next_cursor}"));
     }
@@ -544,9 +617,18 @@ pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
     for row in &grouped.rows {
         lines.push(render_table_row(row.as_slice(), widths.as_slice()));
     }
-    lines.push(separator);
+    if !grouped.rows.is_empty() {
+        lines.push(separator);
+    }
+    lines.push(String::new());
+    lines.push(render_result_row_count_line(grouped.row_count));
 
     lines
+}
+
+fn render_result_row_count_line(row_count: u32) -> String {
+    let noun = if row_count == 1 { "row" } else { "rows" };
+    format!("{row_count} {noun} in set")
 }
 
 fn render_table_separator(widths: &[usize]) -> String {
@@ -602,6 +684,7 @@ fn render_enum(value: &ValueEnum) -> String {
 #[cfg(test)]
 mod tests {
     use icydb_core::db::{GroupedRow, SqlStatementResult};
+    use icydb_core::types::Decimal;
 
     use crate::db::sql::{
         SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
@@ -734,14 +817,73 @@ mod tests {
         assert_eq!(
             result.render_lines(),
             vec![
-                "surface=projection entity=User row_count=1".to_string(),
                 "+-------+".to_string(),
                 "| name  |".to_string(),
                 "+-------+".to_string(),
                 "| alice |".to_string(),
                 "+-------+".to_string(),
+                String::new(),
+                "1 row in set".to_string(),
             ],
             "projection query-result rendering must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_projection_render_lines_empty_table_omits_trailing_separator() {
+        let projection = SqlQueryRowsOutput {
+            entity: "User".to_string(),
+            columns: vec![
+                "name".to_string(),
+                "hit_points".to_string(),
+                "strength".to_string(),
+            ],
+            rows: Vec::new(),
+            row_count: 0,
+        };
+        let result = SqlQueryResult::Projection(projection);
+
+        assert_eq!(
+            result.render_lines(),
+            vec![
+                "+------+------------+----------+".to_string(),
+                "| name | hit_points | strength |".to_string(),
+                "+------+------------+----------+".to_string(),
+                String::new(),
+                "0 rows in set".to_string(),
+            ],
+            "empty projection tables should stop after the header separator instead of rendering a duplicate closing border",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_grouped_render_lines_output_contract_vector_is_stable() {
+        let grouped = SqlGroupedRowsOutput {
+            entity: "User".to_string(),
+            columns: vec!["age".to_string(), "count(*)".to_string()],
+            rows: vec![
+                vec!["24".to_string(), "1".to_string()],
+                vec!["31".to_string(), "2".to_string()],
+            ],
+            row_count: 2,
+            next_cursor: Some("cursor:age:31".to_string()),
+        };
+        let result = SqlQueryResult::Grouped(grouped);
+
+        assert_eq!(
+            result.render_lines(),
+            vec![
+                "next_cursor=cursor:age:31".to_string(),
+                "+-----+----------+".to_string(),
+                "| age | count(*) |".to_string(),
+                "+-----+----------+".to_string(),
+                "| 24  | 1        |".to_string(),
+                "| 31  | 2        |".to_string(),
+                "+-----+----------+".to_string(),
+                String::new(),
+                "2 rows in set".to_string(),
+            ],
+            "grouped query-result rendering must remain contract-stable across release lines",
         );
     }
 
@@ -782,6 +924,64 @@ mod tests {
                 row_count: 2,
             }),
             "public SQL packaging must preserve text projection payloads verbatim",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_scalar_arithmetic_and_round_projection_rows() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Projection {
+                columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
+                rows: vec![
+                    vec![
+                        Value::Decimal(Decimal::from_i128(23).expect("23 decimal")),
+                        Value::Decimal(Decimal::new(800, 2)),
+                    ],
+                    vec![
+                        Value::Decimal(Decimal::from_i128(30).expect("30 decimal")),
+                        Value::Decimal(Decimal::new(1033, 2)),
+                    ],
+                ],
+                row_count: 2,
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Projection(SqlQueryRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
+                rows: vec![
+                    vec!["23".to_string(), "8.00".to_string()],
+                    vec!["30".to_string(), "10.33".to_string()],
+                ],
+                row_count: 2,
+            }),
+            "public SQL packaging must preserve arithmetic and ROUND projection labels and rendered decimal rows",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_fixed_scale_for_zero_round_projection_rows() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Projection {
+                columns: vec!["ROUND(age / 10, 3)".to_string()],
+                rows: vec![vec![Value::Decimal(Decimal::ZERO)]],
+                row_count: 1,
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Projection(SqlQueryRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["ROUND(age / 10, 3)".to_string()],
+                rows: vec![vec!["0.000".to_string()]],
+                row_count: 1,
+            }),
+            "public SQL packaging must keep ROUND projection scale even for zero values",
         );
     }
 

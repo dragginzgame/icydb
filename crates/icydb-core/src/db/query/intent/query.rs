@@ -1169,7 +1169,8 @@ fn plan_predicate_pushdown_label(
 
 fn explain_predicate_contains_non_strict_compare(predicate: &ExplainPredicate) -> bool {
     match predicate {
-        ExplainPredicate::Compare { coercion, .. } => coercion.id != CoercionId::Strict,
+        ExplainPredicate::Compare { coercion, .. }
+        | ExplainPredicate::CompareFields { coercion, .. } => coercion.id != CoercionId::Strict,
         ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
             .iter()
             .any(explain_predicate_contains_non_strict_compare),
@@ -1198,6 +1199,7 @@ fn explain_predicate_contains_is_null(predicate: &ExplainPredicate) -> bool {
         | ExplainPredicate::True
         | ExplainPredicate::False
         | ExplainPredicate::Compare { .. }
+        | ExplainPredicate::CompareFields { .. }
         | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
         | ExplainPredicate::IsEmpty { .. }
@@ -1222,6 +1224,7 @@ fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredic
         | ExplainPredicate::True
         | ExplainPredicate::False
         | ExplainPredicate::Compare { .. }
+        | ExplainPredicate::CompareFields { .. }
         | ExplainPredicate::IsNull { .. }
         | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
@@ -1245,6 +1248,7 @@ fn explain_predicate_contains_text_scan_operator(predicate: &ExplainPredicate) -
             .any(explain_predicate_contains_text_scan_operator),
         ExplainPredicate::Not(inner) => explain_predicate_contains_text_scan_operator(inner),
         ExplainPredicate::Compare { .. }
+        | ExplainPredicate::CompareFields { .. }
         | ExplainPredicate::None
         | ExplainPredicate::True
         | ExplainPredicate::False

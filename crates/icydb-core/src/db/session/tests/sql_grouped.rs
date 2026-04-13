@@ -878,6 +878,29 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
 }
 
 #[test]
+fn grouped_select_helper_rejects_field_to_field_predicate_in_current_slice() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let err = execute_grouped_select_for_tests::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT score, COUNT(*) \
+         FROM SessionDeterministicRangeEntity \
+         WHERE handle > label \
+         GROUP BY score \
+         ORDER BY score ASC LIMIT 10",
+        None,
+    )
+    .expect_err("grouped field-to-field predicate SQL should remain fail-closed");
+
+    assert!(
+        err.to_string()
+            .contains("grouped predicates do not support field-to-field comparisons"),
+        "grouped SQL helper should preserve the grouped predicate policy boundary message",
+    );
+}
+
+#[test]
 fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();

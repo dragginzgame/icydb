@@ -653,3 +653,27 @@ fn explain_sql_rejects_non_explain_statements() {
         "non-EXPLAIN input must fail as unsupported explain usage",
     );
 }
+
+#[test]
+fn explain_sql_field_to_field_predicate_stays_visible_in_predicate_tree() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = statement_explain_sql::<SessionDeterministicRangeEntity>(
+        &session,
+        "EXPLAIN JSON SELECT label \
+         FROM SessionDeterministicRangeEntity \
+         WHERE tier = 'gold' AND score > 18 AND handle > label \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("mixed literal and field-to-field EXPLAIN JSON should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "\"predicate\":\"And([Compare",
+            "CompareFields { left_field: \\\"handle\\\", op: Gt, right_field: \\\"label\\\"",
+        ],
+        "field-to-field explain should keep the compare-fields predicate shape visible",
+    );
+}

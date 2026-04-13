@@ -98,3 +98,243 @@ fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
         "scalar SELECT helper should preserve the dedicated aggregate-lane boundary message",
     );
 }
+
+#[test]
+fn execute_sql_scalar_field_to_field_predicate_matches_expected_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic field-compare matrix.
+    for (score, handle, label, expected_match) in [
+        (10_u64, "mango", "apple", true),
+        (20_u64, "alpha", "zebra", false),
+        (30_u64, "same", "same", false),
+        (40_u64, "omega", "beta", true),
+    ] {
+        session
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: "gold".to_string(),
+                score,
+                handle: handle.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic range fixture insert should succeed");
+
+        assert!(
+            expected_match == (handle > label),
+            "test matrix should label field-to-field compare rows correctly",
+        );
+    }
+
+    // Phase 2: require field-to-field filtering to execute as a residual row comparison.
+    let rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT label FROM SessionDeterministicRangeEntity \
+         WHERE handle > label \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("field-to-field predicate query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("apple".to_string())],
+            vec![Value::Text("beta".to_string())],
+        ],
+        "field-to-field runtime filtering should keep only rows whose left field exceeds the right field",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_equality_widens_mixed_numeric_fields() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one mixed signed/unsigned equality matrix.
+    for (label, left_score, right_score) in [
+        ("equal-a", 7_u64, 7_i64),
+        ("equal-b", 12_u64, 12_i64),
+        ("not-equal", 9_u64, 8_i64),
+        ("negative-right", 4_u64, -4_i64),
+    ] {
+        session
+            .insert(SessionSqlMixedNumericCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                left_score,
+                right_score,
+            })
+            .expect("mixed numeric compare fixture insert should succeed");
+    }
+
+    // Phase 2: require field-to-field equality to widen mixed numeric fields
+    // instead of failing strict runtime coercion.
+    let rows = statement_projection_rows::<SessionSqlMixedNumericCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlMixedNumericCompareEntity \
+         WHERE left_score = right_score \
+         ORDER BY label ASC",
+    )
+    .expect("mixed numeric field equality query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("equal-a".to_string())],
+            vec![Value::Text("equal-b".to_string())],
+        ],
+        "mixed numeric field equality should widen before residual comparison instead of failing strict coercion",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_matches_fluent_runtime_result() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic field-compare matrix used by both
+    // execution surfaces.
+    for (score, handle, label) in [
+        (10_u64, "mango", "apple"),
+        (20_u64, "alpha", "zebra"),
+        (30_u64, "same", "same"),
+        (40_u64, "omega", "beta"),
+    ] {
+        session
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: "gold".to_string(),
+                score,
+                handle: handle.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic range fixture insert should succeed");
+    }
+
+    // Phase 2: execute the SQL and fluent surfaces over the same predicate.
+    let sql_rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT label FROM SessionDeterministicRangeEntity \
+         WHERE handle > label \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("field-to-field SQL query should execute");
+
+    let fluent_labels = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(crate::db::FieldRef::new("handle").gt_field("label"))
+        .order_by("score")
+        .order_by("id")
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("field-to-field fluent query should execute")
+        .into_iter()
+        .map(|row| Value::Text(row.entity_ref().label.clone()))
+        .collect::<Vec<_>>();
+
+    let sql_labels = sql_rows
+        .into_iter()
+        .map(|mut row| {
+            row.pop()
+                .expect("single-column SQL field-to-field projection should contain one value")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        sql_labels, fluent_labels,
+        "field-to-field fluent execution should stay aligned with SQL runtime rows",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_same_field_compare_keeps_all_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic same-field compare matrix.
+    for (score, label) in [(10_u64, "same-a"), (20_u64, "same-b"), (30_u64, "same-c")] {
+        session
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: "gold".to_string(),
+                score,
+                handle: label.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic range fixture insert should succeed");
+    }
+
+    // Phase 2: require same-field equality to behave as a normal residual
+    // compare instead of tripping a special-case path.
+    let rows = statement_projection_rows::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT label FROM SessionDeterministicRangeEntity \
+         WHERE score = score \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("same-field compare query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("same-a".to_string())],
+            vec![Value::Text("same-b".to_string())],
+            vec![Value::Text("same-c".to_string())],
+        ],
+        "same-field compare should keep every seeded row when both sides resolve to the same value",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_invalid_type_compare_rejects_semantically() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity WHERE name > age",
+    )
+    .expect_err("text-vs-numeric field ordering should fail schema validation");
+
+    assert!(
+        err.to_string()
+            .contains("operator Gt against field 'age' is not valid for field 'name'"),
+        "invalid type compare should preserve the incompatible field-ordering boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_bool_ordering_rejects_semantically() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_scalar_select_for_tests::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT * FROM SessionSqlBoolCompareEntity WHERE active > archived",
+    )
+    .expect_err("ordered bool field compare should fail schema validation");
+
+    assert!(
+        err.to_string()
+            .contains("operator Gt against field 'archived' is not valid for field 'active'",),
+        "bool ordering should stay fail-closed instead of silently widening predicate semantics",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_field_to_field_unknown_field_rejects_at_field_resolution() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity WHERE age = unknown_field",
+    )
+    .expect_err("unknown right-hand field should fail field resolution");
+
+    assert!(
+        err.to_string().contains("unknown field 'unknown_field'"),
+        "missing compare field should stay a field-resolution error instead of a parser error",
+    );
+}

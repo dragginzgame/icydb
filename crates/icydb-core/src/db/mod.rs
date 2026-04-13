@@ -86,7 +86,8 @@ pub use migration::{
     MigrationStep,
 };
 pub use predicate::{
-    CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, UnsupportedQueryFeature,
+    CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
+    UnsupportedQueryFeature,
 };
 #[doc(hidden)]
 pub use predicate::{

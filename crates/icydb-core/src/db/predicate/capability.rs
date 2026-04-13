@@ -165,7 +165,7 @@ pub(in crate::db) fn classify_index_compare_component(
         return None;
     }
 
-    let field_slot = cmp.field_slot?;
+    let field_slot = cmp.left_field_slot()?;
     index_slots.iter().position(|slot| *slot == field_slot)
 }
 
@@ -175,7 +175,7 @@ pub(in crate::db) fn classify_index_compare_target(
     cmp: &ExecutableComparePredicate,
     compile_targets: &[IndexCompileTarget],
 ) -> Option<IndexCompileTarget> {
-    let field_slot = cmp.field_slot?;
+    let field_slot = cmp.left_field_slot()?;
 
     compile_targets.iter().copied().find(|target| {
         target.field_slot == field_slot && compare_is_indexable_for_target(cmp, *target)
@@ -392,10 +392,25 @@ fn predicate_is_scalar_safe(model: &EntityModel, predicate: &ExecutablePredicate
 
 // Classify whether one compare node can stay on the scalar slot seam.
 fn compare_is_scalar_safe(model: &EntityModel, cmp: &ExecutableComparePredicate) -> bool {
-    scalar_field_slot_supported(model, cmp.field_slot)
-        && scalar_compare_op_supported(cmp.op)
-        && scalar_compare_coercion_supported(cmp.coercion.id)
-        && scalar_compare_literal_supported(cmp.op, &cmp.value)
+    match (
+        cmp.left_field_slot(),
+        cmp.right_literal(),
+        cmp.right_field_slot(),
+    ) {
+        (Some(left_field_slot), Some(value), None) => {
+            scalar_field_slot_supported(model, Some(left_field_slot))
+                && scalar_compare_op_supported(cmp.op)
+                && scalar_compare_literal_coercion_supported(cmp.coercion.id)
+                && scalar_compare_literal_supported(cmp.op, value)
+        }
+        (Some(left_field_slot), None, Some(right_field_slot)) => {
+            scalar_field_slot_supported(model, Some(left_field_slot))
+                && scalar_field_slot_supported(model, Some(right_field_slot))
+                && scalar_field_compare_op_supported(cmp.op)
+                && scalar_compare_field_coercion_supported(cmp.coercion.id)
+        }
+        _ => false,
+    }
 }
 
 // Classify whether one compare node is index-compilable for one slot projection.
@@ -404,7 +419,10 @@ fn compare_is_indexable(cmp: &ExecutableComparePredicate, index_slots: &[usize])
         return false;
     }
 
-    let Some(field_slot) = cmp.field_slot else {
+    let Some(field_slot) = cmp.left_field_slot() else {
+        return false;
+    };
+    let Some(value) = cmp.right_literal() else {
         return false;
     };
     if !index_slots.contains(&field_slot) {
@@ -417,9 +435,9 @@ fn compare_is_indexable(cmp: &ExecutableComparePredicate, index_slots: &[usize])
         | CompareOp::Lt
         | CompareOp::Lte
         | CompareOp::Gt
-        | CompareOp::Gte => value_is_index_literal(&cmp.value),
-        CompareOp::In | CompareOp::NotIn => list_value_is_non_empty_index_literal(&cmp.value),
-        CompareOp::StartsWith => matches!(&cmp.value, Value::Text(prefix) if !prefix.is_empty()),
+        | CompareOp::Gte => value_is_index_literal(value),
+        CompareOp::In | CompareOp::NotIn => list_value_is_non_empty_index_literal(value),
+        CompareOp::StartsWith => matches!(value, Value::Text(prefix) if !prefix.is_empty()),
         CompareOp::Contains | CompareOp::EndsWith => false,
     }
 }
@@ -430,18 +448,20 @@ fn compare_is_indexable_for_target(
     cmp: &ExecutableComparePredicate,
     target: IndexCompileTarget,
 ) -> bool {
+    let Some(value) = cmp.right_literal() else {
+        return false;
+    };
+
     match cmp.op {
         CompareOp::Eq
         | CompareOp::Ne
         | CompareOp::Lt
         | CompareOp::Lte
         | CompareOp::Gt
-        | CompareOp::Gte => {
-            lower_index_compare_literal_for_target(target, &cmp.value, cmp.coercion.id)
-                .is_some_and(|value| value_is_index_literal(&value))
-        }
+        | CompareOp::Gte => lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
+            .is_some_and(|value| value_is_index_literal(&value)),
         CompareOp::In | CompareOp::NotIn => {
-            let Value::List(items) = &cmp.value else {
+            let Value::List(items) = value else {
                 return false;
             };
             !items.is_empty()
@@ -451,7 +471,7 @@ fn compare_is_indexable_for_target(
                 })
         }
         CompareOp::StartsWith => {
-            lower_index_starts_with_prefix_for_target(target, &cmp.value, cmp.coercion.id).is_some()
+            lower_index_starts_with_prefix_for_target(target, value, cmp.coercion.id).is_some()
         }
         CompareOp::Contains | CompareOp::EndsWith => false,
     }
@@ -475,8 +495,28 @@ const fn scalar_compare_op_supported(op: CompareOp) -> bool {
 }
 
 // Numeric widening still requires generic runtime comparison.
-const fn scalar_compare_coercion_supported(coercion: CoercionId) -> bool {
+const fn scalar_compare_literal_coercion_supported(coercion: CoercionId) -> bool {
     !matches!(coercion, CoercionId::NumericWiden)
+}
+
+// Field-vs-field scalar fast path shares the generic compare semantics layer,
+// so numeric widening is still allowed even though literal fast paths reject it.
+const fn scalar_compare_field_coercion_supported(coercion: CoercionId) -> bool {
+    !matches!(coercion, CoercionId::CollectionElement)
+}
+
+// Field-vs-field compare leaves are intentionally bounded to ordinary ordered
+// comparison operators in the current slice.
+const fn scalar_field_compare_op_supported(op: CompareOp) -> bool {
+    matches!(
+        op,
+        CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+    )
 }
 
 // Scalar fast-path execution is only valid for scalar leaf codecs.
@@ -593,12 +633,12 @@ mod tests {
 
     #[test]
     fn strict_scalar_compare_is_scalar_safe_and_indexable_when_indexed() {
-        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(0),
-            op: CompareOp::Eq,
-            value: Value::Int(7),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        });
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(0),
+            CompareOp::Eq,
+            Value::Int(7),
+            CoercionSpec::new(CoercionId::Strict),
+        ));
         let profile = classify_predicate_capabilities(
             &predicate,
             PredicateCapabilityContext {
@@ -634,12 +674,12 @@ mod tests {
     #[test]
     fn mixed_and_tree_is_partially_indexable_but_not_fully_indexable() {
         let predicate = ExecutablePredicate::And(vec![
-            ExecutablePredicate::Compare(ExecutableComparePredicate {
-                field_slot: Some(0),
-                op: CompareOp::Eq,
-                value: Value::Int(7),
-                coercion: CoercionSpec::new(CoercionId::Strict),
-            }),
+            ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+                Some(0),
+                CompareOp::Eq,
+                Value::Int(7),
+                CoercionSpec::new(CoercionId::Strict),
+            )),
             ExecutablePredicate::TextContainsCi {
                 field_slot: Some(1),
                 value: Value::Text("alp".to_string()),
@@ -658,18 +698,18 @@ mod tests {
 
     #[test]
     fn index_compare_component_requires_strict_supported_projection() {
-        let strict = ExecutableComparePredicate {
-            field_slot: Some(0),
-            op: CompareOp::In,
-            value: Value::List(vec![Value::Int(1), Value::Int(2)]),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        };
-        let non_strict = ExecutableComparePredicate {
-            field_slot: Some(0),
-            op: CompareOp::Eq,
-            value: Value::Int(7),
-            coercion: CoercionSpec::new(CoercionId::NumericWiden),
-        };
+        let strict = ExecutableComparePredicate::field_literal(
+            Some(0),
+            CompareOp::In,
+            Value::List(vec![Value::Int(1), Value::Int(2)]),
+            CoercionSpec::new(CoercionId::Strict),
+        );
+        let non_strict = ExecutableComparePredicate::field_literal(
+            Some(0),
+            CompareOp::Eq,
+            Value::Int(7),
+            CoercionSpec::new(CoercionId::NumericWiden),
+        );
 
         assert_eq!(classify_index_compare_component(&strict, &[0]), Some(0));
         assert_eq!(classify_index_compare_component(&strict, &[1]), None);
@@ -679,18 +719,18 @@ mod tests {
     #[test]
     fn text_casefold_expression_range_is_fully_indexable_for_compile_targets() {
         let predicate = ExecutablePredicate::And(vec![
-            ExecutablePredicate::Compare(ExecutableComparePredicate {
-                field_slot: Some(1),
-                op: CompareOp::Gte,
-                value: Value::Text("br".to_string()),
-                coercion: CoercionSpec::new(CoercionId::TextCasefold),
-            }),
-            ExecutablePredicate::Compare(ExecutableComparePredicate {
-                field_slot: Some(1),
-                op: CompareOp::Lt,
-                value: Value::Text("bs".to_string()),
-                coercion: CoercionSpec::new(CoercionId::TextCasefold),
-            }),
+            ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+                Some(1),
+                CompareOp::Gte,
+                Value::Text("br".to_string()),
+                CoercionSpec::new(CoercionId::TextCasefold),
+            )),
+            ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+                Some(1),
+                CompareOp::Lt,
+                Value::Text("bs".to_string()),
+                CoercionSpec::new(CoercionId::TextCasefold),
+            )),
         ]);
         let compile_targets = [IndexCompileTarget {
             component_index: 0,
@@ -704,12 +744,12 @@ mod tests {
 
     #[test]
     fn text_casefold_expression_compare_target_lowers_canonical_text_bytes() {
-        let cmp = ExecutableComparePredicate {
-            field_slot: Some(1),
-            op: CompareOp::StartsWith,
-            value: Value::Text("BR".to_string()),
-            coercion: CoercionSpec::new(CoercionId::TextCasefold),
-        };
+        let cmp = ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::StartsWith,
+            Value::Text("BR".to_string()),
+            CoercionSpec::new(CoercionId::TextCasefold),
+        );
         let compile_target = IndexCompileTarget {
             component_index: 0,
             field_slot: 1,
@@ -731,7 +771,7 @@ mod tests {
         assert_eq!(
             lower_index_starts_with_prefix_for_target(
                 compile_target,
-                &cmp.value,
+                cmp.right_literal().expect("starts-with test literal"),
                 CoercionId::TextCasefold,
             ),
             Some("br".to_string()),

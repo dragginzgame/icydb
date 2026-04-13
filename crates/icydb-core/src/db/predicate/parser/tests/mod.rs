@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, parse_sql_predicate},
+        predicate::{
+            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
+            parse_sql_predicate,
+        },
         reduced_sql::SqlParseError,
     },
     value::Value,
@@ -214,5 +217,24 @@ fn parse_sql_predicate_direct_starts_with_rejects_non_casefold_wrapper_argument(
         super::SqlParseError::UnsupportedFeature {
             feature: "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
         }
+    );
+}
+
+#[test]
+fn parse_sql_predicate_parses_field_to_field_compare_leaves() {
+    let predicate = parse_sql_predicate("age > rank AND name = label")
+        .expect("field-to-field predicate leaves should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::And(vec![
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "age",
+                CompareOp::Gt,
+                "rank",
+                CoercionId::NumericWiden,
+            )),
+            Predicate::eq_fields("name".to_string(), "label".to_string()),
+        ]),
     );
 }

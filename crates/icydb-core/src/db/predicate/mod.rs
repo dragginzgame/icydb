@@ -22,7 +22,9 @@ use crate::{
 };
 
 pub use coercion::CoercionId;
-pub use model::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
+pub use model::{
+    CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
+};
 pub use row_policy::MissingRowPolicy;
 
 pub(in crate::db) use capability::{
@@ -41,7 +43,9 @@ pub(in crate::db) use parser::parse_predicate_from_cursor;
 pub(crate) use parser::parse_sql_predicate;
 
 pub(in crate::db) use fingerprint::hash_predicate;
-pub(in crate::db) use resolved::{ExecutableComparePredicate, ExecutablePredicate};
+pub(in crate::db) use resolved::{
+    ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
+};
 pub(in crate::db) use runtime::PredicateProgram;
 pub(in crate::db) use semantics::{
     TextOp, canonical_cmp, compare_eq, compare_order, compare_text,

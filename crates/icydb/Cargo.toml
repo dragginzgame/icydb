@@ -27,7 +27,9 @@ icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }
 icydb-utils = { workspace = true }
 remain = { workspace = true }
+rustyline = "15.0"
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

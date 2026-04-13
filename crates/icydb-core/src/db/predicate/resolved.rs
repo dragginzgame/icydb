@@ -9,19 +9,95 @@ use crate::{
 };
 
 ///
+/// ExecutableCompareOperand
+///
+/// One compiled compare operand carried by the canonical executable predicate
+/// tree. Operands are either pre-resolved field slots or embedded literal
+/// payloads.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum ExecutableCompareOperand {
+    FieldSlot(Option<usize>),
+    Literal(Value),
+}
+
+///
 /// ExecutableComparePredicate
 ///
-/// One executable comparison node with a pre-resolved field slot.
-/// This is the canonical compare payload shared by runtime filtering and
-/// index-only predicate compilation.
+/// One canonical executable comparison node with compiled operands.
+/// Runtime filtering and index-only compilation both consume this single
+/// compare shape instead of carrying separate field-vs-literal and
+/// field-vs-field execution nodes.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableComparePredicate {
-    pub(in crate::db) field_slot: Option<usize>,
+    pub(in crate::db) left: ExecutableCompareOperand,
     pub(in crate::db) op: CompareOp,
-    pub(in crate::db) value: Value,
+    pub(in crate::db) right: ExecutableCompareOperand,
     pub(in crate::db) coercion: CoercionSpec,
+}
+
+impl ExecutableComparePredicate {
+    /// Construct one field-vs-literal executable compare node.
+    #[must_use]
+    pub(in crate::db) const fn field_literal(
+        field_slot: Option<usize>,
+        op: CompareOp,
+        value: Value,
+        coercion: CoercionSpec,
+    ) -> Self {
+        Self {
+            left: ExecutableCompareOperand::FieldSlot(field_slot),
+            op,
+            right: ExecutableCompareOperand::Literal(value),
+            coercion,
+        }
+    }
+
+    /// Construct one field-vs-field executable compare node.
+    #[must_use]
+    pub(in crate::db) const fn field_field(
+        left_field_slot: Option<usize>,
+        op: CompareOp,
+        right_field_slot: Option<usize>,
+        coercion: CoercionSpec,
+    ) -> Self {
+        Self {
+            left: ExecutableCompareOperand::FieldSlot(left_field_slot),
+            op,
+            right: ExecutableCompareOperand::FieldSlot(right_field_slot),
+            coercion,
+        }
+    }
+
+    /// Return the left operand when it is a field slot.
+    #[must_use]
+    pub(in crate::db) const fn left_field_slot(&self) -> Option<usize> {
+        match self.left {
+            ExecutableCompareOperand::FieldSlot(slot) => slot,
+            ExecutableCompareOperand::Literal(_) => None,
+        }
+    }
+
+    /// Return the right operand when it is a field slot.
+    #[must_use]
+    pub(in crate::db) const fn right_field_slot(&self) -> Option<usize> {
+        match self.right {
+            ExecutableCompareOperand::FieldSlot(slot) => slot,
+            ExecutableCompareOperand::Literal(_) => None,
+        }
+    }
+
+    /// Borrow the right operand when it is a literal payload.
+    #[must_use]
+    pub(in crate::db) const fn right_literal(&self) -> Option<&Value> {
+        match &self.right {
+            ExecutableCompareOperand::Literal(value) => Some(value),
+            ExecutableCompareOperand::FieldSlot(_) => None,
+        }
+    }
 }
 
 ///

@@ -427,6 +427,27 @@ fn assert_order_compatible_order_only_choice(
 }
 
 #[test]
+fn planner_field_to_field_compare_stays_residual_while_literal_clause_keeps_prefix_access() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt_fields("handle".to_string(), "label".to_string()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANKING_MODEL, schema, Some(&predicate))
+        .expect("mixed literal and field-to-field predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: PLANNER_RANKING_INDEXES[0],
+            values: vec![Value::Text("gold".to_string())],
+        }),
+        "field-to-field compare should stay residual-only while the literal equality keeps the tier prefix access route",
+    );
+}
+
+#[test]
 fn normalize_union_dedups_identical_paths() {
     let key = Value::Ulid(Ulid::from_u128(1));
     let plan = AccessPlan::Union(vec![

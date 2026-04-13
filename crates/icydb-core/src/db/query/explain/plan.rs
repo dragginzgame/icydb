@@ -395,6 +395,12 @@ pub enum ExplainPredicate {
         value: Value,
         coercion: CoercionSpec,
     },
+    CompareFields {
+        left_field: String,
+        op: CompareOp,
+        right_field: String,
+        coercion: CoercionSpec,
+    },
     IsNull {
         field: String,
     },
@@ -659,6 +665,12 @@ impl ExplainPredicate {
             }
             Predicate::Not(inner) => Self::Not(Box::new(Self::from_predicate(inner))),
             Predicate::Compare(compare) => Self::from_compare(compare),
+            Predicate::CompareFields(compare) => Self::CompareFields {
+                left_field: compare.left_field().to_string(),
+                op: compare.op(),
+                right_field: compare.right_field().to_string(),
+                coercion: compare.coercion().clone(),
+            },
             Predicate::IsNull { field } => Self::IsNull {
                 field: field.clone(),
             },

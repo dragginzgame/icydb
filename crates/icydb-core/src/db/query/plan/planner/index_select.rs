@@ -183,6 +183,7 @@ fn strip_query_clauses_satisfied_by_filtered_guard(
         Predicate::False
         | Predicate::Or(_)
         | Predicate::Not(_)
+        | Predicate::CompareFields(_)
         | Predicate::Compare(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
@@ -243,6 +244,7 @@ fn strip_query_clauses_satisfied_by_access_bounds(
         Predicate::False
         | Predicate::Or(_)
         | Predicate::Not(_)
+        | Predicate::CompareFields(_)
         | Predicate::Compare(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
@@ -315,6 +317,7 @@ fn query_compare_clauses(predicate: &Predicate) -> QueryCompareClauses<'_> {
         }
         Predicate::Or(_)
         | Predicate::Not(_)
+        | Predicate::CompareFields(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
@@ -378,7 +381,8 @@ fn collect_compare_clauses<'a>(
             CompareClauseMode::Query => CompareClauseCollect::Unsatisfiable,
             CompareClauseMode::Required => CompareClauseCollect::Unknown,
         },
-        Predicate::Or(_)
+        Predicate::CompareFields(_)
+        | Predicate::Or(_)
         | Predicate::Not(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }

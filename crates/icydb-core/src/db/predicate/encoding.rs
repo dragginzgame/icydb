@@ -18,6 +18,7 @@ const SORT_PRED_AND: u8 = 0x02;
 const SORT_PRED_OR: u8 = 0x03;
 const SORT_PRED_NOT: u8 = 0x04;
 const SORT_PRED_COMPARE: u8 = 0x05;
+const SORT_PRED_COMPARE_FIELDS: u8 = 0x0B;
 const SORT_PRED_IS_NULL: u8 = 0x06;
 const SORT_PRED_IS_MISSING: u8 = 0x07;
 const SORT_PRED_IS_EMPTY: u8 = 0x08;
@@ -64,6 +65,13 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
             push_str_u64(out, &cmp.field);
             out.push(cmp.op.tag());
             push_compare_value_sort_key_framed(out, cmp.op, cmp.coercion.id, &cmp.value);
+            push_coercion_sort_key_framed(out, &cmp.coercion);
+        }
+        Predicate::CompareFields(cmp) => {
+            out.push(SORT_PRED_COMPARE_FIELDS);
+            push_str_u64(out, &cmp.left_field);
+            out.push(cmp.op.tag());
+            push_str_u64(out, &cmp.right_field);
             push_coercion_sort_key_framed(out, &cmp.coercion);
         }
         Predicate::IsNull { field } => {

@@ -2,13 +2,15 @@ use super::*;
 
 // Lower one SQL query and require it to match the same normalized planned
 // intent as an explicit fluent query.
-fn assert_query_lowering_matches_fluent_intent(
+fn assert_query_lowering_matches_fluent_intent<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-    fluent_query: crate::db::query::intent::Query<SessionSqlEntity>,
+    fluent_query: crate::db::query::intent::Query<E>,
     context: &str,
-) {
-    let sql_query = lower_select_query_for_tests::<SessionSqlEntity>(&session, sql)
+) where
+    E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
+{
+    let sql_query = lower_select_query_for_tests::<E>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err}"));
 
     assert_eq!(
@@ -71,7 +73,12 @@ fn sql_query_lowering_strict_prefix_matrix_matches_strict_starts_with_intent() {
             CoercionId::Strict,
         )));
 
-        assert_query_lowering_matches_fluent_intent(&session, sql, fluent_query, context);
+        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+            &session,
+            sql,
+            fluent_query,
+            context,
+        );
     }
 }
 
@@ -114,7 +121,12 @@ fn sql_query_lowering_casefold_prefix_matrix_matches_casefold_starts_with_intent
             CoercionId::TextCasefold,
         )));
 
-        assert_query_lowering_matches_fluent_intent(&session, sql, fluent_query, context);
+        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+            &session,
+            sql,
+            fluent_query,
+            context,
+        );
     }
 }
 
@@ -157,6 +169,28 @@ fn sql_query_lowering_casefold_ordered_bounds_matrix_matches_casefold_intent() {
             )),
         ]));
 
-        assert_query_lowering_matches_fluent_intent(&session, sql, fluent_query, context);
+        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+            &session,
+            sql,
+            fluent_query,
+            context,
+        );
     }
+}
+
+#[test]
+fn sql_query_lowering_field_to_field_compare_matches_fluent_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let fluent_query = crate::db::query::intent::Query::<SessionDeterministicRangeEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(crate::db::FieldRef::new("handle").gt_field("label"));
+
+    assert_query_lowering_matches_fluent_intent::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT * FROM SessionDeterministicRangeEntity WHERE handle > label",
+        fluent_query,
+        "field-to-field predicate SQL lowering",
+    );
 }

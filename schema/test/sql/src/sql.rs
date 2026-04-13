@@ -37,7 +37,8 @@ pub struct SqlTestStore {}
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "name", value(item(prim = "Text"))),
-        field(ident = "age", value(item(prim = "Int32")))
+        field(ident = "age", value(item(prim = "Int32"))),
+        field(ident = "rank", value(item(prim = "Int32")))
     )
 )]
 pub struct SqlTestUser {}

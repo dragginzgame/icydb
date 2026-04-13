@@ -113,6 +113,72 @@ fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let arithmetic = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT age - 1 FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("scalar arithmetic SQL query should succeed"),
+    );
+    assert_eq!(
+        arithmetic,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["age - 1".to_string()],
+            rows: vec![vec!["23".to_string()], vec!["30".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve scalar arithmetic projection payloads at the live canister boundary",
+    );
+
+    let rounded = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(age / 3, 2) FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("scalar ROUND SQL query should succeed"),
+    );
+    assert_eq!(
+        rounded,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["ROUND(age / 3, 2)".to_string()],
+            rows: vec![vec!["8.00".to_string()], vec!["10.33".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve scalar ROUND projection payloads at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let filtered = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE age > rank ORDER BY age ASC LIMIT 10",
+        )
+        .expect("field-to-field predicate SQL query should succeed"),
+    );
+    assert_eq!(
+        filtered,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["alice".to_string()]],
+            row_count: 1,
+        },
+        "query(sql) should preserve field-to-field predicate filtering at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_preserves_show_tables_alias() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

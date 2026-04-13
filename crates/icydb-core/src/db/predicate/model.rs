@@ -19,6 +19,7 @@ pub enum Predicate {
     Or(Vec<Self>),
     Not(Box<Self>),
     Compare(ComparePredicate),
+    CompareFields(CompareFieldsPredicate),
     IsNull { field: String },
     IsNotNull { field: String },
     IsMissing { field: String },
@@ -82,6 +83,42 @@ impl Predicate {
     #[must_use]
     pub fn gte(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::gte(field, value))
+    }
+
+    /// Compare `left_field == right_field`.
+    #[must_use]
+    pub fn eq_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::eq(left_field, right_field))
+    }
+
+    /// Compare `left_field != right_field`.
+    #[must_use]
+    pub fn ne_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::ne(left_field, right_field))
+    }
+
+    /// Compare `left_field < right_field`.
+    #[must_use]
+    pub fn lt_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::lt(left_field, right_field))
+    }
+
+    /// Compare `left_field <= right_field`.
+    #[must_use]
+    pub fn lte_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::lte(left_field, right_field))
+    }
+
+    /// Compare `left_field > right_field`.
+    #[must_use]
+    pub fn gt_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::gt(left_field, right_field))
+    }
+
+    /// Compare `left_field >= right_field`.
+    #[must_use]
+    pub fn gte_fields(left_field: String, right_field: String) -> Self {
+        Self::CompareFields(CompareFieldsPredicate::gte(left_field, right_field))
     }
 
     /// Compare `field IN values`.
@@ -274,6 +311,110 @@ impl ComparePredicate {
     #[must_use]
     pub const fn value(&self) -> &Value {
         &self.value
+    }
+
+    /// Borrow the comparison coercion policy.
+    #[must_use]
+    pub const fn coercion(&self) -> &CoercionSpec {
+        &self.coercion
+    }
+}
+
+///
+/// CompareFieldsPredicate
+///
+/// Canonical predicate-owned field-to-field comparison leaf.
+/// This keeps bounded compare expressions on the predicate authority seam
+/// instead of routing them through projection-expression ownership.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompareFieldsPredicate {
+    pub(crate) left_field: String,
+    pub(crate) op: CompareOp,
+    pub(crate) right_field: String,
+    pub(crate) coercion: CoercionSpec,
+}
+
+impl CompareFieldsPredicate {
+    fn new(left_field: String, op: CompareOp, right_field: String) -> Self {
+        Self {
+            left_field,
+            op,
+            right_field,
+            coercion: CoercionSpec::default(),
+        }
+    }
+
+    /// Construct a field-to-field comparison predicate with an explicit
+    /// coercion policy.
+    #[must_use]
+    pub fn with_coercion(
+        left_field: impl Into<String>,
+        op: CompareOp,
+        right_field: impl Into<String>,
+        coercion: CoercionId,
+    ) -> Self {
+        Self {
+            left_field: left_field.into(),
+            op,
+            right_field: right_field.into(),
+            coercion: CoercionSpec::new(coercion),
+        }
+    }
+
+    /// Build `Eq` field-to-field comparison.
+    #[must_use]
+    pub fn eq(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Eq, right_field)
+    }
+
+    /// Build `Ne` field-to-field comparison.
+    #[must_use]
+    pub fn ne(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Ne, right_field)
+    }
+
+    /// Build `Lt` field-to-field comparison.
+    #[must_use]
+    pub fn lt(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Lt, right_field)
+    }
+
+    /// Build `Lte` field-to-field comparison.
+    #[must_use]
+    pub fn lte(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Lte, right_field)
+    }
+
+    /// Build `Gt` field-to-field comparison.
+    #[must_use]
+    pub fn gt(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Gt, right_field)
+    }
+
+    /// Build `Gte` field-to-field comparison.
+    #[must_use]
+    pub fn gte(left_field: String, right_field: String) -> Self {
+        Self::new(left_field, CompareOp::Gte, right_field)
+    }
+
+    /// Borrow the left compared field name.
+    #[must_use]
+    pub fn left_field(&self) -> &str {
+        &self.left_field
+    }
+
+    /// Return the compare operator.
+    #[must_use]
+    pub const fn op(&self) -> CompareOp {
+        self.op
+    }
+
+    /// Borrow the right compared field name.
+    #[must_use]
+    pub fn right_field(&self) -> &str {
+        &self.right_field
     }
 
     /// Borrow the comparison coercion policy.

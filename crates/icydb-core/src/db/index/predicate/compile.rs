@@ -278,6 +278,7 @@ fn compile_compare_index_node(
     // Capability classification owns index eligibility; translation only runs
     // once the compare node is known to be indexable for this slot projection.
     let component_index = classify_index_compare_component(cmp, index_slots)?;
+    let literal_value = cmp.right_literal()?;
 
     match cmp.op {
         CompareOp::Eq
@@ -286,7 +287,7 @@ fn compile_compare_index_node(
         | CompareOp::Lte
         | CompareOp::Gt
         | CompareOp::Gte => {
-            let literal = literal_index_component_bytes(&cmp.value)?;
+            let literal = literal_index_component_bytes(literal_value)?;
             let op = match cmp.op {
                 CompareOp::Eq => IndexCompareOp::Eq,
                 CompareOp::Ne => IndexCompareOp::Ne,
@@ -310,7 +311,7 @@ fn compile_compare_index_node(
             })
         }
         CompareOp::In | CompareOp::NotIn => {
-            let Value::List(items) = &cmp.value else {
+            let Value::List(items) = literal_value else {
                 return None;
             };
             if items.is_empty() {
@@ -340,7 +341,7 @@ fn compile_compare_index_node(
                 literal: IndexLiteral::Many(literals),
             })
         }
-        CompareOp::StartsWith => compile_starts_with_index_node(component_index, &cmp.value),
+        CompareOp::StartsWith => compile_starts_with_index_node(component_index, literal_value),
         CompareOp::Contains | CompareOp::EndsWith => None,
     }
 }
@@ -352,6 +353,7 @@ fn compile_compare_index_node_for_targets(
     compile_targets: &[IndexCompileTarget],
 ) -> Option<IndexPredicateProgram> {
     let target = classify_index_compare_target(cmp, compile_targets)?;
+    let literal_value = cmp.right_literal()?;
 
     match cmp.op {
         CompareOp::Eq
@@ -361,7 +363,7 @@ fn compile_compare_index_node_for_targets(
         | CompareOp::Gt
         | CompareOp::Gte => {
             let lowered =
-                lower_index_compare_literal_for_target(target, &cmp.value, cmp.coercion.id)?;
+                lower_index_compare_literal_for_target(target, literal_value, cmp.coercion.id)?;
             let literal = literal_index_component_bytes(&lowered)?;
             let op = match cmp.op {
                 CompareOp::Eq => IndexCompareOp::Eq,
@@ -384,7 +386,7 @@ fn compile_compare_index_node_for_targets(
             })
         }
         CompareOp::In | CompareOp::NotIn => {
-            let Value::List(values) = &cmp.value else {
+            let Value::List(values) = literal_value else {
                 return None;
             };
             let literals = values
@@ -418,7 +420,9 @@ fn compile_compare_index_node_for_targets(
                 literal: IndexLiteral::Many(literals),
             })
         }
-        CompareOp::StartsWith => compile_starts_with_index_node_for_target(cmp, target),
+        CompareOp::StartsWith => {
+            compile_starts_with_index_node_for_target(literal_value, cmp.coercion.id, target)
+        }
         CompareOp::Contains | CompareOp::EndsWith => None,
     }
 }
@@ -458,10 +462,11 @@ fn compile_starts_with_index_node(
 // Compile one starts-with compare node into one canonical bounded text range
 // for one key-item-aware compile target.
 fn compile_starts_with_index_node_for_target(
-    cmp: &ExecutableComparePredicate,
+    value: &Value,
+    coercion: crate::db::predicate::CoercionId,
     target: IndexCompileTarget,
 ) -> Option<IndexPredicateProgram> {
-    let prefix = lower_index_starts_with_prefix_for_target(target, &cmp.value, cmp.coercion.id)?;
+    let prefix = lower_index_starts_with_prefix_for_target(target, value, coercion)?;
     let lower_literal = literal_index_component_bytes(&Value::Text(prefix.clone()))?;
     let lower = IndexPredicateProgram::Compare {
         component_index: target.component_index,

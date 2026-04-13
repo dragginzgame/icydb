@@ -99,12 +99,12 @@ fn canonical_index_predicate_is_absent_for_unfiltered_index() {
 
 #[test]
 fn compile_index_program_maps_field_slot_to_component_index() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(7),
-        op: CompareOp::Eq,
-        value: Value::Uint(11),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(7),
+        CompareOp::Eq,
+        Value::Uint(11),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(
         &predicate,
@@ -127,12 +127,12 @@ fn compile_index_program_maps_field_slot_to_component_index() {
 
 #[test]
 fn compile_index_program_rejects_non_strict_coercion() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::Eq,
-        value: Value::Uint(11),
-        coercion: CoercionSpec::new(CoercionId::NumericWiden),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::Eq,
+        Value::Uint(11),
+        CoercionSpec::new(CoercionId::NumericWiden),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
@@ -158,12 +158,12 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
         (CompareOp::StartsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in eligible {
-        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
             op,
             value,
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        });
+            CoercionSpec::new(CoercionId::Strict),
+        ));
         let program =
             compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
@@ -178,12 +178,12 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
         (CompareOp::EndsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in ineligible {
-        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
             op,
             value,
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        });
+            CoercionSpec::new(CoercionId::Strict),
+        ));
         let program =
             compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
@@ -196,12 +196,12 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
 
 #[test]
 fn compile_index_program_starts_with_compiles_to_bounded_range_compare_pair() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text("foo".to_string()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text("foo".to_string()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
         .expect("strict starts-with should compile for index prefilter");
@@ -229,12 +229,12 @@ fn compile_index_program_starts_with_compiles_to_bounded_range_compare_pair() {
 
 #[test]
 fn compile_index_program_starts_with_rejects_empty_prefix() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text(String::new()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text(String::new()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
@@ -243,12 +243,12 @@ fn compile_index_program_starts_with_rejects_empty_prefix() {
 #[test]
 fn compile_index_program_starts_with_high_unicode_skips_surrogate_gap_upper_bound() {
     let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text(prefix.clone()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text(prefix.clone()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
         .expect("strict starts-with should compile for high-unicode prefix");
@@ -280,12 +280,12 @@ fn compile_index_program_starts_with_high_unicode_skips_surrogate_gap_upper_boun
 #[test]
 fn compile_index_program_starts_with_max_unicode_compiles_to_lower_bound_only() {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text(prefix.clone()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text(prefix.clone()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
         .expect("max-unicode starts-with should compile to one lower-bound compare");
@@ -304,12 +304,12 @@ fn compile_index_program_starts_with_max_unicode_compiles_to_lower_bound_only() 
 
 #[test]
 fn compile_index_program_strict_mode_accepts_starts_with_bounded_prefix() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text("foo".to_string()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text("foo".to_string()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone)
         .expect("strict-all-or-none should compile starts-with when fully index-expressible");
@@ -338,12 +338,12 @@ fn compile_index_program_strict_mode_accepts_starts_with_bounded_prefix() {
 #[test]
 fn compile_index_program_strict_mode_accepts_starts_with_max_unicode_prefix() {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::StartsWith,
-        value: Value::Text(prefix.clone()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::StartsWith,
+        Value::Text(prefix.clone()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone)
         .expect("strict-all-or-none should compile max-unicode starts-with lower-bound form");
@@ -363,18 +363,18 @@ fn compile_index_program_strict_mode_accepts_starts_with_max_unicode_prefix() {
 #[test]
 fn compile_index_program_targets_accept_text_casefold_strict_range() {
     let predicate = ExecutablePredicate::And(vec![
-        ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
-            op: CompareOp::Gte,
-            value: Value::Text("BR".to_string()),
-            coercion: CoercionSpec::new(CoercionId::TextCasefold),
-        }),
-        ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
-            op: CompareOp::Lt,
-            value: Value::Text("BS".to_string()),
-            coercion: CoercionSpec::new(CoercionId::TextCasefold),
-        }),
+        ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::Gte,
+            Value::Text("BR".to_string()),
+            CoercionSpec::new(CoercionId::TextCasefold),
+        )),
+        ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::Lt,
+            Value::Text("BS".to_string()),
+            CoercionSpec::new(CoercionId::TextCasefold),
+        )),
     ]);
     let compile_targets = [IndexCompileTarget {
         component_index: 0,
@@ -430,12 +430,12 @@ fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
     ];
 
     for (op, value) in operators {
-        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
             op,
             value,
-            coercion: CoercionSpec::new(CoercionId::NumericWiden),
-        });
+            CoercionSpec::new(CoercionId::NumericWiden),
+        ));
         let program =
             compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
@@ -448,12 +448,12 @@ fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
 
 #[test]
 fn compile_index_program_rejects_in_with_non_list_literal() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::In,
-        value: Value::Uint(11),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::In,
+        Value::Uint(11),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
@@ -461,12 +461,12 @@ fn compile_index_program_rejects_in_with_non_list_literal() {
 
 #[test]
 fn compile_index_program_rejects_in_with_empty_list_literal() {
-    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
-        field_slot: Some(1),
-        op: CompareOp::In,
-        value: Value::List(Vec::new()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    });
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+        Some(1),
+        CompareOp::In,
+        Value::List(Vec::new()),
+        CoercionSpec::new(CoercionId::Strict),
+    ));
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
@@ -475,22 +475,22 @@ fn compile_index_program_rejects_in_with_empty_list_literal() {
 #[test]
 fn compile_index_program_and_subset_compiles_supported_children_only() {
     let predicate = ExecutablePredicate::And(vec![
-        ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
-            op: CompareOp::Eq,
-            value: Value::Uint(11),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        }),
+        ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::Eq,
+            Value::Uint(11),
+            CoercionSpec::new(CoercionId::Strict),
+        )),
         ExecutablePredicate::TextContains {
             field_slot: Some(1),
             value: Value::Text("x".to_string()),
         },
-        ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(2),
-            op: CompareOp::Gt,
-            value: Value::Uint(9),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        }),
+        ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(2),
+            CompareOp::Gt,
+            Value::Uint(9),
+            CoercionSpec::new(CoercionId::Strict),
+        )),
     ]);
 
     let program =
@@ -539,12 +539,12 @@ fn compile_index_program_and_subset_drops_fully_unsupported_and() {
 #[test]
 fn compile_index_program_strict_rejects_partial_and_support() {
     let predicate = ExecutablePredicate::And(vec![
-        ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: Some(1),
-            op: CompareOp::Eq,
-            value: Value::Uint(11),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        }),
+        ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            Some(1),
+            CompareOp::Eq,
+            Value::Uint(11),
+            CoercionSpec::new(CoercionId::Strict),
+        )),
         ExecutablePredicate::TextContains {
             field_slot: Some(1),
             value: Value::Text("x".to_string()),

@@ -530,6 +530,40 @@ struct SessionSqlSignedWriteEntity {
 }
 
 ///
+/// SessionSqlMixedNumericCompareEntity
+///
+/// Mixed numeric compare fixture used to lock field-to-field equality widening
+/// across signed and unsigned scalar fields on the live SQL session path.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlMixedNumericCompareEntity {
+    id: Ulid,
+    label: String,
+    left_score: u64,
+    right_score: i64,
+}
+
+///
+/// SessionSqlBoolCompareEntity
+///
+/// Bool field-compare fixture used to lock semantic rejection for ordered
+/// field-to-field boolean predicates on the live SQL session path.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlBoolCompareEntity {
+    id: Ulid,
+    label: String,
+    active: bool,
+    archived: bool,
+}
+
+///
 /// IndexedSessionSqlEntity
 ///
 /// Indexed SQL session fixture used to lock strict text-prefix execution over a
@@ -957,6 +991,42 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Int),
         ("delta", FieldKind::Int),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlMixedNumericCompareEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlMixedNumericCompareEntity",
+    entity_tag = EntityTag::new(0x1049),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("label", FieldKind::Text),
+        ("left_score", FieldKind::Uint),
+        ("right_score", FieldKind::Int),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlBoolCompareEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlBoolCompareEntity",
+    entity_tag = EntityTag::new(0x104A),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("label", FieldKind::Text),
+        ("active", FieldKind::Bool),
+        ("archived", FieldKind::Bool),
     ],
     indexes = [],
     store = SessionSqlStore,

@@ -30,6 +30,7 @@ pub(super) fn plan_predicate(
         Predicate::True
         | Predicate::False
         | Predicate::Not(_)
+        | Predicate::CompareFields(_)
         | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }

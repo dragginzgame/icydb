@@ -44,6 +44,7 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
         Predicate::Not(inner) => normalize_not(inner),
 
         Predicate::Compare(cmp) => Predicate::Compare(normalize_compare(cmp)),
+        Predicate::CompareFields(cmp) => Predicate::CompareFields(normalize_compare_fields(cmp)),
 
         Predicate::IsNull { field } => Predicate::IsNull {
             field: field.clone(),
@@ -109,6 +110,9 @@ pub(in crate::db) fn normalize_enum_literals(
         Predicate::Compare(cmp) => Ok(Predicate::Compare(normalize_compare_with_schema(
             schema, cmp,
         )?)),
+        Predicate::CompareFields(cmp) => Ok(Predicate::CompareFields(
+            normalize_compare_fields_with_schema(schema, cmp),
+        )),
         Predicate::IsNull { field } => Ok(Predicate::IsNull {
             field: field.clone(),
         }),
@@ -148,6 +152,17 @@ fn normalize_compare(cmp: &ComparePredicate) -> ComparePredicate {
     }
 }
 
+fn normalize_compare_fields(
+    cmp: &crate::db::predicate::CompareFieldsPredicate,
+) -> crate::db::predicate::CompareFieldsPredicate {
+    crate::db::predicate::CompareFieldsPredicate::with_coercion(
+        cmp.left_field.clone(),
+        cmp.op,
+        cmp.right_field.clone(),
+        cmp.coercion.id,
+    )
+}
+
 fn normalize_compare_with_schema(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -164,6 +179,74 @@ fn normalize_compare_with_schema(
         value,
         coercion: cmp.coercion.clone(),
     })
+}
+
+fn normalize_compare_fields_with_schema(
+    schema: &SchemaInfo,
+    cmp: &crate::db::predicate::CompareFieldsPredicate,
+) -> crate::db::predicate::CompareFieldsPredicate {
+    let Some(left_kind) = schema.field_kind(&cmp.left_field) else {
+        return cmp.clone();
+    };
+    let Some(right_kind) = schema.field_kind(&cmp.right_field) else {
+        return cmp.clone();
+    };
+
+    let left_field = cmp.left_field.clone();
+    let right_field = cmp.right_field.clone();
+    let coercion =
+        normalize_compare_fields_coercion(cmp.op, left_kind, right_kind, cmp.coercion.id);
+
+    crate::db::predicate::CompareFieldsPredicate::with_coercion(
+        left_field,
+        cmp.op,
+        right_field,
+        coercion,
+    )
+}
+
+const fn normalize_compare_fields_coercion(
+    op: CompareOp,
+    left_kind: &FieldKind,
+    right_kind: &FieldKind,
+    current: CoercionId,
+) -> CoercionId {
+    match op {
+        CompareOp::Eq | CompareOp::Ne => {
+            if field_kinds_support_numeric_widen(left_kind, right_kind) {
+                CoercionId::NumericWiden
+            } else {
+                current
+            }
+        }
+        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+            if matches!(left_kind, FieldKind::Text) && matches!(right_kind, FieldKind::Text) {
+                CoercionId::Strict
+            } else {
+                current
+            }
+        }
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => current,
+    }
+}
+
+const fn field_kinds_support_numeric_widen(left_kind: &FieldKind, right_kind: &FieldKind) -> bool {
+    supports_numeric_widen_kind(left_kind) && supports_numeric_widen_kind(right_kind)
+}
+
+const fn supports_numeric_widen_kind(kind: &FieldKind) -> bool {
+    matches!(
+        kind,
+        FieldKind::Decimal { .. }
+            | FieldKind::Float32
+            | FieldKind::Float64
+            | FieldKind::Int
+            | FieldKind::Uint
+    )
 }
 
 fn normalize_compare_value_for_kind(
@@ -475,6 +558,7 @@ const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
     match predicate {
         Predicate::True | Predicate::False => 0,
         Predicate::Compare(_)
+        | Predicate::CompareFields(_)
         | Predicate::IsNull { .. }
         | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }

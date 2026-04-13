@@ -487,6 +487,28 @@ fn is_order_requires_limit(err: &GroupPlanError) -> bool {
     matches!(err, GroupPlanError::OrderRequiresLimit)
 }
 
+fn is_grouped_predicate_field_compare_unsupported(err: &GroupPlanError) -> bool {
+    matches!(err, GroupPlanError::PredicateFieldCompareUnsupported)
+}
+
+fn grouped_field_compare_predicate_case() -> AccessPlannedQuery {
+    let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    base.scalar_plan_mut().predicate = Some(crate::db::Predicate::gt_fields(
+        "rank".to_string(),
+        "tag".to_string(),
+    ));
+
+    grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    )
+}
+
 fn grouped_distinct_exists_terminal_case() -> AccessPlannedQuery {
     grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
@@ -786,6 +808,11 @@ fn grouped_plan_rejects_validation_shape_matrix() {
             "order without limit",
             grouped_order_without_limit_case,
             is_order_requires_limit,
+        ),
+        (
+            "field-to-field predicate on grouped plan",
+            grouped_field_compare_predicate_case,
+            is_grouped_predicate_field_compare_unsupported,
         ),
     ];
 

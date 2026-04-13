@@ -101,6 +101,9 @@ where
         Predicate::Compare(compare) => {
             Predicate::Compare(rewrite_compare_field(compare, map_field))
         }
+        Predicate::CompareFields(compare) => {
+            Predicate::CompareFields(rewrite_compare_fields(compare, map_field))
+        }
         Predicate::IsNull { field } => Predicate::IsNull {
             field: map_field(field),
         },
@@ -138,6 +141,21 @@ where
         value: compare.value,
         coercion: compare.coercion,
     }
+}
+
+fn rewrite_compare_fields<F>(
+    compare: crate::db::predicate::CompareFieldsPredicate,
+    map_field: &mut F,
+) -> crate::db::predicate::CompareFieldsPredicate
+where
+    F: FnMut(String) -> String,
+{
+    crate::db::predicate::CompareFieldsPredicate::with_coercion(
+        map_field(compare.left_field().to_string()),
+        compare.op(),
+        map_field(compare.right_field().to_string()),
+        compare.coercion().id,
+    )
 }
 
 ///

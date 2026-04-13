@@ -299,6 +299,10 @@ pub enum GroupPlanError {
     #[error("grouped ORDER BY requires LIMIT")]
     OrderRequiresLimit,
 
+    /// Grouped predicate shapes stay fail-closed for field-to-field compares in this slice.
+    #[error("grouped predicates do not support field-to-field comparisons in this release")]
+    PredicateFieldCompareUnsupported,
+
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
     #[error("grouped HAVING with DISTINCT is unsupported")]
     DistinctHavingUnsupported,
@@ -401,6 +405,11 @@ impl GroupPlanError {
     /// Construct one grouped ORDER BY prefix-alignment validation error.
     pub(crate) const fn order_prefix_not_aligned_with_group_keys() -> Self {
         Self::OrderPrefixNotAlignedWithGroupKeys
+    }
+
+    /// Construct one grouped field-to-field predicate unsupported policy error.
+    pub(crate) const fn predicate_field_compare_unsupported() -> Self {
+        Self::PredicateFieldCompareUnsupported
     }
 
     /// Construct one empty grouped-field-set validation error.
@@ -848,6 +857,7 @@ impl GroupPlanError {
                 | Self::DistinctAdjacencyEligibilityRequired
                 | Self::OrderPrefixNotAlignedWithGroupKeys
                 | Self::OrderRequiresLimit
+                | Self::PredicateFieldCompareUnsupported
                 | Self::DistinctHavingUnsupported
                 | Self::HavingUnsupportedCompareOp { .. }
                 | Self::DistinctAggregateKindUnsupported { .. }

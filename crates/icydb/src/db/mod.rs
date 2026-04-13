@@ -8,8 +8,8 @@ pub mod sql;
 pub use icydb_core::db::Row;
 #[doc(hidden)]
 pub use icydb_core::db::{
-    CoercionId, CompareOp, ComparePredicate, EntityAuthority, PersistedRow, PersistedScalar,
-    Predicate, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
+    CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, EntityAuthority, PersistedRow,
+    PersistedScalar, Predicate, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     debug_remove_entity_row_data_only, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
     decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,

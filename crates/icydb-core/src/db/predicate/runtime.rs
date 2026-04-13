@@ -7,10 +7,10 @@ use crate::{
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
         predicate::{
-            CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableComparePredicate,
-            ExecutablePredicate, Predicate, PredicateCapabilityContext, PredicateExecutionModel,
-            ScalarPredicateCapability, TextOp, classify_predicate_capabilities, compare_eq,
-            compare_order, compare_text,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
+            ExecutableComparePredicate, ExecutablePredicate, Predicate, PredicateCapabilityContext,
+            PredicateExecutionModel, ScalarPredicateCapability, TextOp,
+            classify_predicate_capabilities, compare_eq, compare_order, compare_text,
         },
     },
     model::{
@@ -178,12 +178,23 @@ fn compile_predicate_program(
             op,
             value,
             coercion,
-        }) => ExecutablePredicate::Compare(ExecutableComparePredicate {
-            field_slot: resolve_field(model, field),
-            op: *op,
-            value: value.clone(),
-            coercion: coercion.clone(),
-        }),
+        }) => ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+            resolve_field(model, field),
+            *op,
+            value.clone(),
+            coercion.clone(),
+        )),
+        Predicate::CompareFields(crate::db::predicate::CompareFieldsPredicate {
+            left_field,
+            op,
+            right_field,
+            coercion,
+        }) => ExecutablePredicate::Compare(ExecutableComparePredicate::field_field(
+            resolve_field(model, left_field),
+            *op,
+            resolve_field(model, right_field),
+            coercion.clone(),
+        )),
         Predicate::IsNull { field } => ExecutablePredicate::IsNull {
             field_slot: resolve_field(model, field),
         },
@@ -238,7 +249,8 @@ fn mark_executable_predicate_referenced_slots(
             mark_executable_predicate_referenced_slots(child.as_ref(), required_slots);
         }
         ExecutablePredicate::Compare(compare) => {
-            mark_predicate_slot(compare.field_slot, required_slots);
+            mark_compare_operand_slots(&compare.left, required_slots);
+            mark_compare_operand_slots(&compare.right, required_slots);
         }
         ExecutablePredicate::IsNull { field_slot }
         | ExecutablePredicate::IsNotNull { field_slot }
@@ -249,6 +261,13 @@ fn mark_executable_predicate_referenced_slots(
         | ExecutablePredicate::TextContainsCi { field_slot, .. } => {
             mark_predicate_slot(*field_slot, required_slots);
         }
+    }
+}
+
+// Mark one compare operand when it resolves to a field slot.
+fn mark_compare_operand_slots(operand: &ExecutableCompareOperand, required_slots: &mut [bool]) {
+    if let ExecutableCompareOperand::FieldSlot(slot) = operand {
+        mark_predicate_slot(*slot, required_slots);
     }
 }
 
@@ -305,6 +324,79 @@ where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
     field_from_slot_cow(field_slot, read_slot).is_some_and(|value| f(value.as_ref()))
+}
+
+// Load both compare operands once through the borrowed row-reader seam and
+// then route the resolved values into one shared compare callback.
+fn with_compare_operands_ref<'a, F, R>(
+    cmp: &ExecutableComparePredicate,
+    read_slot: &mut F,
+    eval: impl FnOnce(&Value, &Value) -> R,
+) -> Option<R>
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    let left = match &cmp.left {
+        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_ref(*slot, read_slot)?,
+        ExecutableCompareOperand::Literal(value) => value,
+    };
+    let right = match &cmp.right {
+        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_ref(*slot, read_slot)?,
+        ExecutableCompareOperand::Literal(value) => value,
+    };
+
+    Some(eval(left, right))
+}
+
+// Load both compare operands once through the mixed borrowed/owned row-reader
+// seam and then route the resolved values into one shared compare callback.
+fn with_compare_operands_cow<'a, F, R>(
+    cmp: &ExecutableComparePredicate,
+    read_slot: &mut F,
+    eval: impl FnOnce(&Value, &Value) -> R,
+) -> Option<R>
+where
+    F: FnMut(usize) -> Option<Cow<'a, Value>>,
+{
+    let left = match &cmp.left {
+        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_cow(*slot, read_slot)?,
+        ExecutableCompareOperand::Literal(value) => Cow::Borrowed(value),
+    };
+    let right = match &cmp.right {
+        ExecutableCompareOperand::FieldSlot(slot) => field_from_slot_cow(*slot, read_slot)?,
+        ExecutableCompareOperand::Literal(value) => Cow::Borrowed(value),
+    };
+
+    Some(eval(left.as_ref(), right.as_ref()))
+}
+
+// Load both compare operands once through the structural slot seam and then
+// route the resolved values into one shared compare callback.
+fn with_compare_operands_structural<R>(
+    cmp: &ExecutableComparePredicate,
+    slots: &dyn CanonicalSlotReader,
+    eval: impl FnOnce(&Value, &Value) -> R,
+) -> Result<Option<R>, crate::error::InternalError> {
+    let left = match &cmp.left {
+        ExecutableCompareOperand::FieldSlot(slot) => {
+            let Some(slot) = slot else {
+                return Ok(None);
+            };
+            slots.required_value_by_contract_cow(*slot)?
+        }
+        ExecutableCompareOperand::Literal(value) => Cow::Borrowed(value),
+    };
+    let right = match &cmp.right {
+        ExecutableCompareOperand::FieldSlot(slot) => {
+            let Some(slot) = slot else {
+                return Ok(None);
+            };
+            slots.required_value_by_contract_cow(*slot)?
+        }
+        ExecutableCompareOperand::Literal(value) => Cow::Borrowed(value),
+    };
+
+    Ok(Some(eval(left.as_ref(), right.as_ref())))
 }
 
 // Evaluate one executable predicate against one borrowed runtime slot reader.
@@ -441,11 +533,10 @@ fn eval_compare_with_executable_slot_refs<'a, F>(
 where
     F: FnMut(usize) -> Option<&'a Value>,
 {
-    let Some(actual) = field_from_slot_ref(cmp.field_slot, read_slot) else {
-        return false;
-    };
-
-    eval_compare_values(actual, cmp.op, &cmp.value, &cmp.coercion)
+    with_compare_operands_ref(cmp, read_slot, |left, right| {
+        eval_compare_values(left, cmp.op, right, &cmp.coercion)
+    })
+    .unwrap_or(false)
 }
 
 // Evaluate one executable comparison predicate against one mixed borrowed/owned
@@ -457,11 +548,10 @@ fn eval_compare_with_executable_slot_cows<'a, F>(
 where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
-    let Some(actual) = field_from_slot_cow(cmp.field_slot, read_slot) else {
-        return false;
-    };
-
-    eval_compare_values(actual.as_ref(), cmp.op, &cmp.value, &cmp.coercion)
+    with_compare_operands_cow(cmp, read_slot, |left, right| {
+        eval_compare_values(left, cmp.op, right, &cmp.coercion)
+    })
+    .unwrap_or(false)
 }
 
 // Evaluate one scalar-only compiled predicate program without generic fallback.
@@ -595,20 +685,19 @@ fn eval_scalar_executable_compare_predicate(
     cmp: &ExecutableComparePredicate,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    let Some(field_slot) = cmp.field_slot else {
-        return Ok(false);
-    };
-
-    Ok(eval_scalar_compare_fast_path(field_slot, cmp, slots)?.unwrap_or_else(|| {
-        debug_assert!(
-            false,
-            "scalar executable predicate path admitted unsupported compare node: op={:?} coercion={:?} value={:?}",
-            cmp.op,
-            cmp.coercion,
-            cmp.value,
-        );
-        false
-    }))
+    Ok(
+        eval_scalar_compare_operands_fast_path(cmp, slots)?.unwrap_or_else(|| {
+            debug_assert!(
+                false,
+                "scalar executable predicate path admitted unsupported compare node: op={:?} coercion={:?} left={:?} right={:?}",
+                cmp.op,
+                cmp.coercion,
+                cmp.left,
+                cmp.right,
+            );
+            false
+        }),
+    )
 }
 
 // Evaluate one executable predicate against one structural slot reader.
@@ -654,44 +743,128 @@ fn eval_compare_with_structural_slots(
     cmp: &ExecutableComparePredicate,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    let Some(field_slot) = cmp.field_slot else {
-        return Ok(false);
-    };
-    let Some(field) = slots.model().fields().get(field_slot) else {
-        return Ok(false);
-    };
-
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-        && let Some(result) = eval_scalar_compare_fast_path(field_slot, cmp, slots)?
+    if scalar_compare_operands_supported_for_fast_path(cmp, slots.model())
+        && let Some(result) = eval_scalar_compare_operands_fast_path(cmp, slots)?
     {
         return Ok(result);
     }
 
-    let actual = slots.required_value_by_contract_cow(field_slot)?;
+    with_compare_operands_structural(cmp, slots, |left, right| {
+        eval_compare_values(left, cmp.op, right, &cmp.coercion)
+    })
+    .map(|result| result.unwrap_or(false))
+}
 
-    Ok(eval_compare_values(
-        actual.as_ref(),
-        cmp.op,
-        &cmp.value,
-        &cmp.coercion,
-    ))
+// Share scalar compare dispatch across field-vs-literal and field-vs-field
+// operand pairs once capability classification has already admitted the node.
+fn eval_scalar_compare_operands_fast_path(
+    cmp: &ExecutableComparePredicate,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<bool>, crate::error::InternalError> {
+    match (
+        cmp.left_field_slot(),
+        cmp.right_literal(),
+        cmp.right_field_slot(),
+    ) {
+        (Some(field_slot), Some(value), None) => {
+            eval_scalar_compare_fast_path(field_slot, cmp.op, value, &cmp.coercion, slots)
+        }
+        (Some(left_field_slot), None, Some(right_field_slot)) => {
+            eval_scalar_compare_slot_pair_fast_path(
+                left_field_slot,
+                cmp.op,
+                right_field_slot,
+                &cmp.coercion,
+                slots,
+            )
+        }
+        _ => Ok(None),
+    }
+}
+
+// Admit scalar compare operand fast paths only when all referenced field slots
+// are backed by scalar leaf codecs.
+fn scalar_compare_operands_supported_for_fast_path(
+    cmp: &ExecutableComparePredicate,
+    model: &EntityModel,
+) -> bool {
+    match (
+        cmp.left_field_slot(),
+        cmp.right_literal(),
+        cmp.right_field_slot(),
+    ) {
+        (Some(field_slot), Some(_), None) => scalar_slot_fast_path_supported(model, field_slot),
+        (Some(left_field_slot), None, Some(right_field_slot)) => {
+            scalar_slot_fast_path_supported(model, left_field_slot)
+                && scalar_slot_fast_path_supported(model, right_field_slot)
+        }
+        _ => false,
+    }
+}
+
+// Reuse the scalar-leaf boundary check for compare fast paths.
+fn scalar_slot_fast_path_supported(model: &EntityModel, field_slot: usize) -> bool {
+    model
+        .fields()
+        .get(field_slot)
+        .is_some_and(|field| matches!(field.leaf_codec(), LeafCodec::Scalar(_)))
 }
 
 // Share the scalar-slot read plus direct compare dispatch across the scalar-only
 // executor lane and the structural fallback path.
 fn eval_scalar_compare_fast_path(
     field_slot: usize,
-    cmp: &ExecutableComparePredicate,
+    op: CompareOp,
+    value: &Value,
+    coercion: &CoercionSpec,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<bool>, crate::error::InternalError> {
     let actual = slots.required_scalar(field_slot)?;
 
-    Ok(eval_compare_scalar_slot(
-        actual,
-        cmp.op,
-        &cmp.value,
-        &cmp.coercion,
-    ))
+    Ok(eval_compare_scalar_slot(actual, op, value, coercion))
+}
+
+// Read two scalar slots once and route the resolved slot values through the
+// shared compare semantics layer without dropping to structural value loading.
+fn eval_scalar_compare_slot_pair_fast_path(
+    left_field_slot: usize,
+    op: CompareOp,
+    right_field_slot: usize,
+    coercion: &CoercionSpec,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<bool>, crate::error::InternalError> {
+    let left = slots.required_scalar(left_field_slot)?;
+    let right = slots.required_scalar(right_field_slot)?;
+
+    Ok(Some(eval_compare_scalar_slot_pair(
+        left, op, right, coercion,
+    )))
+}
+
+// Keep two-slot scalar fast-path execution on the same compare semantics layer
+// by translating slot refs into canonical values only after both scalar reads
+// have already been resolved.
+fn eval_compare_scalar_slot_pair(
+    left: ScalarSlotValueRef<'_>,
+    op: CompareOp,
+    right: ScalarSlotValueRef<'_>,
+    coercion: &CoercionSpec,
+) -> bool {
+    eval_compare_values(
+        &scalar_slot_value_ref_into_value(left),
+        op,
+        &scalar_slot_value_ref_into_value(right),
+        coercion,
+    )
+}
+
+// Convert one scalar slot ref into the canonical compare-value shape after the
+// fast path has already avoided structural slot loading.
+fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
+    match value {
+        ScalarSlotValueRef::Null => Value::Null,
+        ScalarSlotValueRef::Value(value) => value.into_value(),
+    }
 }
 
 // Evaluate one logical `AND` child list through a shared fallible predicate walker.
@@ -1545,6 +1718,33 @@ mod tests {
     }
 
     #[test]
+    fn predicate_program_dispatches_scalar_field_to_field_compare_once() {
+        let predicate =
+            Predicate::CompareFields(crate::db::predicate::CompareFieldsPredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                "score",
+                CoercionId::NumericWiden,
+            ));
+        let program = PredicateProgram::compile_with_model(&PREDICATE_MODEL, &predicate);
+        let slots = PredicateTestSlotReader {
+            score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+            name: None,
+        };
+
+        assert!(
+            program.uses_scalar_program(),
+            "field-to-field scalar compares should stay on the scalar slot seam once both operands are scalar slots",
+        );
+        assert!(
+            program
+                .eval_with_structural_slot_reader(&slots)
+                .expect("scalar field-to-field predicate should evaluate"),
+            "same-slot scalar field compare should evaluate true under the scalar fast path",
+        );
+    }
+
+    #[test]
     fn scalar_predicate_program_reuses_canonical_executable_tree() {
         let predicate = Predicate::And(vec![
             Predicate::Compare(ComparePredicate {
@@ -1573,10 +1773,15 @@ mod tests {
             panic!("expected in-list compare");
         };
 
-        assert_eq!(eq.value, Value::Int(10));
         assert_eq!(
-            in_list.value,
-            Value::List(vec![Value::Int(1), Value::Int(2)]),
+            eq.right_literal(),
+            Some(&Value::Int(10)),
+            "compiled literal compare should keep the literal on the right operand",
+        );
+        assert_eq!(
+            in_list.right_literal(),
+            Some(&Value::List(vec![Value::Int(1), Value::Int(2)])),
+            "compiled list compare should keep the list literal on the right operand",
         );
     }
 
