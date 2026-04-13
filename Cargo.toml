@@ -41,9 +41,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.26.12"
-canic-memory = "0.26.12"
-canic-testkit = "0.26.12"
+canic-cdk = "0.27.1"
+canic-memory = "0.27.1"
+canic-testkit = "0.27.1"
 convert_case = "0.11"
 # Keep ctor on 0.8.x. Upgrading to 0.9.x breaks schema-registration ctors
 # during canister build-script/clippy codegen in this workspace.
