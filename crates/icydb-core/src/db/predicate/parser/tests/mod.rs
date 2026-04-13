@@ -39,6 +39,82 @@ fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
 }
 
 #[test]
+fn parse_sql_predicate_not_equal_angle_brackets_lowers_to_ne() {
+    let predicate = parse_sql_predicate("active <> true").expect("predicate-only <> should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Ne,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_in_and_not_in_allow_one_trailing_comma() {
+    let in_predicate =
+        parse_sql_predicate("age IN (10, 20, 30,)").expect("IN with trailing comma should parse");
+    let not_in_predicate = parse_sql_predicate("age NOT IN (10, 20, 30,)")
+        .expect("NOT IN with trailing comma should parse");
+
+    assert_eq!(
+        in_predicate,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::In,
+            Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+            CoercionId::Strict,
+        )),
+    );
+    assert_eq!(
+        not_in_predicate,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::NotIn,
+            Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+            CoercionId::Strict,
+        )),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_is_true_and_is_false_lower_to_strict_bool_equality() {
+    let is_true = parse_sql_predicate("active IS TRUE").expect("IS TRUE predicate should parse");
+    let is_false = parse_sql_predicate("active IS FALSE").expect("IS FALSE predicate should parse");
+
+    assert_eq!(
+        is_true,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+    );
+    assert_eq!(
+        is_false,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(false),
+            CoercionId::Strict,
+        )),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_rejects_empty_or_double_comma_in_lists() {
+    for sql in ["age IN ()", "age IN (10,, 20)", "age NOT IN (10,, 20)"] {
+        let err = parse_sql_predicate(sql).expect_err("invalid list shape should stay rejected");
+
+        assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+    }
+}
+
+#[test]
 fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
     let err = parse_sql_predicate("active = true ORDER BY age")
         .expect_err("predicate parser should reject trailing unsupported clauses");
@@ -80,6 +156,50 @@ fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
             Value::Text("AL".to_string()),
             CoercionId::TextCasefold,
         ))
+    );
+}
+
+#[test]
+fn parse_sql_predicate_not_like_prefix_lowering_respects_operand_text_mode() {
+    let plain =
+        parse_sql_predicate("name NOT LIKE 'Al%'").expect("plain NOT LIKE prefix should parse");
+    let lower = parse_sql_predicate("LOWER(name) NOT LIKE 'Al%'")
+        .expect("LOWER(field) NOT LIKE should parse");
+    let upper = parse_sql_predicate("UPPER(name) NOT LIKE 'AL%'")
+        .expect("UPPER(field) NOT LIKE should parse");
+
+    assert_eq!(
+        plain,
+        Predicate::Not(Box::new(Predicate::Compare(
+            ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::Strict,
+            )
+        )))
+    );
+    assert_eq!(
+        lower,
+        Predicate::Not(Box::new(Predicate::Compare(
+            ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::TextCasefold,
+            )
+        )))
+    );
+    assert_eq!(
+        upper,
+        Predicate::Not(Box::new(Predicate::Compare(
+            ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("AL".to_string()),
+                CoercionId::TextCasefold,
+            )
+        )))
     );
 }
 

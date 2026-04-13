@@ -73,6 +73,42 @@ fn execute_sql_scalar_matrix_queries_match_expected_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_in_trailing_comma_matches_canonical_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("list-matrix-a", 10),
+            ("list-matrix-b", 20),
+            ("list-matrix-c", 30),
+            ("list-matrix-d", 40),
+        ],
+    );
+
+    let trailing_rows = execute_sql_name_age_rows(
+        &session,
+        "SELECT * \
+         FROM SessionSqlEntity \
+         WHERE age IN (20, 30,) \
+         ORDER BY age ASC",
+    );
+    let canonical_rows = execute_sql_name_age_rows(
+        &session,
+        "SELECT * \
+         FROM SessionSqlEntity \
+         WHERE age IN (20, 30) \
+         ORDER BY age ASC",
+    );
+
+    assert_eq!(
+        trailing_rows, canonical_rows,
+        "IN with one trailing comma should execute as the same canonical membership filter",
+    );
+}
+
+#[test]
 fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
     reset_session_sql_store();
     let session = sql_session();
@@ -454,6 +490,52 @@ fn execute_sql_scalar_field_to_field_bool_ordering_rejects_semantically() {
         err.to_string()
             .contains("operator Gt against field 'archived' is not valid for field 'active'",),
         "bool ordering should stay fail-closed instead of silently widening predicate semantics",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_is_true_and_is_false_match_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, active, archived) in [
+        ("bool-a", true, false),
+        ("bool-b", false, false),
+        ("bool-c", true, true),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("bool compare fixture insert should succeed");
+    }
+
+    let true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS TRUE ORDER BY label ASC",
+    )
+    .expect("IS TRUE query should execute");
+    let false_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS FALSE ORDER BY label ASC",
+    )
+    .expect("IS FALSE query should execute");
+
+    assert_eq!(
+        true_rows,
+        vec![
+            vec![Value::Text("bool-a".to_string())],
+            vec![Value::Text("bool-c".to_string())],
+        ],
+        "IS TRUE should keep rows whose bool field is true",
+    );
+    assert_eq!(
+        false_rows,
+        vec![vec![Value::Text("bool-b".to_string())]],
+        "IS FALSE should keep rows whose bool field is false",
     );
 }
 

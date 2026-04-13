@@ -1145,28 +1145,28 @@ impl InternalError {
 
     /// Construct the canonical persisted-row primary-key decode corruption error.
     pub(crate) fn persisted_row_primary_key_not_storage_encodable(
-        data_key: impl fmt::Display,
+        data_key: impl fmt::Debug,
         detail: impl fmt::Display,
     ) -> Self {
         Self::persisted_row_decode_failed(format!(
-            "primary-key value is not storage-key encodable: {data_key} ({detail})",
+            "primary-key value is not storage-key encodable: {data_key:?} ({detail})",
         ))
     }
 
     /// Construct the canonical persisted-row missing primary-key slot corruption error.
-    pub(crate) fn persisted_row_primary_key_slot_missing(data_key: impl fmt::Display) -> Self {
+    pub(crate) fn persisted_row_primary_key_slot_missing(data_key: impl fmt::Debug) -> Self {
         Self::persisted_row_decode_failed(format!(
-            "missing primary-key slot while validating {data_key}",
+            "missing primary-key slot while validating {data_key:?}",
         ))
     }
 
     /// Construct the canonical persisted-row key mismatch corruption error.
     pub(crate) fn persisted_row_key_mismatch(
-        expected_key: impl fmt::Display,
-        found_key: impl fmt::Display,
+        expected_key: impl fmt::Debug,
+        found_key: impl fmt::Debug,
     ) -> Self {
         Self::store_corruption(format!(
-            "row key mismatch: expected {expected_key}, found {found_key}",
+            "row key mismatch: expected {expected_key:?}, found {found_key:?}",
         ))
     }
 

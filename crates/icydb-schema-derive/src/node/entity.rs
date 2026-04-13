@@ -394,8 +394,8 @@ impl ValidateNode for Entity {
                     errors.push(syn::Error::new_spanned(
                         pk_ident,
                         format!(
-                            "primary key field '{}' must use a scalar key primitive; got '{}'",
-                            self.primary_key.field, primitive
+                            "primary key field '{}' must use a scalar key primitive; got '{primitive:?}'",
+                            self.primary_key.field
                         ),
                     ));
                 }

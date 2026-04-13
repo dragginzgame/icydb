@@ -1,10 +1,10 @@
 use crate::prelude::*;
 use candid::CandidType;
 use darling::FromMeta;
-use derive_more::{Display, FromStr};
 use icydb_primitives::ScalarKind;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
+use std::str::FromStr;
 
 //
 // Cardinality
@@ -15,14 +15,25 @@ use quote::{ToTokens, format_ident, quote};
 // `Many` means repeated values (for list/set-like shapes).
 //
 
-#[derive(
-    CandidType, Clone, Copy, Default, Debug, Deserialize, Display, Eq, FromStr, PartialEq, Serialize,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Cardinality {
     #[default]
     One,
     Opt,
     Many,
+}
+
+impl FromStr for Cardinality {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "One" => Ok(Self::One),
+            "Opt" => Ok(Self::Opt),
+            "Many" => Ok(Self::Many),
+            _ => Err("unknown Cardinality"),
+        }
+    }
 }
 
 impl FromMeta for Cardinality {
@@ -34,7 +45,7 @@ impl FromMeta for Cardinality {
 
 impl ToTokens for Cardinality {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let ident = format_ident!("{self}");
+        let ident = format_ident!("{self:?}");
 
         tokens.extend(quote!(::icydb::schema::types::Cardinality::#ident));
     }
@@ -48,9 +59,7 @@ impl ToTokens for Cardinality {
 // (ordering, arithmetic, casting, key-encoding, and hashing support).
 //
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, FromStr, Serialize,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[remain::sorted]
 pub enum Primitive {
     Account,
@@ -79,6 +88,42 @@ pub enum Primitive {
     Timestamp,
     Ulid,
     Unit,
+}
+
+impl FromStr for Primitive {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Account" => Ok(Self::Account),
+            "Blob" => Ok(Self::Blob),
+            "Bool" => Ok(Self::Bool),
+            "Date" => Ok(Self::Date),
+            "Decimal" => Ok(Self::Decimal),
+            "Duration" => Ok(Self::Duration),
+            "Float32" => Ok(Self::Float32),
+            "Float64" => Ok(Self::Float64),
+            "Int" => Ok(Self::Int),
+            "Int8" => Ok(Self::Int8),
+            "Int16" => Ok(Self::Int16),
+            "Int32" => Ok(Self::Int32),
+            "Int64" => Ok(Self::Int64),
+            "Int128" => Ok(Self::Int128),
+            "Nat" => Ok(Self::Nat),
+            "Nat8" => Ok(Self::Nat8),
+            "Nat16" => Ok(Self::Nat16),
+            "Nat32" => Ok(Self::Nat32),
+            "Nat64" => Ok(Self::Nat64),
+            "Nat128" => Ok(Self::Nat128),
+            "Principal" => Ok(Self::Principal),
+            "Subaccount" => Ok(Self::Subaccount),
+            "Text" => Ok(Self::Text),
+            "Timestamp" => Ok(Self::Timestamp),
+            "Ulid" => Ok(Self::Ulid),
+            "Unit" => Ok(Self::Unit),
+            _ => Err("unknown Primitive"),
+        }
+    }
 }
 
 const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
@@ -223,7 +268,7 @@ impl Primitive {
 
     #[must_use]
     pub fn as_type(self) -> TokenStream {
-        let ident = format_ident!("{self}");
+        let ident = format_ident!("{self:?}");
 
         quote!(::icydb::types::#ident)
     }
@@ -238,7 +283,7 @@ impl FromMeta for Primitive {
 
 impl ToTokens for Primitive {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let ident = format_ident!("{self}");
+        let ident = format_ident!("{self:?}");
 
         tokens.extend(quote!(::icydb::schema::types::Primitive::#ident));
     }

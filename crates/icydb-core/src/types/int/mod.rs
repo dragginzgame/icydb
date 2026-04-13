@@ -13,11 +13,13 @@ use crate::{
     types::Decimal,
 };
 use candid::{CandidType, Int as WrappedInt};
-use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt,
     iter::Sum,
     ops::{Div, DivAssign, Mul, MulAssign},
+    str::FromStr,
 };
 
 pub use int128::*;
@@ -33,10 +35,8 @@ pub use int128::*;
     Clone,
     Debug,
     Default,
-    Display,
     Eq,
     PartialEq,
-    FromStr,
     Hash,
     Ord,
     PartialOrd,
@@ -92,6 +92,20 @@ impl Int {
     #[must_use]
     pub fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0 - rhs.0)
+    }
+}
+
+impl fmt::Display for Int {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for Int {
+    type Err = <WrappedInt as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        WrappedInt::from_str(s).map(Self)
     }
 }
 

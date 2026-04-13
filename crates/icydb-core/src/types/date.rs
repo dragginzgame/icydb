@@ -14,7 +14,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Display};
 use time::{Date as TimeDate, Duration as TimeDuration, Month};
@@ -39,7 +39,6 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month};
     Copy,
     Default,
     Eq,
-    FromStr,
     PartialEq,
     Hash,
     Ord,

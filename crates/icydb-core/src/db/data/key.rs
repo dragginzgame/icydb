@@ -334,7 +334,7 @@ impl Hash for DataKey {
 
 impl Display for DataKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{} ({})", self.entity.value(), self.key)
+        write!(f, "#{} ({:?})", self.entity.value(), self.key)
     }
 }
 

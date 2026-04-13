@@ -10,9 +10,8 @@ use crate::{
     value::Value,
 };
 use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
-use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
 
 //
@@ -54,18 +53,7 @@ pub enum PrincipalEncodeError {
 //
 
 #[derive(
-    CandidType,
-    Clone,
-    Copy,
-    Debug,
-    Display,
-    Eq,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
+    CandidType, Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
 )]
 #[repr(transparent)]
 pub struct Principal(WrappedPrincipal);
@@ -127,6 +115,12 @@ impl Principal {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self::from_slice(&[0xFF; 29])
+    }
+}
+
+impl fmt::Display for Principal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

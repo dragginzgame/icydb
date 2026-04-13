@@ -221,6 +221,30 @@ fn sql_canister_query_endpoint_executes_not_between_queries() {
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let filtered = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE LOWER(name) NOT LIKE 'a%' ORDER BY age ASC LIMIT 10",
+        )
+        .expect("NOT LIKE SQL query should succeed"),
+    );
+    assert_eq!(
+        filtered,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["bob".to_string()], vec!["charlie".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve bounded NOT LIKE prefix filtering at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_preserves_show_tables_alias() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

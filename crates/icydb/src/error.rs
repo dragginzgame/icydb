@@ -1,5 +1,4 @@
 use candid::CandidType;
-use derive_more::Display;
 use icydb_core::{
     db::{QueryError, QueryExecutionError, ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
@@ -178,7 +177,7 @@ pub enum QueryErrorKind {
 }
 
 #[cfg_attr(doc, doc = "ErrorOrigin\n\nPublic error origin.")]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorOrigin {
     Cursor,

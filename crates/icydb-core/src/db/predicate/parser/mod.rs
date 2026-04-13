@@ -151,6 +151,12 @@ fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlPa
     if cursor.eat_identifier_keyword("LIKE") {
         return parse_like_prefix_predicate(cursor, operand);
     }
+    if peek_not_like(cursor) {
+        let _ = cursor.eat_keyword(Keyword::Not);
+        let _ = cursor.eat_identifier_keyword("LIKE");
+
+        return parse_like_prefix_predicate(cursor, operand).map(Predicate::not);
+    }
 
     match operand {
         PredicateFieldOperand::Plain(field) => parse_plain_field_predicate(cursor, field),
@@ -166,14 +172,28 @@ fn parse_plain_field_predicate(
     field: String,
 ) -> Result<Predicate, SqlParseError> {
     if cursor.eat_keyword(Keyword::Is) {
-        let is_not = cursor.eat_keyword(Keyword::Not);
-        cursor.expect_keyword(Keyword::Null)?;
+        if cursor.eat_keyword(Keyword::Not) {
+            cursor.expect_keyword(Keyword::Null)?;
 
-        return Ok(if is_not {
-            Predicate::IsNotNull { field }
-        } else {
-            Predicate::IsNull { field }
-        });
+            return Ok(Predicate::IsNotNull { field });
+        }
+
+        if cursor.eat_keyword(Keyword::Null) {
+            return Ok(Predicate::IsNull { field });
+        }
+
+        if cursor.eat_keyword(Keyword::True) {
+            return Ok(predicate_compare(field, CompareOp::Eq, Value::Bool(true)));
+        }
+
+        if cursor.eat_keyword(Keyword::False) {
+            return Ok(predicate_compare(field, CompareOp::Eq, Value::Bool(false)));
+        }
+
+        return Err(SqlParseError::expected(
+            "NULL, TRUE, or FALSE after IS",
+            cursor.peek_kind(),
+        ));
     }
 
     if cursor.eat_keyword(Keyword::Not) {
@@ -409,6 +429,16 @@ fn expect_predicate_argument_comma(
     Err(SqlParseError::expected(context, cursor.peek_kind()))
 }
 
+// Detect the one bounded negated prefix-LIKE spelling without consuming the
+// broader `NOT IN` / `NOT BETWEEN` surface that plain-field parsing still owns.
+fn peek_not_like(cursor: &SqlTokenCursor) -> bool {
+    matches!(cursor.peek_kind(), Some(TokenKind::Keyword(Keyword::Not)))
+        && matches!(
+            cursor.peek_next_kind(),
+            Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case("LIKE")
+        )
+}
+
 // Parse one IN / NOT IN list predicate into one canonical predicate compare.
 fn parse_in_predicate(
     cursor: &mut SqlTokenCursor,
@@ -421,6 +451,9 @@ fn parse_in_predicate(
     loop {
         values.push(cursor.parse_literal()?);
         if !cursor.eat_comma() {
+            break;
+        }
+        if matches!(cursor.peek_kind(), Some(TokenKind::RParen)) {
             break;
         }
     }

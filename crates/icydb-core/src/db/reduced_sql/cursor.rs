@@ -31,7 +31,7 @@ impl SqlTokenCursor {
             Some(TokenKind::Gte) => CompareOp::Gte,
             _ => {
                 return Err(SqlParseError::expected(
-                    "one of =, !=, <, <=, >, >=",
+                    "one of =, !=, <>, <, <=, >, >=",
                     self.peek_kind(),
                 ));
             }

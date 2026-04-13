@@ -17,8 +17,9 @@ use crate::{
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use derive_more::{Deref, DerefMut, Display, FromStr};
+use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
+use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
@@ -49,9 +50,7 @@ pub enum UlidDecodeError {
 // Ulid
 //
 
-#[derive(
-    Clone, Copy, Debug, Deref, DerefMut, Display, Eq, FromStr, Hash, Ord, PartialEq, PartialOrd,
-)]
+#[derive(Clone, Copy, Debug, Deref, DerefMut, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Ulid(WrappedUlid);
 
@@ -125,6 +124,22 @@ impl Ulid {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self::from_bytes([0xFF; 16])
+    }
+}
+
+impl fmt::Display for Ulid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for Ulid {
+    type Err = UlidError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        WrappedUlid::from_string(s)
+            .map(Self)
+            .map_err(|_| UlidError::InvalidString)
     }
 }
 

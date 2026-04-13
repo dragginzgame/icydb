@@ -11,10 +11,11 @@ use crate::{
     types::Decimal,
 };
 use candid::CandidType;
-use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
+use derive_more::{Add, AddAssign, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    fmt,
     ops::{Div, DivAssign, Mul, MulAssign, Rem},
 };
 
@@ -30,10 +31,8 @@ use std::{
     Copy,
     Debug,
     Default,
-    Display,
     Eq,
     PartialEq,
-    FromStr,
     Hash,
     Ord,
     PartialOrd,
@@ -59,6 +58,12 @@ impl Int128 {
     #[must_use]
     pub const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
+    }
+}
+
+impl fmt::Display for Int128 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

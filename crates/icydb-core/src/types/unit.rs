@@ -10,7 +10,6 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
 //
@@ -23,7 +22,6 @@ use serde::{Deserialize, Serialize};
     Copy,
     Debug,
     Default,
-    Display,
     Eq,
     PartialEq,
     Hash,

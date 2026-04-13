@@ -12,10 +12,10 @@ use crate::{
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
 };
 use thiserror::Error as ThisError;
@@ -40,7 +40,7 @@ pub enum Float64DecodeError {
 //
 
 #[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Default, Display, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Serialize)]
 pub struct Float64(f64);
 
 impl Float64 {
@@ -74,6 +74,12 @@ impl Float64 {
         buf.copy_from_slice(bytes);
         let value = f64::from_bits(u64::from_be_bytes(buf));
         Self::try_new(value).ok_or(Float64DecodeError::NonFinite)
+    }
+}
+
+impl fmt::Display for Float64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

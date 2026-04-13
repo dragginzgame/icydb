@@ -16,7 +16,6 @@ use crate::{
     types::Timestamp,
 };
 use candid::CandidType;
-use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
@@ -30,7 +29,7 @@ use serde::{Deserialize, Serialize};
 // Update  : will only change an existing row
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Display, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Serialize)]
 enum SaveMode {
     #[default]
     Insert,

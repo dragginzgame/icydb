@@ -187,6 +187,43 @@ fn execute_sql_projection_direct_lower_prefix_matrix_matches_indexed_like_rows()
 }
 
 #[test]
+fn execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_direct_starts_with_fixture(&session);
+
+    let strict_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name NOT LIKE 'S%' ORDER BY name ASC",
+    )
+    .expect("strict NOT LIKE prefix projection should execute");
+    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) NOT LIKE 's%' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) NOT LIKE projection should execute");
+    let upper_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) NOT LIKE 'S%' ORDER BY name ASC",
+    )
+    .expect("UPPER(field) NOT LIKE projection should execute");
+    let expected_rows = vec![vec![Value::Text("Atlas".to_string())]];
+
+    assert_eq!(
+        strict_rows, expected_rows,
+        "strict NOT LIKE prefix projection should keep only rows outside the bounded strict prefix family",
+    );
+    assert_eq!(
+        lower_rows, expected_rows,
+        "LOWER(field) NOT LIKE projection should keep only rows outside the bounded casefold prefix family",
+    );
+    assert_eq!(
+        upper_rows, expected_rows,
+        "UPPER(field) NOT LIKE projection should keep only rows outside the bounded casefold prefix family",
+    );
+}
+
+#[test]
 fn session_explain_execution_direct_casefold_equivalent_prefix_matrix_preserves_expression_index_route()
  {
     reset_indexed_session_sql_store();

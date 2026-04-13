@@ -15,7 +15,6 @@ use crate::{
 };
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
-use derive_more::{Display, FromStr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
@@ -58,9 +57,7 @@ const ERR_TIMESTAMP_TOO_SHORT: &str = "timestamp parse error: timestamp is too s
 // RFC3339 JSON wire format is string-based.
 //
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Default, Display, Eq, FromStr, PartialEq, Hash, Ord, PartialOrd,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Timestamp(i64);
 
@@ -186,6 +183,12 @@ impl Timestamp {
     #[must_use]
     pub const fn as_secs(self) -> i64 {
         self.0 / Self::MILLIS_PER_SEC
+    }
+}
+
+impl fmt::Display for Timestamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

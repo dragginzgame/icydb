@@ -13,11 +13,13 @@ use crate::{
     value::Value,
 };
 use candid::{CandidType, Nat as WrappedNat};
-use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt,
     iter::Sum,
     ops::{Div, DivAssign, Mul, MulAssign},
+    str::FromStr,
 };
 
 pub use nat128::*;
@@ -33,10 +35,8 @@ pub use nat128::*;
     Clone,
     Debug,
     Default,
-    Display,
     Eq,
     PartialEq,
-    FromStr,
     Hash,
     Ord,
     PartialOrd,
@@ -93,6 +93,20 @@ impl Nat {
         }
 
         Self(self.0 - rhs.0)
+    }
+}
+
+impl fmt::Display for Nat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for Nat {
+    type Err = <WrappedNat as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        WrappedNat::from_str(s).map(Self)
     }
 }
 

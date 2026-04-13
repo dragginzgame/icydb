@@ -131,6 +131,44 @@ fn sql_query_lowering_casefold_prefix_matrix_matches_casefold_starts_with_intent
 }
 
 #[test]
+fn sql_query_lowering_is_true_and_is_false_match_canonical_bool_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlBoolCompareEntity WHERE active IS TRUE",
+            true,
+            "IS TRUE SQL lowering",
+        ),
+        (
+            "SELECT * FROM SessionSqlBoolCompareEntity WHERE active IS FALSE",
+            false,
+            "IS FALSE SQL lowering",
+        ),
+    ];
+
+    for (sql, value, context) in cases {
+        let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
+            crate::db::predicate::MissingRowPolicy::Ignore,
+        )
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(value),
+            CoercionId::Strict,
+        )));
+
+        assert_query_lowering_matches_fluent_intent::<SessionSqlBoolCompareEntity>(
+            &session,
+            sql,
+            fluent_query,
+            context,
+        );
+    }
+}
+
+#[test]
 fn sql_query_lowering_casefold_ordered_bounds_matrix_matches_casefold_intent() {
     reset_session_sql_store();
     let session = sql_session();

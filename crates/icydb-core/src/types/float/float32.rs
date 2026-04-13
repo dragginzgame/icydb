@@ -12,10 +12,10 @@ use crate::{
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
 };
 use thiserror::Error as ThisError;
@@ -40,7 +40,7 @@ pub enum Float32DecodeError {
 //
 
 #[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Default, Display, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Serialize)]
 pub struct Float32(f32);
 
 impl Float32 {
@@ -88,6 +88,12 @@ impl Float32 {
         }
 
         Self::try_new(value as f32)
+    }
+}
+
+impl fmt::Display for Float32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

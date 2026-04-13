@@ -1,26 +1,13 @@
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use derive_more::{Deref, DerefMut, Display, FromStr, IntoIterator};
+use derive_more::{Deref, DerefMut, IntoIterator};
 use std::{collections::HashSet, hash::Hash, str::FromStr, sync::LazyLock};
 
 //
 // TraitKind
 //
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Display,
-    Eq,
-    PartialEq,
-    FromStr,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum TraitKind {
     // inherent impl
     Inherent,
@@ -82,6 +69,65 @@ pub enum TraitKind {
     ValidateAuto,
     ValidateCustom,
     Visitable,
+}
+
+impl FromStr for TraitKind {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Inherent" => Ok(Self::Inherent),
+            "CandidType" => Ok(Self::CandidType),
+            "Clone" => Ok(Self::Clone),
+            "Copy" => Ok(Self::Copy),
+            "Debug" => Ok(Self::Debug),
+            "Default" => Ok(Self::Default),
+            "Deserialize" => Ok(Self::Deserialize),
+            "Deref" => Ok(Self::Deref),
+            "DerefMut" => Ok(Self::DerefMut),
+            "Display" => Ok(Self::Display),
+            "Eq" => Ok(Self::Eq),
+            "Hash" => Ok(Self::Hash),
+            "Ord" => Ok(Self::Ord),
+            "PartialEq" => Ok(Self::PartialEq),
+            "PartialOrd" => Ok(Self::PartialOrd),
+            "Serialize" => Ok(Self::Serialize),
+            "Add" => Ok(Self::Add),
+            "AddAssign" => Ok(Self::AddAssign),
+            "Div" => Ok(Self::Div),
+            "DivAssign" => Ok(Self::DivAssign),
+            "Mul" => Ok(Self::Mul),
+            "MulAssign" => Ok(Self::MulAssign),
+            "Rem" => Ok(Self::Rem),
+            "Sub" => Ok(Self::Sub),
+            "SubAssign" => Ok(Self::SubAssign),
+            "Sum" => Ok(Self::Sum),
+            "CanisterKind" => Ok(Self::CanisterKind),
+            "StoreKind" => Ok(Self::StoreKind),
+            "EntitySchema" => Ok(Self::EntitySchema),
+            "EntityPlacement" => Ok(Self::EntityPlacement),
+            "EntityKind" => Ok(Self::EntityKind),
+            "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
+            "EntityValue" => Ok(Self::EntityValue),
+            "EnumValue" => Ok(Self::EnumValue),
+            "FieldValue" => Ok(Self::FieldValue),
+            "FieldProjection" => Ok(Self::FieldProjection),
+            "PersistedRow" => Ok(Self::PersistedRow),
+            "Collection" => Ok(Self::Collection),
+            "From" => Ok(Self::From),
+            "Inner" => Ok(Self::Inner),
+            "MapCollection" => Ok(Self::MapCollection),
+            "NumericValue" => Ok(Self::NumericValue),
+            "Path" => Ok(Self::Path),
+            "Sorted" => Ok(Self::Sorted),
+            "SanitizeAuto" => Ok(Self::SanitizeAuto),
+            "SanitizeCustom" => Ok(Self::SanitizeCustom),
+            "ValidateAuto" => Ok(Self::ValidateAuto),
+            "ValidateCustom" => Ok(Self::ValidateCustom),
+            "Visitable" => Ok(Self::Visitable),
+            _ => Err("unknown TraitKind"),
+        }
+    }
 }
 
 static DEFAULT_TRAITS: LazyLock<Vec<TraitKind>> =
@@ -193,7 +239,7 @@ impl ToTokens for TraitKind {
         if self == &Self::PersistedRow {
             quote!(::icydb::db::PersistedRow).to_tokens(tokens);
         } else {
-            let trait_name = format_ident!("{}", self.to_string());
+            let trait_name = format_ident!("{self:?}");
 
             quote!(::icydb::traits::#trait_name).to_tokens(tokens);
         }
@@ -280,7 +326,7 @@ impl TraitBuilder {
         for tr in self.add.iter() {
             if !set.insert(*tr) {
                 return Err(DarlingError::custom(format!(
-                    "adding duplicate trait '{tr}'"
+                    "adding duplicate trait '{tr:?}'"
                 )));
             }
         }
@@ -288,7 +334,7 @@ impl TraitBuilder {
         for tr in self.remove.iter() {
             if !set.remove(tr) {
                 return Err(DarlingError::custom(format!(
-                    "cannot remove trait {tr} from {set:?}"
+                    "cannot remove trait {tr:?} from {set:?}"
                 )));
             }
         }
@@ -306,12 +352,12 @@ impl TraitBuilder {
 
         // self.add
         for tr in self.add.iter() {
-            assert!(set.insert(*tr), "adding duplicate trait '{tr}'");
+            assert!(set.insert(*tr), "adding duplicate trait '{tr:?}'");
         }
 
         // self.remove
         for tr in self.remove.iter() {
-            assert!(set.remove(tr), "cannot remove trait {tr} from {set:?}",);
+            assert!(set.remove(tr), "cannot remove trait {tr:?} from {set:?}",);
         }
 
         set

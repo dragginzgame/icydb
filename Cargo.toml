@@ -42,15 +42,24 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.27.1"
-canic-memory = "0.27.1"
-canic-testkit = "0.27.1"
+canic-cdk = "0.27.4"
+canic-memory = "0.27.4"
+canic-testkit = "0.27.4"
 convert_case = "0.11"
-# Keep ctor on 0.8.x. Upgrading to 0.9.x breaks schema-registration ctors
-# during canister build-script/clippy codegen in this workspace.
-ctor = "0.8.0"
+ctor = { version = "0.10.0", default-features = false, features = [
+    "std",
+    "proc_macro",
+    "no_warn_on_missing_unsafe",
+] }
 darling = "0.23"
-derive_more = { version = "2.0", default-features = false, features = ["full"] }
+derive_more = { version = "2.0", default-features = false, features = [
+    "add",
+    "add_assign",
+    "deref",
+    "deref_mut",
+    "into_iterator",
+    "sum",
+] }
 icydb = { path = "crates/icydb", version = "0.79.1" }
 icydb-build = { path = "crates/icydb-build", version = "0.79.1" }
 icydb-core = { path = "crates/icydb-core", version = "0.79.1" }

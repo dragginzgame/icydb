@@ -2,14 +2,14 @@ use crate::{
     node::{ValidateNode, VisitableNode},
     visit::Visitor,
 };
-use derive_more::{Deref, Display};
+use derive_more::Deref;
 use serde::Serialize;
 
 ///
 /// Arg
 ///
 
-#[derive(Clone, Debug, Display, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum Arg {
     Bool(bool),
     Char(char),
@@ -23,7 +23,7 @@ impl ValidateNode for Arg {}
 
 impl VisitableNode for Arg {
     fn route_key(&self) -> String {
-        format!("arg ({self})")
+        format!("arg ({self:?})")
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
@@ -46,7 +46,7 @@ impl ValidateNode for Args {}
 /// ArgNumber
 ///
 
-#[derive(Clone, Debug, Display, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum ArgNumber {
     Float32(f32),
     Float64(f64),

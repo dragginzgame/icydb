@@ -11,7 +11,6 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::{Display, FromStr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
@@ -30,9 +29,7 @@ use std::{
 // Wire format remains a bare `u64`.
 //
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Default, Display, Eq, FromStr, PartialEq, Hash, Ord, PartialOrd,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Duration(u64);
 

@@ -1007,6 +1007,105 @@ fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_inte
 }
 
 #[test]
+fn compile_sql_command_angle_bracket_not_equal_matches_canonical_ne_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE name <> 'Al'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("angle-bracket not-equal SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Ne,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("angle-bracket not-equal SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("canonical fluent not-equal plan should build")
+            .into_inner(),
+        "SQL <> lowering must match the canonical != intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_in_trailing_comma_matches_canonical_in_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age IN (10, 20, 30,)",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("IN with trailing comma SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let canonical_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age IN (10, 20, 30)",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical IN SQL query should lower");
+    let SqlCommand::Query(canonical_query) = canonical_command else {
+        panic!("expected lowered canonical query command");
+    };
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("IN with trailing comma SQL plan should build")
+            .into_inner(),
+        canonical_query
+            .plan()
+            .expect("canonical IN SQL plan should build")
+            .into_inner(),
+        "SQL IN with trailing comma must match the canonical IN intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE name NOT LIKE 'Al%'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("strict NOT LIKE prefix SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ))),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("strict NOT LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent negated strict starts-with plan should build")
+            .into_inner(),
+        "plain NOT LIKE 'prefix%' SQL lowering and fluent negated strict starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_intent() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",
@@ -1069,6 +1168,52 @@ fn compile_sql_command_direct_lower_starts_with_parity_matches_casefold_starts_w
             .into_inner(),
         "direct LOWER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
+}
+
+#[test]
+fn compile_sql_command_casefold_not_like_prefix_matrix_matches_negated_casefold_starts_with_intent()
+{
+    let cases = [
+        (
+            "SELECT * FROM SqlLowerEntity WHERE LOWER(name) NOT LIKE 'Al%'",
+            "LOWER(field) NOT LIKE 'prefix%' SQL lowering",
+            "Al",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE UPPER(name) NOT LIKE 'AL%'",
+            "UPPER(field) NOT LIKE 'prefix%' SQL lowering",
+            "AL",
+        ),
+    ];
+
+    for (sql, context, prefix) in cases {
+        let sql_command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered SQL query command");
+        };
+
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+            Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text(prefix.to_string()),
+                CoercionId::TextCasefold,
+            ))),
+        );
+
+        assert_eq!(
+            sql_query
+                .plan()
+                .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err}"))
+                .into_inner(),
+            fluent_query
+                .plan()
+                .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
+                .into_inner(),
+            "{context} and fluent negated casefold starts-with query must produce identical normalized planned intent",
+        );
+    }
 }
 
 #[test]

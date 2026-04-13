@@ -909,6 +909,173 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
 }
 
 #[test]
+fn parse_select_statement_with_angle_bracket_not_equal_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE active <> true \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("angle-bracket not-equal select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Ne,
+                Value::Bool(true),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_in_trailing_comma_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE age IN (10, 20, 30,) \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("IN with trailing comma select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::In,
+                Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_is_true_and_is_false_predicates() {
+    let is_true = parse_sql(
+        "SELECT * FROM users \
+         WHERE active IS TRUE \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("IS TRUE select statement should parse");
+    let is_false = parse_sql(
+        "SELECT * FROM users \
+         WHERE active IS FALSE \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("IS FALSE select statement should parse");
+
+    assert_eq!(
+        is_true,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Eq,
+                Value::Bool(true),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+    assert_eq!(
+        is_false,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Eq,
+                Value::Bool(false),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_strict_not_like_prefix_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE name NOT LIKE 'Al%' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("strict NOT LIKE prefix select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+                ComparePredicate::with_coercion(
+                    "name",
+                    CompareOp::StartsWith,
+                    Value::Text("Al".to_string()),
+                    CoercionId::Strict,
+                ),
+            )))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_strict_text_range_predicate() {
     let statement = parse_sql(
         "SELECT * FROM users \
@@ -1073,6 +1240,42 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
                 Value::Text("Al".to_string()),
                 CoercionId::TextCasefold,
             ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_lower_not_like_prefix_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE LOWER(name) NOT LIKE 'Al%' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("LOWER(field) NOT LIKE prefix select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+                ComparePredicate::with_coercion(
+                    "name",
+                    CompareOp::StartsWith,
+                    Value::Text("Al".to_string()),
+                    CoercionId::TextCasefold,
+                ),
+            )))),
             distinct: false,
             group_by: vec![],
             having: vec![],
