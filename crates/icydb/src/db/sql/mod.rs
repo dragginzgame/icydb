@@ -601,14 +601,18 @@ fn render_enum(value: &ValueEnum) -> String {
 
 #[cfg(test)]
 mod tests {
+    use icydb_core::db::{GroupedRow, SqlStatementResult};
+
     use crate::db::sql::{
-        SqlQueryResult, SqlQueryRowsOutput, render_describe_lines, render_show_columns_lines,
-        render_show_entities_lines, render_show_indexes_lines,
+        SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
+        render_show_columns_lines, render_show_entities_lines, render_show_indexes_lines,
+        sql_query_result_from_statement,
     };
     use crate::db::{
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
         EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
     };
+    use crate::value::Value;
 
     #[test]
     fn render_describe_lines_output_contract_vector_is_stable() {
@@ -738,6 +742,77 @@ mod tests {
                 "+-------+".to_string(),
             ],
             "projection query-result rendering must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_count_entity_and_row_count() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Count { row_count: 3 },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Count {
+                entity: "User".to_string(),
+                row_count: 3,
+            },
+            "public SQL packaging must preserve outward count payload identity",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_projection_text_rows() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::ProjectionText {
+                columns: vec!["lower(name)".to_string()],
+                rows: vec![vec!["alice".to_string()], vec!["bob".to_string()]],
+                row_count: 2,
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Projection(SqlQueryRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["lower(name)".to_string()],
+                rows: vec![vec!["alice".to_string()], vec!["bob".to_string()]],
+                row_count: 2,
+            }),
+            "public SQL packaging must preserve text projection payloads verbatim",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_grouped_rows_and_cursor() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Grouped {
+                columns: vec!["age".to_string(), "count(*)".to_string()],
+                rows: vec![
+                    GroupedRow::new(vec![Value::Uint(24)], vec![Value::Uint(1)]),
+                    GroupedRow::new(vec![Value::Uint(31)], vec![Value::Uint(2)]),
+                ],
+                row_count: 2,
+                next_cursor: Some("cursor:age:31".to_string()),
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["age".to_string(), "count(*)".to_string()],
+                rows: vec![
+                    vec!["24".to_string(), "1".to_string()],
+                    vec!["31".to_string(), "2".to_string()],
+                ],
+                row_count: 2,
+                next_cursor: Some("cursor:age:31".to_string()),
+            }),
+            "public SQL packaging must preserve grouped rows and outward continuation cursor",
         );
     }
 }

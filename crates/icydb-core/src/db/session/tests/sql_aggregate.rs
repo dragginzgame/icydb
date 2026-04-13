@@ -1,49 +1,5 @@
 use super::*;
 
-// Execute one aggregate SQL case and assert the scalar aggregate value stays
-// stable for that query spelling.
-fn assert_sql_aggregate_value_case(
-    session: &DbSession<SessionSqlCanister>,
-    sql: &str,
-    expected: Value,
-    context: &str,
-) {
-    let rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
-        .unwrap_or_else(|err| panic!("{context} aggregate SQL should execute: {err}"));
-    let actual = rows
-        .into_iter()
-        .next()
-        .and_then(|mut row| if row.len() == 1 { row.pop() } else { None })
-        .unwrap_or_else(|| panic!("{context} aggregate SQL should emit one scalar value"));
-
-    assert_eq!(
-        actual, expected,
-        "{context} should preserve aggregate value"
-    );
-}
-
-// Execute one global aggregate EXPLAIN case and assert the public surface keeps
-// the expected stable tokens.
-fn assert_global_aggregate_explain_case(
-    session: &DbSession<SessionSqlCanister>,
-    sql: &str,
-    tokens: &[&str],
-    require_json_object: bool,
-    context: &str,
-) {
-    let explain = statement_explain_sql::<SessionSqlEntity>(session, sql)
-        .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
-
-    if require_json_object {
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should render one JSON object payload",
-        );
-    }
-
-    assert_explain_contains_tokens(explain.as_str(), tokens, context);
-}
-
 #[test]
 fn global_aggregate_value_matrix_matches_expected_values() {
     reset_session_sql_store();
@@ -104,7 +60,7 @@ fn global_aggregate_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_sql_aggregate_value_case(&session, sql, expected, context);
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
     }
 }
 
@@ -150,8 +106,137 @@ fn global_aggregate_distinct_value_matrix_matches_expected_values() {
     ];
 
     for (context, sql, expected) in cases {
-        assert_sql_aggregate_value_case(&session, sql, expected, context);
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
     }
+}
+
+// This parity test is intentionally table-shaped so whole-window and bounded
+// aggregate equivalence stay on one readable contract table.
+#[expect(
+    clippy::too_many_lines,
+    reason = "aggregate SQL/fluent parity matrix is intentionally table-shaped"
+)]
+#[test]
+fn global_aggregate_sql_matches_canonical_fluent_terminals() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-window-a", 20),
+            ("aggregate-window-b", 20),
+            ("aggregate-window-c", 32),
+            ("aggregate-window-d", 40),
+        ],
+    );
+
+    // Phase 1: prove whole-window aggregate SQL shapes against their
+    // canonical fluent terminal representations.
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity",
+        Value::Uint(u64::from(
+            session
+                .load::<SessionSqlEntity>()
+                .count()
+                .expect("fluent count should succeed"),
+        )),
+        "COUNT(*)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT SUM(age) FROM SessionSqlEntity",
+        session
+            .load::<SessionSqlEntity>()
+            .sum_by("age")
+            .expect("fluent sum_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "SUM(age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT AVG(age) FROM SessionSqlEntity",
+        session
+            .load::<SessionSqlEntity>()
+            .avg_by("age")
+            .expect("fluent avg_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "AVG(age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
+        Value::Uint(u64::from(
+            session
+                .load::<SessionSqlEntity>()
+                .count_distinct_by("age")
+                .expect("fluent count_distinct_by(age) should succeed"),
+        )),
+        "COUNT(DISTINCT age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT SUM(DISTINCT age) FROM SessionSqlEntity",
+        session
+            .load::<SessionSqlEntity>()
+            .sum_distinct_by("age")
+            .expect("fluent sum_distinct_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "SUM(DISTINCT age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT AVG(DISTINCT age) FROM SessionSqlEntity",
+        session
+            .load::<SessionSqlEntity>()
+            .avg_distinct_by("age")
+            .expect("fluent avg_distinct_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "AVG(DISTINCT age)",
+    );
+
+    // Phase 2: prove bounded aggregate windows against the same fluent
+    // aggregate terminals over equivalent ordered windows.
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        Value::Uint(u64::from(
+            session
+                .load::<SessionSqlEntity>()
+                .order_by_desc("age")
+                .limit(2)
+                .offset(1)
+                .count()
+                .expect("bounded fluent count should succeed"),
+        )),
+        "bounded COUNT(*) window",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        session
+            .load::<SessionSqlEntity>()
+            .order_by_desc("age")
+            .limit(2)
+            .offset(1)
+            .sum_by("age")
+            .expect("bounded fluent sum_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "bounded SUM(age) window",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
+        session
+            .load::<SessionSqlEntity>()
+            .order_by("age")
+            .limit(2)
+            .offset(1)
+            .avg_by("age")
+            .expect("bounded fluent avg_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        "bounded AVG(age) window",
+    );
 }
 
 #[test]
@@ -217,7 +302,7 @@ fn global_aggregate_window_matrix_returns_expected_values() {
         seed_session_sql_entities(&session, seed_rows.as_slice());
 
         for (sql, expected) in assertions {
-            assert_sql_aggregate_value_case(&session, sql, expected, context);
+            assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
         }
     }
 }
@@ -316,7 +401,7 @@ fn global_aggregate_matrix_queries_match_expected_values() {
 
     // Phase 3: assert aggregate outputs for each SQL input.
     for (sql, expected_value) in cases {
-        assert_sql_aggregate_value_case(&session, sql, expected_value, sql);
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected_value, sql);
     }
 }
 
@@ -386,7 +471,7 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     ];
 
     for (context, sql, tokens, require_json_object) in cases {
-        assert_global_aggregate_explain_case(
+        assert_session_sql_explain_tokens::<SessionSqlEntity>(
             &session,
             sql,
             tokens.as_slice(),

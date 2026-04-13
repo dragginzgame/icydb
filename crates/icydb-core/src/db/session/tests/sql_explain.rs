@@ -19,27 +19,6 @@ fn assert_explain_identifier_normalization_case(
     );
 }
 
-// Execute one aliased-vs-canonical EXPLAIN pair and assert both spellings stay
-// on the same public logical plan output.
-fn assert_explain_alias_normalization_case<E>(
-    session: &DbSession<SessionSqlCanister>,
-    aliased_sql: &str,
-    canonical_sql: &str,
-    context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
-{
-    let aliased = statement_explain_sql::<E>(session, aliased_sql)
-        .unwrap_or_else(|err| panic!("{context} aliased SQL should succeed: {err}"));
-    let canonical = statement_explain_sql::<E>(session, canonical_sql)
-        .unwrap_or_else(|err| panic!("{context} canonical SQL should succeed: {err}"));
-
-    assert_eq!(
-        aliased, canonical,
-        "{context} should normalize away before EXPLAIN output is rendered",
-    );
-}
-
 // Execute one EXPLAIN equivalence pair and assert both SQL spellings preserve
 // the same public explain output.
 fn assert_explain_equivalence_case<E>(
@@ -142,6 +121,10 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
         (
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
             vec!["AggregateCount execution_mode=", "node_id=0"],
+        ),
+        (
+            "EXPLAIN EXECUTION DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            vec!["node_id=0", "layer="],
         ),
     ];
 
@@ -575,8 +558,9 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
             "ORDER BY field aliases",
         ),
     ] {
-        assert_explain_alias_normalization_case::<SessionSqlEntity>(
+        assert_session_sql_alias_matches_canonical::<String>(
             &session,
+            statement_explain_sql::<SessionSqlEntity>,
             aliased_sql,
             canonical_sql,
             context,
@@ -584,8 +568,9 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
     }
     reset_indexed_session_sql_store();
     let indexed_session = indexed_sql_session();
-    assert_explain_alias_normalization_case::<ExpressionIndexedSessionSqlEntity>(
+    assert_session_sql_alias_matches_canonical::<String>(
         &indexed_session,
+        statement_explain_sql::<ExpressionIndexedSessionSqlEntity>,
         "EXPLAIN SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 1",
         "EXPLAIN SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 1",
         "ORDER BY LOWER(field) aliases",
@@ -597,25 +582,11 @@ fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = statement_explain_sql::<SessionSqlEntity>(
+    assert_session_sql_order_by_alias_unsupported::<String>(
         &session,
+        statement_explain_sql::<SessionSqlEntity>,
         "EXPLAIN SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 1",
-    )
-    .expect_err("EXPLAIN should keep unsupported ORDER BY alias targets fail-closed");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "unsupported ORDER BY alias targets must fail at the EXPLAIN SQL boundary",
-    );
-    assert!(
-        err.to_string()
-            .contains("ORDER BY alias 'trimmed_name' does not resolve to a supported order target"),
-        "unsupported ORDER BY alias failure should explain the narrowed alias-order boundary",
+        "unsupported ORDER BY alias targets",
     );
 }
 

@@ -22,6 +22,7 @@ use crate::{
                 PreparedFluentOrderSensitiveTerminalStrategy,
                 PreparedFluentProjectionRuntimeRequest, PreparedFluentProjectionStrategy,
                 PreparedFluentScalarTerminalRuntimeRequest, PreparedFluentScalarTerminalStrategy,
+                TextProjectionExpr,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
@@ -210,6 +211,38 @@ where
                 projection_boundary_request_from_prepared(runtime_request),
             )
         })
+    }
+
+    // Apply one shared text projection to a terminal values payload while
+    // preserving row order and cardinality.
+    fn project_terminal_values(
+        projection: &TextProjectionExpr,
+        values: Vec<Value>,
+    ) -> Result<Vec<Value>, QueryError> {
+        values
+            .into_iter()
+            .map(|value| projection.apply_value(value))
+            .collect()
+    }
+
+    // Apply one shared text projection to an optional terminal value.
+    fn project_terminal_optional_value(
+        projection: &TextProjectionExpr,
+        value: Option<Value>,
+    ) -> Result<Option<Value>, QueryError> {
+        value.map(|value| projection.apply_value(value)).transpose()
+    }
+
+    // Apply one shared text projection to `(id, value)` terminal output while
+    // preserving identifier alignment.
+    fn project_terminal_values_with_ids(
+        projection: &TextProjectionExpr,
+        values: Vec<(Id<E>, Value)>,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError> {
+        values
+            .into_iter()
+            .map(|(id, value)| Ok((id, projection.apply_value(value)?)))
+            .collect()
     }
 
     // ------------------------------------------------------------------
@@ -661,6 +694,43 @@ where
         })
     }
 
+    /// Execute and return projected values for one shared text projection over
+    /// the effective response window.
+    pub fn project_values(&self, projection: &TextProjectionExpr) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(projection.field(), |target_slot| {
+            let values = self
+                .execute_prepared_projection_terminal_output(
+                    PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+                )?
+                .into_values()
+                .map_err(QueryError::execute)?;
+
+            Self::project_terminal_values(projection, values)
+        })
+    }
+
+    /// Explain `project_values(projection)` routing without executing it.
+    pub fn explain_project_values(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(projection.field(), |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Explain `values_by(field)` routing without executing the terminal.
     pub fn explain_values_by(
         &self,
@@ -890,6 +960,29 @@ where
         })
     }
 
+    /// Execute and return projected id/value pairs for one shared text
+    /// projection over the effective response window.
+    pub fn project_values_with_ids(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(projection.field(), |target_slot| {
+            let values = self
+                .execute_prepared_projection_terminal_output(
+                    PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+                )?
+                .into_values_with_ids::<E>()
+                .map_err(QueryError::execute)?;
+
+            Self::project_terminal_values_with_ids(projection, values)
+        })
+    }
+
     /// Explain `values_by_with_ids(field)` routing without executing the terminal.
     pub fn explain_values_by_with_ids(
         &self,
@@ -924,6 +1017,29 @@ where
         })
     }
 
+    /// Execute and return the first projected value for one shared text
+    /// projection in effective response order, if any.
+    pub fn project_first_value(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(projection.field(), |target_slot| {
+            let value = self
+                .execute_prepared_projection_terminal_output(
+                    PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+                )?
+                .into_terminal_value()
+                .map_err(QueryError::execute)?;
+
+            Self::project_terminal_optional_value(projection, value)
+        })
+    }
+
     /// Explain `first_value_by(field)` routing without executing the terminal.
     pub fn explain_first_value_by(
         &self,
@@ -955,6 +1071,29 @@ where
             )?
             .into_terminal_value()
             .map_err(QueryError::execute)
+        })
+    }
+
+    /// Execute and return the last projected value for one shared text
+    /// projection in effective response order, if any.
+    pub fn project_last_value(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(projection.field(), |target_slot| {
+            let value = self
+                .execute_prepared_projection_terminal_output(
+                    PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+                )?
+                .into_terminal_value()
+                .map_err(QueryError::execute)?;
+
+            Self::project_terminal_optional_value(projection, value)
         })
     }
 

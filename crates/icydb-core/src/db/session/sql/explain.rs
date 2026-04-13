@@ -14,10 +14,9 @@ use crate::{
         },
         query::explain::ExplainAggregateTerminalPlan,
         sql::lowering::{
-            LoweredSqlCommand, LoweredSqlLaneKind, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
+            LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_explain_global_aggregate_structural,
-            bind_lowered_sql_query_structural, bind_lowered_sql_select_query_structural,
-            lowered_sql_command_lane,
+            bind_lowered_sql_query_structural, lowered_sql_command_lane,
         },
         sql::parser::SqlExplainMode,
     },
@@ -140,13 +139,10 @@ impl<C: CanisterKind> DbSession<C> {
         let Some((SqlExplainMode::Execution, query)) = lowered.explain_query() else {
             return Ok(None);
         };
-        let LoweredSqlQuery::Select(select) = query else {
-            return Ok(None);
-        };
 
-        let structural = bind_lowered_sql_select_query_structural(
+        let structural = bind_lowered_sql_query_structural(
             authority.model(),
-            select.clone(),
+            query.clone(),
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;

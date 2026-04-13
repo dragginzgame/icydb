@@ -5,6 +5,7 @@
 
 pub(crate) mod aggregate;
 pub(crate) mod field;
+pub(crate) mod text_projection;
 
 pub use aggregate::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
@@ -18,3 +19,7 @@ pub(crate) use aggregate::{
     PreparedFluentScalarTerminalStrategy,
 };
 pub use field::FieldRef;
+pub use text_projection::{
+    TextProjectionExpr, TextProjectionTransform, contains, ends_with, left, length, lower, ltrim,
+    position, replace, right, rtrim, starts_with, substring, substring_with_length, trim, upper,
+};

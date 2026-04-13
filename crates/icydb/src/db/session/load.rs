@@ -3,7 +3,7 @@ use crate::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PersistedRow, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
-            Predicate, Query, QueryTracePlan, SortExpr,
+            Predicate, Query, QueryTracePlan, SortExpr, TextProjectionExpr,
         },
         response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
@@ -429,6 +429,26 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         Ok(self.inner.values_by(field)?)
     }
 
+    /// Execute and return projected values for one shared text projection over
+    /// the effective response window.
+    pub fn project_values(&self, projection: &TextProjectionExpr) -> Result<Vec<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.project_values(projection)?)
+    }
+
+    /// Explain `project_values(projection)` routing without executing it.
+    pub fn explain_project_values(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<ExplainExecutionNodeDescriptor, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.explain_project_values(projection)?)
+    }
+
     /// Explain `values_by(field)` routing without executing the terminal.
     pub fn explain_values_by(
         &self,
@@ -543,6 +563,18 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         Ok(self.inner.values_by_with_ids(field)?)
     }
 
+    /// Execute and return projected id/value pairs for one shared text
+    /// projection over the effective response window.
+    pub fn project_values_with_ids(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Vec<(Id<E>, Value)>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.project_values_with_ids(projection)?)
+    }
+
     /// Explain `values_by_with_ids(field)` routing without executing the terminal.
     pub fn explain_values_by_with_ids(
         &self,
@@ -562,6 +594,18 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         Ok(self.inner.first_value_by(field)?)
     }
 
+    /// Execute and return the first projected value for one shared text
+    /// projection in effective response order, if any.
+    pub fn project_first_value(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Option<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.project_first_value(projection)?)
+    }
+
     /// Explain `first_value_by(field)` routing without executing the terminal.
     pub fn explain_first_value_by(
         &self,
@@ -579,6 +623,18 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         E: EntityValue,
     {
         Ok(self.inner.last_value_by(field)?)
+    }
+
+    /// Execute and return the last projected value for one shared text
+    /// projection in effective response order, if any.
+    pub fn project_last_value(
+        &self,
+        projection: &TextProjectionExpr,
+    ) -> Result<Option<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.project_last_value(projection)?)
     }
 
     /// Explain `last_value_by(field)` routing without executing the terminal.

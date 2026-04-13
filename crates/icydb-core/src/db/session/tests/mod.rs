@@ -81,7 +81,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeMap, sync::LazyLock};
+use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, sync::LazyLock};
 
 crate::test_canister! {
     ident = SessionSqlCanister,
@@ -1472,6 +1472,46 @@ where
     }
 }
 
+// Execute one projection SQL statement and require exactly one scalar output
+// cell from the first row so scalar aggregate tests can share one extraction
+// helper.
+fn statement_projection_scalar_value<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Value, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    statement_projection_rows::<E>(session, sql)?
+        .into_iter()
+        .next()
+        .and_then(|mut row| if row.len() == 1 { row.pop() } else { None })
+        .ok_or_else(|| {
+            unsupported_sql_statement_query_error(
+                "scalar projection SQL requires one row with exactly one scalar value",
+            )
+        })
+}
+
+// Execute one scalar projection SQL statement and assert it emits the expected
+// public scalar value.
+fn assert_session_sql_scalar_value<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected: Value,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let actual = statement_projection_scalar_value::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} scalar SQL should execute: {err}"));
+
+    assert_eq!(
+        actual, expected,
+        "{context} should preserve the expected scalar value",
+    );
+}
+
 fn statement_explain_sql<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
@@ -1492,6 +1532,80 @@ where
             "EXPLAIN SQL requires an EXPLAIN statement",
         )),
     }
+}
+
+// Execute one EXPLAIN SQL statement and assert the public surface keeps the
+// requested stable tokens.
+fn assert_session_sql_explain_tokens<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    tokens: &[&str],
+    require_json_object: bool,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let explain = statement_explain_sql::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} explain SQL should succeed: {err}"));
+
+    if require_json_object {
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should render one JSON object payload",
+        );
+    }
+
+    assert_explain_contains_tokens(explain.as_str(), tokens, context);
+}
+
+// Execute one aliased-vs-canonical SQL pair through the provided session test
+// runner and assert both spellings preserve the same public output.
+fn assert_session_sql_alias_matches_canonical<T>(
+    session: &DbSession<SessionSqlCanister>,
+    runner: impl Fn(&DbSession<SessionSqlCanister>, &str) -> Result<T, QueryError>,
+    aliased_sql: &str,
+    canonical_sql: &str,
+    context: &str,
+) where
+    T: Debug + PartialEq,
+{
+    let aliased = runner(session, aliased_sql)
+        .unwrap_or_else(|err| panic!("{context} aliased SQL should succeed: {err:?}"));
+    let canonical = runner(session, canonical_sql)
+        .unwrap_or_else(|err| panic!("{context} canonical SQL should succeed: {err:?}"));
+
+    assert_eq!(
+        aliased, canonical,
+        "{context} should normalize to the same public output",
+    );
+}
+
+// Execute one unsupported ORDER BY alias SQL case through the provided session
+// test runner and assert the public unsupported error contract stays stable.
+fn assert_session_sql_order_by_alias_unsupported<T>(
+    session: &DbSession<SessionSqlCanister>,
+    runner: impl Fn(&DbSession<SessionSqlCanister>, &str) -> Result<T, QueryError>,
+    sql: &str,
+    context: &str,
+) {
+    let Err(err) = runner(session, sql) else {
+        panic!("unsupported ORDER BY alias target should fail closed");
+    };
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "{context} must fail at the session SQL boundary",
+    );
+    assert!(
+        err.to_string()
+            .contains("ORDER BY alias 'trimmed_name' does not resolve to a supported order target"),
+        "{context} should explain the narrowed alias-order boundary",
+    );
 }
 
 // Parse one verbose explain payload into `diag.*` key/value pairs so session

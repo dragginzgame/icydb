@@ -19,40 +19,14 @@ use crate::{
         },
         response::EntityResponse,
     },
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     types::Ulid,
     value::Value,
 };
 use proptest::prelude::*;
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     ops::Bound,
 };
-
-///
-/// PaginationCaptureSink
-///
-/// Small metrics sink used to keep row-scan assertions local to the live
-/// pagination tests without re-enabling the old matrix wrapper family.
-///
-
-#[derive(Default)]
-struct PaginationCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl PaginationCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for PaginationCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
 
 trait PaginationTestEntityId {
     fn entity_id(&self) -> Ulid;
@@ -111,31 +85,6 @@ fn explain_contains_index_range(
 
 fn setup_pagination_test() {
     reset_store();
-}
-
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = PaginationCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
 }
 
 fn seed_simple_rows(ids: &[u128]) {

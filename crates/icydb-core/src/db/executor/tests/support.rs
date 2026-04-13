@@ -13,13 +13,18 @@ pub(in crate::db::executor::tests) use crate::{
             init_commit_store_for_tests, prepare_row_commit_for_entity_with_structural_readers,
         },
         data::DataStore,
-        executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
+        executor::{
+            DeleteExecutor, LoadExecutor, PreparedExecutionPlan, SaveExecutor,
+            ScalarTerminalBoundaryRequest,
+        },
         index::IndexStore,
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
     },
+    error::InternalError,
+    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
         field::{FieldKind, RelationStrength},
         index::IndexModel,
@@ -31,6 +36,85 @@ pub(in crate::db::executor::tests) use crate::{
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+
+///
+/// ScanBudgetCaptureSink
+///
+/// Small metrics sink shared by executor owner tests that assert row-scan
+/// budgets.
+///
+
+#[derive(Default)]
+pub(in crate::db::executor::tests) struct ScanBudgetCaptureSink {
+    events: RefCell<Vec<MetricsEvent>>,
+}
+
+impl ScanBudgetCaptureSink {
+    fn into_events(self) -> Vec<MetricsEvent> {
+        self.events.into_inner()
+    }
+}
+
+impl MetricsSink for ScanBudgetCaptureSink {
+    fn record(&self, event: MetricsEvent) {
+        self.events.borrow_mut().push(event);
+    }
+}
+
+// Sum `RowsScanned` metrics for one entity path under the shared executor test sink.
+pub(in crate::db::executor::tests) fn rows_scanned_for_entity(
+    events: &[MetricsEvent],
+    entity_path: &'static str,
+) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let scanned = match event {
+            MetricsEvent::RowsScanned {
+                entity_path: path,
+                rows_scanned,
+            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(scanned)
+    })
+}
+
+// Run one closure under the shared executor test sink and return both output and
+// scanned-row total for the requested entity path.
+pub(in crate::db::executor::tests) fn capture_rows_scanned_for_entity<R>(
+    entity_path: &'static str,
+    run: impl FnOnce() -> R,
+) -> (R, usize) {
+    let sink = ScanBudgetCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
+
+    (output, rows_scanned)
+}
+
+// Execute one shared COUNT scalar terminal from executor owner tests.
+pub(in crate::db::executor::tests) fn execute_count_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: PreparedExecutionPlan<E>,
+) -> Result<u32, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
+        .into_count()
+}
+
+// Execute one shared EXISTS scalar terminal from executor owner tests.
+pub(in crate::db::executor::tests) fn execute_exists_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: PreparedExecutionPlan<E>,
+) -> Result<bool, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
+        .into_exists()
+}
 
 // TestCanister
 

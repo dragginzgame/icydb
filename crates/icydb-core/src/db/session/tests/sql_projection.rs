@@ -82,24 +82,34 @@ fn assert_projection_columns(
     );
 }
 
-// Assert that one field-alias surface still normalizes to the same projected
-// rows as the equivalent canonical SQL spelling.
-fn assert_projection_alias_matches_canonical<E>(
+// Assert that one single-column SQL computed projection stays aligned with the
+// shared fluent text-projection terminal over the same ordered response window.
+fn assert_sql_projection_matches_fluent_text_projection(
     session: &DbSession<SessionSqlCanister>,
-    aliased_sql: &str,
-    canonical_sql: &str,
+    sql: &str,
+    projection: &crate::db::TextProjectionExpr,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
-{
-    let aliased_rows = statement_projection_rows::<E>(session, aliased_sql)
-        .unwrap_or_else(|err| panic!("{context} aliased SQL should execute: {err:?}"));
-    let canonical_rows = statement_projection_rows::<E>(session, canonical_sql)
-        .unwrap_or_else(|err| panic!("{context} canonical SQL should execute: {err:?}"));
+) {
+    let sql_rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} SQL projection should execute: {err:?}"));
+    let fluent_values = session
+        .load::<SessionSqlEntity>()
+        .order_by_desc("age")
+        .project_values(projection)
+        .unwrap_or_else(|err| panic!("{context} fluent projection should execute: {err:?}"));
+
+    let sql_values = sql_rows
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .next()
+                .expect("single-column SQL projection row should contain one value")
+        })
+        .collect::<Vec<_>>();
 
     assert_eq!(
-        aliased_rows, canonical_rows,
-        "{context} should normalize onto the same scalar execution order",
+        fluent_values, sql_values,
+        "{context} fluent projection should stay aligned with the SQL projection values",
     );
 }
 
@@ -171,8 +181,9 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
 
     seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
 
-    assert_projection_alias_matches_canonical::<SessionSqlEntity>(
+    assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
         &session,
+        statement_projection_rows::<SessionSqlEntity>,
         "SELECT name AS display_name FROM SessionSqlEntity ORDER BY display_name ASC LIMIT 3",
         "SELECT name FROM SessionSqlEntity ORDER BY name ASC LIMIT 3",
         "ORDER BY field aliases",
@@ -190,8 +201,9 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
         ],
     );
 
-    assert_projection_alias_matches_canonical::<ExpressionIndexedSessionSqlEntity>(
+    assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
         &indexed_session,
+        statement_projection_rows::<ExpressionIndexedSessionSqlEntity>,
         "SELECT LOWER(name) AS normalized_name FROM ExpressionIndexedSessionSqlEntity ORDER BY normalized_name ASC LIMIT 3",
         "SELECT LOWER(name) FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC LIMIT 3",
         "ORDER BY LOWER(field) aliases",
@@ -203,25 +215,11 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = statement_projection_rows::<SessionSqlEntity>(
+    assert_session_sql_order_by_alias_unsupported::<Vec<Vec<Value>>>(
         &session,
+        statement_projection_rows::<SessionSqlEntity>,
         "SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 2",
-    )
-    .expect_err("ORDER BY aliases should stay fail-closed for unsupported target families");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "unsupported ORDER BY alias targets must fail at the session SQL boundary",
-    );
-    assert!(
-        err.to_string()
-            .contains("ORDER BY alias 'trimmed_name' does not resolve to a supported order target"),
-        "unsupported ORDER BY alias failure should explain the narrowed alias-order boundary",
+        "unsupported ORDER BY alias targets",
     );
 }
 
@@ -377,6 +375,134 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
     ] {
         assert_projection_columns_and_rows(&session, sql, expected_columns, expected_rows, context);
     }
+}
+
+#[test]
+fn fluent_text_projection_terminals_match_sql_projection_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_text_fixture(&session);
+
+    for (sql, projection, context) in [
+        (
+            "SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::trim("name"),
+            "TRIM(name) parity",
+        ),
+        (
+            "SELECT LTRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::ltrim("name"),
+            "LTRIM(name) parity",
+        ),
+        (
+            "SELECT RTRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::rtrim("name"),
+            "RTRIM(name) parity",
+        ),
+        (
+            "SELECT LOWER(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::lower("name"),
+            "LOWER(name) parity",
+        ),
+        (
+            "SELECT UPPER(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::upper("name"),
+            "UPPER(name) parity",
+        ),
+        (
+            "SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::length("name"),
+            "LENGTH(name) parity",
+        ),
+        (
+            "SELECT LEFT(name, 2) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::left("name", 2_i64),
+            "LEFT(name, 2) parity",
+        ),
+        (
+            "SELECT RIGHT(name, 3) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::right("name", 3_i64),
+            "RIGHT(name, 3) parity",
+        ),
+        (
+            "SELECT STARTS_WITH(name, ' ') FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::starts_with("name", " "),
+            "STARTS_WITH(name, ' ') parity",
+        ),
+        (
+            "SELECT ENDS_WITH(name, 'b') FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::ends_with("name", "b"),
+            "ENDS_WITH(name, 'b') parity",
+        ),
+        (
+            "SELECT CONTAINS(name, 'da') FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::contains("name", "da"),
+            "CONTAINS(name, 'da') parity",
+        ),
+        (
+            "SELECT POSITION('da', name) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::position("name", "da"),
+            "POSITION('da', name) parity",
+        ),
+        (
+            "SELECT REPLACE(name, 'A', 'E') FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::replace("name", "A", "E"),
+            "REPLACE(name, 'A', 'E') parity",
+        ),
+        (
+            "SELECT SUBSTRING(name, 3, 3) FROM SessionSqlEntity ORDER BY age DESC",
+            crate::db::substring_with_length("name", 3_i64, 3_i64),
+            "SUBSTRING(name, 3, 3) parity",
+        ),
+    ] {
+        assert_sql_projection_matches_fluent_text_projection(&session, sql, &projection, context);
+    }
+}
+
+#[test]
+fn fluent_text_projection_first_and_last_values_match_sql_ordered_windows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_text_fixture(&session);
+
+    let projection = crate::db::lower("name");
+    let sql_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT LOWER(name) FROM SessionSqlEntity ORDER BY age ASC",
+    )
+    .expect("LOWER(name) SQL projection should execute");
+    let expected = sql_rows
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .next()
+                .expect("single-column SQL projection row should contain one value")
+        })
+        .collect::<Vec<_>>();
+
+    let first_value = session
+        .load::<SessionSqlEntity>()
+        .order_by("age")
+        .project_first_value(&projection)
+        .expect("fluent first projected value should execute");
+    let last_value = session
+        .load::<SessionSqlEntity>()
+        .order_by("age")
+        .project_last_value(&projection)
+        .expect("fluent last projected value should execute");
+
+    assert_eq!(
+        first_value,
+        expected.first().cloned(),
+        "first projected fluent value should match the first ordered SQL projection value",
+    );
+    assert_eq!(
+        last_value,
+        expected.last().cloned(),
+        "last projected fluent value should match the last ordered SQL projection value",
+    );
 }
 
 #[test]

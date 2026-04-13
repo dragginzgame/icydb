@@ -10,66 +10,14 @@ use super::support::*;
 use crate::{
     db::{
         data::DataKey,
-        executor::ScalarTerminalBoundaryRequest,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::builder::aggregate,
     },
-    error::{ErrorClass, InternalError},
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
-    traits::{EntityKind, EntityValue},
+    error::ErrorClass,
+    traits::EntityKind,
     types::Ulid,
     value::Value,
 };
-use std::cell::RefCell;
-
-///
-/// AggregateOptimizationsCaptureSink
-///
-/// Small metrics sink used to keep the remaining scan-budget contracts local
-/// after removing the dead optimization-counter test surface.
-///
-
-#[derive(Default)]
-struct AggregateOptimizationsCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl AggregateOptimizationsCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for AggregateOptimizationsCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
-
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = AggregateOptimizationsCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
-}
 
 fn field_slot_for_test<E>(field: &str) -> crate::db::query::plan::FieldSlot
 where
@@ -114,17 +62,6 @@ fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
         Value::Uint(u64::from(value)),
         CoercionId::Strict,
     ))
-}
-
-fn execute_count_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: crate::db::executor::PreparedExecutionPlan<E>,
-) -> Result<u32, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
-        .into_count()
 }
 
 #[test]

@@ -19,37 +19,11 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
 };
-use std::cell::RefCell;
-
-///
-/// AggregateTailCaptureSink
-///
-/// Small metrics sink used to keep tail-terminal scan-budget assertions live
-/// while the old aggregate tail matrix is drained into owner-local tests.
-///
-
-#[derive(Default)]
-struct AggregateTailCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl AggregateTailCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for AggregateTailCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
 
 ///
 /// SimpleTerminalProbeKind
@@ -212,31 +186,6 @@ enum StrictPrefilterOutput {
     Id(Option<Id<PushdownParityEntity>>),
 }
 
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = AggregateTailCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
-}
-
 fn seed_simple_entities(rows: &[u128]) {
     reset_store();
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -314,28 +263,6 @@ where
     plan.explain_load_execution_node_descriptor()
         .expect("aggregate tail execution descriptor should build")
         .node_type()
-}
-
-fn execute_count_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: crate::db::executor::PreparedExecutionPlan<E>,
-) -> Result<u32, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
-        .into_count()
-}
-
-fn execute_exists_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: crate::db::executor::PreparedExecutionPlan<E>,
-) -> Result<bool, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
-        .into_exists()
 }
 
 fn execute_id_terminal<E>(

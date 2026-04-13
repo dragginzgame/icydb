@@ -23,56 +23,12 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
 };
-use std::cell::RefCell;
 use std::ops::Bound;
-
-#[derive(Default)]
-struct AggregateProjectionCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl AggregateProjectionCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for AggregateProjectionCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
-
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = AggregateProjectionCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
-}
 
 fn planned_slot<E>(field: &str) -> PlannedFieldSlot
 where

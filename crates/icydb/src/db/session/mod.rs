@@ -330,6 +330,15 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.show_entities()
     }
 
+    /// Return one stable list of runtime-registered entity names.
+    ///
+    /// This is the typed alias of SQL `SHOW TABLES`, which itself aliases
+    /// `SHOW ENTITIES`.
+    #[must_use]
+    pub fn show_tables(&self) -> Vec<String> {
+        self.inner.show_tables()
+    }
+
     /// Return one structured schema description for the entity.
     #[must_use]
     pub fn describe_entity<E>(&self) -> EntitySchemaDescription

@@ -8,15 +8,19 @@ pub mod expr;
 pub use expr::{FilterExpr, OrderDirection, SortExpr};
 pub use icydb_core::db::{
     AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FieldRef, MissingRowPolicy, PlannedQuery,
-    Predicate, Query, QueryTracePlan, TraceExecutionFamily, avg, count, count_by, exists, first,
-    last, max, max_by, min, min_by, sum,
+    Predicate, Query, QueryTracePlan, TextProjectionExpr, TextProjectionTransform,
+    TraceExecutionFamily, avg, contains, count, count_by, ends_with, exists, first, last, left,
+    length, lower, ltrim, max, max_by, min, min_by, position, replace, right, rtrim, starts_with,
+    substring, substring_with_length, sum, trim, upper,
 };
 
 /// Field-reference and aggregate helpers exposed by the facade query API.
 pub mod builder {
     pub use icydb_core::db::{
-        AggregateExpr, FieldRef, avg, count, count_by, exists, first, last, max, max_by, min,
-        min_by, sum,
+        AggregateExpr, FieldRef, TextProjectionExpr, TextProjectionTransform, avg, contains, count,
+        count_by, ends_with, exists, first, last, left, length, lower, ltrim, max, max_by, min,
+        min_by, position, replace, right, rtrim, starts_with, substring, substring_with_length,
+        sum, trim, upper,
     };
 }
 

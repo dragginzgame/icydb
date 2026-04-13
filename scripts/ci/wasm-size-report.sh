@@ -58,7 +58,6 @@ build_variant() {
     (
         cd "$ROOT"
         export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
-        export DEMO_RPG_WASM_PROFILE="$PROFILE"
         export ICYDB_CANISTER_SQL_MODE="$sql_mode"
         cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- "$CANISTER_NAME"
     )

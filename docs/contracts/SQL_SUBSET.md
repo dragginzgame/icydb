@@ -74,6 +74,9 @@ Supported commands:
 - `SHOW ENTITIES`
 - `SHOW TABLES`
 
+`SHOW TABLES` is not a separate metadata family.
+It is an alias for `SHOW ENTITIES` and should return the same payload.
+
 ## Public SQL Mutation Execution
 
 Supported public mutation shapes are:

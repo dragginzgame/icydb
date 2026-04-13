@@ -244,6 +244,15 @@ impl<C: CanisterKind> DbSession<C> {
         self.db.runtime_entity_names()
     }
 
+    /// Return one stable list of runtime-registered entity names.
+    ///
+    /// `SHOW TABLES` is only an alias for `SHOW ENTITIES`, so the typed
+    /// metadata surface keeps the same alias relationship.
+    #[must_use]
+    pub fn show_tables(&self) -> Vec<String> {
+        self.show_entities()
+    }
+
     // Best-effort runtime state lookup for metadata surfaces.
     // SHOW INDEXES should stay readable even if one store handle is missing
     // from the registry, so this helper falls back to the pure schema-owned

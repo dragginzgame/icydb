@@ -8,7 +8,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         data::{DataKey, PersistedRow},
-        executor::{PreparedExecutionPlan, ScalarTerminalBoundaryRequest},
+        executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             explain::ExplainExecutionNodeType,
@@ -18,42 +18,16 @@ use crate::{
         response::EntityResponse,
     },
     error::{ErrorClass, InternalError},
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::entity::resolve_field_slot,
     serialize::serialized_len,
     traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
 };
-use std::cell::RefCell;
 use std::ops::Bound;
 
 const COMPOSITE_COUNT_BASE: u128 = 8_751;
 const COMPOSITE_EXISTS_BASE: u128 = 8_761;
-
-///
-/// AggregatePathCaptureSink
-///
-/// Small metrics sink used to keep path-level scan-budget assertions live
-/// while aggregate path contracts move out of the stale matrix family.
-///
-
-#[derive(Default)]
-struct AggregatePathCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl AggregatePathCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for AggregatePathCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
 
 ///
 /// CompositeTerminal
@@ -78,31 +52,6 @@ enum CompositeTerminal {
 enum CompositeTerminalResult {
     Count(u32),
     Exists(bool),
-}
-
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = AggregatePathCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
 }
 
 // Sum persisted row payload lengths for the exact effective execute window.
@@ -171,28 +120,6 @@ where
         field: field.to_string(),
         kind: resolved_index.and_then(|index| E::MODEL.fields.get(index).map(|field| field.kind)),
     }
-}
-
-fn execute_count_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: PreparedExecutionPlan<E>,
-) -> Result<u32, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
-        .into_count()
-}
-
-fn execute_exists_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: PreparedExecutionPlan<E>,
-) -> Result<bool, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
-        .into_exists()
 }
 
 fn execution_root_node_type<E>(plan: &PreparedExecutionPlan<E>) -> ExplainExecutionNodeType

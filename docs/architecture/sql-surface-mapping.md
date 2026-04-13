@@ -31,9 +31,25 @@ If SQL admits a capability and IcyDB already has one equivalent canonical
 typed or fluent model for that capability, the default expectation is that the
 typed or fluent surface should expose it too.
 
-The inverse is no longer automatic.
+For `0.77`, this is not just a directional preference.
+It is the completion rule for the ordinary single-entity query surface:
+
+* admitted ordinary SQL query capability should have one canonical fluent or
+  typed representation
+* admitted single-entity SQL mutation capability should have one canonical
+  typed or fluent mutation representation
+
+The inverse is still not automatic.
 Typed/fluent capability does not imply that SQL text must expose the same
 operation.
+
+Operational SQL surfaces are the explicit exception:
+
+* `DESCRIBE`
+* `SHOW ...`
+* `EXPLAIN ...`
+
+Those may remain SQL-shaped without matching fluent builder forms.
 
 ## Surface Matrix
 
@@ -89,11 +105,21 @@ These surfaces share one public row/projection payload family.
 
 ### Computed Text Projection
 
-Computed text projection is shipped, but it is session-owned rather than part
-of the shared canonical query lane.
+Computed text projection is shipped and now has one canonical fluent
+representation through the shared `TextProjectionExpr` builder plus fluent
+projection terminals such as:
+
+- `project_values(...)`
+- `project_first_value(...)`
+- `project_last_value(...)`
+
+What is still true is that this remains a narrower projection-terminal family
+rather than one broad row-returning `execute()` projection model.
 
 Representative evidence:
 
+- `crates/icydb-core/src/db/query/builder/text_projection.rs`
+- `crates/icydb-core/src/db/query/fluent/load/terminals.rs`
 - `crates/icydb-core/src/db/session/sql/computed_projection/plan.rs`
 - `crates/icydb-core/src/db/session/tests/sql_surface.rs`
 - `crates/icydb-core/src/db/session/tests/sql_projection.rs`
@@ -101,7 +127,9 @@ Representative evidence:
 ### Global Aggregate `SELECT`
 
 Global aggregate SQL is admitted by the language contract.
-Canonical lowering still rejects it, but the public SQL executor runs it.
+The completion goal for `0.77` is that this admitted ordinary query shape is
+described and tested as one canonical query capability rather than as a
+special-case SQL success.
 
 Representative evidence:
 
@@ -136,7 +164,7 @@ SQL parsing still owns route metadata for:
 - `SHOW INDEXES`
 - `SHOW COLUMNS`
 - `SHOW ENTITIES`
-- `SHOW TABLES`
+- `SHOW TABLES` as an alias of `SHOW ENTITIES`
 
 But the public operational helpers remain typed/session-owned:
 
@@ -144,6 +172,7 @@ But the public operational helpers remain typed/session-owned:
 - `show_indexes(...)`
 - `show_columns(...)`
 - `show_entities()`
+- `show_tables()`
 
 ## Result Rule
 
@@ -154,3 +183,18 @@ The public rule is:
 
 That rule is owned by typed/fluent public APIs rather than by a separate SQL
 result envelope.
+
+## 0.77 Freeze Bar
+
+The admitted single-entity SQL surface is not considered complete for `0.77`
+until all of the following are true:
+
+- every admitted ordinary SQL query family is represented both in SQL and in
+  one canonical fluent or typed query form
+- every admitted SQL mutation family is represented both in SQL and in one
+  canonical typed or fluent mutation form
+- the live public SQL surface stays frozen to:
+  - `execute_sql_query::<E>(...)`
+  - `execute_sql_update::<E>(...)`
+- every admitted family has direct tests on the live surface rather than only
+  transitive proof through older internal helpers

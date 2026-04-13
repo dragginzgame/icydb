@@ -8,68 +8,17 @@ use crate::{
     db::{
         access::{AccessPath, AccessPathKind},
         executor::{
-            PreparedExecutionPlan, ScalarTerminalBoundaryRequest,
+            PreparedExecutionPlan,
             aggregate::{AggregateKind, ScalarNumericFieldBoundaryRequest},
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::intent::Query,
     },
-    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     types::{Decimal, Ulid},
     value::Value,
 };
-use std::cell::RefCell;
-
-///
-/// AggregateNumericCaptureSink
-///
-/// Small metrics sink used to keep numeric aggregate scan-budget assertions
-/// live without depending on the stale aggregate matrix wrapper.
-///
-
-#[derive(Default)]
-struct AggregateNumericCaptureSink {
-    events: RefCell<Vec<MetricsEvent>>,
-}
-
-impl AggregateNumericCaptureSink {
-    fn into_events(self) -> Vec<MetricsEvent> {
-        self.events.into_inner()
-    }
-}
-
-impl MetricsSink for AggregateNumericCaptureSink {
-    fn record(&self, event: MetricsEvent) {
-        self.events.borrow_mut().push(event);
-    }
-}
-
-fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
-    events.iter().fold(0usize, |acc, event| {
-        let scanned = match event {
-            MetricsEvent::RowsScanned {
-                entity_path: path,
-                rows_scanned,
-            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
-            _ => 0,
-        };
-
-        acc.saturating_add(scanned)
-    })
-}
-
-fn capture_rows_scanned_for_entity<R>(
-    entity_path: &'static str,
-    run: impl FnOnce() -> R,
-) -> (R, usize) {
-    let sink = AggregateNumericCaptureSink::default();
-    let output = with_metrics_sink(&sink, run);
-    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
-
-    (output, rows_scanned)
-}
 
 fn seed_pushdown_entities(rows: &[(u128, u32, u32)]) {
     reset_store();
@@ -126,28 +75,6 @@ where
         planned_slot::<E>("rank"),
         ScalarNumericFieldBoundaryRequest::Avg,
     )
-}
-
-fn execute_count_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: PreparedExecutionPlan<E>,
-) -> Result<u32, crate::error::InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
-        .into_count()
-}
-
-fn execute_exists_terminal<E>(
-    load: &LoadExecutor<E>,
-    plan: PreparedExecutionPlan<E>,
-) -> Result<bool, crate::error::InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
-        .into_exists()
 }
 
 fn execute_min_terminal<E>(

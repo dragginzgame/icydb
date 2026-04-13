@@ -310,6 +310,8 @@ fn sql_metadata_surfaces_match_typed_payloads() {
             .expect("show_columns_sql should succeed");
     let show_entities_from_sql = statement_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
+    let show_tables_from_sql = statement_show_entities_sql(&session, "SHOW TABLES")
+        .expect("show tables alias should succeed");
 
     assert_eq!(
         describe_from_sql,
@@ -330,6 +332,16 @@ fn sql_metadata_surfaces_match_typed_payloads() {
         show_entities_from_sql,
         session.show_entities(),
         "show_entities_sql should project through canonical show_entities payload",
+    );
+    assert_eq!(
+        session.show_tables(),
+        session.show_entities(),
+        "typed show_tables helper should stay a direct alias of show_entities",
+    );
+    assert_eq!(
+        show_tables_from_sql,
+        session.show_entities(),
+        "SHOW TABLES should stay a direct alias of SHOW ENTITIES",
     );
 }
 
