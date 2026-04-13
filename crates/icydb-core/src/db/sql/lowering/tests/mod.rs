@@ -1106,6 +1106,72 @@ fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with
 }
 
 #[test]
+fn compile_sql_command_ilike_prefix_matches_casefold_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("ILIKE prefix SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("al".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("ILIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent casefold starts-with plan should build")
+            .into_inner(),
+        "plain ILIKE 'prefix%' SQL lowering must match the canonical casefold starts-with intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_not_ilike_prefix_matches_negated_casefold_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE name NOT ILIKE 'al%'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("NOT ILIKE prefix SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("al".to_string()),
+            CoercionId::TextCasefold,
+        ))),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("NOT ILIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent negated casefold starts-with plan should build")
+            .into_inner(),
+        "plain NOT ILIKE 'prefix%' SQL lowering must match the canonical negated casefold starts-with intent",
+    );
+}
+
+#[test]
 fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_intent() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",

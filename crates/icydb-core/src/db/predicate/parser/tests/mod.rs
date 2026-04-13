@@ -204,6 +204,63 @@ fn parse_sql_predicate_not_like_prefix_lowering_respects_operand_text_mode() {
 }
 
 #[test]
+fn parse_sql_predicate_ilike_prefix_lowering_stays_casefolded() {
+    let plain = parse_sql_predicate("name ILIKE 'al%'").expect("plain ILIKE prefix should parse");
+    let lower =
+        parse_sql_predicate("LOWER(name) ILIKE 'al%'").expect("LOWER(field) ILIKE should parse");
+    let upper =
+        parse_sql_predicate("UPPER(name) ILIKE 'AL%'").expect("UPPER(field) ILIKE should parse");
+
+    let expected_plain = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("al".to_string()),
+        CoercionId::TextCasefold,
+    ));
+    let expected_upper = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("AL".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    assert_eq!(plain, expected_plain);
+    assert_eq!(lower, expected_plain);
+    assert_eq!(upper, expected_upper);
+}
+
+#[test]
+fn parse_sql_predicate_not_ilike_prefix_lowering_stays_casefolded() {
+    let plain =
+        parse_sql_predicate("name NOT ILIKE 'al%'").expect("plain NOT ILIKE prefix should parse");
+    let lower = parse_sql_predicate("LOWER(name) NOT ILIKE 'al%'")
+        .expect("LOWER(field) NOT ILIKE should parse");
+    let upper = parse_sql_predicate("UPPER(name) NOT ILIKE 'AL%'")
+        .expect("UPPER(field) NOT ILIKE should parse");
+
+    let expected_plain = Predicate::Not(Box::new(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("al".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    )));
+    let expected_upper = Predicate::Not(Box::new(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    )));
+
+    assert_eq!(plain, expected_plain);
+    assert_eq!(lower, expected_plain);
+    assert_eq!(upper, expected_upper);
+}
+
+#[test]
 fn parse_sql_predicate_ordered_text_compares_stay_strict() {
     let predicate =
         parse_sql_predicate("name >= 'Al' AND name < 'Am'").expect("text range should parse");

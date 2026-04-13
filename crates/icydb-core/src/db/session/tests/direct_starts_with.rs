@@ -224,6 +224,57 @@ fn execute_sql_not_like_prefix_matrix_matches_negated_prefix_rows() {
 }
 
 #[test]
+fn execute_sql_ilike_prefix_matrix_matches_casefold_prefix_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_direct_starts_with_fixture(&session);
+
+    let plain_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name ILIKE 's%' ORDER BY name ASC",
+    )
+    .expect("ILIKE prefix projection should execute");
+    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) LIKE projection should execute");
+
+    assert_eq!(
+        plain_rows, lower_rows,
+        "ILIKE prefix projection should match the bounded casefold prefix family",
+    );
+}
+
+#[test]
+fn execute_sql_not_ilike_prefix_matrix_matches_negated_casefold_prefix_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_direct_starts_with_fixture(&session);
+
+    let plain_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name NOT ILIKE 's%' ORDER BY name ASC",
+    )
+    .expect("NOT ILIKE prefix projection should execute");
+    let lower_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) NOT LIKE 's%' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) NOT LIKE projection should execute");
+    let expected_rows = vec![vec![Value::Text("Atlas".to_string())]];
+
+    assert_eq!(
+        plain_rows, expected_rows,
+        "NOT ILIKE prefix projection should keep only rows outside the bounded casefold prefix family",
+    );
+    assert_eq!(
+        plain_rows, lower_rows,
+        "NOT ILIKE prefix projection should match the established negated casefold LIKE result set",
+    );
+}
+
+#[test]
 fn session_explain_execution_direct_casefold_equivalent_prefix_matrix_preserves_expression_index_route()
  {
     reset_indexed_session_sql_store();

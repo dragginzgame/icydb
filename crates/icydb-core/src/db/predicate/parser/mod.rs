@@ -151,11 +151,20 @@ fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlPa
     if cursor.eat_identifier_keyword("LIKE") {
         return parse_like_prefix_predicate(cursor, operand);
     }
+    if cursor.eat_identifier_keyword("ILIKE") {
+        return parse_ilike_prefix_predicate(cursor, operand);
+    }
     if peek_not_like(cursor) {
         let _ = cursor.eat_keyword(Keyword::Not);
         let _ = cursor.eat_identifier_keyword("LIKE");
 
         return parse_like_prefix_predicate(cursor, operand).map(Predicate::not);
+    }
+    if peek_not_ilike(cursor) {
+        let _ = cursor.eat_keyword(Keyword::Not);
+        let _ = cursor.eat_identifier_keyword("ILIKE");
+
+        return parse_ilike_prefix_predicate(cursor, operand).map(Predicate::not);
     }
 
     match operand {
@@ -368,6 +377,38 @@ fn parse_like_prefix_predicate(
     )))
 }
 
+// Parse one bounded ILIKE 'prefix%' predicate family and lower it onto the
+// existing casefolded prefix-compare seam.
+fn parse_ilike_prefix_predicate(
+    cursor: &mut SqlTokenCursor,
+    operand: PredicateFieldOperand,
+) -> Result<Predicate, SqlParseError> {
+    let Some(TokenKind::StringLiteral(pattern)) = cursor.peek_kind() else {
+        return Err(SqlParseError::expected(
+            "string literal pattern after ILIKE",
+            cursor.peek_kind(),
+        ));
+    };
+    let Some(prefix) = like_prefix_from_pattern(pattern.as_str()) else {
+        return Err(SqlParseError::unsupported_feature(
+            "LIKE patterns beyond trailing '%' prefix form",
+        ));
+    };
+    let prefix = prefix.to_string();
+    let _ = cursor.advance();
+    let field = match operand {
+        PredicateFieldOperand::Plain(field) => field,
+        PredicateFieldOperand::Wrapped { field, .. } => field,
+    };
+
+    Ok(Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        CompareOp::StartsWith,
+        Value::Text(prefix),
+        CoercionId::TextCasefold,
+    )))
+}
+
 // Parse one bounded direct `STARTS_WITH(...)` predicate spelling.
 // This remains intentionally narrow: it accepts only plain fields plus the
 // same LOWER/UPPER casefold wrappers already supported on the reduced `LIKE`
@@ -436,6 +477,16 @@ fn peek_not_like(cursor: &SqlTokenCursor) -> bool {
         && matches!(
             cursor.peek_next_kind(),
             Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case("LIKE")
+        )
+}
+
+// Detect the one bounded negated prefix-ILIKE spelling without consuming the
+// broader `NOT IN` / `NOT BETWEEN` surface that plain-field parsing still owns.
+fn peek_not_ilike(cursor: &SqlTokenCursor) -> bool {
+    matches!(cursor.peek_kind(), Some(TokenKind::Keyword(Keyword::Not)))
+        && matches!(
+            cursor.peek_next_kind(),
+            Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case("ILIKE")
         )
 }
 
