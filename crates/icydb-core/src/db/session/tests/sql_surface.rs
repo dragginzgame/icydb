@@ -563,7 +563,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert!(
         query_from_err
             .to_string()
-            .contains("DELETE RETURNING; use delete::<E>().returning..."),
+            .contains("DELETE RETURNING; use execute_sql_update::<E>()"),
         "SQL query lowering should preserve explicit DELETE RETURNING guidance",
     );
 
@@ -574,7 +574,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert!(
         execute_sql_err
             .to_string()
-            .contains("scalar SELECT helper rejects DELETE; use delete::<E>()"),
+            .contains("scalar SELECT helper rejects DELETE; use execute_sql_update::<E>()"),
         "scalar SELECT helper should preserve explicit fluent delete guidance",
     );
 

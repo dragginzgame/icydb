@@ -137,7 +137,7 @@ fn scalar_select_helper_rejects_delete_lane_on_typed_entity_surface() {
 
         assert!(
             err.to_string()
-                .contains("scalar SELECT helper rejects DELETE; use delete::<E>()"),
+                .contains("scalar SELECT helper rejects DELETE; use execute_sql_update::<E>()"),
             "scalar SELECT helper DELETE should preserve explicit fluent guidance",
         );
     }
