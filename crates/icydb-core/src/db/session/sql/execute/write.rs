@@ -526,7 +526,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let SqlInsertSource::Select(select) = statement.source.clone() else {
+        let prepared =
+            prepare_sql_statement(SqlStatement::Insert(statement.clone()), E::MODEL.name())
+                .map_err(QueryError::from_sql_lowering_error)?;
+        let SqlStatement::Insert(statement) = prepared.into_statement() else {
+            return Err(QueryError::invariant(
+                "INSERT SELECT source preparation must preserve INSERT statement ownership",
+            ));
+        };
+        let SqlInsertSource::Select(select) = statement.source else {
             return Err(QueryError::invariant(
                 "INSERT SELECT source execution requires prepared SELECT source",
             ));

@@ -261,6 +261,14 @@ pub(crate) struct PreparedSqlStatement {
     pub(in crate::db::sql::lowering) statement: SqlStatement,
 }
 
+impl PreparedSqlStatement {
+    /// Consume one prepared SQL statement back into its normalized parsed form.
+    #[must_use]
+    pub(in crate::db) fn into_statement(self) -> SqlStatement {
+        self.statement
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LoweredSqlLaneKind {
     Query,
