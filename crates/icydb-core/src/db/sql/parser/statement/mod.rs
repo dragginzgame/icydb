@@ -3,21 +3,27 @@
 //! Does not own: projection item parsing, clause helper internals, or execution semantics.
 //! Boundary: keeps statement entry routing and statement-local clause sequencing out of the parser root.
 
+mod delete;
+mod insert;
+mod select;
+mod update;
+
 use crate::db::{
     predicate::Predicate,
-    reduced_sql::{Keyword, SqlParseError},
     sql::identifier::{
         identifier_last_segment, normalize_identifier_to_scope, rewrite_field_identifiers,
     },
+};
+use crate::db::{
+    reduced_sql::{Keyword, SqlParseError, TokenKind},
     sql::parser::{
         Parser, SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
         SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-        SqlInsertSource, SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlReturningProjection,
-        SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
+        SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
+        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+        SqlTextFunctionCall, SqlUpdateStatement,
     },
 };
-use crate::value::Value;
 
 impl Parser {
     pub(super) fn parse_statement(&mut self) -> Result<SqlStatement, SqlParseError> {
@@ -170,185 +176,13 @@ impl Parser {
         None
     }
 
-    fn parse_select_statement(&mut self) -> Result<SqlSelectStatement, SqlParseError> {
-        let distinct = self.eat_keyword(Keyword::Distinct);
-        let (projection, projection_aliases) = self.parse_projection()?;
-        self.expect_keyword(Keyword::From)?;
-        let entity = self.expect_identifier()?;
-        let table_alias = self.parse_optional_table_alias()?;
-
-        // Phase 1: parse predicate and grouping clauses in canonical sequence.
-        let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
-        } else {
-            None
-        };
-
-        let mut group_by = if self.eat_keyword(Keyword::Group) {
-            self.expect_keyword(Keyword::By)?;
-            self.parse_identifier_list()?
-        } else {
-            Vec::new()
-        };
-
-        let mut having = if self.eat_keyword(Keyword::Having) {
-            self.parse_having_clauses()?
-        } else {
-            Vec::new()
-        };
-
-        // Phase 2: parse ordering and window clauses.
-        let mut order_by = if self.eat_keyword(Keyword::Order) {
-            self.expect_keyword(Keyword::By)?;
-            self.parse_order_terms()?
-        } else {
-            Vec::new()
-        };
-
-        let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal("LIMIT")?)
-        } else {
-            None
-        };
-
-        let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal("OFFSET")?)
-        } else {
-            None
-        };
-
-        // Phase 3: collapse one admitted single-table alias back onto the
-        // canonical entity field namespace so downstream lowering stays
-        // alias-neutral.
-        let projection = match table_alias.as_deref() {
-            Some(alias) => normalize_projection_for_table_alias(projection, entity.as_str(), alias),
-            None => projection,
-        };
-        if let Some(alias) = table_alias.as_deref() {
-            predicate = predicate.map(|predicate| {
-                normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
-            });
-            group_by = normalize_identifier_list_for_table_alias(group_by, entity.as_str(), alias);
-            having = normalize_having_for_table_alias(having, entity.as_str(), alias);
-            order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
-        }
-
-        Ok(SqlSelectStatement {
-            entity,
-            projection,
-            projection_aliases,
-            predicate,
-            distinct,
-            group_by,
-            having,
-            order_by,
-            limit,
-            offset,
-        })
-    }
-
-    fn parse_delete_statement(&mut self) -> Result<SqlDeleteStatement, SqlParseError> {
-        self.expect_keyword(Keyword::From)?;
-        let entity = self.expect_identifier()?;
-        let table_alias = self.parse_optional_table_alias()?;
-
-        let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
-        } else {
-            None
-        };
-
-        let mut order_by = if self.eat_keyword(Keyword::Order) {
-            self.expect_keyword(Keyword::By)?;
-            self.parse_order_terms()?
-        } else {
-            Vec::new()
-        };
-
-        let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal("LIMIT")?)
-        } else {
-            None
-        };
-
-        let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal("OFFSET")?)
-        } else {
-            None
-        };
-        let mut returning = if self.eat_keyword(Keyword::Returning) {
-            Some(self.parse_returning_projection()?)
-        } else {
-            None
-        };
-
-        if let Some(alias) = table_alias.as_deref() {
-            predicate = predicate.map(|predicate| {
-                normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
-            });
-            order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
-            returning = returning.map(|returning| {
-                normalize_returning_projection_for_table_alias(returning, entity.as_str(), alias)
-            });
-        }
-
-        Ok(SqlDeleteStatement {
-            entity,
-            predicate,
-            order_by,
-            limit,
-            offset,
-            returning,
-        })
-    }
-
-    fn parse_insert_statement(&mut self) -> Result<SqlInsertStatement, SqlParseError> {
-        self.expect_identifier_keyword("INTO")?;
-        let entity = self.expect_identifier()?;
-        let _table_alias = self.parse_optional_table_alias()?;
-
-        let columns = if self.peek_lparen() {
-            self.expect_lparen()?;
-            let columns = self.parse_identifier_list()?;
-            self.expect_rparen()?;
-            columns
-        } else {
-            Vec::new()
-        };
-        let source = if self.eat_keyword(Keyword::Select) {
-            SqlInsertSource::Select(Box::new(self.parse_select_statement()?))
-        } else {
-            self.expect_identifier_keyword("VALUES")?;
-            let values =
-                self.parse_insert_values_tuples((!columns.is_empty()).then_some(columns.len()))?;
-
-            SqlInsertSource::Values(values)
-        };
-        let returning = if self.eat_keyword(Keyword::Returning) {
-            Some(self.parse_returning_projection()?)
-        } else {
-            None
-        };
-
-        Ok(SqlInsertStatement {
-            entity,
-            columns,
-            source,
-            returning,
-        })
-    }
-
-    fn parse_optional_table_alias(&mut self) -> Result<Option<String>, SqlParseError> {
+    pub(super) fn parse_optional_table_alias(&mut self) -> Result<Option<String>, SqlParseError> {
         if self.eat_keyword(Keyword::As) {
             return self.expect_identifier().map(Some);
         }
 
-        if matches!(
-            self.peek_kind(),
-            Some(crate::db::reduced_sql::TokenKind::Identifier(_))
-        ) {
-            let Some(crate::db::reduced_sql::TokenKind::Identifier(value)) = self.peek_kind()
-            else {
+        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            let Some(TokenKind::Identifier(value)) = self.peek_kind() else {
                 unreachable!();
             };
             if matches!(
@@ -362,184 +196,6 @@ impl Parser {
         }
 
         Ok(None)
-    }
-
-    // Parse one or more reduced SQL VALUES tuples while keeping tuple arity
-    // aligned with the explicit INSERT column list.
-    fn parse_insert_values_tuples(
-        &mut self,
-        expected_columns: Option<usize>,
-    ) -> Result<Vec<Vec<Value>>, SqlParseError> {
-        let mut tuples = Vec::new();
-
-        loop {
-            self.expect_lparen()?;
-            let tuple = self.parse_insert_values_tuple(expected_columns)?;
-            self.expect_rparen()?;
-            tuples.push(tuple);
-
-            if !self.eat_comma() {
-                break;
-            }
-        }
-
-        Ok(tuples)
-    }
-
-    fn parse_insert_values_tuple(
-        &mut self,
-        expected_columns: Option<usize>,
-    ) -> Result<Vec<Value>, SqlParseError> {
-        let mut values = Vec::new();
-        loop {
-            values.push(self.parse_literal()?);
-
-            if self.eat_comma() {
-                continue;
-            }
-
-            break;
-        }
-
-        if let Some(expected_columns) = expected_columns
-            && expected_columns != values.len()
-        {
-            return Err(SqlParseError::invalid_syntax(
-                "INSERT column list and VALUES tuple length must match",
-            ));
-        }
-
-        Ok(values)
-    }
-
-    fn parse_update_statement(&mut self) -> Result<SqlUpdateStatement, SqlParseError> {
-        let entity = self.expect_identifier()?;
-        let table_alias = self.parse_optional_table_alias()?;
-        self.expect_identifier_keyword("SET")?;
-        let mut assignments = self.parse_update_assignments()?;
-
-        // Phase 1: parse the reduced predicate before any bounded windowing.
-        let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
-        } else {
-            None
-        };
-
-        // Phase 2: parse the bounded ordered window admitted on the narrowed
-        // SQL UPDATE lane.
-        let mut order_by = if self.eat_keyword(Keyword::Order) {
-            self.expect_keyword(Keyword::By)?;
-            self.parse_order_terms()?
-        } else {
-            Vec::new()
-        };
-
-        let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal("LIMIT")?)
-        } else {
-            None
-        };
-
-        let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal("OFFSET")?)
-        } else {
-            None
-        };
-        let mut returning = if self.eat_keyword(Keyword::Returning) {
-            Some(self.parse_returning_projection()?)
-        } else {
-            None
-        };
-
-        // Phase 3: collapse the admitted single-table alias back onto the
-        // canonical entity field namespace so the write selector stays
-        // alias-neutral downstream.
-        if let Some(alias) = table_alias.as_deref() {
-            assignments =
-                normalize_assignments_for_table_alias(assignments, entity.as_str(), alias);
-            predicate = predicate.map(|predicate| {
-                normalize_predicate_for_table_alias(predicate, entity.as_str(), alias)
-            });
-            order_by = normalize_order_terms_for_table_alias(order_by, entity.as_str(), alias);
-            returning = returning.map(|returning| {
-                normalize_returning_projection_for_table_alias(returning, entity.as_str(), alias)
-            });
-        }
-
-        Ok(SqlUpdateStatement {
-            entity,
-            assignments,
-            predicate,
-            order_by,
-            limit,
-            offset,
-            returning,
-        })
-    }
-
-    fn parse_update_assignments(&mut self) -> Result<Vec<SqlAssignment>, SqlParseError> {
-        let mut assignments = Vec::new();
-        loop {
-            let field = self.expect_identifier()?;
-            self.expect_assignment_eq()?;
-            let value = self.parse_literal()?;
-            assignments.push(SqlAssignment { field, value });
-
-            if self.eat_comma() {
-                continue;
-            }
-
-            break;
-        }
-
-        if assignments.is_empty() {
-            return Err(SqlParseError::expected(
-                "one UPDATE assignment",
-                self.peek_kind(),
-            ));
-        }
-
-        Ok(assignments)
-    }
-
-    fn parse_returning_projection(&mut self) -> Result<SqlReturningProjection, SqlParseError> {
-        if self.eat_star() {
-            return Ok(SqlReturningProjection::All);
-        }
-
-        let mut fields = vec![self.expect_identifier()?];
-        if self.peek_lparen() {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate or scalar text projection forms",
-            ));
-        }
-
-        while self.eat_comma() {
-            let field = self.expect_identifier()?;
-            if self.peek_lparen() {
-                return Err(SqlParseError::unsupported_feature(
-                    "SQL function namespace beyond supported aggregate or scalar text projection forms",
-                ));
-            }
-            fields.push(field);
-        }
-
-        Ok(SqlReturningProjection::Fields(fields))
-    }
-
-    fn expect_assignment_eq(&mut self) -> Result<(), SqlParseError> {
-        if matches!(
-            self.peek_kind(),
-            Some(crate::db::reduced_sql::TokenKind::Eq)
-        ) {
-            let _ = self.cursor.advance();
-            return Ok(());
-        }
-
-        Err(SqlParseError::expected(
-            "'=' in UPDATE assignment",
-            self.peek_kind(),
-        ))
     }
 
     fn parse_describe_statement(&mut self) -> Result<SqlDescribeStatement, SqlParseError> {
@@ -563,7 +219,7 @@ impl Parser {
 
 // Normalize one admitted write-lane `RETURNING` field list back onto the
 // canonical entity namespace after one single-table alias is admitted.
-fn normalize_returning_projection_for_table_alias(
+pub(super) fn normalize_returning_projection_for_table_alias(
     projection: SqlReturningProjection,
     entity: &str,
     alias: &str,
@@ -589,7 +245,7 @@ fn table_alias_scope(entity: &str, alias: &str) -> Vec<String> {
 
 // Reduce one parsed field/projection tree back onto canonical entity-local
 // field identifiers when the statement admitted one table alias.
-fn normalize_projection_for_table_alias(
+pub(super) fn normalize_projection_for_table_alias(
     projection: SqlProjection,
     entity: &str,
     alias: &str,
@@ -619,7 +275,7 @@ fn normalize_projection_for_table_alias(
 
 // Reduce one parsed predicate tree onto canonical entity-local identifiers so
 // alias-qualified WHERE clauses stay planner-neutral.
-fn normalize_predicate_for_table_alias(
+pub(super) fn normalize_predicate_for_table_alias(
     predicate: Predicate,
     entity: &str,
     alias: &str,
@@ -633,7 +289,7 @@ fn normalize_predicate_for_table_alias(
 
 // Reduce one identifier list such as GROUP BY onto canonical entity-local
 // field names for the admitted alias scope.
-fn normalize_identifier_list_for_table_alias(
+pub(super) fn normalize_identifier_list_for_table_alias(
     fields: Vec<String>,
     entity: &str,
     alias: &str,
@@ -648,7 +304,7 @@ fn normalize_identifier_list_for_table_alias(
 
 // Reduce one UPDATE assignment list onto canonical entity-local field names so
 // single-table alias use stays parser-local before dispatch.
-fn normalize_assignments_for_table_alias(
+pub(super) fn normalize_assignments_for_table_alias(
     assignments: Vec<SqlAssignment>,
     entity: &str,
     alias: &str,
@@ -666,7 +322,7 @@ fn normalize_assignments_for_table_alias(
 
 // Reduce grouped HAVING references onto canonical entity-local fields while
 // preserving grouped aggregate payloads.
-fn normalize_having_for_table_alias(
+pub(super) fn normalize_having_for_table_alias(
     clauses: Vec<SqlHavingClause>,
     entity: &str,
     alias: &str,
@@ -692,7 +348,7 @@ fn normalize_having_for_table_alias(
 
 // Reduce ORDER BY fields and the admitted LOWER/UPPER(field) forms onto
 // canonical entity-local targets before lowering sees the statement.
-fn normalize_order_terms_for_table_alias(
+pub(super) fn normalize_order_terms_for_table_alias(
     terms: Vec<SqlOrderTerm>,
     entity: &str,
     alias: &str,

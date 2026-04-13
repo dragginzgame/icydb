@@ -15,8 +15,6 @@ pub(in crate::db) use eval::{
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_text_projection_expr_with_value,
 };
-#[cfg(test)]
-pub(in crate::db::executor) use eval::{eval_binary_expr, eval_unary_expr};
 pub(in crate::db::executor) use grouped::*;
 #[cfg(test)]
 #[allow(unused_imports)]

@@ -26,12 +26,9 @@ use crate::{
         executor::terminal::RowLayout,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::{
-        field::{FieldKind, FieldModel},
-        index::IndexModel,
-    },
+    model::{field::FieldKind, index::IndexModel},
     serialize::serialize,
-    traits::{EntitySchema, EntityValue, FieldProjection as _},
+    traits::{EntitySchema, EntityValue},
     types::Ulid,
     value::Value,
 };
@@ -48,7 +45,9 @@ use super::{
 };
 use crate::db::{
     executor::projection::eval::{
-        eval_canonical_scalar_projection_expr, eval_scalar_projection_expr, eval_text_function_call,
+        eval_canonical_scalar_projection_expr,
+        eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+        eval_scalar_projection_expr,
     },
     query::plan::expr::compile_scalar_projection_expr,
 };
@@ -119,122 +118,6 @@ pub(in crate::db) fn projection_eval_row_layout_for_materialize_tests() -> RowLa
     RowLayout::from_model(ProjectionEvalEntity::MODEL)
 }
 
-fn resolve_field_slot_from_fields(fields: &[FieldModel], field_name: &str) -> Option<usize> {
-    fields.iter().position(|field| field.name() == field_name)
-}
-
-/// Evaluate one projection expression through one runtime slot reader.
-fn eval_expr_with_slot_reader(
-    expr: &Expr,
-    fields: &[FieldModel],
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
-) -> Result<Value, ProjectionEvalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let Some(field_index) = resolve_field_slot_from_fields(fields, field_name) else {
-                return Err(ProjectionEvalError::UnknownField {
-                    field: field_name.to_string(),
-                });
-            };
-            let Some(value) = read_slot(field_index) else {
-                return Err(ProjectionEvalError::MissingFieldValue {
-                    field: field_name.to_string(),
-                    index: field_index,
-                });
-            };
-
-            Ok(value)
-        }
-        Expr::Literal(value) => Ok(value.clone()),
-        Expr::FunctionCall { function, args } => {
-            let args = args
-                .iter()
-                .map(|arg| eval_expr_with_slot_reader(arg, fields, read_slot))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            eval_text_function_call(*function, args.as_slice()).map_err(|err| {
-                ProjectionEvalError::InvalidFunctionCall {
-                    function: function.sql_label().to_string(),
-                    message: err.to_string(),
-                }
-            })
-        }
-        Expr::Unary { op, expr } => {
-            let operand = eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot)?;
-            super::eval_unary_expr(*op, &operand)
-        }
-        Expr::Binary { op, left, right } => {
-            let left_value = eval_expr_with_slot_reader(left.as_ref(), fields, read_slot)?;
-            let right_value = eval_expr_with_slot_reader(right.as_ref(), fields, read_slot)?;
-
-            super::eval_binary_expr(*op, &left_value, &right_value)
-        }
-        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
-            kind: format!("{:?}", aggregate.kind()),
-        }),
-        Expr::Alias { expr, .. } => eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot),
-    }
-}
-
-/// Evaluate one projection expression through one required-value reader on the
-/// canonical structural row path.
-fn eval_expr_with_required_value_reader(
-    expr: &Expr,
-    fields: &[FieldModel],
-    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
-) -> Result<Value, InternalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let Some(field_index) = resolve_field_slot_from_fields(fields, field_name) else {
-                return Err(ProjectionEvalError::UnknownField {
-                    field: field_name.to_string(),
-                }
-                .into_invalid_logical_plan_internal_error());
-            };
-
-            read_slot(field_index)
-        }
-        Expr::Literal(value) => Ok(value.clone()),
-        Expr::FunctionCall { function, args } => {
-            let args = args
-                .iter()
-                .map(|arg| eval_expr_with_required_value_reader(arg, fields, read_slot))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            eval_text_function_call(*function, args.as_slice()).map_err(|err| {
-                ProjectionEvalError::InvalidFunctionCall {
-                    function: function.sql_label().to_string(),
-                    message: err.to_string(),
-                }
-                .into_invalid_logical_plan_internal_error()
-            })
-        }
-        Expr::Unary { op, expr } => {
-            let operand = eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)?;
-            super::eval_unary_expr(*op, &operand)
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
-        }
-        Expr::Binary { op, left, right } => {
-            let left_value =
-                eval_expr_with_required_value_reader(left.as_ref(), fields, read_slot)?;
-            let right_value =
-                eval_expr_with_required_value_reader(right.as_ref(), fields, read_slot)?;
-
-            super::eval_binary_expr(*op, &left_value, &right_value)
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
-        }
-        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
-            kind: format!("{:?}", aggregate.kind()),
-        }
-        .into_invalid_logical_plan_internal_error()),
-        Expr::Alias { expr, .. } => {
-            eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)
-        }
-    }
-}
-
 /// Evaluate one projection expression against one grouped output row view.
 fn eval_expr_grouped(
     expr: &Expr,
@@ -249,15 +132,6 @@ fn eval_expr_grouped(
     eval_grouped_projection_expr(&compiled, grouped_row)
 }
 
-fn eval_expr_for_row(
-    expr: &Expr,
-    row: &ProjectionEvalEntity,
-) -> Result<Value, crate::db::executor::projection::ProjectionEvalError> {
-    eval_expr_with_slot_reader(expr, ProjectionEvalEntity::MODEL.fields(), &mut |slot| {
-        row.get_value_by_index(slot)
-    })
-}
-
 fn eval_scalar_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
@@ -269,6 +143,20 @@ fn eval_scalar_expr_for_row(
         .expect("persisted row should decode structurally");
 
     eval_scalar_projection_expr(&compiled, &mut row_fields)
+}
+
+fn eval_canonical_scalar_expr_with_required_reader(
+    expr: &Expr,
+    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<Value, InternalError> {
+    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+        .expect("expression should compile onto scalar projection seam");
+    let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
+        &compiled,
+        &mut |slot| read_slot(slot).map(std::borrow::Cow::Owned),
+    )?;
+
+    Ok(value.into_owned())
 }
 
 fn grouped_execution_specs<const N: usize>(

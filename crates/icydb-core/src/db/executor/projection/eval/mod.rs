@@ -1,7 +1,8 @@
 //! Module: executor::projection::eval
 //! Responsibility: shared projection expression error taxonomy and scalar evaluation helpers.
 //! Does not own: generic test evaluators, expression type inference, or planner semantic validation policy.
-//! Boundary: production execution stays on compiled scalar programs while tests build any generic evaluators locally.
+//! Boundary: production execution stays on compiled scalar programs while test
+//! helpers exercise the same compiled evaluator paths directly.
 
 mod operators;
 mod scalar;
@@ -24,7 +25,7 @@ pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
 pub(in crate::db) use text_function::{
-    eval_text_function_call, eval_text_projection_expr_with_value,
+    eval_text_function_call, eval_text_projection_expr_with_value, projection_function_name,
 };
 
 ///
@@ -40,10 +41,6 @@ pub(in crate::db) enum ProjectionEvalError {
 
     #[error("projection expression could not read field '{field}' at index={index}")]
     MissingFieldValue { field: String, index: usize },
-
-    #[cfg(test)]
-    #[error("projection expression cannot evaluate aggregate '{kind}' in scalar row context")]
-    AggregateNotEvaluable { kind: String },
 
     #[cfg(test)]
     #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]

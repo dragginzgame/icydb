@@ -10,6 +10,7 @@ use crate::{
         query::builder::text_projection::render_text_projection_expr_sql_label,
         query::{
             builder::aggregate::AggregateExpr,
+            explain::ExplainExecutionNodeDescriptor,
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
@@ -78,6 +79,21 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
     }
 
     labels
+}
+
+// Attach SQL-facing projection labels to one execution descriptor only at the
+// session SQL boundary so executor-owned EXPLAIN assembly stays structural.
+pub(in crate::db::session::sql) fn annotate_sql_projection_labels_on_execution_descriptor(
+    descriptor: &mut ExplainExecutionNodeDescriptor,
+    projection: &ProjectionSpec,
+) {
+    let labels = projection_labels_from_projection_spec(projection)
+        .into_iter()
+        .map(Value::from)
+        .collect();
+    descriptor
+        .node_properties
+        .insert("proj_fields", Value::List(labels));
 }
 
 // Derive canonical full-entity projection labels in declared model order.

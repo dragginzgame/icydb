@@ -4,7 +4,10 @@
 //! Does not own: projection execution, labeling, or textual rendering policy.
 //! Boundary: keeps SQL projection DTOs stable and separate from executor internals.
 
-use crate::{db::session::sql::SqlStatementResult, value::Value};
+use crate::{
+    db::{GroupedRow, session::sql::SqlStatementResult},
+    value::Value,
+};
 
 ///
 /// SqlProjectionPayload
@@ -47,5 +50,22 @@ impl SqlProjectionPayload {
             rows: self.rows,
             row_count: self.row_count,
         }
+    }
+}
+
+/// Build one grouped SQL statement result at the session SQL projection
+/// boundary so grouped row packaging stays out of executor routing code.
+pub(in crate::db::session::sql) fn grouped_sql_statement_result(
+    columns: Vec<String>,
+    rows: Vec<GroupedRow>,
+    next_cursor: Option<String>,
+) -> SqlStatementResult {
+    let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+
+    SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
     }
 }

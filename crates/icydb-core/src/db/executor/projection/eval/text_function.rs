@@ -12,6 +12,25 @@ use crate::{
     value::Value,
 };
 
+pub(in crate::db) const fn projection_function_name(function: Function) -> &'static str {
+    match function {
+        Function::Trim => "trim",
+        Function::Ltrim => "ltrim",
+        Function::Rtrim => "rtrim",
+        Function::Lower => "lower",
+        Function::Upper => "upper",
+        Function::Length => "length",
+        Function::Left => "left",
+        Function::Right => "right",
+        Function::StartsWith => "starts_with",
+        Function::EndsWith => "ends_with",
+        Function::Contains => "contains",
+        Function::Position => "position",
+        Function::Replace => "replace",
+        Function::Substring => "substring",
+    }
+}
+
 /// Evaluate one bounded text-function call over already-evaluated argument values.
 pub(in crate::db) fn eval_text_function_call(
     function: Function,
@@ -162,7 +181,7 @@ fn required_function_arg<'a>(
     args.get(index).ok_or_else(|| {
         QueryError::invariant(format!(
             "{} projection item was missing its {label} argument",
-            function.sql_label(),
+            projection_function_name(function),
         ))
     })
 }
@@ -170,7 +189,7 @@ fn required_function_arg<'a>(
 fn text_input_error(function: Function, other: &Value) -> QueryError {
     QueryError::unsupported_query(format!(
         "{}(...) requires text input, found {other:?}",
-        function.sql_label(),
+        projection_function_name(function),
     ))
 }
 
@@ -185,7 +204,7 @@ fn text_literal_arg<'a>(
         Value::Text(text) => Ok(Some(text.as_str())),
         other => Err(QueryError::unsupported_query(format!(
             "{}(...) requires text or NULL {label}, found {other:?}",
-            function.sql_label(),
+            projection_function_name(function),
         ))),
     }
 }
@@ -202,7 +221,7 @@ fn integer_literal_arg(
         Value::Uint(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),
         other => Err(QueryError::unsupported_query(format!(
             "{}(...) requires integer or NULL {label}, found {other:?}",
-            function.sql_label(),
+            projection_function_name(function),
         ))),
     }
 }

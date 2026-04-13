@@ -11,8 +11,8 @@ use crate::db::sql::lowering::{
     select::{lower_delete_shape, lower_select_shape},
 };
 use crate::db::sql::parser::{
-    SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlSelectStatement,
-    SqlStatement,
+    SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlInsertSource,
+    SqlInsertStatement, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
 };
 
 /// Prepare one parsed SQL statement for one expected entity route.
@@ -49,11 +49,10 @@ fn prepare_statement(
             statement,
             expected_entity,
         )?)),
-        SqlStatement::Insert(statement) => {
-            ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
-
-            Ok(SqlStatement::Insert(statement))
-        }
+        SqlStatement::Insert(statement) => Ok(SqlStatement::Insert(prepare_insert_statement(
+            statement,
+            expected_entity,
+        )?)),
         SqlStatement::Update(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -120,6 +119,49 @@ fn prepare_delete_statement(
         .predicate
         .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+
+    Ok(statement)
+}
+
+fn prepare_insert_statement(
+    mut statement: SqlInsertStatement,
+    expected_entity: &'static str,
+) -> Result<SqlInsertStatement, SqlLoweringError> {
+    ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+    if let SqlInsertSource::Select(select) = statement.source {
+        statement.source = SqlInsertSource::Select(Box::new(prepare_insert_select_source(
+            *select,
+            expected_entity,
+        )?));
+    }
+
+    Ok(statement)
+}
+
+fn prepare_insert_select_source(
+    statement: SqlSelectStatement,
+    expected_entity: &'static str,
+) -> Result<SqlSelectStatement, SqlLoweringError> {
+    let statement = prepare_select_statement(statement, expected_entity)?;
+
+    if !statement.group_by.is_empty() || !statement.having.is_empty() {
+        return Err(QueryError::unsupported_query(
+            "SQL INSERT SELECT requires scalar SELECT source in this release",
+        )
+        .into());
+    }
+
+    if let SqlProjection::Items(items) = &statement.projection {
+        for item in items {
+            if matches!(item, SqlSelectItem::Aggregate(_)) {
+                return Err(QueryError::unsupported_query(
+                    "SQL INSERT SELECT does not support aggregate source projection in this release",
+                )
+                .into());
+            }
+        }
+    }
 
     Ok(statement)
 }

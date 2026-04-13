@@ -18,7 +18,10 @@ use crate::{
         query::intent::StructuralQuery,
         session::sql::{
             SqlStatementResult,
-            projection::{SqlProjectionPayload, projection_labels_from_projection_spec},
+            projection::{
+                SqlProjectionPayload, grouped_sql_statement_result,
+                projection_labels_from_projection_spec,
+            },
         },
         sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
     },
@@ -215,13 +218,10 @@ impl<C: CanisterKind> DbSession<C> {
                 })
             })
             .transpose()?;
-        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-
-        Ok(SqlStatementResult::Grouped {
+        Ok(grouped_sql_statement_result(
             columns,
-            rows: page.rows,
-            row_count,
+            page.rows,
             next_cursor,
-        })
+        ))
     }
 }

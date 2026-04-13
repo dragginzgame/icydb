@@ -21,7 +21,6 @@ use crate::{
             },
         },
         query::{
-            builder::text_projection::render_text_projection_expr_sql_label,
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
@@ -30,16 +29,12 @@ use crate::{
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
                 DistinctExecutionStrategy,
-                expr::{Expr, ProjectionField},
             },
         },
     },
     value::Value,
 };
-use std::{
-    borrow::Cow,
-    fmt::{Debug, Write},
-};
+use std::fmt::{Debug, Write};
 
 pub(in crate::db::executor::explain::descriptor) use self::predicate::{
     aggregate_covering_projection_for_terminal, execution_preparation_predicate_index_capability,
@@ -115,46 +110,39 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
-    plan: &AccessPlannedQuery,
+    _plan: &AccessPlannedQuery,
     covering_scan: bool,
 ) {
-    let projected_fields = plan
-        .frozen_projection_spec()
-        .fields()
-        .map(projection_field_label)
-        .map(|field| Value::from(field.into_owned()))
-        .collect();
-    node.node_properties
-        .insert("proj_fields", Value::List(projected_fields));
     node.node_properties
         .insert("proj_pushdown", Value::from(covering_scan));
 }
 
-pub(in crate::db::executor::explain::descriptor) fn projection_field_label(
-    field: &ProjectionField,
-) -> Cow<'_, str> {
+pub(in crate::db::executor::explain::descriptor) fn projection_field_descriptor_name(
+    field: &crate::db::query::plan::expr::ProjectionField,
+) -> String {
     match field {
-        ProjectionField::Scalar { expr, .. } => projection_expr_label(expr),
+        crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } => {
+            projection_expr_descriptor_name(expr)
+        }
     }
 }
 
-// Keep projection metadata deterministic and planner-owned by reducing each
-// expression to one stable field-like label for explain projection output.
-fn projection_expr_label(expr: &Expr) -> Cow<'_, str> {
+fn projection_expr_descriptor_name(expr: &crate::db::query::plan::expr::Expr) -> String {
     match expr {
-        Expr::Field(field) => Cow::Borrowed(field.as_str()),
-        Expr::Literal(_) | Expr::FunctionCall { .. } => {
-            Cow::Owned(render_text_projection_expr_sql_label(expr))
+        crate::db::query::plan::expr::Expr::Field(field) => field.as_str().to_string(),
+        crate::db::query::plan::expr::Expr::Literal(_)
+        | crate::db::query::plan::expr::Expr::FunctionCall { .. } => "expr".to_string(),
+        crate::db::query::plan::expr::Expr::Aggregate(_) => "aggregate".to_string(),
+        #[cfg(test)]
+        crate::db::query::plan::expr::Expr::Alias { expr, .. } => {
+            projection_expr_descriptor_name(expr)
         }
-        Expr::Aggregate(aggregate) => aggregate
-            .target_field()
-            .map_or_else(|| Cow::Borrowed("aggregate"), Cow::Borrowed),
         #[cfg(test)]
-        Expr::Alias { expr, .. } => projection_expr_label(expr),
+        crate::db::query::plan::expr::Expr::Unary { expr, .. } => {
+            projection_expr_descriptor_name(expr)
+        }
         #[cfg(test)]
-        Expr::Unary { expr, .. } => projection_expr_label(expr),
-        #[cfg(test)]
-        Expr::Binary { .. } => Cow::Borrowed("expr"),
+        crate::db::query::plan::expr::Expr::Binary { .. } => "expr".to_string(),
     }
 }
 

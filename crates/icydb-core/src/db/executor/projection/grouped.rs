@@ -9,7 +9,7 @@ use crate::db::{
 };
 use crate::{
     db::{
-        executor::projection::eval::ProjectionEvalError,
+        executor::projection::eval::{ProjectionEvalError, projection_function_name},
         query::{
             builder::AggregateExpr,
             plan::{
@@ -264,7 +264,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
             // Do not add grouped-only function semantics here; future support
             // must extend the canonical compiled expression/eval path instead.
             Err(ProjectionEvalError::InvalidFunctionCall {
-                function: function.sql_label().to_string(),
+                function: projection_function_name(*function).to_string(),
                 message:
                     "grouped projection does not admit function expressions in the current slice"
                         .to_string(),

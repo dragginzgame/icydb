@@ -48,6 +48,7 @@ jobs:
           SLICE_HEAD_REF: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/ci/check-slice-shape.sh
       - run: bash scripts/ci/check-index-range-spec-invariants.sh
+      - run: bash scripts/ci/check-sql-branch-ownership-invariants.sh
       - run: bash scripts/ci/check-memory-id-invariants.sh
       - run: bash scripts/ci/check-field-projection-invariants.sh
       - run: cargo fmt --all -- --check

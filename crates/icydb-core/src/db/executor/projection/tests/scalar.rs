@@ -9,8 +9,8 @@ fn eval_expr_supports_arithmetic_projection() {
         right: Box::new(Expr::Literal(Value::Int(1))),
     };
 
-    let value =
-        eval_expr_for_row(&expr, &entity).expect("numeric projection expression should evaluate");
+    let value = eval_scalar_expr_for_row(&expr, &entity)
+        .expect("numeric projection expression should evaluate");
 
     assert_eq!(
         value.cmp_numeric(&Value::Int(8)),
@@ -27,14 +27,11 @@ fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
         left: Box::new(Expr::Field(FieldId::new("rank"))),
         right: Box::new(Expr::Literal(Value::Int(1))),
     };
-
-    let generic_value =
-        eval_expr_for_row(&expr, &entity).expect("generic arithmetic projection should evaluate");
-    let scalar_value = eval_scalar_expr_for_row(&expr, &entity)
+    let value = eval_scalar_expr_for_row(&expr, &entity)
         .expect("scalar arithmetic projection should evaluate");
 
     assert_eq!(
-        generic_value.cmp_numeric(&scalar_value),
+        value.cmp_numeric(&Value::Int(42)),
         Some(Ordering::Equal),
         "compiled scalar projection should preserve arithmetic projection semantics",
     );
@@ -43,11 +40,9 @@ fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
 #[test]
 fn required_projection_eval_preserves_internal_slot_errors() {
     let expr = Expr::Field(FieldId::new("rank"));
-    let err = eval_expr_with_required_value_reader(
-        &expr,
-        ProjectionEvalEntity::MODEL.fields(),
-        &mut |_| Err(InternalError::persisted_row_declared_field_missing("rank")),
-    )
+    let err = eval_canonical_scalar_expr_with_required_reader(&expr, &mut |_| {
+        Err(InternalError::persisted_row_declared_field_missing("rank"))
+    })
     .expect_err("required projection evaluation should preserve structural slot errors");
 
     assert_eq!(err.class(), ErrorClass::Corruption);
@@ -132,8 +127,8 @@ fn eval_expr_supports_boolean_projection() {
         right: Box::new(Expr::Literal(Value::Bool(true))),
     };
 
-    let value =
-        eval_expr_for_row(&expr, &entity).expect("boolean projection expression should evaluate");
+    let value = eval_scalar_expr_for_row(&expr, &entity)
+        .expect("boolean projection expression should evaluate");
 
     assert_eq!(value, Value::Bool(true));
 }
@@ -147,7 +142,7 @@ fn eval_expr_supports_numeric_equality_widening() {
         right: Box::new(Expr::Literal(Value::Uint(7))),
     };
 
-    let value = eval_expr_for_row(&expr, &entity).expect("numeric equality should widen");
+    let value = eval_scalar_expr_for_row(&expr, &entity).expect("numeric equality should widen");
 
     assert_eq!(value, Value::Bool(true));
 }
@@ -161,13 +156,15 @@ fn eval_expr_rejects_numeric_and_non_numeric_equality_mix() {
         right: Box::new(Expr::Field(FieldId::new("label"))),
     };
 
-    let err = eval_expr_for_row(&expr, &entity)
+    let err = eval_scalar_expr_for_row(&expr, &entity)
         .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
-    assert!(matches!(
-        err,
-        crate::db::executor::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
-            if op == "eq"
-    ));
+    assert_eq!(err.class(), ErrorClass::InvariantViolation);
+    assert_eq!(err.origin(), ErrorOrigin::Planner);
+    assert!(
+        err.message
+            .contains("projection binary operator 'eq' is incompatible"),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]
@@ -179,8 +176,8 @@ fn eval_expr_propagates_null_values() {
         right: Box::new(Expr::Literal(Value::Null)),
     };
 
-    let value =
-        eval_expr_for_row(&expr, &entity).expect("null propagation should remain deterministic");
+    let value = eval_scalar_expr_for_row(&expr, &entity)
+        .expect("null propagation should remain deterministic");
 
     assert_eq!(value, Value::Null);
 }
@@ -195,8 +192,8 @@ fn eval_expr_alias_wrapper_is_semantic_no_op() {
     };
 
     let plain_value =
-        eval_expr_for_row(&plain, &entity).expect("plain field expression should evaluate");
-    let alias_value = eval_expr_for_row(&aliased, &entity)
+        eval_scalar_expr_for_row(&plain, &entity).expect("plain field expression should evaluate");
+    let alias_value = eval_scalar_expr_for_row(&aliased, &entity)
         .expect("aliased expression should evaluate identically");
 
     assert_eq!(plain_value, alias_value);

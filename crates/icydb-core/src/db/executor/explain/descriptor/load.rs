@@ -34,7 +34,6 @@ use crate::{
     model::field::FieldModel,
     value::Value,
 };
-use std::borrow::Cow;
 
 use crate::db::executor::explain::descriptor::shared::{
     annotate_access_choice_node_properties, annotate_access_root_node_properties,
@@ -43,7 +42,7 @@ use crate::db::executor::explain::descriptor::shared::{
     distinct_execution_node_descriptor, execution_preparation_predicate_index_capability,
     explain_execution_mode, explain_predicate_for_plan, index_range_limit_pushdown_descriptor,
     order_by_execution_node_descriptor, predicate_index_capability_label,
-    predicate_stage_descriptors, projection_field_label, route_diagnostic_line_bool,
+    predicate_stage_descriptors, projection_field_descriptor_name, route_diagnostic_line_bool,
     route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
@@ -274,8 +273,7 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     let projected_fields = plan
         .frozen_projection_spec()
         .fields()
-        .map(projection_field_label)
-        .map(Cow::into_owned)
+        .map(projection_field_descriptor_name)
         .collect::<Vec<_>>();
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
     let projection_pushdown = load_terminal_fast_path.is_some();

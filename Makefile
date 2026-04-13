@@ -3,7 +3,8 @@
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
-        check-architecture-text-scan-invariants check-invariants \
+	check-architecture-text-scan-invariants check-invariants \
+	check-sql-branch-ownership-invariants \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -240,10 +241,14 @@ check-layer-authority-invariants:
 check-architecture-text-scan-invariants:
 	bash scripts/ci/check-architecture-text-scan-invariants.sh
 
+check-sql-branch-ownership-invariants:
+	bash scripts/ci/check-sql-branch-ownership-invariants.sh
+
 check-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-architecture-text-scan-invariants.sh
+	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 	bash scripts/ci/check-field-projection-invariants.sh
 

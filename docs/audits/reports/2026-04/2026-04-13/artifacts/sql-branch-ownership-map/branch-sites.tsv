@@ -1,0 +1,275 @@
+layer	file	line	source
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	23	            let direction = if self.eat_keyword(Keyword::Desc) {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	31	            if !self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	41	        if !self.peek_lparen() {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	51	        match function {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	57	                Ok(match function {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	97	        if self.peek_keyword(Keyword::Or) || self.peek_keyword(Keyword::Not) {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	118	        if self.eat_keyword(Keyword::Is) {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	124	                op: if is_not { CompareOp::Ne } else { CompareOp::Eq },
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	136	        if let Some(kind) = self.parse_aggregate_kind() {
+parser	crates/icydb-core/src/db/sql/parser/clauses.rs	141	        if self.peek_lparen() {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	59	    match symbol {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	92	    if let Some(last) = identifier_last_segment(sql_entity) {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	95	    if let Some(last) = identifier_last_segment(expected_entity) {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	106	    match projection {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	111	                .map(|item| match item {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	155	            let field = match resolve_projection_order_alias(
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	188	        if !alias.eq_ignore_ascii_case(order_target) {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	205	    match item {
+lowering	crates/icydb-core/src/db/sql/lowering/normalize.rs	283	    if identifiers_tail_match(sql_entity, expected_entity) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	110	    let (projection_selection, grouped_projection_aggregates, normalized_distinct) = if has_grouping
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	163	    if has_aggregate {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	167	    if let Some(field_ids) = direct_scalar_field_selection(items.as_slice(), projection_aliases) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	182	    if distinct && fields.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	203	        match &item {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	205	                if seen_aggregate {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	225	    if !seen_aggregate || projected_group_fields.as_slice() != group_by {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	229	    if projection_aliases.iter().all(Option::is_none) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	240	    if !projection_aliases.iter().all(Option::is_none) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	246	        .map(|item| match item {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	258	        expr: match item {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	272	    let projection = match call.function {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	314	        SqlTextFunction::Substring => match call.literal2.clone() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	361	    if matches!(
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	368	    match literal {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	383	    match (function, literal) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	409	    if !matches!(
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	413	        if extra.is_some() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	423	    if matches!(function, SqlTextFunction::Left | SqlTextFunction::Right) {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	427	        if len.is_some() || extra.is_some() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	441	    if extra.is_some() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	458	    match value {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	464	        None if required => Err(QueryError::invariant(format!(
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	473	    match function {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	497	    if having_clauses.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	500	    if group_by_fields.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	506	    if projection_aggregates.as_slice() != grouped_projection_aggregates {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	512	        match clause.symbol {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	541	    match predicate {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	591	    if cmp.coercion.id != CoercionId::Strict {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	599	    match cmp.op {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	601	            if let Some(value) =
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	639	    match kind {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	643	        FieldKind::Int => match value {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	648	        FieldKind::Uint => match value {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	703	    if distinct {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	713	        match clause {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	749	    if let Some(predicate) = lowered.predicate {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	753	    if let Some(limit) = lowered.limit {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	756	    if let Some(offset) = lowered.offset {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	768	    match lowered {
+lowering	crates/icydb-core/src/db/sql/lowering/select.rs	833	        query = match term.direction {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	24	        if self.eat_keyword(Keyword::Select) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	27	        if self.eat_keyword(Keyword::Delete) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	30	        if self.eat_keyword(Keyword::Insert) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	33	        if self.eat_keyword(Keyword::Update) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	36	        if self.eat_keyword(Keyword::Explain) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	39	        if self.eat_keyword(Keyword::Describe) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	42	        if self.eat_keyword(Keyword::Show) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	46	        if let Some(feature) = self.peek_unsupported_feature() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	62	        match statement {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	67	            SqlStatement::Explain(explain) => match &explain.statement {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	87	        if self.eat_keyword(Keyword::Indexes) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	92	        if self.eat_keyword(Keyword::Columns) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	97	        if self.eat_keyword(Keyword::Entities) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	100	        if self.eat_keyword(Keyword::Tables) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	110	        let mode = if self.eat_keyword(Keyword::Execution) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	112	        } else if self.eat_keyword(Keyword::Json) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	118	        let statement = if self.eat_keyword(Keyword::Select) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	120	        } else if self.eat_keyword(Keyword::Delete) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	122	        } else if let Some(feature) = self.peek_unsupported_feature() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	135	        if self.peek_keyword(Keyword::Order)
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	147	        if self.peek_keyword(Keyword::Order) && statement.limit.is_some() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	157	        if self.peek_keyword(Keyword::Order)
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	164	        if self.peek_keyword(Keyword::Limit) && statement.offset.is_some() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	181	        let mut predicate = if self.eat_keyword(Keyword::Where) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	187	        let mut group_by = if self.eat_keyword(Keyword::Group) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	194	        let mut having = if self.eat_keyword(Keyword::Having) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	201	        let mut order_by = if self.eat_keyword(Keyword::Order) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	208	        let limit = if self.eat_keyword(Keyword::Limit) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	214	        let offset = if self.eat_keyword(Keyword::Offset) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	223	        let projection = match table_alias.as_deref() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	227	        if let Some(alias) = table_alias.as_deref() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	255	        let mut predicate = if self.eat_keyword(Keyword::Where) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	261	        let mut order_by = if self.eat_keyword(Keyword::Order) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	268	        let limit = if self.eat_keyword(Keyword::Limit) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	274	        let offset = if self.eat_keyword(Keyword::Offset) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	279	        let mut returning = if self.eat_keyword(Keyword::Returning) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	285	        if let Some(alias) = table_alias.as_deref() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	310	        let columns = if self.peek_lparen() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	318	        let source = if self.eat_keyword(Keyword::Select) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	327	        let returning = if self.eat_keyword(Keyword::Returning) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	342	        if self.eat_keyword(Keyword::As) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	346	        if matches!(
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	354	            if matches!(
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	381	            if !self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	397	            if self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	404	        if let Some(expected_columns) = expected_columns
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	408	                "INSERT column list and VALUES tuple length must match",
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	422	        let mut predicate = if self.eat_keyword(Keyword::Where) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	430	        let mut order_by = if self.eat_keyword(Keyword::Order) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	437	        let limit = if self.eat_keyword(Keyword::Limit) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	443	        let offset = if self.eat_keyword(Keyword::Offset) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	448	        let mut returning = if self.eat_keyword(Keyword::Returning) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	457	        if let Some(alias) = table_alias.as_deref() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	488	            if self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	495	        if assignments.is_empty() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	506	        if self.eat_star() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	511	        if self.peek_lparen() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	519	            if self.peek_lparen() {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	531	        if matches!(
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	571	    match projection {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	583	    if let Some(last) = identifier_last_segment(entity) {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	599	    match projection {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	604	                .map(|item| match item {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	679	            symbol: match clause.symbol {
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	738	    if let Some(inner) = field
+parser	crates/icydb-core/src/db/sql/parser/statement.rs	748	    if let Some(inner) = field
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	190	        match terminal {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	265	        match terminal {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	373	        match self.descriptor_shape {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	406	        match self.descriptor_shape {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	557	    if statement.distinct || !statement.group_by.is_empty() || !statement.having.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	638	    match terminal {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	683	    if distinct {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	686	    if !group_by.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	689	    if !having.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	742	    if items.len() != 1 {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	750	    match lower_sql_aggregate_shape(aggregate)? {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	785	    match (call.kind, call.field, call.distinct) {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	810	    if group_by_fields.is_empty() {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	823	        match item {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	827	                if seen_aggregate {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	842	    if aggregate_calls.is_empty() || projected_group_fields.as_slice() != group_by_fields {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	852	    match lower_sql_aggregate_shape(call)? {
+lowering	crates/icydb-core/src/db/sql/lowering/aggregate.rs	910	    if matched.next().is_some() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	21	        if self.eat_star() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	31	            if self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	38	        if items.is_empty() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	51	        if let Some(kind) = self.parse_aggregate_kind() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	56	        if self.peek_lparen() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	72	        match self.peek_kind() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	90	        let field = if kind == SqlAggregateKind::Count && self.eat_star() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	111	        let call = match function {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	140	        if self.eat_keyword(Keyword::As) {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	144	        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	221	        if !self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/projection.rs	245	        if self.eat_comma() {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	38	    if tokens.is_empty() {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	45	    if parser.eat_semicolon() && !parser.is_eof() {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	51	    if !parser.is_eof() {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	52	        if let Some(err) = parser.trailing_clause_order_error(&statement) {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	56	        if let Some(feature) = parser.peek_unsupported_feature() {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	97	        if value.contains('.') || value.starts_with('-') {
+parser	crates/icydb-core/src/db/sql/parser/mod.rs	164	        if self.eat_identifier_keyword(keyword) {
+lowering	crates/icydb-core/src/db/sql/lowering/prepare.rs	43	    match statement {
+lowering	crates/icydb-core/src/db/sql/lowering/prepare.rs	89	    let target = match statement.statement {
+lowering	crates/icydb-core/src/db/sql/lowering/prepare.rs	132	    match statement {
+lowering	crates/icydb-core/src/db/sql/lowering/prepare.rs	162	    match statement.statement {
+lowering	crates/icydb-core/src/db/sql/lowering/prepare.rs	180	    match lower_select_shape(statement.clone()) {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	110	        match &self.0 {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	123	        match self.0 {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	136	        match &self.0 {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	163	        match self {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	183	    #[error("SQL entity '{sql_entity}' does not match requested entity type '{expected_entity}'")]
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	254	/// entity-match validation for one target entity descriptor.
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	308	    match command.0 {
+lowering	crates/icydb-core/src/db/sql/lowering/mod.rs	325	    match lowered.0 {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	72	    match lane {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	101	        if deduped.iter().any(|current| current == &value) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	114	    let values = if strategy.is_distinct() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	120	    match strategy.runtime_descriptor() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	143	                if matches!(value, Value::Null) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	156	            match strategy.runtime_descriptor() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	176	                if matches!(value, Value::Null) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	180	                let replace = match selected.as_ref() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	190	                        match strategy.runtime_descriptor() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	204	                if replace {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	220	// Keep typed SQL write routes on the same entity-match contract used by
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	226	    if identifiers_tail_match(sql_entity, E::MODEL.name()) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	244	    if let Some(key) = <E::Key as crate::traits::FieldValue>::from_value(value) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	248	    let widened = match value {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	249	        Value::Int(v) if *v >= 0 => Value::Uint(v.cast_unsigned()),
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	250	        Value::Uint(v) if i64::try_from(*v).is_ok() => Value::Int(v.cast_signed()),
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	270	        .map(|generation| match generation {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	287	    let normalized = match (field_kind, value) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	288	        (FieldKind::Uint, Value::Int(v)) if *v >= 0 => Value::Uint(v.cast_unsigned()),
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	289	        (FieldKind::Int, Value::Uint(v)) if i64::try_from(*v).is_ok() => {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	296	    if !literal_matches_type(&normalized, &field_type) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	298	            ValidateError::invalid_literal(field_name, "literal type does not match field type")
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	320	    if field.write_management().is_some() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	340	    if field.insert_generation().is_some() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	360	    if field.insert_generation().is_some() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	372	    if sql_write_generated_field_value(field).is_some() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	393	    if missing_required_fields.is_empty() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	397	    if missing_required_fields.len() == 1
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	420	    match source {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	422	        SqlInsertSource::Select(select) => match &select.projection {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	443	    if !statement.columns.is_empty() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	461	    if first_width == Some(columns.len()) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	475	        if tuple.len() != columns.len() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	478	                    "INSERT column list and VALUES tuple length must match",
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	494	        if row.len() != columns.len() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	496	                "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	508	        let kind = match strategy.runtime_descriptor() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	529	        match strategy.projected_field() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	530	            Some(field) if strategy.is_distinct() => format!("{kind}(DISTINCT {field})"),
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	575	        let value = match strategy.runtime_descriptor() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	681	        match returning {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	709	        match returning {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	774	        let key = if let Some(pk_index) = columns.iter().position(|field| field == pk_name) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	781	        } else if let Some((_, pk_value)) = generated_fields
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	823	            if assignment.field == pk_name {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	861	        if statement.order_by.is_empty() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	867	                if term.field == pk_name {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	870	                selector = match term.direction {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	876	            if !orders_primary_key {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	883	        if let Some(limit) = statement.limit {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	886	        if let Some(offset) = statement.offset {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	910	        if !select.group_by.is_empty() || !select.having.is_empty() {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	916	        if let SqlProjection::Items(items) = &select.projection {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	918	                if matches!(item, SqlSelectItem::Aggregate(_)) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	927	        if select.order_by.is_empty() || !select.order_by.iter().any(|term| term.field == pk_name) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	978	        let source_rows = match &statement.source {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1194	        if parsed_requires_dedicated_sql_aggregate_lane(statement) {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1214	        match query {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1237	        if let Some(explain) =
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1255	        match sql_statement {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1262	                        if grouped_surface {
+execution	crates/icydb-core/src/db/session/sql/execute/mod.rs	1284	                        match &statement.returning {
+parser	crates/icydb-core/src/db/sql/parser/model.rs	157	            if identifier.eq_ignore_ascii_case(name) {
+parser	crates/icydb-core/src/db/sql/parser/model.rs	230	    /// Borrow the parser-owned alias, if present, for one projection item.
+execution	crates/icydb-core/src/db/session/sql/mod.rs	98	        let Some(sql_entity) = (match statement {
+execution	crates/icydb-core/src/db/session/sql/mod.rs	103	            SqlStatement::Explain(explain) => Some(match &explain.statement {
+execution	crates/icydb-core/src/db/session/sql/mod.rs	115	        if crate::db::identifiers_tail_match(sql_entity, E::MODEL.name()) {
+execution	crates/icydb-core/src/db/session/sql/mod.rs	128	        match statement {
+execution	crates/icydb-core/src/db/session/sql/mod.rs	150	        match statement {
+execution	crates/icydb-core/src/db/session/sql/mod.rs	230	        if !query.has_grouping() {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	37	    match lowered_sql_command_lane(command) {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	48	    match lane {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	68	        if lane != ExplainSqlLane::Explain {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	76	        if let Some(rendered) =
+execution	crates/icydb-core/src/db/session/sql/explain.rs	84	        if let Some((mode, command)) = bind_lowered_sql_explain_global_aggregate_structural(
+execution	crates/icydb-core/src/db/session/sql/explain.rs	108	        if matches!(mode, SqlExplainMode::Execution) {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	122	        let rendered = match mode {
+execution	crates/icydb-core/src/db/session/sql/explain.rs	178	        match mode {
+execution	crates/icydb-core/src/db/session/sql/projection/labels.rs	24	    let distinct = if aggregate.is_distinct() {
+execution	crates/icydb-core/src/db/session/sql/projection/labels.rs	30	    if let Some(field) = aggregate.target_field() {
+execution	crates/icydb-core/src/db/session/sql/projection/labels.rs	40	    match expr {
+execution	crates/icydb-core/src/db/session/sql/projection/labels.rs	50	    match expr {
+execution	crates/icydb-core/src/db/session/sql/projection/labels.rs	69	        match field {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	231	    match payload {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	249	    match value {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	309	        if index != 0 {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	326	        if index != 0 {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	355	    if let Some(path) = value.path() {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	360	    if let Some(payload) = value.payload() {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	385	    if let Some(field_slots) = prepared_projection.direct_projection_field_slots() {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	527	    if !plan.scalar_plan().distinct {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	536	        if distinct_rows
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	546	    if let Some(page) = plan.scalar_plan().page.as_ref() {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	556	    if offset > 0 {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	560	    if let Some(limit) = limit {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	562	        if rows.len() > limit {
+execution	crates/icydb-core/src/db/session/sql/projection/runtime.rs	640	        if projected_slot {

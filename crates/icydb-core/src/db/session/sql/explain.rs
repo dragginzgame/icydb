@@ -13,6 +13,7 @@ use crate::{
             planning::route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
+        session::sql::projection::annotate_sql_projection_labels_on_execution_descriptor,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_explain_global_aggregate_structural,
@@ -149,12 +150,16 @@ impl<C: CanisterKind> DbSession<C> {
         let (_, mut plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
-        let descriptor = assemble_load_execution_node_descriptor(
+        let mut descriptor = assemble_load_execution_node_descriptor(
             authority.fields(),
             authority.primary_key_name(),
             &plan,
         )
         .map_err(QueryError::execute)?;
+        annotate_sql_projection_labels_on_execution_descriptor(
+            &mut descriptor,
+            &plan.projection_spec(authority.model()),
+        );
 
         Ok(Some(descriptor.render_text_tree()))
     }

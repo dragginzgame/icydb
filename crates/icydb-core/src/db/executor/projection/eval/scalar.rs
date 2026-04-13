@@ -13,7 +13,9 @@ use crate::db::{data::CanonicalSlotReader, scalar_expr::eval_canonical_scalar_va
 use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
-        executor::projection::eval::{ProjectionEvalError, eval_text_function_call},
+        executor::projection::eval::{
+            ProjectionEvalError, eval_text_function_call, projection_function_name,
+        },
         query::plan::expr::{ScalarProjectionExpr, ScalarProjectionField},
     },
     error::InternalError,
@@ -153,7 +155,7 @@ fn eval_scalar_projection_expr_core<'a, E>(
             let value =
                 eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
                     map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                        function: function.sql_label().to_string(),
+                        function: projection_function_name(*function).to_string(),
                         message: err.to_string(),
                     })
                 })?;
@@ -195,7 +197,7 @@ fn eval_scalar_projection_expr_core_impl<'a, E>(
             let value =
                 eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
                     map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                        function: function.sql_label().to_string(),
+                        function: projection_function_name(*function).to_string(),
                         message: err.to_string(),
                     })
                 })?;
