@@ -123,7 +123,7 @@ fn grouped_projection_rejects_function_calls_until_grouped_support_is_explicit()
         crate::db::executor::projection::ProjectionEvalError::InvalidFunctionCall {
             function,
             ..
-        } if function == "TRIM"
+        } if function == "trim"
     ));
 }
 

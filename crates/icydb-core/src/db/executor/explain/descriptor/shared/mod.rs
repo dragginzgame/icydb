@@ -110,9 +110,17 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
-    _plan: &AccessPlannedQuery,
+    plan: &AccessPlannedQuery,
     covering_scan: bool,
 ) {
+    let projected_fields = plan
+        .frozen_projection_spec()
+        .fields()
+        .map(projection_field_descriptor_name)
+        .map(Value::from)
+        .collect();
+    node.node_properties
+        .insert("proj_fields", Value::List(projected_fields));
     node.node_properties
         .insert("proj_pushdown", Value::from(covering_scan));
 }
