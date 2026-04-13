@@ -5,8 +5,10 @@
 
 mod builder;
 mod pagination;
+mod result;
 mod terminals;
 mod validation;
 
 pub use builder::FluentLoadQuery;
 pub use pagination::PagedLoadQuery;
+pub use result::LoadQueryResult;

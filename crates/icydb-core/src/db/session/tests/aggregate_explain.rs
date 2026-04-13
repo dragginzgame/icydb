@@ -95,6 +95,7 @@ fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
 
     let expected_response = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("baseline execute for session bytes parity should succeed");
     let expected_ids: Vec<_> = expected_response.ids().map(|id| id.key()).collect();
 

@@ -5,8 +5,7 @@
 
 use crate::{
     db::{
-        GroupedTextCursorPageWithTrace, PagedGroupedExecutionWithTrace, PagedLoadExecution,
-        PagedLoadExecutionWithTrace, PersistedRow,
+        PagedLoadExecution, PagedLoadExecutionWithTrace, PersistedRow,
         query::fluent::load::FluentLoadQuery,
         query::intent::{Query, QueryError},
     },
@@ -55,28 +54,6 @@ where
         E: PersistedRow + EntityValue,
     {
         self.page()?.execute()
-    }
-
-    /// Execute one grouped query page with optional grouped continuation cursor.
-    ///
-    /// This grouped entrypoint is intentionally separate from scalar load
-    /// execution to keep grouped response shape explicit.
-    pub fn execute_grouped(self) -> Result<PagedGroupedExecutionWithTrace, QueryError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        self.session
-            .execute_grouped(self.query(), self.cursor_token.as_deref())
-    }
-
-    /// Execute one grouped query page and return one text continuation cursor directly.
-    #[doc(hidden)]
-    pub fn execute_grouped_text_cursor(self) -> Result<GroupedTextCursorPageWithTrace, QueryError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        self.session
-            .execute_grouped_text_cursor(self.query(), self.cursor_token.as_deref())
     }
 }
 

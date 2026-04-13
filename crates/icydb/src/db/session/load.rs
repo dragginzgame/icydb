@@ -5,7 +5,7 @@ use crate::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
             Predicate, Query, QueryTracePlan, SortExpr,
         },
-        response::{PagedGroupedResponse, PagedResponse, Response},
+        response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
@@ -132,25 +132,6 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         E: EntityValue,
     {
         self.page()?.execute()
-    }
-
-    /// Execute one grouped query page with optional continuation cursor.
-    ///
-    /// Grouped rows are returned as grouped key/value vectors to preserve
-    /// grouped response fidelity.
-    pub fn execute_grouped(self) -> Result<PagedGroupedResponse, Error>
-    where
-        E: EntityValue,
-    {
-        let (rows, next_cursor, execution_trace) = self.inner.execute_grouped_text_cursor()?;
-
-        Ok(
-            crate::db::session::DbSession::<E::Canister>::paged_grouped_response(
-                rows,
-                next_cursor,
-                execution_trace,
-            ),
-        )
     }
 
     /// Return the stable plan hash for this query.

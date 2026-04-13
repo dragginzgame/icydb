@@ -33,11 +33,11 @@ fn session_explain_execution_order_only_composite_covering_matrix_uses_index_ran
 
         // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
         // composite index-range root and covering-read route.
-        let descriptor = session
-            .lower_sql_query_for_tests::<CompositeIndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
-            .explain_execution()
-            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
+        let descriptor =
+            lower_select_query_for_tests::<CompositeIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
+                .explain_execution()
+                .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
 
         assert_eq!(
             descriptor.node_type(),
@@ -99,9 +99,9 @@ fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() 
     let projected_rows =
         statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
             .expect("multi-component covering projection query should execute");
-    let entity_rows = session
-        .execute_scalar_sql_for_tests::<CompositeIndexedSessionSqlEntity>(sql)
-        .expect("multi-component covering entity query should execute");
+    let entity_rows =
+        execute_scalar_select_for_tests::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("multi-component covering entity query should execute");
     let entity_projected_rows = entity_rows
         .iter()
         .map(|row| {

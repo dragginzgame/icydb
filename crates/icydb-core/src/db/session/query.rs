@@ -6,17 +6,14 @@
 
 use crate::{
     db::{
-        DbSession, EntityResponse, GroupedTextCursorPageWithTrace, PagedGroupedExecutionWithTrace,
+        DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
         access::AccessStrategy,
         cursor::{
-            CursorPlanError, GroupedContinuationToken, decode_optional_cursor_token,
-            decode_optional_grouped_cursor_token,
+            CursorPlanError, decode_optional_cursor_token, decode_optional_grouped_cursor_token,
         },
         diagnostics::ExecutionTrace,
-        executor::{
-            ExecutionFamily, GroupedCursorPage, LoadExecutor, PageCursor, PreparedExecutionPlan,
-        },
+        executor::{ExecutionFamily, GroupedCursorPage, LoadExecutor, PreparedExecutionPlan},
         query::builder::{
             PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
         },
@@ -219,7 +216,7 @@ impl<C: CanisterKind> DbSession<C> {
             )),
             ExecutionFamily::Ordered => Ok(()),
             ExecutionFamily::Grouped => Err(QueryError::invariant(
-                "grouped plans require execute_grouped(...)",
+                "grouped queries execute via execute(), not page().execute()",
             )),
         }
     }
@@ -230,7 +227,7 @@ impl<C: CanisterKind> DbSession<C> {
         match family {
             ExecutionFamily::Grouped => Ok(()),
             ExecutionFamily::PrimaryKey | ExecutionFamily::Ordered => Err(QueryError::invariant(
-                "execute_grouped requires grouped logical plans",
+                "grouped execution requires grouped logical plans",
             )),
         }
     }
@@ -248,6 +245,25 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: delegate execution to the shared compiled-plan entry path.
         self.execute_query_dyn(mode, plan)
+    }
+
+    // Execute one typed query through the unified row/grouped result surface so
+    // higher layers do not need to branch on grouped shape themselves.
+    #[doc(hidden)]
+    pub fn execute_query_result<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<LoadQueryResult<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        if query.has_grouping() {
+            return self
+                .execute_grouped(query, None)
+                .map(LoadQueryResult::Grouped);
+        }
+
+        self.execute_query(query).map(LoadQueryResult::Rows)
     }
 
     /// Execute one typed delete query and return only the affected-row count.
@@ -395,7 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This is the explicit grouped execution boundary; scalar load APIs reject
     /// grouped plans to preserve scalar response contracts.
-    pub fn execute_grouped<E>(
+    pub(in crate::db) fn execute_grouped<E>(
         &self,
         query: &Query<E>,
         cursor_token: Option<&str>,
@@ -426,27 +442,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one grouped query page and return grouped rows plus an already-encoded text cursor.
-    #[doc(hidden)]
-    pub fn execute_grouped_text_cursor<E>(
-        &self,
-        query: &Query<E>,
-        cursor_token: Option<&str>,
-    ) -> Result<GroupedTextCursorPageWithTrace, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (page, trace) = self.execute_grouped_page_with_trace(query, cursor_token)?;
-        let next_cursor = page
-            .next_cursor
-            .map(Self::encode_grouped_page_cursor_hex)
-            .transpose()?;
-
-        Ok((page.rows, next_cursor, trace))
-    }
-}
-
-impl<C: CanisterKind> DbSession<C> {
     // Execute the canonical grouped query core and return the raw grouped page
     // plus optional execution trace before outward cursor formatting.
     fn execute_grouped_page_with_trace<E>(
@@ -479,19 +474,5 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_grouped_paged_with_cursor_traced(plan, cursor)
         })
         .map_err(QueryError::execute)
-    }
-
-    // Encode one grouped page cursor directly to lowercase hex without
-    // round-tripping through a temporary raw cursor byte vector.
-    fn encode_grouped_page_cursor_hex(page_cursor: PageCursor) -> Result<String, QueryError> {
-        let token: &GroupedContinuationToken = page_cursor
-            .as_grouped()
-            .ok_or_else(QueryError::grouped_paged_emitted_scalar_continuation)?;
-
-        token.encode_hex().map_err(|err| {
-            QueryError::serialize_internal(format!(
-                "failed to serialize grouped continuation cursor: {err}"
-            ))
-        })
     }
 }

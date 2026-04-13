@@ -36,7 +36,7 @@ use crate::{
 use std::thread::LocalKey;
 
 #[cfg(feature = "sql")]
-pub use sql::{SqlParsedStatement, SqlStatementResult, SqlStatementRoute};
+pub use sql::SqlStatementResult;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
 

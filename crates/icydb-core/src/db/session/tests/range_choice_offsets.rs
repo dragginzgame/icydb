@@ -259,6 +259,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .offset(1)
         .limit(2)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("ascending order-only offset window should execute");
     let asc_alpha = asc
         .iter()
@@ -284,6 +285,7 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .offset(1)
         .limit(2)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("descending order-only offset window should execute");
     let desc_alpha = desc
         .iter()
@@ -436,6 +438,7 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         .offset(1)
         .limit(2)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("composite order-only offset window should execute");
     let handles = response
         .iter()

@@ -49,6 +49,7 @@ impl<E: EntityKind> PagedResponse<E> {
 /// Grouped rows stay in the core grouped-row representation so grouped value
 /// fidelity and execution tracing remain intact at the facade boundary.
 ///
+#[derive(Debug)]
 pub struct PagedGroupedResponse {
     items: Vec<icydb_core::db::GroupedRow>,
     next_cursor: Option<String>,

@@ -45,15 +45,15 @@ const FLUENT_NON_PAGED_POLICY_RULES: &[FluentNonPagedPolicyRule] = &[
 fn fluent_non_paged_cursor_token_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    ctx.has_cursor_token
+    (ctx.has_cursor_token && !ctx.has_grouping)
         .then_some(FluentLoadPolicyViolation::cursor_requires_paged_execution())
 }
 
-fn fluent_non_paged_grouped_violation(
+const fn fluent_non_paged_grouped_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    ctx.has_grouping
-        .then_some(FluentLoadPolicyViolation::grouped_requires_execute_grouped())
+    let _ = ctx;
+    None
 }
 
 ///
@@ -83,7 +83,7 @@ fn fluent_paged_grouped_violation(
     ctx: FluentPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
     ctx.has_grouping
-        .then_some(FluentLoadPolicyViolation::grouped_requires_execute_grouped())
+        .then_some(FluentLoadPolicyViolation::grouped_requires_direct_execute())
 }
 
 /// Validate fluent non-paged load entry policy.
@@ -139,23 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn fluent_non_paged_rejects_grouped_shapes() {
-        let err = validate_fluent_non_paged_mode(false, true)
-            .expect_err("non-paged fluent mode must reject grouped shapes");
-        assert!(matches!(
-            err,
-            FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped
-        ));
+    fn fluent_non_paged_grouped_shapes_pass() {
+        validate_fluent_non_paged_mode(false, true)
+            .expect("non-paged fluent mode should admit grouped shapes");
     }
 
     #[test]
     fn fluent_non_paged_prefers_cursor_error_when_both_violate() {
-        let err = validate_fluent_non_paged_mode(true, true)
-            .expect_err("cursor token + grouped in non-paged mode must fail");
-        assert!(matches!(
-            err,
-            FluentLoadPolicyViolation::CursorRequiresPagedExecution
-        ));
+        validate_fluent_non_paged_mode(true, true)
+            .expect("grouped fluent mode should admit direct cursor execution");
     }
 
     #[test]
@@ -164,7 +156,7 @@ mod tests {
             .expect_err("paged fluent mode must reject grouped shapes");
         assert!(matches!(
             err,
-            FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped
+            FluentLoadPolicyViolation::GroupedRequiresDirectExecute
         ));
     }
 

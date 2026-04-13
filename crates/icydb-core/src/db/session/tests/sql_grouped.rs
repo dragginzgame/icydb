@@ -8,9 +8,9 @@ fn execute_indexed_grouped_case(
     sql: &str,
     context: &str,
 ) -> Vec<(Value, Vec<Value>)> {
-    let execution = session
-        .execute_grouped_sql_for_tests::<IndexedSessionSqlEntity>(sql, None)
-        .unwrap_or_else(|err| panic!("{context} SQL execution should succeed: {err}"));
+    let execution =
+        execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(&session, sql, None)
+            .unwrap_or_else(|err| panic!("{context} SQL execution should succeed: {err}"));
 
     assert!(
         execution.continuation_cursor().is_none(),
@@ -34,8 +34,7 @@ fn assert_grouped_statement_payload_case(
     expected_row_count: u32,
     context: &str,
 ) {
-    let payload = session
-        .execute_sql_statement::<SessionSqlEntity>(sql)
+    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should execute through statement SQL: {err}"));
 
     let SqlStatementResult::Grouped {
@@ -102,11 +101,9 @@ fn assert_grouped_row_equivalence_case(
     right_sql: &str,
     context: &str,
 ) {
-    let left = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(left_sql, None)
+    let left = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, left_sql, None)
         .unwrap_or_else(|err| panic!("{context} left SQL should execute: {err}"));
-    let right = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(right_sql, None)
+    let right = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, right_sql, None)
         .unwrap_or_else(|err| panic!("{context} right SQL should execute: {err}"));
 
     assert_eq!(
@@ -129,8 +126,7 @@ fn assert_indexed_grouped_ordered_public_case(
     context: &str,
     expect_grouped_node_contract: bool,
 ) {
-    let query = session
-        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(sql)
+    let query = lower_select_query_for_tests::<IndexedSessionSqlEntity>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
     let explain = query
         .explain()
@@ -175,26 +171,26 @@ fn assert_indexed_grouped_ordered_public_case(
 }
 
 #[test]
-fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
+fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
     reset_session_sql_store();
     let session = sql_session();
 
     for (sql, expected_message, context, expect_unsupported_variant) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity",
-            "execute_sql_grouped rejects scalar computed text projection",
+            "grouped SELECT helper rejects scalar computed text projection",
             "computed text projection",
             false,
         ),
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
-            "execute_sql_grouped rejects global aggregate SELECT",
+            "grouped SELECT helper rejects global aggregate SELECT",
             "global aggregate execution",
             false,
         ),
         (
             "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
-            "execute_sql_grouped rejects DELETE",
+            "grouped SELECT helper rejects DELETE",
             "delete execution",
             false,
         ),
@@ -205,8 +201,7 @@ fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
             true,
         ),
     ] {
-        let err = session
-            .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+        let err = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
             .expect_err("grouped lane rejection matrix should stay fail-closed");
 
         if expect_unsupported_variant {
@@ -229,7 +224,7 @@ fn execute_sql_grouped_rejection_matrix_preserves_lane_boundary_messages() {
 }
 
 #[test]
-fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicly() {
+fn grouped_select_lowering_explain_and_execution_project_grouped_fallback_publicly() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -241,11 +236,11 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
         ],
     );
 
-    let query = session
-        .lower_sql_query_for_tests::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-        )
-        .expect("grouped explain SQL query should lower");
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped explain SQL query should lower");
     assert!(
         query.has_grouping(),
         "grouped aggregate SQL projection lowering should produce grouped query intent",
@@ -288,7 +283,8 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
 }
 
 #[test]
-fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_publicly() {
+fn grouped_select_lowering_indexed_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
+{
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(
@@ -377,7 +373,7 @@ fn query_from_sql_indexed_grouped_ordered_explain_matrix_projects_ordered_group_
 // to audit than splitting them across many tiny helpers.
 #[test]
 #[expect(clippy::too_many_lines)]
-fn execute_sql_grouped_indexed_aggregate_matrix_preserves_ordered_group_rows() {
+fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -542,7 +538,7 @@ fn execute_sql_grouped_indexed_aggregate_matrix_preserves_ordered_group_rows() {
 }
 
 #[test]
-fn execute_sql_grouped_indexed_distinct_aggregate_matrix_preserves_ordered_group_rows() {
+fn grouped_select_helper_indexed_distinct_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -643,8 +639,8 @@ fn execute_sql_grouped_indexed_distinct_aggregate_matrix_preserves_ordered_group
 }
 
 #[test]
-fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
-{
+fn grouped_select_lowering_indexed_filtered_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
+ {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(
@@ -696,7 +692,7 @@ fn query_from_sql_indexed_filtered_grouped_ordered_explain_matrix_projects_order
 }
 
 #[test]
-fn execute_sql_grouped_indexed_filtered_aggregate_matrix_preserves_ordered_group_rows() {
+fn grouped_select_helper_indexed_filtered_aggregate_matrix_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -762,7 +758,7 @@ fn execute_sql_grouped_indexed_filtered_aggregate_matrix_preserves_ordered_group
 }
 
 #[test]
-fn execute_sql_grouped_matrix_queries_match_expected_grouped_rows() {
+fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -832,8 +828,7 @@ fn execute_sql_grouped_matrix_queries_match_expected_grouped_rows() {
 
     // Phase 3: assert grouped row payloads for each SQL input.
     for (sql, expected_rows) in cases {
-        let execution = session
-            .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+        let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
             .expect("grouped matrix SQL execution should succeed");
         let actual_rows = execution
             .rows()
@@ -877,7 +872,7 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
 }
 
 #[test]
-fn execute_sql_grouped_count_matrix_returns_expected_grouped_rows() {
+fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -904,8 +899,7 @@ fn execute_sql_grouped_count_matrix_returns_expected_grouped_rows() {
             "qualified grouped count SQL",
         ),
     ] {
-        let execution = session
-            .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+        let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         assert!(
@@ -925,7 +919,7 @@ fn execute_sql_grouped_count_matrix_returns_expected_grouped_rows() {
 }
 
 #[test]
-fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
+fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -978,8 +972,7 @@ fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
                FROM SessionSqlEntity \
                GROUP BY age \
                ORDER BY age ASC LIMIT 1";
-    let first_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first grouped SQL page should execute");
     assert_eq!(first_page.rows().len(), 1);
     assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(10)]);
@@ -991,9 +984,12 @@ fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
     );
 
     // Phase 3: resume to second grouped page and capture next cursor.
-    let second_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, Some(cursor_one.as_str()))
-        .expect("second grouped SQL page should execute");
+    let second_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        sql,
+        Some(cursor_one.as_str()),
+    )
+    .expect("second grouped SQL page should execute");
     assert_eq!(second_page.rows().len(), 1);
     assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(20)]);
     assert_eq!(second_page.rows()[0].aggregate_values(), [Value::Uint(1)]);
@@ -1004,9 +1000,12 @@ fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
     );
 
     // Phase 4: resume final grouped page and assert no further continuation.
-    let third_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, Some(cursor_two.as_str()))
-        .expect("third grouped SQL page should execute");
+    let third_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        sql,
+        Some(cursor_two.as_str()),
+    )
+    .expect("third grouped SQL page should execute");
     assert_eq!(third_page.rows().len(), 1);
     assert_eq!(third_page.rows()[0].group_key(), [Value::Uint(30)]);
     assert_eq!(third_page.rows()[0].aggregate_values(), [Value::Uint(3)]);
@@ -1017,7 +1016,7 @@ fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
 }
 
 #[test]
-fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consistently() {
+fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_consistently() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1047,8 +1046,7 @@ fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consis
                GROUP BY age \
                HAVING COUNT(*) > 1 \
                ORDER BY age ASC LIMIT 1 OFFSET 1";
-    let first_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first multi-aggregate grouped SQL page should execute");
     assert_eq!(first_page.rows().len(), 1);
     assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(30)]);
@@ -1067,9 +1065,12 @@ fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consis
 
     // Phase 3: resume after the offset-qualified page and assert the next
     // qualifying grouped row continues from the prior canonical group key.
-    let second_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, Some(first_cursor.as_str()))
-        .expect("second multi-aggregate grouped SQL page should execute");
+    let second_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        sql,
+        Some(first_cursor.as_str()),
+    )
+    .expect("second multi-aggregate grouped SQL page should execute");
     assert_eq!(second_page.rows().len(), 1);
     assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(50)]);
     assert_eq!(
@@ -1086,7 +1087,7 @@ fn execute_sql_grouped_multi_aggregate_having_offset_limit_cursor_resumes_consis
 }
 
 #[test]
-fn execute_sql_grouped_cursor_rejection_matrix_preserves_cursor_plan_taxonomy() {
+fn grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1100,15 +1101,15 @@ fn execute_sql_grouped_cursor_rejection_matrix_preserves_cursor_plan_taxonomy() 
             ("cursor-signature-c", 30),
         ],
     );
-    let first_page = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) \
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              GROUP BY age \
              ORDER BY age ASC LIMIT 1",
-            None,
-        )
-        .expect("first grouped SQL page should execute");
+        None,
+    )
+    .expect("first grouped SQL page should execute");
     let cursor = crate::db::encode_cursor(
         first_page
             .continuation_cursor()
@@ -1140,8 +1141,7 @@ fn execute_sql_grouped_cursor_rejection_matrix_preserves_cursor_plan_taxonomy() 
             }
             _ => unreachable!("grouped cursor rejection matrix is fixed"),
         };
-        let err = session
-            .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, cursor)
+        let err = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, cursor)
             .expect_err("grouped cursor rejection matrix should stay fail-closed");
 
         if expect_invalid_payload {
@@ -1167,7 +1167,7 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
     for (sql, expected_message, context) in [
         (
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            Some("execute_sql rejects grouped SELECT"),
+            Some("scalar SELECT helper rejects grouped SELECT"),
             "grouped SELECT on scalar API",
         ),
         (
@@ -1181,8 +1181,7 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
             "grouped computed projection widening on scalar API",
         ),
     ] {
-        let err = session
-            .execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
+        let err = execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
             .expect_err("scalar API grouped-shape matrix should stay fail-closed");
 
         assert!(
@@ -1309,8 +1308,7 @@ fn execute_sql_statement_grouped_payload_matrix() {
         );
 
         if check_grouped_api {
-            let grouped = session
-                .execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+            let grouped = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
                 .unwrap_or_else(|err| {
                     panic!("{context} should execute through grouped SQL lane too: {err}")
                 });
@@ -1338,7 +1336,7 @@ fn execute_sql_statement_grouped_payload_matrix() {
 }
 
 #[test]
-fn execute_sql_grouped_equivalent_row_matrix_matches_canonical_rows() {
+fn grouped_select_helper_equivalent_row_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
 

@@ -60,53 +60,6 @@ fn assert_specific_sql_unsupported_feature_detail<T, F>(
     assert_sql_unsupported_feature_detail(err, feature);
 }
 
-// Assert one SQL statement route surface against the expected route value and
-// the derived route classification helpers.
-fn assert_sql_statement_route_case(
-    session: &DbSession<SessionSqlCanister>,
-    sql: &str,
-    expected_route: SqlStatementRoute,
-    expected_entity: &str,
-    flags: (bool, bool, bool, bool, bool),
-    context: &str,
-) {
-    let route = session
-        .sql_statement_route(sql)
-        .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
-
-    assert_eq!(route, expected_route, "{context} should classify the route");
-    assert_eq!(
-        route.entity(),
-        expected_entity,
-        "{context} should preserve the entity surface"
-    );
-    assert_eq!(
-        route.is_explain(),
-        flags.0,
-        "{context} explain flag should match"
-    );
-    assert_eq!(
-        route.is_describe(),
-        flags.1,
-        "{context} describe flag should match"
-    );
-    assert_eq!(
-        route.is_show_indexes(),
-        flags.2,
-        "{context} show-indexes flag should match",
-    );
-    assert_eq!(
-        route.is_show_columns(),
-        flags.3,
-        "{context} show-columns flag should match",
-    );
-    assert_eq!(
-        route.is_show_entities(),
-        flags.4,
-        "{context} show-entities flag should match",
-    );
-}
-
 // This query-surface matrix keeps every non-query statement rejection on one
 // outward contract table so the boundary stays easy to audit.
 #[expect(
@@ -124,38 +77,38 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
         &[
             (
                 "EXPLAIN SELECT * FROM SessionSqlEntity",
-                "query_from_sql must reject EXPLAIN statements",
+                "SQL query lowering must reject EXPLAIN statements",
             ),
             (
                 "DESCRIBE SessionSqlEntity",
-                "query_from_sql must reject DESCRIBE statements",
+                "SQL query lowering must reject DESCRIBE statements",
             ),
             (
                 "SHOW INDEXES SessionSqlEntity",
-                "query_from_sql must reject SHOW INDEXES statements",
+                "SQL query lowering must reject SHOW INDEXES statements",
             ),
             (
                 "SHOW COLUMNS SessionSqlEntity",
-                "query_from_sql must reject SHOW COLUMNS statements",
+                "SQL query lowering must reject SHOW COLUMNS statements",
             ),
             (
                 "SHOW ENTITIES",
-                "query_from_sql must reject SHOW ENTITIES statements",
+                "SQL query lowering must reject SHOW ENTITIES statements",
             ),
             (
                 "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-                "query_from_sql must reject INSERT statements",
+                "SQL query lowering must reject INSERT statements",
             ),
             (
                 "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-                "query_from_sql must reject INSERT statements",
+                "SQL query lowering must reject INSERT statements",
             ),
             (
                 "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-                "query_from_sql must reject UPDATE statements",
+                "SQL query lowering must reject UPDATE statements",
             ),
         ],
-        |sql| session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
+        |sql| lower_select_query_for_tests::<SessionSqlEntity>(&session, sql),
     );
 
     // Phase 2: require both executable query entrypoints to preserve their
@@ -163,78 +116,87 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
     let message_cases = [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "execute_sql rejects EXPLAIN",
+            "scalar SELECT helper rejects EXPLAIN",
         ),
-        ("DESCRIBE SessionSqlEntity", "execute_sql rejects DESCRIBE"),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "scalar SELECT helper rejects DESCRIBE",
+        ),
         (
             "SHOW INDEXES SessionSqlEntity",
-            "execute_sql rejects SHOW INDEXES",
+            "scalar SELECT helper rejects SHOW INDEXES",
         ),
         (
             "SHOW COLUMNS SessionSqlEntity",
-            "execute_sql rejects SHOW COLUMNS",
+            "scalar SELECT helper rejects SHOW COLUMNS",
         ),
-        ("SHOW ENTITIES", "execute_sql rejects SHOW ENTITIES"),
+        (
+            "SHOW ENTITIES",
+            "scalar SELECT helper rejects SHOW ENTITIES",
+        ),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            "execute_sql rejects INSERT",
+            "scalar SELECT helper rejects INSERT",
         ),
         (
             "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-            "execute_sql rejects INSERT",
+            "scalar SELECT helper rejects INSERT",
         ),
         (
             "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-            "execute_sql rejects UPDATE",
+            "scalar SELECT helper rejects UPDATE",
         ),
     ];
     assert_sql_surface_rejects_statement_lanes_with_message(
         &message_cases,
-        |sql| session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql),
-        "execute_sql",
+        |sql| execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql),
+        "scalar SELECT helper",
     );
 
     let grouped_cases = [
         (
             "EXPLAIN SELECT * FROM SessionSqlEntity",
-            "execute_sql_grouped rejects EXPLAIN",
+            "grouped SELECT helper rejects EXPLAIN",
         ),
         (
             "DESCRIBE SessionSqlEntity",
-            "execute_sql_grouped rejects DESCRIBE",
+            "grouped SELECT helper rejects DESCRIBE",
         ),
         (
             "SHOW INDEXES SessionSqlEntity",
-            "execute_sql_grouped rejects SHOW INDEXES",
+            "grouped SELECT helper rejects SHOW INDEXES",
         ),
         (
             "SHOW COLUMNS SessionSqlEntity",
-            "execute_sql_grouped rejects SHOW COLUMNS",
+            "grouped SELECT helper rejects SHOW COLUMNS",
         ),
-        ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
+        (
+            "SHOW ENTITIES",
+            "grouped SELECT helper rejects SHOW ENTITIES",
+        ),
         (
             "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            "execute_sql_grouped rejects INSERT",
+            "grouped SELECT helper rejects INSERT",
         ),
         (
             "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-            "execute_sql_grouped rejects INSERT",
+            "grouped SELECT helper rejects INSERT",
         ),
         (
             "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-            "execute_sql_grouped rejects UPDATE",
+            "grouped SELECT helper rejects UPDATE",
         ),
     ];
 
     assert_sql_surface_rejects_statement_lanes_with_message(
         &grouped_cases,
-        |sql| session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None),
-        "execute_sql_grouped",
+        |sql| execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None),
+        "grouped SELECT helper",
     );
 }
 
 #[test]
-fn query_from_sql_projection_lowering_matrix_normalizes_to_scalar_fields() {
+fn sql_query_lowering_projection_matrix_normalizes_to_scalar_fields() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -253,8 +215,7 @@ fn query_from_sql_projection_lowering_matrix_normalizes_to_scalar_fields() {
             "single-table alias SQL projection",
         ),
     ] {
-        let query = session
-            .lower_sql_query_for_tests::<SessionSqlEntity>(sql)
+        let query = lower_select_query_for_tests::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should lower: {err}"));
         let projection = query
             .plan()
@@ -285,108 +246,30 @@ fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages
     reset_session_sql_store();
     let session = sql_session();
 
-    let query_err = session
-        .lower_sql_query_for_tests::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+    let query_err = lower_select_query_for_tests::<SessionSqlEntity>(&session, "SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err(
-            "query_from_sql should stay on the structural lowered-query lane and reject computed text projection forms",
+            "SQL query lowering should stay on the structural lowered-query lane and reject computed text projection forms",
         );
     assert!(
         query_err
             .to_string()
-            .contains("query_from_sql does not accept computed text projection"),
-        "query_from_sql should reject computed text projection with an actionable boundary message",
+            .contains("SQL query lowering does not accept computed text projection"),
+        "SQL query lowering should reject computed text projection with an actionable boundary message",
     );
 
-    let execute_err = session
-        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
-        .expect_err("execute_sql should keep computed text projection on the statement-owned lane");
+    let execute_err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT TRIM(name) FROM SessionSqlEntity",
+    )
+    .expect_err(
+        "scalar SELECT helper should keep computed text projection on the statement-owned lane",
+    );
     assert!(
         execute_err
             .to_string()
-            .contains("execute_sql rejects computed text projection"),
-        "execute_sql should reject computed text projection with an actionable boundary message",
+            .contains("scalar SELECT helper rejects computed text projection"),
+        "scalar SELECT helper should reject computed text projection with an actionable boundary message",
     );
-}
-
-#[test]
-fn sql_statement_route_matrix_classifies_supported_surfaces() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    for (sql, expected_route, entity, flags, context) in [
-        (
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
-            SqlStatementRoute::Query {
-                entity: "SessionSqlEntity".to_string(),
-            },
-            "SessionSqlEntity",
-            (false, false, false, false, false),
-            "select SQL statement",
-        ),
-        (
-            "INSERT INTO SessionSqlEntity (id, name, age) VALUES (1, 'Ada', 21)",
-            SqlStatementRoute::Insert {
-                entity: "SessionSqlEntity".to_string(),
-            },
-            "SessionSqlEntity",
-            (false, false, false, false, false),
-            "insert SQL statement",
-        ),
-        (
-            "UPDATE SessionSqlEntity SET age = 22 WHERE id = 1",
-            SqlStatementRoute::Update {
-                entity: "SessionSqlEntity".to_string(),
-            },
-            "SessionSqlEntity",
-            (false, false, false, false, false),
-            "update SQL statement",
-        ),
-        (
-            "DESCRIBE public.SessionSqlEntity",
-            SqlStatementRoute::Describe {
-                entity: "public.SessionSqlEntity".to_string(),
-            },
-            "public.SessionSqlEntity",
-            (false, true, false, false, false),
-            "describe SQL statement",
-        ),
-        (
-            "SHOW INDEXES public.SessionSqlEntity",
-            SqlStatementRoute::ShowIndexes {
-                entity: "public.SessionSqlEntity".to_string(),
-            },
-            "public.SessionSqlEntity",
-            (false, false, true, false, false),
-            "show indexes SQL statement",
-        ),
-        (
-            "SHOW COLUMNS public.SessionSqlEntity",
-            SqlStatementRoute::ShowColumns {
-                entity: "public.SessionSqlEntity".to_string(),
-            },
-            "public.SessionSqlEntity",
-            (false, false, false, true, false),
-            "show columns SQL statement",
-        ),
-        (
-            "SHOW ENTITIES",
-            SqlStatementRoute::ShowEntities,
-            "",
-            (false, false, false, false, true),
-            "show entities SQL statement",
-        ),
-        (
-            "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE age > 20 LIMIT 1",
-            SqlStatementRoute::Explain {
-                entity: "SessionSqlEntity".to_string(),
-            },
-            "SessionSqlEntity",
-            (true, false, false, false, false),
-            "explain SQL statement",
-        ),
-    ] {
-        assert_sql_statement_route_case(&session, sql, expected_route, entity, flags, context);
-    }
 }
 
 #[test]
@@ -394,9 +277,11 @@ fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT \"name\" FROM SessionSqlEntity")
-        .expect_err("quoted identifiers should be rejected by reduced SQL parser");
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT \"name\" FROM SessionSqlEntity",
+    )
+    .expect_err("quoted identifiers should be rejected by reduced SQL parser");
 
     assert!(
         matches!(
@@ -591,18 +476,20 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| session.sql_statement_route(sql));
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.lower_sql_query_for_tests::<SessionSqlEntity>(sql)
+        parse_sql_statement_for_tests(&session, sql).map(|_| ())
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql)
+    });
+    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+        execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         statement_projection_rows::<SessionSqlEntity>(&session, sql)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
-        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None)
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
     });
     assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
         let explain_sql = format!("EXPLAIN {sql}");
@@ -611,17 +498,17 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     assert_specific_sql_unsupported_feature_detail(
         "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
         "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        |sql| session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
+        |sql| lower_select_query_for_tests::<SessionSqlEntity>(&session, sql),
     );
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
     assert_unsupported_sql_surface_result(
-        session.lower_sql_query_for_tests::<SessionSqlEntity>(sql),
-        "query_from_sql should reject INSERT lane even when RETURNING is present",
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql),
+        "SQL query lowering should reject INSERT lane even when RETURNING is present",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(sql),
-        "execute_sql should reject INSERT lane even when RETURNING is present",
+        execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql),
+        "scalar SELECT helper should reject INSERT lane even when RETURNING is present",
     );
     let returning_rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
         .expect("statement execution should admit INSERT RETURNING");
@@ -632,20 +519,20 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "statement INSERT RETURNING should project the requested generated id",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(sql, None),
-        "execute_sql_grouped should reject INSERT lane even when RETURNING is present",
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None),
+        "grouped SELECT helper should reject INSERT lane even when RETURNING is present",
     );
 
     let update_returning_sql =
         "UPDATE SessionSqlEntity SET age = 22 WHERE name = 'Ada' RETURNING id, age";
 
     assert_unsupported_sql_surface_result(
-        session.lower_sql_query_for_tests::<SessionSqlEntity>(update_returning_sql),
-        "query_from_sql should reject UPDATE lane even when RETURNING is present",
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, update_returning_sql),
+        "SQL query lowering should reject UPDATE lane even when RETURNING is present",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_scalar_sql_for_tests::<SessionSqlEntity>(update_returning_sql),
-        "execute_sql should reject UPDATE lane even when RETURNING is present",
+        execute_scalar_select_for_tests::<SessionSqlEntity>(&session, update_returning_sql),
+        "scalar SELECT helper should reject UPDATE lane even when RETURNING is present",
     );
     let updated_rows =
         statement_projection_rows::<SessionSqlEntity>(&session, update_returning_sql)
@@ -662,43 +549,43 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         "statement UPDATE RETURNING should project the updated scalar field",
     );
     assert_unsupported_sql_surface_result(
-        session.execute_grouped_sql_for_tests::<SessionSqlEntity>(update_returning_sql, None),
-        "execute_sql_grouped should reject UPDATE lane even when RETURNING is present",
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, update_returning_sql, None),
+        "grouped SELECT helper should reject UPDATE lane even when RETURNING is present",
     );
 
     let delete_returning_sql =
         "DELETE FROM SessionSqlEntity WHERE age > 20 ORDER BY age ASC LIMIT 1 RETURNING id";
 
-    let query_from_err = session
-        .lower_sql_query_for_tests::<SessionSqlEntity>(delete_returning_sql)
-        .map(|_| ())
-        .expect_err("query_from_sql should reject DELETE RETURNING");
+    let query_from_err =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, delete_returning_sql)
+            .map(|_| ())
+            .expect_err("SQL query lowering should reject DELETE RETURNING");
     assert!(
         query_from_err
             .to_string()
             .contains("DELETE RETURNING; use delete::<E>().returning..."),
-        "query_from_sql should preserve explicit DELETE RETURNING guidance",
+        "SQL query lowering should preserve explicit DELETE RETURNING guidance",
     );
 
-    let execute_sql_err = session
-        .execute_scalar_sql_for_tests::<SessionSqlEntity>(delete_returning_sql)
-        .map(|_| ())
-        .expect_err("execute_sql should reject DELETE entirely");
+    let execute_sql_err =
+        execute_scalar_select_for_tests::<SessionSqlEntity>(&session, delete_returning_sql)
+            .map(|_| ())
+            .expect_err("scalar SELECT helper should reject DELETE entirely");
     assert!(
         execute_sql_err
             .to_string()
-            .contains("execute_sql rejects DELETE; use delete::<E>()"),
-        "execute_sql should preserve explicit fluent delete guidance",
+            .contains("scalar SELECT helper rejects DELETE; use delete::<E>()"),
+        "scalar SELECT helper should preserve explicit fluent delete guidance",
     );
 
-    let grouped_err = session
-        .execute_grouped_sql_for_tests::<SessionSqlEntity>(delete_returning_sql, None)
-        .map(|_| ())
-        .expect_err("execute_sql_grouped should still reject DELETE at the grouped surface");
+    let grouped_err =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&session, delete_returning_sql, None)
+            .map(|_| ())
+            .expect_err("grouped SELECT helper should still reject DELETE at the grouped surface");
     assert!(
         grouped_err
             .to_string()
-            .contains("execute_sql_grouped rejects DELETE"),
+            .contains("grouped SELECT helper rejects DELETE"),
         "grouped SQL surface should preserve its own lane boundary before RETURNING guidance",
     );
 }
@@ -709,11 +596,11 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     let session = sql_session();
     seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
 
-    let scalar = session
-        .execute_sql_statement::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
-        )
-        .expect("execute_sql_statement should admit scalar SELECT");
+    let scalar = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+    )
+    .expect("execute_sql_statement should admit scalar SELECT");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -726,11 +613,11 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
     assert_eq!(row_count, 1);
 
-    let grouped = session
-        .execute_sql_statement::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-        )
-        .expect("execute_sql_statement should admit grouped SELECT");
+    let grouped = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    )
+    .expect("execute_sql_statement should admit grouped SELECT");
     let SqlStatementResult::Grouped {
         columns, row_count, ..
     } = grouped
@@ -740,9 +627,11 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
     assert_eq!(columns, vec!["age".to_string(), "COUNT(*)".to_string()]);
     assert_eq!(row_count, 2);
 
-    let aggregate = session
-        .execute_sql_statement::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("execute_sql_statement should admit global aggregate SELECT");
+    let aggregate = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect("execute_sql_statement should admit global aggregate SELECT");
     let SqlStatementResult::Projection {
         columns,
         rows,
@@ -761,31 +650,31 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let insert = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
-        )
-        .expect("execute_sql_statement should admit INSERT");
+    let insert = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+    )
+    .expect("execute_sql_statement should admit INSERT");
     let SqlStatementResult::Count { row_count } = insert else {
         panic!("execute_sql_statement INSERT should emit count payload");
     };
     assert_eq!(row_count, 1);
 
-    let update = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
-        )
-        .expect("execute_sql_statement should admit UPDATE");
+    let update = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+    )
+    .expect("execute_sql_statement should admit UPDATE");
     let SqlStatementResult::Count { row_count } = update else {
         panic!("execute_sql_statement UPDATE should emit count payload");
     };
     assert_eq!(row_count, 1);
 
-    let delete = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
-        )
-        .expect("execute_sql_statement should admit DELETE RETURNING");
+    let delete = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+    )
+    .expect("execute_sql_statement should admit DELETE RETURNING");
     let SqlStatementResult::Projection {
         columns,
         rows,

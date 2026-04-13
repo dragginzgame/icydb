@@ -254,8 +254,8 @@ pub enum IntentError {
     #[error("{0}")]
     InvalidPagingShape(#[from] PagingIntentError),
 
-    #[error("grouped queries require execute_grouped(...)")]
-    GroupedRequiresExecuteGrouped,
+    #[error("grouped queries execute via execute()")]
+    GroupedRequiresDirectExecute,
 
     #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
@@ -282,9 +282,9 @@ impl IntentError {
         Self::InvalidPagingShape(err)
     }
 
-    /// Construct one grouped-requires-execute-grouped intent error.
-    pub(crate) const fn grouped_requires_execute_grouped() -> Self {
-        Self::GroupedRequiresExecuteGrouped
+    /// Construct one grouped-requires-direct-execute intent error.
+    pub(crate) const fn grouped_requires_direct_execute() -> Self {
+        Self::GroupedRequiresDirectExecute
     }
 
     /// Construct one HAVING-requires-GROUP-BY intent error.
@@ -367,8 +367,8 @@ impl From<FluentLoadPolicyViolation> for IntentError {
             FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
                 Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
             }
-            FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped => {
-                Self::grouped_requires_execute_grouped()
+            FluentLoadPolicyViolation::GroupedRequiresDirectExecute => {
+                Self::grouped_requires_direct_execute()
             }
             FluentLoadPolicyViolation::CursorRequiresOrder => {
                 Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())

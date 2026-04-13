@@ -13,12 +13,14 @@ use crate::{
         data::UpdatePatch,
         executor::{EntityAuthority, MutationMode},
         identifiers_tail_match,
+        numeric::{
+            add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
+            compare_numeric_or_strict_order,
+        },
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
-            SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
-            aggregate::parsed_requires_dedicated_sql_aggregate_lane,
-            computed_projection,
+            SqlStatementResult, computed_projection,
             projection::{
                 SqlProjectionPayload, execute_sql_projection_rows_for_canister,
                 projection_labels_from_fields, projection_labels_from_projection_spec,
@@ -26,9 +28,13 @@ use crate::{
             },
         },
         sql::lowering::{
-            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlQuery, SqlLoweringError,
+            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlLaneKind,
+            LoweredSqlQuery, PreparedSqlScalarAggregateRuntimeDescriptor,
+            PreparedSqlScalarAggregateStrategy, SqlGlobalAggregateCommandCore, SqlLoweringError,
             bind_lowered_sql_query, canonicalize_sql_predicate_for_model,
-            lower_sql_command_from_prepared_statement, prepare_sql_statement,
+            compile_sql_global_aggregate_command_core_from_prepared,
+            lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
+            prepare_sql_statement,
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlInsertSource, SqlInsertStatement,
@@ -48,6 +54,36 @@ use crate::{
 
 #[cfg(feature = "perf-attribution")]
 pub use lowered::LoweredSqlStatementExecutorAttribution;
+
+// Keep query-lane lowering beside the unified statement executor because no
+// other runtime surface needs a separate lowered query-lane boundary anymore.
+fn lower_sql_query_lane_for_entity(
+    statement: &SqlStatement,
+    expected_entity: &'static str,
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, QueryError> {
+    let lowered = lower_sql_command_from_prepared_statement(
+        prepare_sql_statement(statement.clone(), expected_entity)
+            .map_err(QueryError::from_sql_lowering_error)?,
+        primary_key_field,
+    )
+    .map_err(QueryError::from_sql_lowering_error)?;
+    let lane = lowered_sql_command_lane(&lowered);
+
+    match lane {
+        LoweredSqlLaneKind::Query | LoweredSqlLaneKind::Explain => Ok(lowered),
+        LoweredSqlLaneKind::Describe
+        | LoweredSqlLaneKind::ShowIndexes
+        | LoweredSqlLaneKind::ShowColumns
+        | LoweredSqlLaneKind::ShowEntities => {
+            Err(QueryError::unsupported_query_lane_sql_statement())
+        }
+    }
+}
+
+fn parsed_requires_dedicated_sql_aggregate_lane(statement: &SqlStatement) -> bool {
+    crate::db::sql::lowering::is_sql_global_aggregate_statement(statement)
+}
 
 // Project parsed SELECT items into one stable outward column contract while
 // allowing parser-owned aliases to override only the final session label.
@@ -136,6 +172,129 @@ const fn grouped_sql_text_function_name(function: SqlTextFunction) -> &'static s
         SqlTextFunction::Position => "POSITION",
         SqlTextFunction::Replace => "REPLACE",
         SqlTextFunction::Substring => "SUBSTRING",
+    }
+}
+
+fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
+    let mut deduped = Vec::with_capacity(values.len());
+
+    for value in values {
+        if deduped.iter().any(|current| current == &value) {
+            continue;
+        }
+        deduped.push(value);
+    }
+
+    deduped
+}
+
+fn reduce_structural_sql_aggregate_field_values(
+    values: Vec<Value>,
+    strategy: &crate::db::sql::lowering::PreparedSqlScalarAggregateStrategy,
+) -> Result<Value, QueryError> {
+    let values = if strategy.is_distinct() {
+        dedup_structural_sql_aggregate_input_values(values)
+    } else {
+        values
+    };
+
+    match strategy.runtime_descriptor() {
+        crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+            Err(QueryError::invariant(
+                "COUNT(*) structural reduction does not consume projected field values",
+            ))
+        }
+        crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
+            let count = values
+                .into_iter()
+                .filter(|value| !matches!(value, Value::Null))
+                .count();
+
+            Ok(Value::Uint(u64::try_from(count).unwrap_or(u64::MAX)))
+        }
+        crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            kind:
+                crate::db::query::plan::AggregateKind::Sum
+                | crate::db::query::plan::AggregateKind::Avg,
+        } => {
+            let mut sum = None;
+            let mut row_count = 0_u64;
+
+            for value in values {
+                if matches!(value, Value::Null) {
+                    continue;
+                }
+
+                let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
+                    QueryError::invariant(
+                        "numeric SQL aggregate statement encountered non-numeric projected value",
+                    )
+                })?;
+                sum = Some(sum.map_or(decimal, |current| add_decimal_terms(current, decimal)));
+                row_count = row_count.saturating_add(1);
+            }
+
+            match strategy.runtime_descriptor() {
+                crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                    kind: crate::db::query::plan::AggregateKind::Sum,
+                } => Ok(sum.map_or(Value::Null, Value::Decimal)),
+                crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                    kind: crate::db::query::plan::AggregateKind::Avg,
+                } => Ok(sum
+                    .and_then(|sum| average_decimal_terms(sum, row_count))
+                    .map_or(Value::Null, Value::Decimal)),
+                _ => unreachable!("numeric SQL aggregate strategy drifted during reduction"),
+            }
+        }
+        crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            kind:
+                crate::db::query::plan::AggregateKind::Min
+                | crate::db::query::plan::AggregateKind::Max,
+        } => {
+            let mut selected = None::<Value>;
+
+            for value in values {
+                if matches!(value, Value::Null) {
+                    continue;
+                }
+
+                let replace = match selected.as_ref() {
+                    None => true,
+                    Some(current) => {
+                        let ordering =
+                            compare_numeric_or_strict_order(&value, current).ok_or_else(|| {
+                                QueryError::invariant(
+                                    "extrema SQL aggregate statement encountered incomparable projected values",
+                                )
+                            })?;
+
+                        match strategy.runtime_descriptor() {
+                            crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                                kind: crate::db::query::plan::AggregateKind::Min,
+                            } => ordering.is_lt(),
+                            crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                                kind: crate::db::query::plan::AggregateKind::Max,
+                            } => ordering.is_gt(),
+                            _ => unreachable!(
+                                "extrema SQL aggregate strategy drifted during reduction"
+                            ),
+                        }
+                    }
+                };
+
+                if replace {
+                    selected = Some(value);
+                }
+            }
+
+            Ok(selected.unwrap_or(Value::Null))
+        }
+        crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+        | crate::db::sql::lowering::PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+            Err(QueryError::invariant(
+                "prepared SQL scalar aggregate strategy drifted outside SQL support",
+            ))
+        }
     }
 }
 
@@ -424,6 +583,129 @@ fn validate_sql_insert_selected_rows(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Build the canonical SQL aggregate label projected by the prepared
+    // aggregate strategy so unified statement rows stay parser-stable.
+    fn sql_scalar_aggregate_label(strategy: &PreparedSqlScalarAggregateStrategy) -> String {
+        let kind = match strategy.runtime_descriptor() {
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
+            | PreparedSqlScalarAggregateRuntimeDescriptor::CountField => "COUNT",
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: crate::db::query::plan::AggregateKind::Sum,
+            } => "SUM",
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: crate::db::query::plan::AggregateKind::Avg,
+            } => "AVG",
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: crate::db::query::plan::AggregateKind::Min,
+            } => "MIN",
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: crate::db::query::plan::AggregateKind::Max,
+            } => "MAX",
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                unreachable!("prepared SQL scalar aggregate strategy drifted outside SQL support")
+            }
+        };
+
+        match strategy.projected_field() {
+            Some(field) if strategy.is_distinct() => format!("{kind}(DISTINCT {field})"),
+            Some(field) => format!("{kind}({field})"),
+            None => format!("{kind}(*)"),
+        }
+    }
+
+    // Project one single-field structural query and return its canonical field
+    // values for aggregate reduction.
+    fn execute_structural_sql_aggregate_field_projection(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<Vec<Value>, QueryError> {
+        let (_, rows, _) = self
+            .execute_structural_sql_projection(query, authority)?
+            .into_parts();
+        let mut projected = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let [value] = row.as_slice() else {
+                return Err(QueryError::invariant(
+                    "structural SQL aggregate projection must emit exactly one field",
+                ));
+            };
+
+            projected.push(value.clone());
+        }
+
+        Ok(projected)
+    }
+
+    // Execute one generic-free prepared SQL aggregate command through the
+    // structural SQL projection path and package the result as one row-shaped
+    // statement payload for unified SQL loops.
+    fn execute_global_aggregate_statement_for_authority(
+        &self,
+        command: SqlGlobalAggregateCommandCore,
+        authority: EntityAuthority,
+        label_override: Option<String>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let model = authority.model();
+        let strategy = command
+            .prepared_scalar_strategy_with_model(model)
+            .map_err(QueryError::from_sql_lowering_error)?;
+        let label = label_override.unwrap_or_else(|| Self::sql_scalar_aggregate_label(&strategy));
+        let value = match strategy.runtime_descriptor() {
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                let (_, _, row_count) = self
+                    .execute_structural_sql_projection(
+                        command
+                            .query()
+                            .clone()
+                            .select_fields([authority.primary_key_name()]),
+                        authority,
+                    )?
+                    .into_parts();
+
+                Value::Uint(u64::from(row_count))
+            }
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+            | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                let Some(field) = strategy.projected_field() else {
+                    return Err(QueryError::invariant(
+                        "field-target SQL aggregate strategy requires projected field label",
+                    ));
+                };
+                let values = self.execute_structural_sql_aggregate_field_projection(
+                    command.query().clone().select_fields([field]),
+                    authority,
+                )?;
+
+                reduce_structural_sql_aggregate_field_values(values, &strategy)?
+            }
+        };
+
+        Ok(SqlStatementResult::Projection {
+            columns: vec![label],
+            rows: vec![vec![value]],
+            row_count: 1,
+        })
+    }
+
+    // Compile one already-parsed SQL aggregate statement into the shared
+    // generic-free aggregate command used by unified statement/query surfaces.
+    fn compile_sql_aggregate_command_core_for_authority(
+        statement: &SqlStatement,
+        authority: EntityAuthority,
+    ) -> Result<SqlGlobalAggregateCommandCore, QueryError> {
+        compile_sql_global_aggregate_command_core_from_prepared(
+            prepare_sql_statement(statement.clone(), authority.model().name())
+                .map_err(QueryError::from_sql_lowering_error)?,
+            authority.model(),
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(QueryError::from_sql_lowering_error)
+    }
+
     // Project one typed SQL write after-image into one outward SQL row using
     // the persisted model field order.
     fn sql_write_statement_row<E>(entity: E) -> Result<Vec<Value>, QueryError>
@@ -973,16 +1255,17 @@ impl<C: CanisterKind> DbSession<C> {
     // Lower one parsed SQL query/explain route once for one resolved authority
     // and preserve grouped-column metadata for grouped SELECT execution.
     fn lowered_sql_query_statement_inputs_for_authority(
-        parsed: &SqlParsedStatement,
+        statement: &SqlStatement,
         authority: EntityAuthority,
         unsupported_message: &'static str,
     ) -> Result<(LoweredSqlQuery, Option<Vec<String>>), QueryError> {
-        let lowered = parsed.lower_query_lane_for_entity(
+        let lowered = lower_sql_query_lane_for_entity(
+            statement,
             authority.model().name(),
             authority.model().primary_key.name,
         )?;
         let projection_columns = matches!(lowered.query(), Some(LoweredSqlQuery::Select(_)))
-            .then(|| sql_projection_labels_from_select_statement(&parsed.statement))
+            .then(|| sql_projection_labels_from_select_statement(statement))
             .transpose()?;
         let query = lowered
             .into_query()
@@ -996,7 +1279,7 @@ impl<C: CanisterKind> DbSession<C> {
     // statement surface only differs at the final SELECT/DELETE packaging boundary.
     fn execute_sql_query_route_for_authority(
         &self,
-        parsed: &SqlParsedStatement,
+        statement: &SqlStatement,
         authority: EntityAuthority,
         unsupported_message: &'static str,
         execute_select: impl FnOnce(
@@ -1014,25 +1297,25 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlStatementResult, QueryError> {
         // Phase 1: keep aggregate and computed projection classification on the
         // shared parsed route so all statement surfaces honor the same lane split.
-        if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
+        if parsed_requires_dedicated_sql_aggregate_lane(statement) {
             let command =
-                Self::compile_sql_aggregate_command_core_for_authority(parsed, authority)?;
+                Self::compile_sql_aggregate_command_core_for_authority(statement, authority)?;
 
-            return self.execute_sql_aggregate_statement_for_authority(
+            return self.execute_global_aggregate_statement_for_authority(
                 command,
                 authority,
-                sql_aggregate_statement_label_override(&parsed.statement),
+                sql_aggregate_statement_label_override(statement),
             );
         }
 
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(statement)? {
             return self.execute_computed_sql_projection_statement_for_authority(plan, authority);
         }
 
         // Phase 2: lower the remaining query route once, then let the caller
         // decide only the final outward result packaging.
         let (query, projection_columns) = Self::lowered_sql_query_statement_inputs_for_authority(
-            parsed,
+            statement,
             authority,
             unsupported_message,
         )?;
@@ -1051,13 +1334,13 @@ impl<C: CanisterKind> DbSession<C> {
     // not duplicate the same explain classification tree.
     fn execute_sql_explain_route_for_authority(
         &self,
-        parsed: &SqlParsedStatement,
+        statement: &SqlStatement,
         authority: EntityAuthority,
     ) -> Result<SqlStatementResult, QueryError> {
         // Phase 1: keep computed-projection explain ownership on the same
         // parsed route boundary as the shared query lane.
         if let Some((mode, plan)) =
-            computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
+            computed_projection::computed_sql_projection_explain_plan(statement)?
         {
             return self
                 .explain_computed_sql_projection_statement_for_authority(mode, plan, authority)
@@ -1066,7 +1349,8 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: lower once for execution/logical explain and preserve the
         // shared execution-first fallback policy across both callers.
-        let lowered = parsed.lower_query_lane_for_entity(
+        let lowered = lower_sql_query_lane_for_entity(
+            statement,
             authority.model().name(),
             authority.model().primary_key.name,
         )?;
@@ -1080,31 +1364,17 @@ impl<C: CanisterKind> DbSession<C> {
             .map(SqlStatementResult::Explain)
     }
 
-    /// Execute one reduced SQL statement into one unified SQL statement payload.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_sql_statement<E>(
-        &self,
-        sql: &str,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let parsed = self.parse_sql_statement(sql)?;
-
-        self.execute_sql_statement_parsed::<E>(&parsed)
-    }
-
     /// Execute one parsed reduced SQL statement into one unified SQL payload.
-    pub(in crate::db) fn execute_sql_statement_parsed<E>(
+    pub(in crate::db) fn execute_sql_statement_inner<E>(
         &self,
-        parsed: &SqlParsedStatement,
+        sql_statement: &SqlStatement,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match parsed.route() {
-            SqlStatementRoute::Query { .. } => self.execute_sql_query_route_for_authority(
-                parsed,
+        match sql_statement {
+            SqlStatement::Select(_) | SqlStatement::Delete(_) => self.execute_sql_query_route_for_authority(
+                sql_statement,
                 EntityAuthority::for_type::<E>(),
                 "execute_sql_statement accepts SELECT or DELETE only",
                 |session, select, authority, grouped_surface, projection_columns| {
@@ -1131,7 +1401,7 @@ impl<C: CanisterKind> DbSession<C> {
                     Ok(payload.into_statement_result())
                 },
                 |session, delete, _authority| {
-                    let SqlStatement::Delete(statement) = &parsed.statement else {
+                    let SqlStatement::Delete(statement) = sql_statement else {
                         return Err(QueryError::invariant(
                             "DELETE SQL route must carry parsed DELETE statement",
                         ));
@@ -1150,36 +1420,24 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                 },
             ),
-            SqlStatementRoute::Insert { .. } => {
-                let SqlStatement::Insert(statement) = &parsed.statement else {
-                    return Err(QueryError::invariant(
-                        "INSERT SQL route must carry parsed INSERT statement",
-                    ));
-                };
-
+            SqlStatement::Insert(statement) => {
                 self.execute_sql_insert_statement::<E>(statement)
             }
-            SqlStatementRoute::Update { .. } => {
-                let SqlStatement::Update(statement) = &parsed.statement else {
-                    return Err(QueryError::invariant(
-                        "UPDATE SQL route must carry parsed UPDATE statement",
-                    ));
-                };
-
+            SqlStatement::Update(statement) => {
                 self.execute_sql_update_statement::<E>(statement)
             }
-            SqlStatementRoute::Explain { .. } => self
-                .execute_sql_explain_route_for_authority(parsed, EntityAuthority::for_type::<E>()),
-            SqlStatementRoute::Describe { .. } => {
+            SqlStatement::Explain(_) => self
+                .execute_sql_explain_route_for_authority(sql_statement, EntityAuthority::for_type::<E>()),
+            SqlStatement::Describe(_) => {
                 Ok(SqlStatementResult::Describe(self.describe_entity::<E>()))
             }
-            SqlStatementRoute::ShowIndexes { .. } => {
+            SqlStatement::ShowIndexes(_) => {
                 Ok(SqlStatementResult::ShowIndexes(self.show_indexes::<E>()))
             }
-            SqlStatementRoute::ShowColumns { .. } => {
+            SqlStatement::ShowColumns(_) => {
                 Ok(SqlStatementResult::ShowColumns(self.show_columns::<E>()))
             }
-            SqlStatementRoute::ShowEntities => {
+            SqlStatement::ShowEntities(_) => {
                 Ok(SqlStatementResult::ShowEntities(self.show_entities()))
             }
         }

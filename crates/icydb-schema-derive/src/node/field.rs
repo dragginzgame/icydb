@@ -106,13 +106,13 @@ impl FromMeta for FieldGeneration {
         for item in items {
             let NestedMeta::Meta(syn::Meta::NameValue(name_value)) = item else {
                 return Err(DarlingError::custom(
-                    "generated(...) currently requires insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
+                    "generated(...) currently requires insert = \"...\"",
                 ));
             };
 
             if !name_value.path.is_ident("insert") {
                 return Err(DarlingError::custom(
-                    "generated(...) currently supports only insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
+                    "generated(...) currently supports only insert = \"...\"",
                 ));
             }
 
@@ -122,7 +122,16 @@ impl FromMeta for FieldGeneration {
                 ));
             };
 
-            let arg = Arg::from_value(&expr_lit.lit)?;
+            let syn::Lit::Str(generator) = &expr_lit.lit else {
+                return Err(DarlingError::custom(
+                    "generated(insert = ...) currently requires a quoted generator path",
+                ));
+            };
+            let arg = Arg::FuncPath(syn::parse_str(&generator.value()).map_err(|_| {
+                DarlingError::custom(
+                    "generated(insert = ...) currently requires a quoted generator path",
+                )
+            })?);
             if insert.replace(arg).is_some() {
                 return Err(DarlingError::custom(
                     "generated(...) currently accepts only one insert = \"...\" argument",
@@ -132,7 +141,7 @@ impl FromMeta for FieldGeneration {
 
         let Some(insert) = insert else {
             return Err(DarlingError::custom(
-                "generated(...) currently requires insert = \"Ulid::generate\" or insert = \"Timestamp::now\"",
+                "generated(...) currently requires insert = \"...\"",
             ));
         };
 
@@ -633,6 +642,7 @@ impl HasTypeExpr for Field {
 mod tests {
     use super::{Field, FieldGeneration, FieldWriteManagement, Value};
     use crate::node::{Arg, Item};
+    use darling::{FromMeta, ast::NestedMeta};
     use icydb_schema::types::Primitive;
     use quote::format_ident;
     use syn::parse_quote;
@@ -780,6 +790,27 @@ mod tests {
         field
             .validate()
             .expect("generated(insert = ...) should be admitted for primitive Ulid fields");
+    }
+
+    #[test]
+    fn generated_clause_parser_accepts_arbitrary_quoted_generator_paths() {
+        let generated = FieldGeneration::from_list(&[NestedMeta::Meta(syn::Meta::NameValue(
+            parse_quote!(insert = "Id::generate"),
+        ))])
+        .expect("generated(insert = \"...\") should parse any quoted generator path");
+
+        let FieldGeneration::Insert(Arg::FuncPath(path)) = generated else {
+            panic!("generated(insert = \"...\") should lower to a function path");
+        };
+
+        assert_eq!(
+            path.segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>(),
+            vec!["Id".to_string(), "generate".to_string()],
+            "generated(insert = \"...\") should preserve the quoted path segments",
+        );
     }
 
     #[test]

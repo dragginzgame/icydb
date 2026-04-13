@@ -106,14 +106,13 @@ pub use query::{
     expr::{FilterExpr, SortExpr},
     fluent::{
         delete::FluentDeleteQuery,
-        load::{FluentLoadQuery, PagedLoadQuery},
+        load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery},
     },
     intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
     trace::{QueryTracePlan, TraceExecutionFamily},
 };
 pub use registry::StoreRegistry;
-pub(in crate::db) use response::GroupedTextCursorPageWithTrace;
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
     PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,
@@ -127,8 +126,7 @@ pub use schema::{
 pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
-    DbSession, SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
-    debug_mark_store_index_state, debug_remove_entity_row_data_only,
+    DbSession, SqlStatementResult, debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]

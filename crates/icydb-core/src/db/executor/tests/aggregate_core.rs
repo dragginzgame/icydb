@@ -1980,7 +1980,8 @@ fn aggregate_core_grouped_having_supported_operator_executes_through_planner_sha
         .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
         .expect("having aggregate should build")
-        .execute_grouped()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_grouped)
         .expect("planner-validated grouped HAVING should execute");
 
     assert_eq!(

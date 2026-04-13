@@ -109,8 +109,7 @@ fn assert_filtered_expression_materialized_descriptor(
     sql: &str,
     context: &str,
 ) {
-    let descriptor = session
-        .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
+    let descriptor = lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
         .explain_execution()
         .unwrap_or_else(|err| panic!("{context} SQL explain_execution should succeed: {err:?}"));
@@ -166,9 +165,9 @@ fn execute_sql_projection_filtered_expression_order_only_matrix_returns_guarded_
         let projected_rows =
             statement_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
-        let entity_rows = session
-            .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
+        let entity_rows =
+            execute_scalar_select_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
         let entity_projected_rows = entity_rows
             .iter()
             .map(|row| {
@@ -218,9 +217,10 @@ fn execute_sql_projection_filtered_expression_prefix_matrix_matches_guarded_rows
         // to keep one guarded projection result set.
         let (like_rows, starts_with_rows, range_rows) =
             filtered_expression_prefix_spellings(&session, descending);
-        let entity_rows = session
-            .execute_scalar_sql_for_tests::<FilteredIndexedSessionSqlEntity>(entity_sql)
-            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
+        let entity_rows = execute_scalar_select_for_tests::<FilteredIndexedSessionSqlEntity>(
+            &session, entity_sql,
+        )
+        .unwrap_or_else(|err| panic!("{context} entity query should execute: {err}"));
         let entity_projected_rows = entity_rows
             .iter()
             .map(|row| {

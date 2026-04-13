@@ -39,8 +39,7 @@ fn execute_sql_statement_single_row_insert_matrix_returns_count_without_returnin
             assert_eq!(columns, vec!["id"]);
         }
 
-        let payload = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(row_sql)
+        let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, row_sql)
             .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
         let SqlStatementResult::Count { row_count } = payload else {
             panic!("{context} should return count payload");
@@ -72,8 +71,7 @@ fn execute_sql_statement_multi_row_insert_matrix_returns_count_without_returning
         reset_session_sql_store();
         let session = sql_session();
 
-        let payload = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+        let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
         let SqlStatementResult::Count { row_count } = payload else {
             panic!("{context} should return count payload");
@@ -181,8 +179,7 @@ fn execute_sql_statement_insert_rejects_missing_required_fields_matrix() {
             "missing primary key field",
         ),
     ] {
-        let err = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
             .expect_err("missing required INSERT fields should stay fail-closed");
 
         assert!(
@@ -224,8 +221,7 @@ fn execute_sql_statement_write_rejects_explicit_managed_timestamp_fields_matrix(
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        let err = session
-            .execute_sql_statement::<SessionSqlManagedWriteEntity>(sql)
+        let err = execute_sql_statement_for_tests::<SessionSqlManagedWriteEntity>(&session, sql)
             .expect_err("managed timestamp writes should stay fail-closed");
         let err_text = err.to_string();
 
@@ -253,9 +249,9 @@ fn execute_sql_statement_insert_rejects_explicit_generated_fields_matrix() {
             "positional generated timestamp insert",
         ),
     ] {
-        let err = session
-            .execute_sql_statement::<SessionSqlGeneratedTimestampEntity>(sql)
-            .expect_err("insert-generated fields should stay system-owned on SQL INSERT");
+        let err =
+            execute_sql_statement_for_tests::<SessionSqlGeneratedTimestampEntity>(&session, sql)
+                .expect_err("insert-generated fields should stay system-owned on SQL INSERT");
         let err_text = err.to_string();
 
         assert!(
@@ -432,11 +428,11 @@ fn execute_sql_statement_update_rejects_explicit_generated_fields_matrix() {
         })
         .expect("generated timestamp update setup insert should succeed");
 
-    let err = session
-        .execute_sql_statement::<SessionSqlGeneratedTimestampEntity>(
-            "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
-        )
-        .expect_err("insert-generated fields should stay system-owned on SQL UPDATE");
+    let err = execute_sql_statement_for_tests::<SessionSqlGeneratedTimestampEntity>(
+        &session,
+        "UPDATE SessionSqlGeneratedTimestampEntity SET created_on_insert = 7 WHERE id = 1",
+    )
+    .expect_err("insert-generated fields should stay system-owned on SQL UPDATE");
     let err_text = err.to_string();
 
     assert!(
@@ -523,8 +519,7 @@ fn execute_sql_statement_single_row_update_matrix_returns_count_without_returnin
             })
             .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
 
-        let payload = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+        let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should return count payload: {err}"));
         let SqlStatementResult::Count { row_count } = payload else {
             panic!("{context} should return count payload");
@@ -560,11 +555,11 @@ fn execute_sql_statement_signed_numeric_write_matrix_widens_parser_literals() {
         .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
         .expect("signed write setup insert should succeed");
 
-    let payload = session
-        .execute_sql_statement::<SessionSqlSignedWriteEntity>(
-            "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
-        )
-        .expect("signed SQL UPDATE should widen parser literals onto signed field contracts");
+    let payload = execute_sql_statement_for_tests::<SessionSqlSignedWriteEntity>(
+        &session,
+        "UPDATE SessionSqlSignedWriteEntity SET delta = 7 WHERE id = 1",
+    )
+    .expect("signed SQL UPDATE should widen parser literals onto signed field contracts");
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("signed SQL UPDATE should return count payload without RETURNING");
     };
@@ -584,11 +579,11 @@ fn execute_sql_statement_signed_numeric_insert_widens_parser_literals() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let payload = session
-        .execute_sql_statement::<SessionSqlSignedWriteEntity>(
-            "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
-        )
-        .expect("signed SQL INSERT should widen parser literals onto signed field contracts");
+    let payload = execute_sql_statement_for_tests::<SessionSqlSignedWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlSignedWriteEntity (id, delta) VALUES (2, 9)",
+    )
+    .expect("signed SQL INSERT should widen parser literals onto signed field contracts");
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("signed SQL INSERT should return count payload without RETURNING");
     };
@@ -611,11 +606,11 @@ fn execute_sql_statement_rejects_incompatible_assignment_literal_for_signed_fiel
         .insert(SessionSqlSignedWriteEntity { id: 1, delta: -5 })
         .expect("signed write setup insert should succeed");
 
-    let err = session
-        .execute_sql_statement::<SessionSqlSignedWriteEntity>(
-            "UPDATE SessionSqlSignedWriteEntity SET delta = 'Ada' WHERE id = 1",
-        )
-        .expect_err("signed field assignment should stay fail-closed for incompatible literals");
+    let err = execute_sql_statement_for_tests::<SessionSqlSignedWriteEntity>(
+        &session,
+        "UPDATE SessionSqlSignedWriteEntity SET delta = 'Ada' WHERE id = 1",
+    )
+    .expect_err("signed field assignment should stay fail-closed for incompatible literals");
 
     assert!(
         err.to_string()
@@ -650,11 +645,11 @@ fn execute_sql_statement_update_with_non_primary_key_predicate_updates_matching_
         })
         .expect("typed setup insert should succeed");
 
-    let payload = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
-        )
-        .expect("SQL UPDATE with non-primary-key predicate should succeed");
+    let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21",
+    )
+    .expect("SQL UPDATE with non-primary-key predicate should succeed");
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("SQL UPDATE with non-primary-key predicate should return count payload");
     };
@@ -706,10 +701,10 @@ fn execute_sql_statement_update_with_order_limit_and_offset_updates_one_ordered_
             .expect("typed setup insert should succeed");
     }
 
-    let payload = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
+    let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 99 WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
+    )
         .expect("SQL UPDATE ordered window should succeed");
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("SQL UPDATE ordered window should return count payload");
@@ -762,11 +757,11 @@ fn execute_sql_statement_update_with_limit_and_offset_uses_primary_key_order_fal
             .expect("typed setup insert should succeed");
     }
 
-    let payload = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
-        )
-        .expect("SQL UPDATE window without ORDER BY should use deterministic primary-key fallback");
+    let payload = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age = 21 LIMIT 1 OFFSET 1",
+    )
+    .expect("SQL UPDATE window without ORDER BY should use deterministic primary-key fallback");
     let SqlStatementResult::Count { row_count } = payload else {
         panic!("SQL UPDATE window without ORDER BY should return count payload");
     };
@@ -817,8 +812,7 @@ fn execute_sql_statement_write_rejects_entity_mismatch_matrix() {
             "update entity mismatch",
         ),
     ] {
-        let err = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
             .expect_err("write statement should keep typed entity matching fail-closed");
         let err_text = err.to_string();
 
@@ -954,8 +948,7 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messa
                 .unwrap_or_else(|err| panic!("{context} setup insert should succeed: {err}"));
         }
 
-        let err = session
-            .execute_sql_statement::<SessionSqlEntity>(sql)
+        let err = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
             .expect_err("INSERT SELECT unsupported source shape should stay fail-closed");
 
         assert!(
@@ -970,11 +963,11 @@ fn execute_sql_statement_write_rejects_incompatible_primary_key_literal() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (-1, 'Ada', 21)",
-        )
-        .expect_err("unsigned SQL insert key boundary should stay fail-closed for signed literals");
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (-1, 'Ada', 21)",
+    )
+    .expect_err("unsigned SQL insert key boundary should stay fail-closed for signed literals");
 
     assert!(
         err.to_string().contains(
@@ -989,11 +982,11 @@ fn execute_sql_statement_insert_rejects_tuple_length_mismatch() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21), (2, 'Bea')",
-        )
-        .expect_err("SQL INSERT with tuple length mismatch should stay fail-closed");
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21), (2, 'Bea')",
+    )
+    .expect_err("SQL INSERT with tuple length mismatch should stay fail-closed");
 
     assert!(
         err.to_string()
@@ -1056,8 +1049,7 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
     ] {
         let session = sql_session();
         let err = match entity_kind {
-            "insert" => session
-                .execute_sql_statement::<SessionSqlEntity>(sql)
+            "insert" => execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
                 .expect_err("unsupported INSERT RETURNING projection should stay fail-closed"),
             "update" => {
                 session
@@ -1067,8 +1059,7 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
                         age: 21,
                     })
                     .expect("unsupported UPDATE RETURNING setup insert should succeed");
-                session
-                    .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+                execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
                     .expect_err("unsupported UPDATE RETURNING projection should stay fail-closed")
             }
             other => panic!("unexpected write RETURNING case: {other}"),
@@ -1088,9 +1079,11 @@ fn execute_sql_statement_update_requires_where_predicate() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_statement::<SessionSqlWriteEntity>("UPDATE SessionSqlWriteEntity SET age = 22")
-        .expect_err("SQL UPDATE without WHERE predicate should stay fail-closed");
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22",
+    )
+    .expect_err("SQL UPDATE without WHERE predicate should stay fail-closed");
 
     assert!(
         err.to_string()
@@ -1116,8 +1109,7 @@ fn execute_sql_statement_update_rejects_invalid_window_clause_order() {
     ];
 
     for (sql, message) in cases {
-        let err = session
-            .execute_sql_statement::<SessionSqlWriteEntity>(sql)
+        let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(&session, sql)
             .expect_err("invalid UPDATE window clause order should stay fail-closed");
         assert!(
             err.to_string().contains(message),
@@ -1138,11 +1130,11 @@ fn execute_sql_statement_update_rejects_primary_key_mutation() {
         })
         .expect("typed setup insert should succeed");
 
-    let err = session
-        .execute_sql_statement::<SessionSqlWriteEntity>(
-            "UPDATE SessionSqlWriteEntity SET id = 2, age = 22 WHERE id = 1",
-        )
-        .expect_err("SQL UPDATE primary-key mutation should stay fail-closed");
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET id = 2, age = 22 WHERE id = 1",
+    )
+    .expect_err("SQL UPDATE primary-key mutation should stay fail-closed");
 
     assert!(
         err.to_string()

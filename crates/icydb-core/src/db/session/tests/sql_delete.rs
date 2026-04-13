@@ -56,8 +56,7 @@ fn remaining_session_name_age_rows(session: &DbSession<SessionSqlCanister>) -> N
 // Run one SQL DELETE statement through unified statement and return only the
 // affected-row count from the traditional mutation result surface.
 fn execute_sql_statement_delete_count(session: &DbSession<SessionSqlCanister>, sql: &str) -> u32 {
-    let payload = session
-        .execute_sql_statement::<SessionSqlEntity>(sql)
+    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("DELETE SQL statement execution should execute: {err:?}"));
 
     match payload {
@@ -125,7 +124,7 @@ fn execute_sql_delete_ordered_window_matrix_honors_delete_shape() {
 }
 
 #[test]
-fn execute_sql_delete_rejects_delete_lane_on_typed_entity_surface() {
+fn scalar_select_helper_rejects_delete_lane_on_typed_entity_surface() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -133,14 +132,13 @@ fn execute_sql_delete_rejects_delete_lane_on_typed_entity_surface() {
         "DELETE FROM SessionSqlEntity WHERE age < 20",
         "DELETE FROM SessionSqlEntity WHERE age < 20 RETURNING id",
     ] {
-        let err = session
-            .execute_scalar_sql_for_tests::<SessionSqlEntity>(sql)
-            .expect_err("typed execute_sql DELETE should stay off the entity-response surface");
+        let err = execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
+            .expect_err("scalar SELECT helper DELETE should stay off the entity-response surface");
 
         assert!(
             err.to_string()
-                .contains("execute_sql rejects DELETE; use delete::<E>()"),
-            "typed execute_sql DELETE should preserve explicit fluent guidance",
+                .contains("scalar SELECT helper rejects DELETE; use delete::<E>()"),
+            "scalar SELECT helper DELETE should preserve explicit fluent guidance",
         );
     }
 }

@@ -4,16 +4,14 @@
 //! Does not own: SQL parsing or structural executor runtime behavior.
 //! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
-mod aggregate;
 mod computed_projection;
 mod execute;
 mod explain;
 mod projection;
-mod surface;
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError,
+        DbSession, GroupedRow, PersistedRow, QueryError,
         executor::EntityAuthority,
         query::{
             intent::StructuralQuery,
@@ -32,20 +30,50 @@ use crate::db::{
     },
 };
 
-use crate::db::session::sql::surface::sql_statement_route_from_statement;
-
 #[cfg(feature = "structural-read-metrics")]
 pub use crate::db::session::sql::projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
-pub use crate::db::session::sql::surface::{
-    SqlParsedStatement, SqlStatementResult, SqlStatementRoute,
 };
 #[cfg(feature = "perf-attribution")]
 pub use crate::db::{
     session::sql::execute::LoweredSqlStatementExecutorAttribution,
     session::sql::projection::SqlProjectionTextExecutorAttribution,
 };
+
+/// Unified SQL statement payload returned by shared SQL lane execution.
+#[derive(Debug)]
+pub enum SqlStatementResult {
+    Count {
+        row_count: u32,
+    },
+    Projection {
+        columns: Vec<String>,
+        rows: Vec<Vec<crate::value::Value>>,
+        row_count: u32,
+    },
+    ProjectionText {
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        row_count: u32,
+    },
+    Grouped {
+        columns: Vec<String>,
+        rows: Vec<GroupedRow>,
+        row_count: u32,
+        next_cursor: Option<String>,
+    },
+    Explain(String),
+    Describe(crate::db::EntitySchemaDescription),
+    ShowIndexes(Vec<String>),
+    ShowColumns(Vec<crate::db::EntityFieldDescription>),
+    ShowEntities(Vec<String>),
+}
+
+// Keep parsing as a module-owned helper instead of hanging a pure parser off
+// `DbSession` as a fake session method.
+pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
+    parse_sql(sql).map_err(QueryError::from_sql_parse_error)
+}
 
 impl<C: CanisterKind> DbSession<C> {
     // Resolve planner-visible indexes and build one execution-ready
@@ -64,19 +92,23 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Enforce that the public typed SQL executors stay hard-bound to the
     // typed entity `E` instead of silently reusing unrelated entity names.
-    fn ensure_typed_sql_route_matches<E>(route: &SqlStatementRoute) -> Result<(), QueryError>
+    fn ensure_typed_sql_statement_matches<E>(statement: &SqlStatement) -> Result<(), QueryError>
     where
         E: EntityKind<Canister = C>,
     {
-        let Some(sql_entity) = (match route {
-            SqlStatementRoute::Query { entity }
-            | SqlStatementRoute::Insert { entity }
-            | SqlStatementRoute::Update { entity }
-            | SqlStatementRoute::Explain { entity }
-            | SqlStatementRoute::Describe { entity }
-            | SqlStatementRoute::ShowIndexes { entity }
-            | SqlStatementRoute::ShowColumns { entity } => Some(entity.as_str()),
-            SqlStatementRoute::ShowEntities => None,
+        let Some(sql_entity) = (match statement {
+            SqlStatement::Select(select) => Some(select.entity.as_str()),
+            SqlStatement::Delete(delete) => Some(delete.entity.as_str()),
+            SqlStatement::Insert(insert) => Some(insert.entity.as_str()),
+            SqlStatement::Update(update) => Some(update.entity.as_str()),
+            SqlStatement::Explain(explain) => Some(match &explain.statement {
+                crate::db::sql::parser::SqlExplainTarget::Select(select) => select.entity.as_str(),
+                crate::db::sql::parser::SqlExplainTarget::Delete(delete) => delete.entity.as_str(),
+            }),
+            SqlStatement::Describe(describe) => Some(describe.entity.as_str()),
+            SqlStatement::ShowIndexes(show_indexes) => Some(show_indexes.entity.as_str()),
+            SqlStatement::ShowColumns(show_columns) => Some(show_columns.entity.as_str()),
+            SqlStatement::ShowEntities(_) => None,
         }) else {
             return Ok(());
         };
@@ -139,26 +171,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Parse one reduced SQL statement and return one reusable parsed envelope.
-    ///
-    /// This method is the SQL parse authority for dynamic route selection.
-    pub fn parse_sql_statement(&self, sql: &str) -> Result<SqlParsedStatement, QueryError> {
-        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-        let route = sql_statement_route_from_statement(&statement);
-
-        Ok(SqlParsedStatement::new(statement, route))
-    }
-
-    /// Parse one reduced SQL statement into canonical routing metadata.
-    ///
-    /// This method is the SQL statement authority for entity/surface routing
-    /// outside typed-entity lowering paths.
-    pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, QueryError> {
-        let parsed = self.parse_sql_statement(sql)?;
-
-        Ok(parsed.route().clone())
-    }
-
     /// Execute one single-entity reduced SQL query or introspection statement.
     ///
     /// This surface stays hard-bound to `E`, rejects state-changing SQL, and
@@ -167,12 +179,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let parsed = self.parse_sql_statement(sql)?;
+        let parsed = parse_sql_statement(sql)?;
 
-        Self::ensure_typed_sql_route_matches::<E>(parsed.route())?;
-        Self::ensure_sql_query_statement_supported(&parsed.statement)?;
+        Self::ensure_typed_sql_statement_matches::<E>(&parsed)?;
+        Self::ensure_sql_query_statement_supported(&parsed)?;
 
-        self.execute_sql_statement_parsed::<E>(&parsed)
+        self.execute_sql_statement_inner::<E>(&parsed)
     }
 
     /// Execute one single-entity reduced SQL mutation statement.
@@ -183,12 +195,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let parsed = self.parse_sql_statement(sql)?;
+        let parsed = parse_sql_statement(sql)?;
 
-        Self::ensure_typed_sql_route_matches::<E>(parsed.route())?;
-        Self::ensure_sql_update_statement_supported(&parsed.statement)?;
+        Self::ensure_typed_sql_statement_matches::<E>(&parsed)?;
+        Self::ensure_sql_update_statement_supported(&parsed)?;
 
-        self.execute_sql_statement_parsed::<E>(&parsed)
+        self.execute_sql_statement_inner::<E>(&parsed)
     }
 
     #[cfg(test)]
@@ -200,12 +212,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let parsed = self.parse_sql_statement(sql)?;
+        let parsed = parse_sql_statement(sql)?;
 
         // Keep grouped computed SQL on the same computed-projection plan used
         // by the live statement executor while preserving grouped cursor
-        // behavior for the legacy session test helpers.
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed.statement)? {
+        // behavior for the grouped SELECT test helpers.
+        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed)? {
             let lowered = lower_sql_command_from_prepared_statement(
                 prepare_sql_statement(plan.cloned_base_statement(), E::MODEL.name())
                     .map_err(QueryError::from_sql_lowering_error)?,
@@ -214,7 +226,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)?;
             let Some(query) = lowered.query().cloned() else {
                 return Err(QueryError::unsupported_query(
-                    "execute_sql_grouped requires grouped SELECT",
+                    "grouped SELECT helper requires grouped SELECT",
                 ));
             };
             let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
@@ -222,7 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
 
             if !query.has_grouping() {
                 return Err(QueryError::unsupported_query(
-                    "execute_sql_grouped rejects scalar computed text projection",
+                    "grouped SELECT helper rejects scalar computed text projection",
                 ));
             }
 
@@ -239,14 +251,14 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let lowered = lower_sql_command_from_prepared_statement(
-            prepare_sql_statement(parsed.statement, E::MODEL.name())
+            prepare_sql_statement(parsed, E::MODEL.name())
                 .map_err(QueryError::from_sql_lowering_error)?,
             E::MODEL.primary_key.name,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let Some(query) = lowered.query().cloned() else {
             return Err(QueryError::unsupported_query(
-                "execute_sql_grouped requires grouped SELECT",
+                "grouped SELECT helper requires grouped SELECT",
             ));
         };
         let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
@@ -254,7 +266,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         if !query.has_grouping() {
             return Err(QueryError::unsupported_query(
-                "execute_sql_grouped requires grouped SELECT",
+                "grouped SELECT helper requires grouped SELECT",
             ));
         }
 

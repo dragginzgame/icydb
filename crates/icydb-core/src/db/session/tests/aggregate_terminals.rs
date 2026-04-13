@@ -27,6 +27,7 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
     // Phase 1: establish the execute() window as the shared parity baseline.
     let expected = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("session aggregate execute-projection baseline should succeed");
 
     // Phase 2: compare the projection terminals against the execute baseline.
@@ -167,6 +168,7 @@ fn session_aggregate_take_matches_execute_prefix() {
 
     let expected = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("baseline execute for session aggregate take should succeed");
     let take_two = load_window()
         .take(2)
@@ -221,6 +223,7 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
     };
     let ordering_expected = ordering_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("baseline execute for ranked session aggregate parity should succeed");
     let mut descending_rank = ordering_expected
         .iter()

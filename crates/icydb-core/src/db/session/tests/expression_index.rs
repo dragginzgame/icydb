@@ -44,11 +44,11 @@ fn assert_expression_covering_read_descriptor(
     sql: &str,
     context: &str,
 ) {
-    let descriptor = session
-        .lower_sql_query_for_tests::<ExpressionIndexedSessionSqlEntity>(sql)
-        .expect("expression covering SQL query should lower")
-        .explain_execution()
-        .expect("expression covering SQL explain_execution should succeed");
+    let descriptor =
+        lower_select_query_for_tests::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            .expect("expression covering SQL query should lower")
+            .explain_execution()
+            .expect("expression covering SQL explain_execution should succeed");
 
     assert_eq!(
         descriptor.node_type(),
@@ -163,9 +163,9 @@ fn execute_sql_projection_expression_order_matrix_matches_entity_rows() {
         let projected_rows =
             statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
                 .unwrap_or_else(|err| panic!("{context} projection query should execute: {err:?}"));
-        let entity_rows = session
-            .execute_scalar_sql_for_tests::<ExpressionIndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
+        let entity_rows =
+            execute_scalar_select_for_tests::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} entity query should execute: {err:?}"));
         let entity_projected_rows = entity_rows
             .iter()
             .map(|row| {
@@ -206,8 +206,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
 
     // Phase 2: lower the expression-order SQL shape to its shared index-range
     // access contract and inspect the raw index scan order directly.
-    let plan = session
-        .lower_sql_query_for_tests::<ExpressionIndexedSessionSqlEntity>(
+    let plan = lower_select_query_for_tests::<ExpressionIndexedSessionSqlEntity>(&session,
             "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
         )
         .expect("expression-order SQL query should lower")
@@ -274,8 +273,7 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
 
     // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
     // expression index-range root and access-satisfied ordering markers.
-    let descriptor = session
-        .lower_sql_query_for_tests::<ExpressionIndexedSessionSqlEntity>(
+    let descriptor = lower_select_query_for_tests::<ExpressionIndexedSessionSqlEntity>(&session,
             "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
         )
         .expect("expression order-only SQL query should lower")
@@ -314,11 +312,11 @@ fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_scalar_sql_for_tests::<SessionSqlEntity>(
-            "SELECT id, name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
-        )
-        .expect_err("expression order without one matching index should fail closed");
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT id, name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect_err("expression order without one matching index should fail closed");
 
     assert!(
         err.to_string()

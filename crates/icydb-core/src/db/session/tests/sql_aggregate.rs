@@ -45,7 +45,7 @@ fn assert_global_aggregate_explain_case(
 }
 
 #[test]
-fn execute_sql_aggregate_basic_value_matrix_matches_expected_values() {
+fn global_aggregate_value_matrix_matches_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(&session, &[("aggregate-a", 20), ("aggregate-b", 32)]);
@@ -109,7 +109,7 @@ fn execute_sql_aggregate_basic_value_matrix_matches_expected_values() {
 }
 
 #[test]
-fn execute_sql_aggregate_distinct_value_matrix_matches_expected_values() {
+fn global_aggregate_distinct_value_matrix_matches_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_entities(
@@ -155,7 +155,7 @@ fn execute_sql_aggregate_distinct_value_matrix_matches_expected_values() {
 }
 
 #[test]
-fn execute_sql_aggregate_window_matrix_returns_expected_values() {
+fn global_aggregate_window_matrix_returns_expected_values() {
     // Phase 1: keep the aggregate window semantics table-driven so bounded
     // windows and offset-empty windows stay covered under one contract.
     let cases = [
@@ -239,8 +239,7 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             "aliased global aggregate statement payload",
         ),
     ] {
-        let payload = session
-            .execute_sql_statement::<SessionSqlEntity>(sql)
+        let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
         let SqlStatementResult::Projection {
@@ -269,7 +268,7 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
 }
 
 #[test]
-fn execute_sql_aggregate_matrix_queries_match_expected_values() {
+fn global_aggregate_matrix_queries_match_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -333,7 +332,7 @@ fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
                 "SELECT SUM(missing_field) FROM SessionSqlEntity",
             )
             .map(|_| ()),
-            "execute_sql_aggregate unknown target field",
+            "global aggregate statement unknown target field",
         ),
         (
             statement_explain_sql::<SessionSqlEntity>(

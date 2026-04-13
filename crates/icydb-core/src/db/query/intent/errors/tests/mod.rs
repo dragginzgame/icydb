@@ -143,11 +143,11 @@ fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
 
 #[test]
 fn query_intent_constructor_keeps_intent_boundary() {
-    let err = QueryError::intent(IntentError::GroupedRequiresExecuteGrouped);
+    let err = QueryError::intent(IntentError::GroupedRequiresDirectExecute);
 
     assert!(matches!(
         err,
-        QueryError::Intent(IntentError::GroupedRequiresExecuteGrouped)
+        QueryError::Intent(IntentError::GroupedRequiresDirectExecute)
     ));
 }
 
@@ -254,16 +254,13 @@ fn cursor_paging_policy_maps_to_invalid_paging_shape_intent_error() {
 #[test]
 fn fluent_paging_policy_maps_to_invalid_paging_shape_or_grouped_contract() {
     let non_paged = IntentError::from(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
-    let grouped = IntentError::from(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
+    let grouped = IntentError::from(FluentLoadPolicyViolation::GroupedRequiresDirectExecute);
 
     assert!(matches!(
         non_paged,
         IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresPagedExecution)
     ));
-    assert!(matches!(
-        grouped,
-        IntentError::GroupedRequiresExecuteGrouped
-    ));
+    assert!(matches!(grouped, IntentError::GroupedRequiresDirectExecute));
 }
 
 #[test]

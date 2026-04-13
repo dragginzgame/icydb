@@ -73,13 +73,15 @@ fn execute_sql_scalar_matrix_queries_match_expected_rows() {
 }
 
 #[test]
-fn execute_sql_rejects_aggregate_projection_in_current_slice() {
+fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_scalar_sql_for_tests::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect_err("global aggregate SQL projection should remain lowering-gated");
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect_err("global aggregate SQL projection should remain lowering-gated");
 
     assert!(
         matches!(
@@ -92,7 +94,7 @@ fn execute_sql_rejects_aggregate_projection_in_current_slice() {
     );
     assert!(
         err.to_string()
-            .contains("execute_sql rejects global aggregate SELECT"),
-        "execute_sql should preserve the dedicated aggregate-lane boundary message",
+            .contains("scalar SELECT helper rejects global aggregate SELECT"),
+        "scalar SELECT helper should preserve the dedicated aggregate-lane boundary message",
     );
 }

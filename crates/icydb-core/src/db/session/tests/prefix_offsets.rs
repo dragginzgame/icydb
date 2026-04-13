@@ -285,6 +285,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
         .offset(1)
         .limit(2)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("ascending equality-prefix suffix-order offset window should execute");
     let desc = session
         .load::<SessionDeterministicRangeEntity>()
@@ -307,6 +308,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
         .offset(1)
         .limit(2)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("descending equality-prefix suffix-order offset window should execute");
 
     let asc_labels = asc
@@ -358,6 +360,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
         .limit(2)
         .offset(1)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unique-prefix ascending offset window should execute");
     let asc_handles = asc
         .iter()
@@ -377,6 +380,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
         .limit(2)
         .offset(1)
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unique-prefix descending offset window should execute");
     let desc_handles = desc
         .iter()

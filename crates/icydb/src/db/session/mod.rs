@@ -9,7 +9,7 @@ use crate::{
     db::{
         EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{MutationResult, PagedGroupedResponse, Response},
+        response::{MutationResult, QueryResponse},
     },
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
@@ -104,11 +104,11 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    const fn response_from_core<E>(inner: core::db::EntityResponse<E>) -> Response<E>
+    fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
     where
         E: EntityKind,
     {
-        Response::from_core(inner)
+        QueryResponse::from_core(inner)
     }
 
     const fn mutation_entity<E>(entity: E) -> MutationResult<E>
@@ -283,14 +283,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    pub(crate) const fn paged_grouped_response(
-        rows: Vec<core::db::GroupedRow>,
-        next_cursor: Option<String>,
-        execution_trace: Option<core::db::ExecutionTrace>,
-    ) -> PagedGroupedResponse {
-        PagedGroupedResponse::new(rows, next_cursor, execution_trace)
-    }
-
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
@@ -359,11 +351,13 @@ impl<C: CanisterKind> DbSession<C> {
     // Execution
     // ------------------------------------------------------------------
 
-    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, Error>
+    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::response_from_core(self.inner.execute_query(query)?))
+        Ok(Self::query_response_from_core(
+            self.inner.execute_query_result(query)?,
+        ))
     }
 
     /// Build one trace payload for a query without executing it.
@@ -372,26 +366,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         Ok(self.inner.trace_query(query)?)
-    }
-
-    /// Execute one grouped query page with optional continuation cursor.
-    pub fn execute_grouped<E>(
-        &self,
-        query: &Query<E>,
-        cursor_token: Option<&str>,
-    ) -> Result<PagedGroupedResponse, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (rows, next_cursor, execution_trace) = self
-            .inner
-            .execute_grouped_text_cursor(query, cursor_token)?;
-
-        Ok(Self::paged_grouped_response(
-            rows,
-            next_cursor,
-            execution_trace,
-        ))
     }
 
     // ------------------------------------------------------------------

@@ -703,7 +703,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     #[must_use]
-    pub(crate) const fn has_grouping(&self) -> bool {
+    pub const fn has_grouping(&self) -> bool {
         self.inner.has_grouping()
     }
 

@@ -24,7 +24,7 @@ use crate::{
                 PreparedFluentScalarTerminalRuntimeRequest, PreparedFluentScalarTerminalStrategy,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
-            fluent::load::FluentLoadQuery,
+            fluent::load::{FluentLoadQuery, LoadQueryResult},
             intent::QueryError,
             plan::AggregateKind,
         },
@@ -47,13 +47,22 @@ where
     // ------------------------------------------------------------------
 
     /// Execute this query using the session's policy settings.
-    pub fn execute(&self) -> Result<EntityResponse<E>, QueryError>
+    pub fn execute(&self) -> Result<LoadQueryResult<E>, QueryError>
     where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_query(self.query())
+        if self.query().has_grouping() {
+            return self
+                .session
+                .execute_grouped(self.query(), self.cursor_token.as_deref())
+                .map(LoadQueryResult::Grouped);
+        }
+
+        self.session
+            .execute_query(self.query())
+            .map(LoadQueryResult::Rows)
     }
 
     // Run one scalar terminal through the canonical non-paged fluent policy
@@ -1015,7 +1024,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_one()?;
+        self.execute()?.into_rows()?.require_one()?;
         Ok(())
     }
 
@@ -1024,7 +1033,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_some()?;
+        self.execute()?.into_rows()?.require_some()?;
         Ok(())
     }
 }

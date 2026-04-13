@@ -13,16 +13,47 @@ use crate::{
             planning::route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
-        session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
         sql::lowering::{
-            LoweredSqlCommand, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
+            LoweredSqlCommand, LoweredSqlLaneKind, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_explain_global_aggregate_structural,
             bind_lowered_sql_query_structural, bind_lowered_sql_select_query_structural,
+            lowered_sql_command_lane,
         },
         sql::parser::SqlExplainMode,
     },
     traits::CanisterKind,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExplainSqlLane {
+    Query,
+    Explain,
+    Describe,
+    ShowIndexes,
+    ShowColumns,
+    ShowEntities,
+}
+
+const fn explain_sql_lane(command: &LoweredSqlCommand) -> ExplainSqlLane {
+    match lowered_sql_command_lane(command) {
+        LoweredSqlLaneKind::Query => ExplainSqlLane::Query,
+        LoweredSqlLaneKind::Explain => ExplainSqlLane::Explain,
+        LoweredSqlLaneKind::Describe => ExplainSqlLane::Describe,
+        LoweredSqlLaneKind::ShowIndexes => ExplainSqlLane::ShowIndexes,
+        LoweredSqlLaneKind::ShowColumns => ExplainSqlLane::ShowColumns,
+        LoweredSqlLaneKind::ShowEntities => ExplainSqlLane::ShowEntities,
+    }
+}
+
+const fn unsupported_explain_sql_lane_message(lane: ExplainSqlLane) -> &'static str {
+    match lane {
+        ExplainSqlLane::Describe => "explain_sql rejects DESCRIBE",
+        ExplainSqlLane::ShowIndexes => "explain_sql rejects SHOW INDEXES",
+        ExplainSqlLane::ShowColumns => "explain_sql rejects SHOW COLUMNS",
+        ExplainSqlLane::ShowEntities => "explain_sql rejects SHOW ENTITIES",
+        ExplainSqlLane::Query | ExplainSqlLane::Explain => "explain_sql requires EXPLAIN",
+    }
+}
 
 impl<C: CanisterKind> DbSession<C> {
     // Render one lowered SQL EXPLAIN payload through the session-owned planner
@@ -34,12 +65,11 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<String, QueryError> {
         // First validate lane selection once on the shared lowered-command path
         // so explain callers do not rebuild lane guards around the same shape.
-        let lane = session_sql_lane(lowered);
-        if lane != crate::db::session::sql::surface::SqlLaneKind::Explain {
-            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
-                SqlSurface::Explain,
-                lane,
-            )));
+        let lane = explain_sql_lane(lowered);
+        if lane != ExplainSqlLane::Explain {
+            return Err(QueryError::unsupported_query(
+                unsupported_explain_sql_lane_message(lane),
+            ));
         }
 
         // Then prefer the structural planner-owned renderer because plan/json

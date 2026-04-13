@@ -682,7 +682,7 @@ impl IntentKeyAccessPolicyViolation {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FluentLoadPolicyViolation {
     CursorRequiresPagedExecution,
-    GroupedRequiresExecuteGrouped,
+    GroupedRequiresDirectExecute,
     CursorRequiresOrder,
     CursorRequiresLimit,
 }
@@ -693,9 +693,9 @@ impl FluentLoadPolicyViolation {
         Self::CursorRequiresPagedExecution
     }
 
-    /// Construct one grouped-requires-execute-grouped fluent policy violation.
-    pub(crate) const fn grouped_requires_execute_grouped() -> Self {
-        Self::GroupedRequiresExecuteGrouped
+    /// Construct one grouped-requires-direct-execute fluent policy violation.
+    pub(crate) const fn grouped_requires_direct_execute() -> Self {
+        Self::GroupedRequiresDirectExecute
     }
 
     /// Construct one cursor-requires-order fluent policy violation.

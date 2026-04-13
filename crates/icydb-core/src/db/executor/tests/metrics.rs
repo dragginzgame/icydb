@@ -567,7 +567,8 @@ fn grouped_load_emits_rows_aggregated_metrics() {
             .expect("grouped query should build")
             .aggregate(crate::db::count())
             .limit(1)
-            .execute_grouped()
+            .execute()
+            .and_then(crate::db::LoadQueryResult::into_grouped)
             .expect("grouped execution should succeed");
     });
     let events = sink.into_events();

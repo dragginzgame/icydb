@@ -58,8 +58,7 @@ fn assert_indexed_prefix_covering_descriptor(
     sql: &str,
     context: &str,
 ) {
-    let descriptor = session
-        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(sql)
+    let descriptor = lower_select_query_for_tests::<IndexedSessionSqlEntity>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
         .explain_execution()
         .unwrap_or_else(|err| panic!("{context} SQL explain_execution should succeed: {err:?}"));
@@ -183,9 +182,9 @@ fn execute_sql_entity_indexed_prefix_matrix_matches_projection_rows() {
         let projected_rows =
             statement_projection_rows::<IndexedSessionSqlEntity>(&session, projection_sql)
                 .unwrap_or_else(|err| panic!("{context} projection should execute: {err}"));
-        let entity_rows = session
-            .execute_scalar_sql_for_tests::<IndexedSessionSqlEntity>(entity_sql)
-            .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
+        let entity_rows =
+            execute_scalar_select_for_tests::<IndexedSessionSqlEntity>(&session, entity_sql)
+                .unwrap_or_else(|err| panic!("{context} should execute: {err}"));
         let entity_projected_names = entity_rows
             .iter()
             .map(|row| vec![Value::Text(row.entity_ref().name.clone())])

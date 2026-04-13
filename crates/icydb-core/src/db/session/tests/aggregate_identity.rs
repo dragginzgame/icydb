@@ -135,6 +135,7 @@ fn session_aggregate_identity_terminals_match_execute() {
     };
     let expected = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("session aggregate identity baseline execute should succeed");
     let expected_ids = session_aggregate_ids(&expected);
 
@@ -360,9 +361,11 @@ fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and
 
     let expected = strict_eq_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("strict id equality execute should succeed");
     let actual = null_or_eq_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("null-or-id execute should succeed");
     assert_eq!(
         actual.ids().collect::<Vec<_>>(),
@@ -450,6 +453,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     };
     let new_field_expected = new_field_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("session aggregate new-field baseline execute should succeed");
 
     assert_eq!(
@@ -480,6 +484,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
         .filter(session_aggregate_group_predicate(7))
         .order_by("rank")
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("session aggregate numeric baseline execute should succeed");
 
     let mut expected_sum = crate::types::Decimal::ZERO;
@@ -623,6 +628,7 @@ fn session_aggregate_nth_by_rank_uses_deterministic_rank_and_id_ordering() {
     };
     let expected = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("session aggregate nth_by baseline execute should succeed");
 
     assert_eq!(

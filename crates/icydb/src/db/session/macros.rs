@@ -63,12 +63,12 @@ macro_rules! impl_session_query_shape_methods {
 
 macro_rules! impl_session_materialization_methods {
     () => {
-        /// Execute the session query and materialize a typed response.
-        pub fn execute(&self) -> Result<Response<E>, Error>
+        /// Execute the session query and materialize scalar or grouped rows.
+        pub fn execute(&self) -> Result<QueryResponse<E>, Error>
         where
             E: EntityValue,
         {
-            Ok(Response::from_core(self.inner.execute()?))
+            Ok(QueryResponse::from_core(self.inner.execute()?))
         }
 
         /// Return true when the result set has no rows.
@@ -92,7 +92,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::require_one(&self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::require_one(&self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
         }
 
@@ -101,8 +101,10 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::require_some(&self.inner.execute()?)
-                .map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::require_some(
+                &self.inner.execute()?.into_rows()?,
+            )
+            .map_err(Into::into)
         }
 
         /// Materialize one row.
@@ -110,7 +112,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::row(self.inner.execute()?).map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::row(self.inner.execute()?.into_rows()?)
+                .map_err(Into::into)
         }
 
         /// Materialize an optional row.
@@ -118,7 +121,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
         }
 
@@ -127,7 +130,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.rows())
+            Ok(self.inner.execute()?.into_rows()?.rows())
         }
 
         /// Materialize an optional id.
@@ -135,7 +138,13 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.iter().next().map(|row| row.id()))
+            Ok(self
+                .inner
+                .execute()?
+                .into_rows()?
+                .iter()
+                .next()
+                .map(|row| row.id()))
         }
 
         /// Materialize one required id.
@@ -143,7 +152,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::require_id(self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::require_id(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
         }
 
@@ -152,7 +161,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?.into_rows()?)
                 .map(|row| row.map(|entry| entry.id()))
                 .map_err(Into::into)
         }
@@ -162,7 +171,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.ids().collect())
+            Ok(self.inner.execute()?.into_rows()?.ids().collect())
         }
 
         /// Check whether an id is present in the response.
@@ -170,7 +179,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.contains_id(id))
+            Ok(self.inner.execute()?.into_rows()?.contains_id(id))
         }
 
         /// Materialize one entity.
@@ -178,7 +187,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::entity(self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::entity(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
         }
 
@@ -187,7 +196,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            icydb_core::db::ResponseCardinalityExt::try_entity(self.inner.execute()?)
+            icydb_core::db::ResponseCardinalityExt::try_entity(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
         }
 
@@ -196,7 +205,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.entities())
+            Ok(self.inner.execute()?.into_rows()?.entities())
         }
     };
 }

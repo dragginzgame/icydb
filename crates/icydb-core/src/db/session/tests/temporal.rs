@@ -30,6 +30,7 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
     // Phase 1: lock semantic entity-field projection types and values.
     let response = load_window()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("temporal execute should succeed");
     let entities = response.entities();
     assert_eq!(entities.len(), 2, "temporal fixture should return two rows");
@@ -150,7 +151,8 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         .group_by("occurred_on")
         .expect("group_by(occurred_on) should resolve")
         .aggregate(crate::db::count())
-        .execute_grouped()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_grouped)
         .expect("grouped by occurred_on should execute");
     assert_eq!(
         by_day
@@ -177,7 +179,8 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         .group_by("occurred_at")
         .expect("group_by(occurred_at) should resolve")
         .aggregate(crate::db::count())
-        .execute_grouped()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_grouped)
         .expect("grouped by occurred_at should execute");
     assert_eq!(
         by_timestamp
@@ -207,7 +210,8 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         .group_by("elapsed")
         .expect("group_by(elapsed) should resolve")
         .aggregate(crate::db::count())
-        .execute_grouped()
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_grouped)
         .expect("grouped by elapsed should execute");
     assert_eq!(
         by_duration

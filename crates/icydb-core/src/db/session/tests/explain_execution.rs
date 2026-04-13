@@ -319,13 +319,13 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
         "all-field entity loads should stay on the materialized route even when access stays index-backed",
     );
 
-    let projected_descriptor = session
-        .lower_sql_query_for_tests::<IndexedSessionSqlEntity>(
-            "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
-        )
-        .expect("coverable SQL projection query should lower")
-        .explain_execution()
-        .expect("coverable SQL projection explain_execution should succeed");
+    let projected_descriptor = lower_select_query_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
+    )
+    .expect("coverable SQL projection query should lower")
+    .explain_execution()
+    .expect("coverable SQL projection explain_execution should succeed");
 
     assert_eq!(
         projected_descriptor.covering_scan(),
@@ -401,13 +401,13 @@ fn session_explain_execution_primary_key_covering_full_scan_is_planner_proven() 
         })
         .expect("PK-covering session seed should succeed");
 
-    let descriptor = session
-        .lower_sql_query_for_tests::<SessionSqlEntity>(
-            "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-        )
-        .expect("PK-only covering query should lower")
-        .explain_execution()
-        .expect("PK-only covering explain_execution should succeed");
+    let descriptor = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+    )
+    .expect("PK-only covering query should lower")
+    .explain_execution()
+    .expect("PK-only covering explain_execution should succeed");
 
     assert_eq!(
         descriptor.covering_scan(),
@@ -520,6 +520,7 @@ fn session_count_full_scan_ignores_other_entities_in_shared_store() {
     let expected = session
         .load::<SessionExplainEntity>()
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("shared-store execute should succeed")
         .count();
     let actual = session
@@ -666,6 +667,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
 
     let rows = execution_query
         .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("non-ready secondary index query should still execute");
     assert_eq!(
         rows.len(),

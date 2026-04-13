@@ -144,13 +144,13 @@ fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
     for (context, sql, expect_access_satisfied, expect_offset_boundary) in
         filtered_composite_order_explain_queries()
     {
-        let descriptor = session
-            .lower_sql_query_for_tests::<FilteredIndexedSessionSqlEntity>(sql)
-            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
-            .explain_execution()
-            .unwrap_or_else(|err| {
-                panic!("{context} SQL explain_execution should succeed: {err:?}")
-            });
+        let descriptor =
+            lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql)
+                .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+                .explain_execution()
+                .unwrap_or_else(|err| {
+                    panic!("{context} SQL explain_execution should succeed: {err:?}")
+                });
 
         if expect_offset_boundary {
             assert_eq!(

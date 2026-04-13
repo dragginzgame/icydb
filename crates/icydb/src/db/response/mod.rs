@@ -1,4 +1,5 @@
 mod paged;
+mod query;
 mod write;
 
 use crate::{error::Error, traits::EntityKind, types::Id};
@@ -10,6 +11,7 @@ use icydb_core::db::{
 
 // re-exports
 pub use paged::{PagedGroupedResponse, PagedResponse};
+pub use query::QueryResponse;
 pub use write::*;
 
 ///

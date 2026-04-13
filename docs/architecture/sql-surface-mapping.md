@@ -21,6 +21,10 @@ This file answers:
 - "Where does SQL already converge with typed/fluent behavior?"
 - "Where is SQL intentionally narrower than typed/fluent APIs?"
 
+Test-only helper names in `icydb-core` may still mention older lane-shaped SQL
+surfaces. Those helpers exist only to keep legacy matrix coverage stable; they
+are not part of the live public SQL API.
+
 ## Default Parity Rule
 
 If SQL admits a capability and IcyDB already has one equivalent canonical

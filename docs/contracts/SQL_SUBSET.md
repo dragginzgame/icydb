@@ -49,7 +49,7 @@ Supported `SELECT` families are:
 - global aggregate loads with exactly one aggregate projection terminal and no
   `GROUP BY`
 - grouped aggregate loads
-- narrow computed projection loads on the grouped SQL lane only
+- narrow computed projection loads
 
 ### `EXPLAIN`
 
