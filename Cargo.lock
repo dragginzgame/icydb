@@ -213,9 +213,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "481e3d90859b7195882952ad02bac3e619720c7231341a6e32dd73425a2a3ef0"
+checksum = "57c46e34be8ec70c1e8393a883721bbf9ff280dddfcdc6f6a4a1331b0816ebd8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dde50f6073efc4cc0323291a1b6ddce4e132be4e15e47c33a1515b5f92c72fb5"
+checksum = "1fe75c7b5941c50e6585b4941bca429c94a6552184b10ca151d68b7397c240a4"
 dependencies = [
  "base32",
  "candid",
@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42b0cb5cddf4e49ef0bddc4c9af518daa81ea20de6aa33fed08c9e4b76aa1231"
+checksum = "13c4e360ea131d850d681cfcda18782c80e99ed6fc4f2ce5bdb05bc9d6cd233e"
 dependencies = [
  "async-trait",
  "candid",
@@ -269,9 +269,9 @@ dependencies = [
 
 [[package]]
 name = "canic-dsl-macros"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee62133a57f3ef801ed46441d964fdda7a2d7b5dc8476fb29beffa7d21ace88"
+checksum = "7eff3e1b7fcf0e293dcc816c467d3692869aa0f57a0ecff4d611ddd10ebdb66d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -280,9 +280,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28f5562ecb467af54871ea09f1764924c820adffd97a671f798cea1dceaac243"
+checksum = "b87b8950decbc1ff9a8d60ed73e1d97cbc14ba0ea282bfe4eb3c7e8b5d438734"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -294,9 +294,9 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.27.4"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eda174550f60ce74b71865f4268c0c16bc58e93493a0f535398518a06bf8254"
+checksum = "ad33e16ddd9f6d5c431fc47e04d7d89539268dff07652cdf004a5959975a4656"
 dependencies = [
  "candid",
  "canic",
@@ -518,9 +518,9 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.10.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95d0d11eb38e7642efca359c3cf6eb7b2e528182d09110165de70192b0352775"
+checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
  "dtor",
@@ -528,9 +528,9 @@ dependencies = [
 
 [[package]]
 name = "ctor-proc-macro"
-version = "0.0.12"
+version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7ab264ea985f1bd27887d7b21ea2bb046728e05d11909ca138d700c494730db"
+checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
 
 [[package]]
 name = "darling"
@@ -648,18 +648,18 @@ dependencies = [
 
 [[package]]
 name = "dtor"
-version = "0.7.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17f72721db8027a4e96dd6fb50d2a1d32259c9d3da1b63dee612ccd981e14293"
+checksum = "f1057d6c64987086ff8ed0fd3fbf377a6b7d205cc7715868cd401705f715cbe4"
 dependencies = [
  "dtor-proc-macro",
 ]
 
 [[package]]
 name = "dtor-proc-macro"
-version = "0.0.12"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c98b077c7463d01d22dde8a24378ddf1ca7263dc687cffbed38819ea6c21131"
+checksum = "f678cf4a922c215c63e0de95eb1ff08a958a81d47e485cf9da1e27bf6305cfa5"
 
 [[package]]
 name = "dyn-clone"
