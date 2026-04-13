@@ -495,7 +495,7 @@ fn grouped_field_compare_predicate_case() -> AccessPlannedQuery {
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().predicate = Some(crate::db::Predicate::gt_fields(
         "rank".to_string(),
-        "tag".to_string(),
+        "rank".to_string(),
     ));
 
     grouped_plan(

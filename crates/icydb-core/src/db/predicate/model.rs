@@ -100,25 +100,45 @@ impl Predicate {
     /// Compare `left_field < right_field`.
     #[must_use]
     pub fn lt_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::lt(left_field, right_field))
+        Self::CompareFields(CompareFieldsPredicate::with_coercion(
+            left_field,
+            CompareOp::Lt,
+            right_field,
+            CoercionId::NumericWiden,
+        ))
     }
 
     /// Compare `left_field <= right_field`.
     #[must_use]
     pub fn lte_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::lte(left_field, right_field))
+        Self::CompareFields(CompareFieldsPredicate::with_coercion(
+            left_field,
+            CompareOp::Lte,
+            right_field,
+            CoercionId::NumericWiden,
+        ))
     }
 
     /// Compare `left_field > right_field`.
     #[must_use]
     pub fn gt_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::gt(left_field, right_field))
+        Self::CompareFields(CompareFieldsPredicate::with_coercion(
+            left_field,
+            CompareOp::Gt,
+            right_field,
+            CoercionId::NumericWiden,
+        ))
     }
 
     /// Compare `left_field >= right_field`.
     #[must_use]
     pub fn gte_fields(left_field: String, right_field: String) -> Self {
-        Self::CompareFields(CompareFieldsPredicate::gte(left_field, right_field))
+        Self::CompareFields(CompareFieldsPredicate::with_coercion(
+            left_field,
+            CompareOp::Gte,
+            right_field,
+            CoercionId::NumericWiden,
+        ))
     }
 
     /// Compare `field IN values`.
