@@ -396,10 +396,7 @@ fn parse_ilike_prefix_predicate(
     };
     let prefix = prefix.to_string();
     let _ = cursor.advance();
-    let field = match operand {
-        PredicateFieldOperand::Plain(field) => field,
-        PredicateFieldOperand::Wrapped { field, .. } => field,
-    };
+    let (field, _) = operand.into_field_and_coercion();
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,
