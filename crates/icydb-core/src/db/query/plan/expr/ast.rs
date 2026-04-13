@@ -99,8 +99,9 @@ pub(crate) enum UnaryOp {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryOp {
     Add,
-    #[cfg(test)]
+    Sub,
     Mul,
+    Div,
     #[cfg(test)]
     And,
     #[cfg(test)]
@@ -131,6 +132,7 @@ pub(crate) enum Function {
     Position,
     Replace,
     Substring,
+    Round,
 }
 
 impl Function {
@@ -152,6 +154,7 @@ impl Function {
             Self::Position => "POSITION",
             Self::Replace => "REPLACE",
             Self::Substring => "SUBSTRING",
+            Self::Round => "ROUND",
         }
     }
 }

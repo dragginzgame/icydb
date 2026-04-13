@@ -24,9 +24,10 @@ pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
     SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
     SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
+    SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlRoundProjectionCall,
+    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.
@@ -138,6 +139,14 @@ impl Parser {
 
     fn eat_plus(&mut self) -> bool {
         self.cursor.eat_plus()
+    }
+
+    fn eat_minus(&mut self) -> bool {
+        self.cursor.eat_minus()
+    }
+
+    fn eat_slash(&mut self) -> bool {
+        self.cursor.eat_slash()
     }
 
     fn eat_semicolon(&mut self) -> bool {

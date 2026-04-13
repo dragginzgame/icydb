@@ -200,6 +200,40 @@ fn infer_binary_numeric_expr_rejects_unknown_non_eligible_operands() {
 }
 
 #[test]
+fn infer_round_function_expr_returns_decimal_for_numeric_input() {
+    let schema = schema();
+    let expr = Expr::FunctionCall {
+        function: crate::db::query::plan::expr::Function::Round,
+        args: vec![
+            Expr::Field(FieldId::new("rank")),
+            Expr::Literal(Value::Uint(2)),
+        ],
+    };
+
+    let inferred = infer_expr_type(&expr, schema).expect("ROUND(rank, 2) should infer");
+
+    assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Decimal));
+}
+
+#[test]
+fn infer_round_function_expr_rejects_non_numeric_input() {
+    let schema = schema();
+    let expr = Expr::FunctionCall {
+        function: crate::db::query::plan::expr::Function::Round,
+        args: vec![
+            Expr::Field(FieldId::new("label")),
+            Expr::Literal(Value::Uint(2)),
+        ],
+    };
+
+    let err = infer_expr_type(&expr, schema).expect_err("ROUND(text, 2) should fail closed");
+    assert!(is_expr_plan_error(
+        &err,
+        |inner| matches!(inner, ExprPlanError::InvalidFunctionArgument { function, index, .. } if function == "ROUND" && *index == 0)
+    ));
+}
+
+#[test]
 fn infer_sum_aggregate_rejects_decidable_non_numeric_bool_target() {
     let schema = schema();
     let expr = Expr::Aggregate(sum("flag"));

@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum NumericArithmeticOp {
     Add,
-    #[cfg(test)]
+    Sub,
     Mul,
     Div,
 }
@@ -39,7 +39,7 @@ pub(in crate::db) fn apply_decimal_arithmetic(
 ) -> Decimal {
     match op {
         NumericArithmeticOp::Add => left + right,
-        #[cfg(test)]
+        NumericArithmeticOp::Sub => left - right,
         NumericArithmeticOp::Mul => left * right,
         NumericArithmeticOp::Div => left / right,
     }

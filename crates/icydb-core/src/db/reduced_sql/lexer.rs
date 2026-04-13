@@ -43,6 +43,14 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 TokenKind::Plus
             }
+            b'-' => {
+                self.pos += 1;
+                TokenKind::Minus
+            }
+            b'/' => {
+                self.pos += 1;
+                TokenKind::Slash
+            }
             b'(' => {
                 self.pos += 1;
                 TokenKind::LParen
@@ -91,18 +99,7 @@ impl<'a> Lexer<'a> {
             }
             b'\'' => TokenKind::StringLiteral(self.lex_string_literal()?),
             b'"' | b'`' => return Err(SqlParseError::unsupported_feature("quoted identifiers")),
-            b'-' => {
-                if self
-                    .peek_second_byte()
-                    .is_some_and(|next| next.is_ascii_digit())
-                {
-                    self.pos += 1;
-                    TokenKind::Number(self.lex_number(true))
-                } else {
-                    return Err(SqlParseError::invalid_syntax("unexpected '-'"));
-                }
-            }
-            next if next.is_ascii_digit() => TokenKind::Number(self.lex_number(false)),
+            next if next.is_ascii_digit() => TokenKind::Number(self.lex_number()),
             next if is_identifier_start(next) => self.lex_identifier_or_keyword(),
             other => {
                 return Err(SqlParseError::invalid_syntax(format!(
@@ -152,8 +149,8 @@ impl<'a> Lexer<'a> {
         Err(SqlParseError::invalid_syntax("unterminated string literal"))
     }
 
-    fn lex_number(&mut self, negative: bool) -> String {
-        let start = if negative { self.pos - 1 } else { self.pos };
+    fn lex_number(&mut self) -> String {
+        let start = self.pos;
 
         while self.peek_byte().is_some_and(|byte| byte.is_ascii_digit()) {
             self.pos += 1;

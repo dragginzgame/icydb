@@ -44,8 +44,9 @@ const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
 const UNARY_OP_NOT_TAG: u8 = 0x02;
 
 const BINARY_OP_ADD_TAG: u8 = 0x01;
-#[cfg(test)]
+const BINARY_OP_SUB_TAG: u8 = 0x02;
 const BINARY_OP_MUL_TAG: u8 = 0x03;
+const BINARY_OP_DIV_TAG: u8 = 0x04;
 #[cfg(test)]
 const BINARY_OP_AND_TAG: u8 = 0x05;
 #[cfg(test)]
@@ -188,8 +189,11 @@ fn hash_numeric_literal_semantic(hasher: &mut Sha256, value: &Value) {
 const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
     match op {
         BinaryOp::Add => true,
+        BinaryOp::Sub => true,
+        BinaryOp::Mul => true,
+        BinaryOp::Div => true,
         #[cfg(test)]
-        BinaryOp::Mul | BinaryOp::Eq => true,
+        BinaryOp::Eq => true,
         #[cfg(test)]
         BinaryOp::And => false,
     }
@@ -224,8 +228,9 @@ const fn unary_op_tag(op: UnaryOp) -> u8 {
 const fn binary_op_tag(op: BinaryOp) -> u8 {
     match op {
         BinaryOp::Add => BINARY_OP_ADD_TAG,
-        #[cfg(test)]
+        BinaryOp::Sub => BINARY_OP_SUB_TAG,
         BinaryOp::Mul => BINARY_OP_MUL_TAG,
+        BinaryOp::Div => BINARY_OP_DIV_TAG,
         #[cfg(test)]
         BinaryOp::And => BINARY_OP_AND_TAG,
         #[cfg(test)]

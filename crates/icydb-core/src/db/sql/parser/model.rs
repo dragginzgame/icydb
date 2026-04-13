@@ -51,6 +51,7 @@ pub(crate) enum SqlSelectItem {
     Aggregate(SqlAggregateCall),
     TextFunction(SqlTextFunctionCall),
     Arithmetic(SqlArithmeticProjectionCall),
+    Round(SqlRoundProjectionCall),
 }
 
 ///
@@ -63,6 +64,9 @@ pub(crate) enum SqlSelectItem {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlArithmeticProjectionOp {
     Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 ///
@@ -78,6 +82,33 @@ pub(crate) struct SqlArithmeticProjectionCall {
     pub(crate) field: String,
     pub(crate) op: SqlArithmeticProjectionOp,
     pub(crate) literal: Value,
+}
+
+///
+/// SqlRoundProjectionInput
+///
+/// Parsed bounded `ROUND` source expression admitted in scalar projection
+/// position.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlRoundProjectionInput {
+    Field(String),
+    Arithmetic(SqlArithmeticProjectionCall),
+}
+
+///
+/// SqlRoundProjectionCall
+///
+/// Parsed bounded `ROUND(expr, scale)` projection item.
+/// Reduced SQL keeps this to one field or one admitted arithmetic expression
+/// plus one non-negative integer literal scale.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlRoundProjectionCall {
+    pub(crate) input: SqlRoundProjectionInput,
+    pub(crate) scale: Value,
 }
 
 ///

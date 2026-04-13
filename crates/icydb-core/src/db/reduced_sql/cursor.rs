@@ -42,6 +42,21 @@ impl SqlTokenCursor {
     }
 
     pub(crate) fn parse_literal(&mut self) -> Result<Value, SqlParseError> {
+        if matches!(self.peek_kind(), Some(TokenKind::Minus)) {
+            self.advance();
+
+            let Some(TokenKind::Number(value)) = self.peek_kind() else {
+                return Err(SqlParseError::expected(
+                    "numeric literal after '-'",
+                    self.peek_kind(),
+                ));
+            };
+            let literal = parse_number_literal(format!("-{value}").as_str())?;
+            self.advance();
+
+            return Ok(literal);
+        }
+
         let literal = match self.peek_kind() {
             Some(TokenKind::StringLiteral(value)) => Value::Text(value.clone()),
             Some(TokenKind::Number(value)) => parse_number_literal(value.as_str())?,
@@ -152,6 +167,24 @@ impl SqlTokenCursor {
 
     pub(in crate::db) fn eat_plus(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::Plus)) {
+            return false;
+        }
+
+        self.pos += 1;
+        true
+    }
+
+    pub(in crate::db) fn eat_minus(&mut self) -> bool {
+        if !matches!(self.peek_kind(), Some(TokenKind::Minus)) {
+            return false;
+        }
+
+        self.pos += 1;
+        true
+    }
+
+    pub(in crate::db) fn eat_slash(&mut self) -> bool {
+        if !matches!(self.peek_kind(), Some(TokenKind::Slash)) {
             return false;
         }
 

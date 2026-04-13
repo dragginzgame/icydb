@@ -27,8 +27,9 @@ pub(in crate::db) fn eval_binary_expr(
 
     match op {
         BinaryOp::Add => eval_numeric_binary_expr(op, left, right),
-        #[cfg(test)]
+        BinaryOp::Sub => eval_numeric_binary_expr(op, left, right),
         BinaryOp::Mul => eval_numeric_binary_expr(op, left, right),
+        BinaryOp::Div => eval_numeric_binary_expr(op, left, right),
         #[cfg(test)]
         BinaryOp::And => eval_boolean_binary_expr(op, left, right),
         #[cfg(test)]
@@ -82,8 +83,9 @@ pub(super) fn invalid_binary_operands(
 const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
     match op {
         BinaryOp::Add => NumericArithmeticOp::Add,
-        #[cfg(test)]
+        BinaryOp::Sub => NumericArithmeticOp::Sub,
         BinaryOp::Mul => NumericArithmeticOp::Mul,
+        BinaryOp::Div => NumericArithmeticOp::Div,
         #[cfg(test)]
         BinaryOp::And | BinaryOp::Eq => NumericArithmeticOp::Add,
     }
@@ -92,8 +94,9 @@ const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
 pub(super) const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "add",
-        #[cfg(test)]
+        BinaryOp::Sub => "sub",
         BinaryOp::Mul => "mul",
+        BinaryOp::Div => "div",
         #[cfg(test)]
         BinaryOp::And => "and",
         #[cfg(test)]

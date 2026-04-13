@@ -12,8 +12,8 @@ use crate::db::{
         },
         parser::{
             SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingSymbol,
-            SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlOrderTerm, SqlProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
+            SqlSelectItem, SqlSelectStatement, SqlTextFunction, SqlTextFunctionCall,
         },
     },
 };
@@ -144,6 +144,28 @@ fn normalize_projection_identifiers(
                         op,
                         literal,
                     }),
+                    SqlSelectItem::Round(SqlRoundProjectionCall { input, scale }) => {
+                        SqlSelectItem::Round(SqlRoundProjectionCall {
+                            input: match input {
+                                SqlRoundProjectionInput::Field(field) => {
+                                    SqlRoundProjectionInput::Field(normalize_identifier(
+                                        field,
+                                        entity_scope,
+                                    ))
+                                }
+                                SqlRoundProjectionInput::Arithmetic(
+                                    SqlArithmeticProjectionCall { field, op, literal },
+                                ) => SqlRoundProjectionInput::Arithmetic(
+                                    SqlArithmeticProjectionCall {
+                                        field: normalize_identifier(field, entity_scope),
+                                        op,
+                                        literal,
+                                    },
+                                ),
+                            },
+                            scale,
+                        })
+                    }
                 })
                 .collect(),
         ),
@@ -236,7 +258,8 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
         }),
         SqlSelectItem::Aggregate(_)
         | SqlSelectItem::TextFunction(_)
-        | SqlSelectItem::Arithmetic(_) => None,
+        | SqlSelectItem::Arithmetic(_)
+        | SqlSelectItem::Round(_) => None,
     }
 }
 

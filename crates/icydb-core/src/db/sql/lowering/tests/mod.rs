@@ -685,6 +685,146 @@ fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
 }
 
 #[test]
+fn compile_sql_command_select_scalar_sub_mul_div_projection_lowers_to_binary_expr() {
+    for (sql, expected_op, expected_literal, context) in [
+        (
+            "SELECT age - 1 FROM SqlLowerEntity",
+            crate::db::query::plan::expr::BinaryOp::Sub,
+            Value::Int(1),
+            "subtraction projection",
+        ),
+        (
+            "SELECT age * 2 FROM SqlLowerEntity",
+            crate::db::query::plan::expr::BinaryOp::Mul,
+            Value::Int(2),
+            "multiplication projection",
+        ),
+        (
+            "SELECT age / 2 FROM SqlLowerEntity",
+            crate::db::query::plan::expr::BinaryOp::Div,
+            Value::Int(2),
+            "division projection",
+        ),
+    ] {
+        let command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+
+        let SqlCommand::Query(query) = command else {
+            panic!("expected lowered query command");
+        };
+
+        let projection = query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
+            .projection_spec();
+        let fields = projection.fields().collect::<Vec<_>>();
+
+        assert_eq!(
+            fields.len(),
+            1,
+            "{context} should lower one projection field"
+        );
+        match fields[0] {
+            ProjectionField::Scalar {
+                expr: Expr::Binary { op, left, right },
+                alias: None,
+            } => {
+                assert_eq!(
+                    *op, expected_op,
+                    "{context} should preserve the arithmetic operator"
+                );
+                assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+                assert!(
+                    matches!(right.as_ref(), Expr::Literal(value) if value == &expected_literal)
+                );
+            }
+            other @ ProjectionField::Scalar { .. } => {
+                panic!("{context} should lower to one bounded binary projection: {other:?}")
+            }
+        }
+    }
+}
+
+#[test]
+fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() {
+    for (sql, expected_inner, expected_scale, context) in [
+        (
+            "SELECT ROUND(age, 2) FROM SqlLowerEntity",
+            Expr::Field(crate::db::query::plan::expr::FieldId::new("age")),
+            Value::Uint(2),
+            "round over plain field",
+        ),
+        (
+            "SELECT ROUND(age / 3, 2) FROM SqlLowerEntity",
+            Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Div,
+                left: Box::new(Expr::Field(crate::db::query::plan::expr::FieldId::new(
+                    "age",
+                ))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            },
+            Value::Uint(2),
+            "round over bounded arithmetic expression",
+        ),
+    ] {
+        let command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+
+        let SqlCommand::Query(query) = command else {
+            panic!("expected lowered query command");
+        };
+
+        let projection = query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
+            .projection_spec();
+        let fields = projection.fields().collect::<Vec<_>>();
+
+        assert_eq!(
+            fields.len(),
+            1,
+            "{context} should lower one projection field"
+        );
+        match fields[0] {
+            ProjectionField::Scalar {
+                expr: Expr::FunctionCall { function, args },
+                alias: None,
+            } => {
+                assert_eq!(
+                    *function,
+                    crate::db::query::plan::expr::Function::Round,
+                    "{context} should lower to canonical ROUND function",
+                );
+                assert_eq!(args.len(), 2, "{context} should lower two ROUND args");
+                assert_eq!(
+                    args[0], expected_inner,
+                    "{context} should preserve inner expr"
+                );
+                assert_eq!(
+                    args[1],
+                    Expr::Literal(expected_scale.clone()),
+                    "{context} should preserve round scale literal",
+                );
+            }
+            other @ ProjectionField::Scalar { .. } => {
+                panic!("{context} should lower to one ROUND function call: {other:?}")
+            }
+        }
+    }
+}
+
+#[test]
+fn compile_sql_command_rejects_round_with_negative_scale() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT ROUND(age, -1) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("ROUND should reject negative scale in the bounded slice");
+
+    assert!(matches!(err, SqlLoweringError::Query(_)));
+}
+
+#[test]
 fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT SqlLowerEntity.name, SqlLowerEntity.age \
@@ -1250,6 +1390,17 @@ fn compile_sql_command_rejects_grouped_arithmetic_projection_in_current_slice() 
         MissingRowPolicy::Ignore,
     )
     .expect_err("grouped arithmetic projection should remain fail-closed");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_round_projection_in_current_slice() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, ROUND(age / 3, 2), COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped ROUND projection should remain fail-closed");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
 }

@@ -8,7 +8,7 @@
 use crate::{
     db::{
         QueryError,
-        executor::projection::eval_text_projection_expr_with_value,
+        executor::projection::eval_value_projection_expr_with_value,
         query::{
             builder::{
                 ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
@@ -122,7 +122,7 @@ impl ValueProjectionExpr for TextProjectionExpr {
     }
 
     fn apply_value(&self, value: crate::value::Value) -> Result<crate::value::Value, QueryError> {
-        eval_text_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
+        eval_value_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
     }
 }
 

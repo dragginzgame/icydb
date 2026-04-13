@@ -3,12 +3,13 @@ use crate::{
     db::{
         QueryError,
         query::{
-            builder::{NumericProjectionExpr, TextProjectionExpr},
+            builder::{NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr},
             plan::expr::{Alias, Expr, FieldId, Function, ProjectionField, ProjectionSelection},
         },
         sql::parser::{
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection, SqlSelectItem,
-            SqlTextFunction, SqlTextFunctionCall,
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
+            SqlTextFunctionCall,
         },
     },
     value::Value,
@@ -338,7 +339,9 @@ pub(super) fn lower_grouped_projection_selection(
 
                 projected_group_fields.push(field.clone());
             }
-            SqlSelectItem::TextFunction(_) | SqlSelectItem::Arithmetic(_) => {
+            SqlSelectItem::TextFunction(_)
+            | SqlSelectItem::Arithmetic(_)
+            | SqlSelectItem::Round(_) => {
                 return Err(SqlLoweringError::unsupported_select_group_by());
             }
             SqlSelectItem::Aggregate(_) => {
@@ -377,7 +380,8 @@ pub(super) fn direct_scalar_field_selection(
             SqlSelectItem::Field(field) => Some(FieldId::new(field.clone())),
             SqlSelectItem::Aggregate(_)
             | SqlSelectItem::TextFunction(_)
-            | SqlSelectItem::Arithmetic(_) => None,
+            | SqlSelectItem::Arithmetic(_)
+            | SqlSelectItem::Round(_) => None,
         })
         .collect()
 }
@@ -394,6 +398,7 @@ fn lower_projection_field(
             }
             SqlSelectItem::TextFunction(call) => lower_text_function_expr(&call)?,
             SqlSelectItem::Arithmetic(call) => lower_arithmetic_projection_expr(&call)?,
+            SqlSelectItem::Round(call) => lower_round_projection_expr(&call)?,
         },
         alias: alias.map(Alias::new),
     })
@@ -411,6 +416,42 @@ fn lower_arithmetic_projection_expr(
             NumericProjectionExpr::add_value(call.field.clone(), call.literal.clone())
                 .map(|projection| projection.expr().clone())
                 .map_err(SqlLoweringError::from)
+        }
+        SqlArithmeticProjectionOp::Sub => {
+            NumericProjectionExpr::sub_value(call.field.clone(), call.literal.clone())
+                .map(|projection| projection.expr().clone())
+                .map_err(SqlLoweringError::from)
+        }
+        SqlArithmeticProjectionOp::Mul => {
+            NumericProjectionExpr::mul_value(call.field.clone(), call.literal.clone())
+                .map(|projection| projection.expr().clone())
+                .map_err(SqlLoweringError::from)
+        }
+        SqlArithmeticProjectionOp::Div => {
+            NumericProjectionExpr::div_value(call.field.clone(), call.literal.clone())
+                .map(|projection| projection.expr().clone())
+                .map_err(SqlLoweringError::from)
+        }
+    }
+}
+
+fn lower_round_projection_expr(call: &SqlRoundProjectionCall) -> Result<Expr, SqlLoweringError> {
+    let scale = validate_round_projection_scale(call.scale.clone())?;
+
+    match &call.input {
+        SqlRoundProjectionInput::Field(field) => RoundProjectionExpr::field(field.clone(), scale)
+            .map(|projection| projection.expr().clone())
+            .map_err(SqlLoweringError::from),
+        SqlRoundProjectionInput::Arithmetic(arithmetic) => {
+            let base = lower_arithmetic_projection_expr(arithmetic)?;
+
+            RoundProjectionExpr::new(
+                arithmetic.field.clone(),
+                base,
+                Value::Uint(u64::from(scale)),
+            )
+            .map(|projection| projection.expr().clone())
+            .map_err(SqlLoweringError::from)
         }
     }
 }
@@ -467,5 +508,26 @@ fn validate_numeric_projection_literal(
         ))
         .into()),
         None => Ok(()),
+    }
+}
+
+fn validate_round_projection_scale(scale: Value) -> Result<u32, SqlLoweringError> {
+    match scale {
+        Value::Int(value) => u32::try_from(value).map_err(|_| {
+            QueryError::unsupported_query(format!(
+                "ROUND(...) requires non-negative integer scale, found {value}",
+            ))
+            .into()
+        }),
+        Value::Uint(value) => u32::try_from(value).map_err(|_| {
+            QueryError::unsupported_query(format!(
+                "ROUND(...) scale exceeds supported integer range, found {value}",
+            ))
+            .into()
+        }),
+        other => Err(QueryError::unsupported_query(format!(
+            "ROUND(...) requires integer scale, found {other:?}",
+        ))
+        .into()),
     }
 }

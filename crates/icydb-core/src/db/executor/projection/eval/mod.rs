@@ -25,7 +25,7 @@ pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
 pub(in crate::db) use text_function::{
-    eval_text_function_call, eval_text_projection_expr_with_value, projection_function_name,
+    eval_projection_function_call, eval_value_projection_expr_with_value, projection_function_name,
 };
 
 ///

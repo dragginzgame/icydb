@@ -113,6 +113,11 @@ fn infer_function_expr_type(
 
             Ok(ExprType::Numeric(NumericSubtype::Integer))
         }
+        Function::Round => {
+            validate_numeric_round_function_args(arg_types.as_slice())?;
+
+            Ok(ExprType::Numeric(NumericSubtype::Decimal))
+        }
         Function::StartsWith | Function::EndsWith | Function::Contains => {
             validate_text_function_args(function, arg_types.as_slice())?;
 
@@ -142,6 +147,7 @@ fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<
                 &[0, 1][..]
             }
             Function::Replace => &[0, 1, 2],
+            Function::Round => &[][..],
         };
 
         let numeric_positions = match function {
@@ -175,6 +181,45 @@ fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<
                 format!("{arg:?}"),
             )));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanError> {
+    if args.len() != 2 {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "ROUND",
+            args.len(),
+            format!("expected exactly 2 args, found {}", args.len()),
+        )));
+    }
+
+    if !matches!(args[0], ExprType::Numeric(_)) {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "ROUND",
+            0,
+            format!("{:?}", args[0]),
+        )));
+    }
+
+    let scale_compatible = matches!(args[1], ExprType::Numeric(NumericSubtype::Integer)) || {
+        #[cfg(test)]
+        {
+            matches!(args[1], ExprType::Null)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    };
+
+    if !scale_compatible {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "ROUND",
+            1,
+            format!("{:?}", args[1]),
+        )));
     }
 
     Ok(())
@@ -284,21 +329,7 @@ fn infer_binary_expr_type(
     let right_ty = infer_expr_type(right, schema)?;
 
     match op {
-        BinaryOp::Add => {
-            if !binary_numeric_compatible(&left_ty, &right_ty) {
-                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
-                    binary_op_name(op),
-                    format!("{left_ty:?}"),
-                    format!("{right_ty:?}"),
-                )));
-            }
-
-            Ok(ExprType::Numeric(infer_numeric_result_subtype(
-                op, &left_ty, &right_ty,
-            )))
-        }
-        #[cfg(test)]
-        BinaryOp::Mul => {
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
             if !binary_numeric_compatible(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
                     binary_op_name(op),
@@ -364,10 +395,14 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
 }
 
 const fn infer_numeric_result_subtype(
-    _op: BinaryOp,
+    op: BinaryOp,
     left: &ExprType,
     right: &ExprType,
 ) -> NumericSubtype {
+    if matches!(op, BinaryOp::Div) {
+        return NumericSubtype::Decimal;
+    }
+
     let left_subtype = left.numeric_subtype();
     let right_subtype = right.numeric_subtype();
     let (Some(left_subtype), Some(right_subtype)) = (left_subtype, right_subtype) else {
@@ -453,8 +488,9 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
 const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "add",
-        #[cfg(test)]
+        BinaryOp::Sub => "sub",
         BinaryOp::Mul => "mul",
+        BinaryOp::Div => "div",
         #[cfg(test)]
         BinaryOp::And => "and",
         #[cfg(test)]

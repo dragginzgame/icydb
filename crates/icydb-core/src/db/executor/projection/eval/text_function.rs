@@ -1,8 +1,9 @@
 //! Module: db::executor::projection::eval::text_function
-//! Responsibility: bounded text-function evaluation for projection execution.
+//! Responsibility: bounded projection-function evaluation for scalar
+//! projection execution.
 //! Does not own: SQL parsing, planner validation, or grouped-lowering policy.
 //! Boundary: executor-owned runtime semantics for canonical `Expr::FunctionCall`
-//! values admitted on the narrowed text-function slice.
+//! values admitted on the narrowed scalar projection slice.
 
 use crate::{
     db::{
@@ -28,11 +29,13 @@ pub(in crate::db) const fn projection_function_name(function: Function) -> &'sta
         Function::Position => "position",
         Function::Replace => "replace",
         Function::Substring => "substring",
+        Function::Round => "round",
     }
 }
 
-/// Evaluate one bounded text-function call over already-evaluated argument values.
-pub(in crate::db) fn eval_text_function_call(
+/// Evaluate one bounded projection-function call over already-evaluated
+/// argument values.
+pub(in crate::db) fn eval_projection_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, QueryError> {
@@ -42,98 +45,21 @@ pub(in crate::db) fn eval_text_function_call(
         | Function::Rtrim
         | Function::Lower
         | Function::Upper
-        | Function::Length => {
-            let input = required_function_arg(function, args, 0, "input")?;
-
-            match input {
-                Value::Null => Ok(Value::Null),
-                Value::Text(text) => match function {
-                    Function::Trim => Ok(Value::Text(text.trim().to_string())),
-                    Function::Ltrim => Ok(Value::Text(text.trim_start().to_string())),
-                    Function::Rtrim => Ok(Value::Text(text.trim_end().to_string())),
-                    Function::Lower => Ok(Value::Text(text.to_lowercase())),
-                    Function::Upper => Ok(Value::Text(text.to_uppercase())),
-                    Function::Length => Ok(Value::Uint(
-                        u64::try_from(text.chars().count()).unwrap_or(u64::MAX),
-                    )),
-                    _ => unreachable!("unary text-function dispatch drifted"),
-                },
-                other => Err(text_input_error(function, other)),
-            }
-        }
-        Function::Left | Function::Right => {
-            let input = required_function_arg(function, args, 0, "input")?;
-            let length = integer_literal_arg(function, args, 1, "length")?;
-
-            match (input, length) {
-                (Value::Null, _) | (_, None) => Ok(Value::Null),
-                (Value::Text(text), Some(length)) => Ok(Value::Text(match function {
-                    Function::Left => left_chars(text.as_str(), length),
-                    Function::Right => right_chars(text.as_str(), length),
-                    _ => unreachable!("left/right dispatch drifted"),
-                })),
-                (other, _) => Err(text_input_error(function, other)),
-            }
-        }
+        | Function::Length => eval_unary_text_function_call(function, args),
+        Function::Left | Function::Right => eval_left_right_text_function_call(function, args),
         Function::StartsWith | Function::EndsWith | Function::Contains => {
-            let input = required_function_arg(function, args, 0, "input")?;
-            let literal = text_literal_arg(function, args, 1, "literal")?;
-
-            match (input, literal) {
-                (Value::Null, _) | (_, None) => Ok(Value::Null),
-                (Value::Text(text), Some(needle)) => Ok(Value::Bool(match function {
-                    Function::StartsWith => text.starts_with(needle),
-                    Function::EndsWith => text.ends_with(needle),
-                    Function::Contains => text.contains(needle),
-                    _ => unreachable!("text predicate dispatch drifted"),
-                })),
-                (other, _) => Err(text_input_error(function, other)),
-            }
+            eval_text_predicate_function_call(function, args)
         }
-        Function::Position => {
-            let needle = text_literal_arg(function, args, 0, "literal")?;
-            let input = required_function_arg(function, args, 1, "input")?;
-
-            match (needle, input) {
-                (_, Value::Null) | (None, _) => Ok(Value::Null),
-                (Some(needle), Value::Text(text)) => {
-                    Ok(Value::Uint(text_position_1_based(text.as_str(), needle)))
-                }
-                (_, other) => Err(text_input_error(function, other)),
-            }
-        }
-        Function::Replace => {
-            let input = required_function_arg(function, args, 0, "input")?;
-            let from = text_literal_arg(function, args, 1, "from")?;
-            let to = text_literal_arg(function, args, 2, "to")?;
-
-            match (input, from, to) {
-                (Value::Null, _, _) | (_, None, _) | (_, _, None) => Ok(Value::Null),
-                (Value::Text(text), Some(from), Some(to)) => {
-                    Ok(Value::Text(text.replace(from, to)))
-                }
-                (other, _, _) => Err(text_input_error(function, other)),
-            }
-        }
-        Function::Substring => {
-            let input = required_function_arg(function, args, 0, "input")?;
-            let start = integer_literal_arg(function, args, 1, "start")?;
-            let length = optional_integer_literal_arg(function, args, 2, "length")?;
-
-            match (input, start) {
-                (Value::Null, _) | (_, None) => Ok(Value::Null),
-                (Value::Text(text), Some(start)) => {
-                    Ok(Value::Text(substring_1_based(text.as_str(), start, length)))
-                }
-                (other, _) => Err(text_input_error(function, other)),
-            }
-        }
+        Function::Position => eval_position_text_function_call(function, args),
+        Function::Replace => eval_replace_text_function_call(function, args),
+        Function::Substring => eval_substring_text_function_call(function, args),
+        Function::Round => eval_round_function_call(function, args),
     }
 }
 
-/// Evaluate one bounded text projection expression against one already-loaded
+/// Evaluate one bounded scalar projection expression against one already-loaded
 /// source field value.
-pub(in crate::db) fn eval_text_projection_expr_with_value(
+pub(in crate::db) fn eval_value_projection_expr_with_value(
     expr: &Expr,
     field_name: &str,
     value: &Value,
@@ -142,7 +68,7 @@ pub(in crate::db) fn eval_text_projection_expr_with_value(
         Expr::Field(field) => {
             if field.as_str() != field_name {
                 return Err(QueryError::invariant(format!(
-                    "text projection expected field '{field_name}' but found '{}'",
+                    "value projection expected field '{field_name}' but found '{}'",
                     field.as_str()
                 )));
             }
@@ -153,24 +79,28 @@ pub(in crate::db) fn eval_text_projection_expr_with_value(
         Expr::FunctionCall { function, args } => {
             let evaluated_args = args
                 .iter()
-                .map(|arg| eval_text_projection_expr_with_value(arg, field_name, value))
+                .map(|arg| eval_value_projection_expr_with_value(arg, field_name, value))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            eval_text_function_call(*function, evaluated_args.as_slice())
+            eval_projection_function_call(*function, evaluated_args.as_slice())
         }
         Expr::Aggregate(_) => Err(QueryError::invariant(
-            "text projection expressions cannot evaluate aggregate leaves",
+            "value projection expressions cannot evaluate aggregate leaves",
         )),
-        Expr::Binary { .. } => Err(QueryError::invariant(
-            "text projection expressions cannot evaluate arithmetic leaves",
-        )),
+        Expr::Binary { op, left, right } => {
+            let left = eval_value_projection_expr_with_value(left.as_ref(), field_name, value)?;
+            let right = eval_value_projection_expr_with_value(right.as_ref(), field_name, value)?;
+
+            crate::db::executor::projection::eval::eval_binary_expr(*op, &left, &right)
+                .map_err(|err| QueryError::unsupported_query(err.to_string()))
+        }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            eval_text_projection_expr_with_value(expr.as_ref(), field_name, value)
+            eval_value_projection_expr_with_value(expr.as_ref(), field_name, value)
         }
         #[cfg(test)]
         Expr::Unary { .. } => Err(QueryError::invariant(
-            "text projection expressions cannot evaluate generic test-only operators",
+            "value projection expressions cannot evaluate generic test-only operators",
         )),
     }
 }
@@ -187,6 +117,134 @@ fn required_function_arg<'a>(
             projection_function_name(function),
         ))
     })
+}
+
+fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+
+    match input {
+        Value::Null => Ok(Value::Null),
+        Value::Text(text) => match function {
+            Function::Trim => Ok(Value::Text(text.trim().to_string())),
+            Function::Ltrim => Ok(Value::Text(text.trim_start().to_string())),
+            Function::Rtrim => Ok(Value::Text(text.trim_end().to_string())),
+            Function::Lower => Ok(Value::Text(text.to_lowercase())),
+            Function::Upper => Ok(Value::Text(text.to_uppercase())),
+            Function::Length => Ok(Value::Uint(
+                u64::try_from(text.chars().count()).unwrap_or(u64::MAX),
+            )),
+            _ => unreachable!("unary text-function dispatch drifted"),
+        },
+        other => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_left_right_text_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+    let length = integer_literal_arg(function, args, 1, "length")?;
+
+    match (input, length) {
+        (Value::Null, _) | (_, None) => Ok(Value::Null),
+        (Value::Text(text), Some(length)) => Ok(Value::Text(match function {
+            Function::Left => left_chars(text.as_str(), length),
+            Function::Right => right_chars(text.as_str(), length),
+            _ => unreachable!("left/right dispatch drifted"),
+        })),
+        (other, _) => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_text_predicate_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+    let literal = text_literal_arg(function, args, 1, "literal")?;
+
+    match (input, literal) {
+        (Value::Null, _) | (_, None) => Ok(Value::Null),
+        (Value::Text(text), Some(needle)) => Ok(Value::Bool(match function {
+            Function::StartsWith => text.starts_with(needle),
+            Function::EndsWith => text.ends_with(needle),
+            Function::Contains => text.contains(needle),
+            _ => unreachable!("text predicate dispatch drifted"),
+        })),
+        (other, _) => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_position_text_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let needle = text_literal_arg(function, args, 0, "literal")?;
+    let input = required_function_arg(function, args, 1, "input")?;
+
+    match (needle, input) {
+        (_, Value::Null) | (None, _) => Ok(Value::Null),
+        (Some(needle), Value::Text(text)) => {
+            Ok(Value::Uint(text_position_1_based(text.as_str(), needle)))
+        }
+        (_, other) => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_replace_text_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+    let from = text_literal_arg(function, args, 1, "from")?;
+    let to = text_literal_arg(function, args, 2, "to")?;
+
+    match (input, from, to) {
+        (Value::Null, _, _) | (_, None, _) | (_, _, None) => Ok(Value::Null),
+        (Value::Text(text), Some(from), Some(to)) => Ok(Value::Text(text.replace(from, to))),
+        (other, _, _) => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_substring_text_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+    let start = integer_literal_arg(function, args, 1, "start")?;
+    let length = optional_integer_literal_arg(function, args, 2, "length")?;
+
+    match (input, start) {
+        (Value::Null, _) | (_, None) => Ok(Value::Null),
+        (Value::Text(text), Some(start)) => {
+            Ok(Value::Text(substring_1_based(text.as_str(), start, length)))
+        }
+        (other, _) => Err(text_input_error(function, other)),
+    }
+}
+
+fn eval_round_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+    let scale = integer_literal_arg(function, args, 1, "scale")?;
+
+    match (input, scale) {
+        (Value::Null, _) | (_, None) => Ok(Value::Null),
+        (value, Some(scale)) => {
+            let Some(scale) = u32::try_from(scale).ok() else {
+                return Err(QueryError::unsupported_query(format!(
+                    "ROUND(...) requires non-negative integer scale, found {scale}",
+                )));
+            };
+            let Some(decimal) = value.to_numeric_decimal() else {
+                return Err(QueryError::unsupported_query(format!(
+                    "ROUND(...) requires numeric input, found {value:?}",
+                )));
+            };
+
+            Ok(Value::Decimal(decimal.round_dp(scale)))
+        }
+    }
 }
 
 fn text_input_error(function: Function, other: &Value) -> QueryError {

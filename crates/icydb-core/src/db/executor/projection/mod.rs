@@ -11,9 +11,9 @@ mod tests;
 
 pub(in crate::db::executor) use eval::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db) use eval::{
-    ProjectionEvalError, ScalarProjectionExpr, eval_binary_expr,
+    ProjectionEvalError, ScalarProjectionExpr,
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-    eval_text_projection_expr_with_value,
+    eval_value_projection_expr_with_value,
 };
 pub(in crate::db::executor) use grouped::*;
 #[cfg(test)]

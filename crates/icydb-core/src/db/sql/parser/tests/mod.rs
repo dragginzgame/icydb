@@ -8,9 +8,9 @@ use super::{
     SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
     SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
     SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
-    SqlUpdateStatement, parse_sql,
+    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -167,17 +167,113 @@ fn parse_select_statement_with_scalar_add_projection_item() {
 }
 
 #[test]
-fn parse_select_statement_rejects_scalar_subtraction_projection_item() {
-    let err = parse_sql("SELECT age - 1 FROM users")
-        .expect_err("subtraction projection should remain fail-closed in the add-only slice");
+fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
+    for (sql, op, literal, context) in [
+        (
+            "SELECT age - 1 FROM users",
+            SqlArithmeticProjectionOp::Sub,
+            Value::Int(1),
+            "subtraction projection",
+        ),
+        (
+            "SELECT age * 2 FROM users",
+            SqlArithmeticProjectionOp::Mul,
+            Value::Int(2),
+            "multiplication projection",
+        ),
+        (
+            "SELECT age / 2 FROM users",
+            SqlArithmeticProjectionOp::Div,
+            Value::Int(2),
+            "division projection",
+        ),
+    ] {
+        let statement =
+            parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
 
-    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+        assert_eq!(
+            statement,
+            SqlStatement::Select(SqlSelectStatement {
+                entity: "users".to_string(),
+                projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
+                    SqlArithmeticProjectionCall {
+                        field: "age".to_string(),
+                        op,
+                        literal,
+                    },
+                )]),
+                projection_aliases: vec![None],
+                predicate: None,
+                distinct: false,
+                group_by: vec![],
+                having: vec![],
+                order_by: vec![],
+                limit: None,
+                offset: None,
+            }),
+            "{context} should lower to one bounded arithmetic projection item",
+        );
+    }
+}
+
+#[test]
+fn parse_select_statement_with_round_projection_items() {
+    for (sql, expected_item, context) in [
+        (
+            "SELECT ROUND(age, 2) FROM users",
+            SqlSelectItem::Round(SqlRoundProjectionCall {
+                input: SqlRoundProjectionInput::Field("age".to_string()),
+                scale: Value::Int(2),
+            }),
+            "round over plain field",
+        ),
+        (
+            "SELECT ROUND(age / 3, 2) FROM users",
+            SqlSelectItem::Round(SqlRoundProjectionCall {
+                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
+                    field: "age".to_string(),
+                    op: SqlArithmeticProjectionOp::Div,
+                    literal: Value::Int(3),
+                }),
+                scale: Value::Int(2),
+            }),
+            "round over bounded arithmetic expression",
+        ),
+    ] {
+        let statement =
+            parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
+
+        assert_eq!(
+            statement,
+            SqlStatement::Select(SqlSelectStatement {
+                entity: "users".to_string(),
+                projection: SqlProjection::Items(vec![expected_item]),
+                projection_aliases: vec![None],
+                predicate: None,
+                distinct: false,
+                group_by: vec![],
+                having: vec![],
+                order_by: vec![],
+                limit: None,
+                offset: None,
+            }),
+            "{context} should lower to one bounded ROUND projection item",
+        );
+    }
 }
 
 #[test]
 fn parse_select_statement_rejects_field_plus_field_projection_item() {
     let err = parse_sql("SELECT age + salary FROM users")
         .expect_err("field-plus-field projection should remain fail-closed in the bounded slice");
+
+    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+}
+
+#[test]
+fn parse_select_statement_rejects_round_without_integer_scale() {
+    let err = parse_sql("SELECT ROUND(age, name) FROM users")
+        .expect_err("ROUND scale should remain literal-only in the bounded slice");
 
     assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
 }

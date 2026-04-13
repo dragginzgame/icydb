@@ -21,7 +21,9 @@ pub(crate) use aggregate::{
     PreparedFluentScalarTerminalStrategy,
 };
 pub use field::FieldRef;
-pub use numeric_projection::{NumericProjectionExpr, add};
+pub use numeric_projection::{
+    NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
+};
 pub use scalar_projection::ValueProjectionExpr;
 pub use text_projection::{
     TextProjectionExpr, contains, ends_with, left, length, lower, ltrim, position, replace, right,

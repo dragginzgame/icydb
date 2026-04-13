@@ -77,8 +77,9 @@ pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> Str
 const fn binary_op_sql_label(op: crate::db::query::plan::expr::BinaryOp) -> &'static str {
     match op {
         crate::db::query::plan::expr::BinaryOp::Add => "+",
-        #[cfg(test)]
+        crate::db::query::plan::expr::BinaryOp::Sub => "-",
         crate::db::query::plan::expr::BinaryOp::Mul => "*",
+        crate::db::query::plan::expr::BinaryOp::Div => "/",
         #[cfg(test)]
         crate::db::query::plan::expr::BinaryOp::And => "AND",
         #[cfg(test)]

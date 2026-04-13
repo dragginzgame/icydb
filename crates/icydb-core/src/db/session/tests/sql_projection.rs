@@ -83,8 +83,9 @@ fn assert_projection_columns(
 }
 
 // Assert that one single-column SQL computed projection stays aligned with the
-// shared fluent text-projection terminal over the same ordered response window.
-fn assert_sql_projection_matches_fluent_text_projection(
+// shared fluent bounded value-projection terminal over the same ordered
+// response window.
+fn assert_sql_projection_matches_fluent_value_projection(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     projection: &impl crate::db::ValueProjectionExpr,
@@ -120,7 +121,7 @@ fn execute_sql_projection_scalar_addition_matches_fluent_numeric_projection() {
 
     seed_projection_window_fixture(&session);
 
-    assert_sql_projection_matches_fluent_text_projection(
+    assert_sql_projection_matches_fluent_value_projection(
         &session,
         "SELECT age + 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
         &crate::db::add("age", 1_u64),
@@ -140,6 +141,119 @@ fn execute_sql_projection_scalar_addition_matches_fluent_numeric_projection() {
             )],
         ],
         "scalar arithmetic projection rows",
+    );
+}
+
+#[test]
+fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    for (sql, projection, expected_columns, expected_rows, context) in [
+        (
+            "SELECT age - 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            crate::db::sub("age", 1_u64),
+            vec!["age - 1"],
+            vec![
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_i128(39).expect("39 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_i128(29).expect("29 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_i128(19).expect("19 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_i128(9).expect("9 decimal"),
+                )],
+            ],
+            "scalar subtraction projection",
+        ),
+        (
+            "SELECT age * 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            crate::db::mul("age", 2_u64),
+            vec!["age * 2"],
+            vec![
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(80).expect("80 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(60).expect("60 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(40).expect("40 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(20).expect("20 decimal"),
+                )],
+            ],
+            "scalar multiplication projection",
+        ),
+        (
+            "SELECT age / 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            crate::db::div("age", 2_u64),
+            vec!["age / 2"],
+            vec![
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(20).expect("20 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(15).expect("15 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(10).expect("10 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(5).expect("5 decimal"),
+                )],
+            ],
+            "scalar division projection",
+        ),
+    ] {
+        assert_sql_projection_matches_fluent_value_projection(&session, sql, &projection, context);
+        assert_projection_columns_and_rows(
+            &session,
+            sql,
+            expected_columns.as_slice(),
+            expected_rows,
+            context,
+        );
+    }
+}
+
+#[test]
+fn execute_sql_projection_scalar_round_matches_fluent_numeric_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    assert_sql_projection_matches_fluent_value_projection(
+        &session,
+        "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+        &crate::db::round_expr(&crate::db::div("age", 3_u64), 2),
+        "scalar round projection over bounded arithmetic expression",
+    );
+
+    assert_sql_projection_matches_fluent_value_projection(
+        &session,
+        "SELECT ROUND(age, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+        &crate::db::round("age", 2),
+        "scalar round projection over plain field",
+    );
+
+    assert_projection_columns_and_rows(
+        &session,
+        "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+        &["ROUND(age / 3, 2)"],
+        vec![
+            vec![Value::Decimal(crate::types::Decimal::new(333, 2))],
+            vec![Value::Decimal(crate::types::Decimal::new(667, 2))],
+        ],
+        "scalar round projection rows",
     );
 }
 
@@ -486,7 +600,7 @@ fn fluent_text_projection_terminals_match_sql_projection_matrix() {
             "SUBSTRING(name, 3, 3) parity",
         ),
     ] {
-        assert_sql_projection_matches_fluent_text_projection(&session, sql, &projection, context);
+        assert_sql_projection_matches_fluent_value_projection(&session, sql, &projection, context);
     }
 }
 

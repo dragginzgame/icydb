@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.78.x] 🧮 - 2026-04-13 - Simple Scalar Projection Expressions
 
+- `0.78.1` widens the same bounded scalar projection slice so SQL and fluent now support `+`, `-`, `*`, `/`, and explicit `ROUND(..., n)` over a single field expression, while grouped arithmetic, predicate arithmetic, order-by arithmetic, and generic expression parsing still stay intentionally fail-closed.
 - `0.78.0` starts the next SQL/fluent slice by adding one bounded computed projection shape, so both SQL and fluent can now project `field + numeric_literal` through the same shared expression and evaluation path without widening grouping, filtering, ordering, or generic expression support.
 
 See detailed breakdown:

@@ -8,8 +8,8 @@ use crate::{
         reduced_sql::{Keyword, TokenKind},
         sql::parser::{
             Parser, SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall,
-            SqlArithmeticProjectionOp, SqlProjection, SqlSelectItem, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlArithmeticProjectionOp, SqlProjection, SqlRoundProjectionCall,
+            SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction, SqlTextFunctionCall,
         },
     },
     value::Value,
@@ -55,6 +55,10 @@ impl Parser {
 
         let field = self.expect_identifier()?;
         if self.peek_lparen() {
+            if field.eq_ignore_ascii_case("ROUND") {
+                return Ok(SqlSelectItem::Round(self.parse_round_projection_call()?));
+            }
+
             let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
                 return Err(crate::db::reduced_sql::SqlParseError::unsupported_feature(
                     "SQL function namespace beyond supported aggregate or scalar text projection forms",
@@ -68,7 +72,22 @@ impl Parser {
 
         if self.eat_plus() {
             return Ok(SqlSelectItem::Arithmetic(
-                self.parse_add_projection_call(field)?,
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Add)?,
+            ));
+        }
+        if self.eat_minus() {
+            return Ok(SqlSelectItem::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Sub)?,
+            ));
+        }
+        if self.eat_star() {
+            return Ok(SqlSelectItem::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Mul)?,
+            ));
+        }
+        if self.eat_slash() {
+            return Ok(SqlSelectItem::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Div)?,
             ));
         }
 
@@ -259,17 +278,60 @@ impl Parser {
         ))
     }
 
-    fn parse_add_projection_call(
+    fn parse_arithmetic_projection_call(
         &mut self,
         field: String,
+        op: SqlArithmeticProjectionOp,
     ) -> Result<SqlArithmeticProjectionCall, crate::db::reduced_sql::SqlParseError> {
         let literal = self.parse_literal()?;
 
-        Ok(SqlArithmeticProjectionCall {
-            field,
-            op: SqlArithmeticProjectionOp::Add,
-            literal,
-        })
+        Ok(SqlArithmeticProjectionCall { field, op, literal })
+    }
+
+    fn parse_round_projection_call(
+        &mut self,
+    ) -> Result<SqlRoundProjectionCall, crate::db::reduced_sql::SqlParseError> {
+        self.expect_lparen()?;
+
+        let field = self.expect_identifier()?;
+        let input = if self.eat_plus() {
+            SqlRoundProjectionInput::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Add)?,
+            )
+        } else if self.eat_minus() {
+            SqlRoundProjectionInput::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Sub)?,
+            )
+        } else if self.eat_star() {
+            SqlRoundProjectionInput::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Mul)?,
+            )
+        } else if self.eat_slash() {
+            SqlRoundProjectionInput::Arithmetic(
+                self.parse_arithmetic_projection_call(field, SqlArithmeticProjectionOp::Div)?,
+            )
+        } else {
+            SqlRoundProjectionInput::Field(field)
+        };
+
+        self.expect_round_projection_argument_comma()?;
+        let scale = self.parse_literal()?;
+        self.expect_rparen()?;
+
+        Ok(SqlRoundProjectionCall { input, scale })
+    }
+
+    fn expect_round_projection_argument_comma(
+        &mut self,
+    ) -> Result<(), crate::db::reduced_sql::SqlParseError> {
+        if self.eat_comma() {
+            return Ok(());
+        }
+
+        Err(crate::db::reduced_sql::SqlParseError::expected(
+            "',' between ROUND arguments",
+            self.peek_kind(),
+        ))
     }
 
     const fn text_function_call(

@@ -13,7 +13,7 @@ use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
         executor::projection::eval::{
-            ProjectionEvalError, eval_text_function_call, projection_function_name,
+            ProjectionEvalError, eval_projection_function_call, projection_function_name,
         },
         query::plan::expr::{ScalarProjectionExpr, ScalarProjectionField},
     },
@@ -150,8 +150,8 @@ fn eval_scalar_projection_expr_core<'a, E>(
                 .into_iter()
                 .map(Cow::into_owned)
                 .collect::<Vec<_>>();
-            let value =
-                eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
+            let value = eval_projection_function_call(*function, evaluated_args.as_slice())
+                .map_err(|err| {
                     map_projection_error(ProjectionEvalError::InvalidFunctionCall {
                         function: projection_function_name(*function).to_string(),
                         message: err.to_string(),

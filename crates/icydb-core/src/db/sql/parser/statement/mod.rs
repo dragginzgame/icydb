@@ -20,8 +20,9 @@ use crate::db::{
         Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlAssignment, SqlDeleteStatement,
         SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
         SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection, SqlReturningProjection,
-        SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
+        SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+        SqlTextFunctionCall, SqlUpdateStatement,
     },
 };
 
@@ -274,9 +275,35 @@ pub(super) fn normalize_projection_for_table_alias(
                             literal: call.literal,
                         })
                     }
+                    SqlSelectItem::Round(call) => SqlSelectItem::Round(
+                        normalize_round_projection_call_for_table_alias(call, scope.as_slice()),
+                    ),
                 })
                 .collect(),
         ),
+    }
+}
+
+fn normalize_round_projection_call_for_table_alias(
+    call: SqlRoundProjectionCall,
+    scope: &[String],
+) -> SqlRoundProjectionCall {
+    SqlRoundProjectionCall {
+        input: match call.input {
+            SqlRoundProjectionInput::Field(field) => {
+                SqlRoundProjectionInput::Field(normalize_identifier_to_scope(field, scope))
+            }
+            SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
+                field,
+                op,
+                literal,
+            }) => SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
+                field: normalize_identifier_to_scope(field, scope),
+                op,
+                literal,
+            }),
+        },
+        scale: call.scale,
     }
 }
 
