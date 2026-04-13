@@ -15,11 +15,11 @@ sql = ["icydb/sql"]
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
-icydb = { workspace = true, default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-ten-complex-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { workspace = true, default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-audit-ten-complex-fixtures = { workspace = true }
 
 [lints]

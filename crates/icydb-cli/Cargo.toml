@@ -9,7 +9,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-icydb = { workspace = true, features = ["sql"] }
+icydb = { workspace = true }
 rustyline = { workspace = true }
 serde_json = { workspace = true }
 

@@ -8,7 +8,7 @@ description = "Small schema fixture crate for lightweight SQL smoke canisters"
 
 [dependencies]
 candid = { workspace = true }
-icydb = { workspace = true, default-features = false }
+icydb = { workspace = true }
 
 [lints]
 workspace = true
