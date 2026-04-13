@@ -288,15 +288,15 @@ fn parse_wrapped_field_predicate(
 }
 
 const fn predicate_literal_starts(kind: Option<&TokenKind>) -> bool {
-    match kind {
-        Some(TokenKind::StringLiteral(_)) => true,
-        Some(TokenKind::Number(_)) => true,
-        Some(TokenKind::Minus) => true,
-        Some(TokenKind::Keyword(Keyword::Null)) => true,
-        Some(TokenKind::Keyword(Keyword::True)) => true,
-        Some(TokenKind::Keyword(Keyword::False)) => true,
-        _ => false,
-    }
+    matches!(
+        kind,
+        Some(
+            TokenKind::StringLiteral(_)
+                | TokenKind::Number(_)
+                | TokenKind::Minus
+                | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False,)
+        )
+    )
 }
 
 // Parse one predicate field operand.
