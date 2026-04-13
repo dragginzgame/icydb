@@ -6,7 +6,7 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-icydb = { path = "../../crates/icydb", default-features = false }
+icydb = { workspace = true, default-features = false }
 
 [lints]
 workspace = true
