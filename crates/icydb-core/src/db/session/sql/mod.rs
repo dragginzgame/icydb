@@ -4,7 +4,6 @@
 //! Does not own: SQL parsing or structural executor runtime behavior.
 //! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
-mod computed_projection;
 mod execute;
 mod explain;
 mod projection;
@@ -213,42 +212,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = parse_sql_statement(sql)?;
-
-        // Keep grouped computed SQL on the same computed-projection plan used
-        // by the live statement executor while preserving grouped cursor
-        // behavior for the grouped SELECT test helpers.
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(&parsed)? {
-            let lowered = lower_sql_command_from_prepared_statement(
-                prepare_sql_statement(plan.cloned_base_statement(), E::MODEL.name())
-                    .map_err(QueryError::from_sql_lowering_error)?,
-                E::MODEL.primary_key.name,
-            )
-            .map_err(QueryError::from_sql_lowering_error)?;
-            let Some(query) = lowered.query().cloned() else {
-                return Err(QueryError::unsupported_query(
-                    "grouped SELECT helper requires grouped SELECT",
-                ));
-            };
-            let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
-                .map_err(QueryError::from_sql_lowering_error)?;
-
-            if !query.has_grouping() {
-                return Err(QueryError::unsupported_query(
-                    "grouped SELECT helper rejects scalar computed text projection",
-                ));
-            }
-
-            let execution = self.execute_grouped(&query, cursor_token)?;
-            let (rows, continuation_cursor, execution_trace) = execution.into_parts();
-            let rows =
-                computed_projection::apply_computed_sql_projection_grouped_rows(rows, &plan)?;
-
-            return Ok(PagedGroupedExecutionWithTrace::new(
-                rows,
-                continuation_cursor,
-                execution_trace,
-            ));
-        }
 
         let lowered = lower_sql_command_from_prepared_statement(
             prepare_sql_statement(parsed, E::MODEL.name())

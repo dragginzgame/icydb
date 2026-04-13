@@ -10,13 +10,14 @@ use crate::{
         predicate::{PredicateExecutionModel, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
-            ExecutionShapeSignature, ExpressionOrderTerm, GroupPlan, GroupedAggregateExecutionSpec,
+            ExecutionShapeSignature, GroupPlan, GroupedAggregateExecutionSpec,
             GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile, QueryMode,
             ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource, ScalarPlan,
             StaticPlanningShape, derive_logical_pushdown_eligibility,
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
-                compile_scalar_projection_plan,
+                compile_scalar_projection_expr, compile_scalar_projection_plan,
+                parse_supported_order_expr,
             },
             grouped_aggregate_execution_specs_with_model,
             grouped_aggregate_projection_specs_from_projection_spec,
@@ -517,9 +518,13 @@ fn mark_projection_expr_slots(
             })?;
             referenced[slot] = true;
         }
-        Expr::Aggregate(_) => {}
-        #[cfg(test)]
         Expr::Literal(_) => {}
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                mark_projection_expr_slots(model, arg, referenced)?;
+            }
+        }
+        Expr::Aggregate(_) => {}
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
@@ -604,17 +609,25 @@ fn resolved_order_value_source_for_field(
     model: &EntityModel,
     field: &str,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
-    if let Some(expression) = ExpressionOrderTerm::parse(field) {
-        let slot = resolve_field_slot(model, expression.field()).ok_or_else(|| {
+    if let Some(expr) = parse_supported_order_expr(field) {
+        let Expr::FunctionCall { args, .. } = &expr else {
+            unreachable!("supported order expressions must stay on the function-call shape");
+        };
+        let Expr::Field(field_id) = &args[0] else {
+            unreachable!("supported order expressions must keep one field leaf");
+        };
+        resolve_field_slot(model, field_id.as_str()).ok_or_else(|| {
             InternalError::query_invalid_logical_plan(format!(
                 "order expression references unknown field '{field}'",
             ))
         })?;
+        let compiled = compile_scalar_projection_expr(model, &expr).ok_or_else(|| {
+            InternalError::query_invalid_logical_plan(format!(
+                "order expression '{field}' did not stay on the scalar expression seam",
+            ))
+        })?;
 
-        return Ok(match expression {
-            ExpressionOrderTerm::Lower(_) => ResolvedOrderValueSource::expression_lower(slot),
-            ExpressionOrderTerm::Upper(_) => ResolvedOrderValueSource::expression_upper(slot),
-        });
+        return Ok(ResolvedOrderValueSource::expression(compiled));
     }
 
     let slot = resolve_field_slot(model, field).ok_or_else(|| {
@@ -635,10 +648,7 @@ fn order_referenced_slots_for_resolved_order(
     // Keep one stable slot list without re-parsing order expressions after the
     // planner has already frozen structural ORDER BY sources.
     for field in resolved_order.fields() {
-        let slot = field.source().slot();
-        if !referenced.contains(&slot) {
-            referenced.push(slot);
-        }
+        field.source().extend_referenced_slots(&mut referenced);
     }
 
     Some(referenced)

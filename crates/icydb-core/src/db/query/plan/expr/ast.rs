@@ -4,7 +4,6 @@
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
 use crate::db::query::builder::aggregate::AggregateExpr;
-#[cfg(test)]
 use crate::value::Value;
 
 ///
@@ -107,6 +106,130 @@ pub(crate) enum BinaryOp {
 }
 
 ///
+/// Function
+///
+/// Canonical bounded function taxonomy admitted by planner-owned projection
+/// expressions.
+/// This intentionally stays limited to the shipped text-function surface.
+///
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum Function {
+    Trim,
+    Ltrim,
+    Rtrim,
+    Lower,
+    Upper,
+    Length,
+    Left,
+    Right,
+    StartsWith,
+    EndsWith,
+    Contains,
+    Position,
+    Replace,
+    Substring,
+}
+
+impl Function {
+    /// Return the stable uppercase SQL label for this bounded function.
+    #[must_use]
+    pub(crate) const fn sql_label(self) -> &'static str {
+        match self {
+            Self::Trim => "TRIM",
+            Self::Ltrim => "LTRIM",
+            Self::Rtrim => "RTRIM",
+            Self::Lower => "LOWER",
+            Self::Upper => "UPPER",
+            Self::Length => "LENGTH",
+            Self::Left => "LEFT",
+            Self::Right => "RIGHT",
+            Self::StartsWith => "STARTS_WITH",
+            Self::EndsWith => "ENDS_WITH",
+            Self::Contains => "CONTAINS",
+            Self::Position => "POSITION",
+            Self::Replace => "REPLACE",
+            Self::Substring => "SUBSTRING",
+        }
+    }
+}
+
+/// Parse one supported canonical `ORDER BY` function term into the canonical
+/// expression tree.
+#[must_use]
+pub(in crate::db) fn parse_supported_order_expr(term: &str) -> Option<Expr> {
+    let open_index = term.find('(')?;
+    if !term.ends_with(')') {
+        return None;
+    }
+
+    let function = match &term[..open_index] {
+        name if name.eq_ignore_ascii_case("LOWER") => Function::Lower,
+        name if name.eq_ignore_ascii_case("UPPER") => Function::Upper,
+        _ => return None,
+    };
+    let field = &term[open_index.saturating_add(1)..term.len().saturating_sub(1)];
+
+    Some(Expr::FunctionCall {
+        function,
+        args: vec![Expr::Field(FieldId::new(field))],
+    })
+}
+
+/// Borrow the referenced field when one expression is an admitted `ORDER BY`
+/// function term.
+#[must_use]
+pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId> {
+    match expr {
+        Expr::FunctionCall {
+            function: Function::Lower | Function::Upper,
+            args,
+        } => match args.as_slice() {
+            [Expr::Field(field)] => Some(field),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Rebuild one admitted canonical `ORDER BY` function term with a replacement
+/// field identifier.
+#[must_use]
+pub(in crate::db) fn rewrite_supported_order_expr_field(
+    expr: &Expr,
+    field: impl Into<String>,
+) -> Option<Expr> {
+    let function = match expr {
+        Expr::FunctionCall {
+            function: function @ (Function::Lower | Function::Upper),
+            args,
+        } if matches!(args.as_slice(), [Expr::Field(_)]) => *function,
+        _ => return None,
+    };
+
+    Some(Expr::FunctionCall {
+        function,
+        args: vec![Expr::Field(FieldId::new(field))],
+    })
+}
+
+/// Render one admitted canonical `ORDER BY` function term back into its stable
+/// text form.
+#[must_use]
+pub(in crate::db) fn render_supported_order_expr(expr: &Expr) -> Option<String> {
+    let function = match expr {
+        Expr::FunctionCall {
+            function: function @ (Function::Lower | Function::Upper),
+            args,
+        } if matches!(args.as_slice(), [Expr::Field(_)]) => *function,
+        _ => return None,
+    };
+    let field = supported_order_expr_field(expr)?;
+
+    Some(format!("{}({})", function.sql_label(), field.as_str()))
+}
+
+///
 /// Expr
 ///
 /// Canonical planner-owned expression tree for projection semantics.
@@ -116,8 +239,11 @@ pub(crate) enum BinaryOp {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Expr {
     Field(FieldId),
-    #[cfg(test)]
     Literal(Value),
+    FunctionCall {
+        function: Function,
+        args: Vec<Self>,
+    },
     #[cfg(test)]
     Unary {
         op: UnaryOp,

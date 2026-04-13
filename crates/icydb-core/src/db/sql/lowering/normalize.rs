@@ -1,7 +1,10 @@
 use crate::db::sql::lowering::SqlLoweringError;
 use crate::db::{
     predicate::Predicate,
-    query::plan::ExpressionOrderTerm,
+    query::plan::expr::{
+        parse_supported_order_expr, render_supported_order_expr,
+        rewrite_supported_order_expr_field, supported_order_expr_field,
+    },
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
@@ -233,12 +236,21 @@ pub(in crate::db::sql::lowering) fn normalize_order_terms(
 }
 
 fn normalize_order_term_identifier(identifier: String, entity_scope: &[String]) -> String {
-    let Some(expression) = ExpressionOrderTerm::parse(identifier.as_str()) else {
+    let Some(expression) = parse_supported_order_expr(identifier.as_str()) else {
         return normalize_identifier(identifier, entity_scope);
     };
-    let normalized_field = normalize_identifier(expression.field().to_string(), entity_scope);
+    let normalized_field = normalize_identifier(
+        supported_order_expr_field(&expression)
+            .expect("supported order expression parsing must preserve one field argument")
+            .as_str()
+            .to_string(),
+        entity_scope,
+    );
+    let rewritten = rewrite_supported_order_expr_field(&expression, normalized_field)
+        .expect("supported order expression rewrite must preserve the admitted order function");
 
-    expression.canonical_text_with_field(normalized_field.as_str())
+    render_supported_order_expr(&rewritten)
+        .expect("supported order expression rendering must preserve the admitted order function")
 }
 
 pub(in crate::db::sql::lowering) fn normalize_identifier_list(

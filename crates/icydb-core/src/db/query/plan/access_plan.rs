@@ -10,7 +10,10 @@ use crate::db::{
         AccessChoiceExplainSnapshot, GroupHavingSpec, GroupPlan, GroupSpec,
         GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
         PlannerRouteProfile,
-        expr::{ProjectionSelection, ProjectionSpec, ScalarProjectionExpr},
+        expr::{
+            ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
+            extend_scalar_projection_referenced_slots,
+        },
         model::OrderDirection,
     },
 };
@@ -37,11 +40,10 @@ use crate::db::{
 /// Executor consumers read this frozen source directly instead of re-parsing
 /// field names against the model during sort or cursor evaluation.
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ResolvedOrderValueSource {
     DirectField(usize),
-    ExpressionLower(usize),
-    ExpressionUpper(usize),
+    Expression(ScalarProjectionExpr),
 }
 
 impl ResolvedOrderValueSource {
@@ -51,25 +53,21 @@ impl ResolvedOrderValueSource {
         Self::DirectField(slot)
     }
 
-    /// Construct one lower-cased expression order source.
+    /// Construct one compiled expression order source.
     #[must_use]
-    pub(in crate::db) const fn expression_lower(slot: usize) -> Self {
-        Self::ExpressionLower(slot)
+    pub(in crate::db) const fn expression(expr: ScalarProjectionExpr) -> Self {
+        Self::Expression(expr)
     }
 
-    /// Construct one upper-cased expression order source.
-    #[must_use]
-    pub(in crate::db) const fn expression_upper(slot: usize) -> Self {
-        Self::ExpressionUpper(slot)
-    }
-
-    /// Return the canonical source slot already resolved during planning.
-    #[must_use]
-    pub(in crate::db) const fn slot(self) -> usize {
+    /// Extend one slot list with every field slot this order source touches.
+    pub(in crate::db) fn extend_referenced_slots(&self, referenced: &mut Vec<usize>) {
         match self {
-            Self::DirectField(slot) | Self::ExpressionLower(slot) | Self::ExpressionUpper(slot) => {
-                slot
+            Self::DirectField(slot) => {
+                if !referenced.contains(slot) {
+                    referenced.push(*slot);
+                }
             }
+            Self::Expression(expr) => extend_scalar_projection_referenced_slots(expr, referenced),
         }
     }
 }
@@ -81,7 +79,7 @@ impl ResolvedOrderValueSource {
 /// Each field already carries its structural row source and final direction,
 /// so executor ordering paths can stay purely consumptive.
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ResolvedOrderField {
     source: ResolvedOrderValueSource,
     direction: OrderDirection,
@@ -99,13 +97,13 @@ impl ResolvedOrderField {
 
     /// Borrow the planner-resolved structural row source.
     #[must_use]
-    pub(in crate::db) const fn source(self) -> ResolvedOrderValueSource {
-        self.source
+    pub(in crate::db) const fn source(&self) -> &ResolvedOrderValueSource {
+        &self.source
     }
 
     /// Borrow the final executor-facing direction for this order term.
     #[must_use]
-    pub(in crate::db) const fn direction(self) -> OrderDirection {
+    pub(in crate::db) const fn direction(&self) -> OrderDirection {
         self.direction
     }
 }

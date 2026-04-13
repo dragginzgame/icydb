@@ -105,6 +105,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 
 impl LoweredSqlCommand {
     #[must_use]
+    #[cfg_attr(not(any(test, feature = "perf-attribution")), allow(dead_code))]
     pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
         match &self.0 {
             LoweredSqlCommandInner::Query(query) => Some(query),

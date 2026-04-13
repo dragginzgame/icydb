@@ -7,6 +7,7 @@
 use crate::{
     db::{
         executor::KernelRow,
+        query::builder::text_projection::render_text_projection_expr_sql_label,
         query::{
             builder::aggregate::AggregateExpr,
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
@@ -38,6 +39,7 @@ fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
 fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
+        Expr::Literal(_) | Expr::FunctionCall { .. } => render_text_projection_expr_sql_label(expr),
         Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
     }
 }
@@ -47,9 +49,10 @@ fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
 fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
+        Expr::Literal(_) | Expr::FunctionCall { .. } => render_text_projection_expr_sql_label(expr),
         Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
         Expr::Alias { name, .. } => name.as_str().to_string(),
-        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
+        Expr::Unary { .. } | Expr::Binary { .. } => {
             format!("expr_{ordinal}")
         }
     }

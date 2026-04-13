@@ -13,7 +13,7 @@ use crate::db::{data::CanonicalSlotReader, scalar_expr::eval_canonical_scalar_va
 use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
-        executor::projection::eval::ProjectionEvalError,
+        executor::projection::eval::{ProjectionEvalError, eval_text_function_call},
         query::plan::expr::{ScalarProjectionExpr, ScalarProjectionField},
     },
     error::InternalError,
@@ -62,7 +62,11 @@ pub(in crate::db) fn eval_canonical_scalar_projection_expr_with_required_value_r
 ) -> Result<Cow<'a, Value>, InternalError> {
     #[cfg(not(test))]
     {
-        eval_scalar_projection_expr_core(expr, &mut |field| read_slot(field.slot()))
+        eval_scalar_projection_expr_core(
+            expr,
+            &mut |field| read_slot(field.slot()),
+            &mut ProjectionEvalError::into_invalid_logical_plan_internal_error,
+        )
     }
 
     #[cfg(test)]
@@ -75,7 +79,6 @@ pub(in crate::db) fn eval_canonical_scalar_projection_expr_with_required_value_r
 
 /// Evaluate one compiled scalar projection expression through one pure value
 /// reader that resolves slots directly into runtime `Value`s.
-#[cfg(test)]
 pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_reader(
     expr: &ScalarProjectionExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
@@ -101,13 +104,17 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_ref_reader
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Value, ProjectionEvalError> {
     #[cfg(not(test))]
-    let value = eval_scalar_projection_expr_core(expr, &mut |field| {
-        let Some(value) = read_slot(field.slot()) else {
-            return Err(missing_field_value(field));
-        };
+    let value = eval_scalar_projection_expr_core(
+        expr,
+        &mut |field| {
+            let Some(value) = read_slot(field.slot()) else {
+                return Err(missing_field_value(field));
+            };
 
-        Ok(Cow::Borrowed(value))
-    });
+            Ok(Cow::Borrowed(value))
+        },
+        &mut |err| err,
+    );
 
     #[cfg(test)]
     let value = eval_scalar_projection_expr_core(
@@ -129,9 +136,30 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_ref_reader
 fn eval_scalar_projection_expr_core<'a, E>(
     expr: &'a ScalarProjectionExpr,
     eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
+    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
 ) -> Result<Cow<'a, Value>, E> {
     match expr {
         ScalarProjectionExpr::Field(field) => eval_field(field),
+        ScalarProjectionExpr::Literal(value) => Ok(Cow::Borrowed(value)),
+        ScalarProjectionExpr::FunctionCall { function, args } => {
+            let evaluated_args = args
+                .iter()
+                .map(|arg| eval_scalar_projection_expr_core(arg, eval_field, map_projection_error))
+                .collect::<Result<Vec<_>, _>>()?;
+            let evaluated_args = evaluated_args
+                .into_iter()
+                .map(Cow::into_owned)
+                .collect::<Vec<_>>();
+            let value =
+                eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
+                    map_projection_error(ProjectionEvalError::InvalidFunctionCall {
+                        function: function.sql_label().to_string(),
+                        message: err.to_string(),
+                    })
+                })?;
+
+            Ok(Cow::Owned(value))
+        }
     }
 }
 
@@ -153,6 +181,27 @@ fn eval_scalar_projection_expr_core_impl<'a, E>(
     match expr {
         ScalarProjectionExpr::Field(field) => eval_field(field),
         ScalarProjectionExpr::Literal(value) => Ok(Cow::Borrowed(value)),
+        ScalarProjectionExpr::FunctionCall { function, args } => {
+            let evaluated_args = args
+                .iter()
+                .map(|arg| {
+                    eval_scalar_projection_expr_core_impl(arg, eval_field, map_projection_error)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let evaluated_args = evaluated_args
+                .into_iter()
+                .map(Cow::into_owned)
+                .collect::<Vec<_>>();
+            let value =
+                eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
+                    map_projection_error(ProjectionEvalError::InvalidFunctionCall {
+                        function: function.sql_label().to_string(),
+                        message: err.to_string(),
+                    })
+                })?;
+
+            Ok(Cow::Owned(value))
+        }
         ScalarProjectionExpr::Unary { op, expr } => {
             let operand =
                 eval_scalar_projection_expr_core_impl(expr, eval_field, map_projection_error)?;

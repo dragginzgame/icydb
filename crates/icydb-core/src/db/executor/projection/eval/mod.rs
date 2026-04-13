@@ -5,6 +5,7 @@
 
 mod operators;
 mod scalar;
+mod text_function;
 
 use crate::error::InternalError;
 #[cfg(test)]
@@ -20,9 +21,11 @@ pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 pub(in crate::db) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
-#[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
+pub(in crate::db) use text_function::{
+    eval_text_function_call, eval_text_projection_expr_with_value,
+};
 
 ///
 /// ProjectionEvalError
@@ -72,6 +75,9 @@ pub(in crate::db) enum ProjectionEvalError {
         aggregate_index: usize,
         aggregate_count: usize,
     },
+
+    #[error("projection function '{function}' failed evaluation: {message}")]
+    InvalidFunctionCall { function: String, message: String },
 }
 
 impl ProjectionEvalError {

@@ -609,26 +609,30 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
         "computed text projection explain should still expose the routed access shape",
     );
 
-    for (left_sql, right_sql, context) in [
-        (
-            "EXPLAIN SELECT TRIM(name), COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            "EXPLAIN SELECT name, COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            "grouped computed SQL projection explain",
+    let grouped_err = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT TRIM(name), COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+    )
+    .expect_err("EXPLAIN should stay fail-closed for grouped computed text projection");
+    assert!(
+        matches!(
+            grouped_err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
         ),
-        (
-            "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-            "top-level grouped SELECT DISTINCT explain",
-        ),
-    ] {
-        assert_explain_equivalence_case::<SessionSqlEntity>(&session, left_sql, right_sql, context);
-    }
+        "grouped computed SQL projection explain should remain rejected",
+    );
+
+    let (left_sql, right_sql, context) = (
+        "EXPLAIN SELECT DISTINCT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        "top-level grouped SELECT DISTINCT explain",
+    );
+    assert_explain_equivalence_case::<SessionSqlEntity>(&session, left_sql, right_sql, context);
 }
 
 #[test]

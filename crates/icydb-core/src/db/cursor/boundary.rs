@@ -7,7 +7,10 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         direction::Direction,
-        query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
+        query::plan::{
+            OrderDirection, OrderSpec,
+            expr::{parse_supported_order_expr, supported_order_expr_field},
+        },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::EntityModel,
@@ -116,9 +119,13 @@ fn boundary_order_field_type<'a>(
     schema: &'a SchemaInfo,
     field: &str,
 ) -> Result<&'a FieldType, CursorPlanError> {
-    if let Some(expression) = ExpressionOrderTerm::parse(field) {
+    if let Some(expression) = parse_supported_order_expr(field) {
         return schema
-            .field(expression.field())
+            .field(
+                supported_order_expr_field(&expression)
+                    .expect("supported order expression parsing must preserve one field argument")
+                    .as_str(),
+            )
             .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field));
     }
 

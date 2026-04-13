@@ -266,16 +266,24 @@ fn compile_sql_command_order_by_field_alias_matches_canonical_order_target() {
         panic!("expected lowered canonical query command");
     };
 
+    let alias_plan = alias_query
+        .plan()
+        .expect("field alias plan should build")
+        .into_inner();
+    let canonical_plan = canonical_query
+        .plan()
+        .expect("canonical field plan should build")
+        .into_inner();
+
     assert_eq!(
-        alias_query
-            .plan()
-            .expect("field alias plan should build")
-            .into_inner(),
-        canonical_query
-            .plan()
-            .expect("canonical field plan should build")
-            .into_inner(),
-        "ORDER BY field aliases should normalize onto the same canonical planner order target",
+        alias_plan.scalar_plan().order,
+        canonical_plan.scalar_plan().order,
+        "ORDER BY field aliases should normalize onto the same canonical logical order target",
+    );
+    assert_eq!(
+        alias_plan.resolved_order(),
+        canonical_plan.resolved_order(),
+        "ORDER BY field aliases should preserve the same executor-facing resolved order contract",
     );
 }
 

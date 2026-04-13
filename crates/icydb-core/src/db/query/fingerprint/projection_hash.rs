@@ -3,7 +3,6 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
-#[cfg(test)]
 use crate::db::query::fingerprint::hash_parts::write_value;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
@@ -29,13 +28,13 @@ const PROJECTION_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
 const PROJECTION_FIELD_SCALAR_TAG: u8 = 0x10;
 
 const EXPR_FIELD_TAG: u8 = 0x20;
-#[cfg(test)]
 const EXPR_LITERAL_TAG: u8 = 0x21;
 #[cfg(test)]
 const EXPR_UNARY_TAG: u8 = 0x22;
 #[cfg(test)]
 const EXPR_BINARY_TAG: u8 = 0x23;
 const EXPR_AGGREGATE_TAG: u8 = 0x24;
+const EXPR_FUNCTION_CALL_TAG: u8 = 0x25;
 
 #[cfg(test)]
 const NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG: u8 = 0xA1;
@@ -131,7 +130,6 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             write_tag(hasher, EXPR_FIELD_TAG);
             write_str(hasher, field.as_str());
         }
-        #[cfg(test)]
         Expr::Literal(value) => {
             write_tag(hasher, EXPR_LITERAL_TAG);
             #[cfg(test)]
@@ -142,6 +140,14 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             }
             #[cfg(not(test))]
             write_value(hasher, value);
+        }
+        Expr::FunctionCall { function, args } => {
+            write_tag(hasher, EXPR_FUNCTION_CALL_TAG);
+            write_str(hasher, function.sql_label());
+            write_u32(hasher, u32::try_from(args.len()).unwrap_or(u32::MAX));
+            for arg in args {
+                hash_expr(hasher, arg, numeric_literal_context);
+            }
         }
         #[cfg(test)]
         Expr::Unary { op, expr } => {

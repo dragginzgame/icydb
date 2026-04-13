@@ -7,7 +7,8 @@ use crate::{
     db::{
         access::validate_access_structure_model as validate_access_structure_model_shared,
         query::plan::{
-            AccessPlannedQuery, ExpressionOrderTerm, LogicalPlan, OrderSpec, ScalarPlan,
+            AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
+            expr::parse_supported_order_expr,
             validate::{
                 GroupPlanError, PlanError, PolicyPlanError,
                 grouped::{
@@ -135,7 +136,7 @@ fn validate_expression_order_support(
     if !order
         .fields
         .iter()
-        .any(|(field, _)| ExpressionOrderTerm::parse(field).is_some())
+        .any(|(field, _)| parse_supported_order_expr(field).is_some())
     {
         return Ok(());
     }

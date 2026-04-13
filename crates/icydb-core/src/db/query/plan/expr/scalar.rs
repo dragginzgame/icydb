@@ -9,7 +9,6 @@ use crate::db::query::plan::expr::{BinaryOp, UnaryOp};
 use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 #[cfg(test)]
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
-#[cfg(test)]
 use crate::value::Value;
 use crate::{
     db::query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
@@ -29,8 +28,11 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ScalarProjectionExpr {
     Field(ScalarProjectionField),
-    #[cfg(test)]
     Literal(Value),
+    FunctionCall {
+        function: crate::db::query::plan::expr::Function,
+        args: Vec<Self>,
+    },
     #[cfg(test)]
     Unary {
         op: UnaryOp,
@@ -82,6 +84,36 @@ impl ScalarProjectionField {
     }
 }
 
+/// Extend one slot list with every field slot referenced by one compiled
+/// scalar projection expression.
+pub(in crate::db) fn extend_scalar_projection_referenced_slots(
+    expr: &ScalarProjectionExpr,
+    referenced: &mut Vec<usize>,
+) {
+    match expr {
+        ScalarProjectionExpr::Field(field) => {
+            if !referenced.contains(&field.slot()) {
+                referenced.push(field.slot());
+            }
+        }
+        ScalarProjectionExpr::Literal(_) => {}
+        ScalarProjectionExpr::FunctionCall { args, .. } => {
+            for arg in args {
+                extend_scalar_projection_referenced_slots(arg, referenced);
+            }
+        }
+        #[cfg(test)]
+        ScalarProjectionExpr::Unary { expr, .. } => {
+            extend_scalar_projection_referenced_slots(expr.as_ref(), referenced);
+        }
+        #[cfg(test)]
+        ScalarProjectionExpr::Binary { left, right, .. } => {
+            extend_scalar_projection_referenced_slots(left.as_ref(), referenced);
+            extend_scalar_projection_referenced_slots(right.as_ref(), referenced);
+        }
+    }
+}
+
 /// Compile one scalar projection expression into a planner-owned slot-resolved
 /// program when it stays entirely on the scalar seam.
 #[must_use]
@@ -102,10 +134,30 @@ pub(in crate::db) fn compile_scalar_projection_expr(
                 program,
             }))
         }
-        #[cfg(test)]
-        Expr::Literal(value) => compile_scalar_literal_expr_value(value)
-            .map(scalar_expr_value_into_value)
-            .map(ScalarProjectionExpr::Literal),
+        Expr::Literal(value) => {
+            #[cfg(test)]
+            {
+                compile_scalar_literal_expr_value(value)
+                    .map(scalar_expr_value_into_value)
+                    .map(ScalarProjectionExpr::Literal)
+            }
+
+            #[cfg(not(test))]
+            {
+                Some(ScalarProjectionExpr::Literal(value.clone()))
+            }
+        }
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .iter()
+                .map(|arg| compile_scalar_projection_expr(model, arg))
+                .collect::<Option<Vec<_>>>()?;
+
+            Some(ScalarProjectionExpr::FunctionCall {
+                function: *function,
+                args,
+            })
+        }
         #[cfg(test)]
         Expr::Unary { op, expr } => {
             compile_scalar_projection_expr(model, expr.as_ref()).map(|expr| {

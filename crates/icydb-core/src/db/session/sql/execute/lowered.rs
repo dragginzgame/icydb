@@ -16,7 +16,10 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{EntityAuthority, pipeline::execute_initial_grouped_rows_for_canister},
         query::intent::StructuralQuery,
-        session::sql::{SqlStatementResult, projection::SqlProjectionPayload},
+        session::sql::{
+            SqlStatementResult,
+            projection::{SqlProjectionPayload, projection_labels_from_projection_spec},
+        },
         sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
     },
     traits::CanisterKind,
@@ -190,11 +193,12 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         select: LoweredSelectShape,
         authority: EntityAuthority,
-        columns: Vec<String>,
     ) -> Result<SqlStatementResult, QueryError> {
         let structural = Self::structural_query_from_lowered_select(select, authority)?;
         let (_, plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+        let columns =
+            projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
         let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
             .map_err(QueryError::execute)?;
         let next_cursor = page

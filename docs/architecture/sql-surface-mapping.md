@@ -49,6 +49,11 @@ Operational SQL surfaces are the explicit exception:
 * `SHOW ...`
 * `EXPLAIN ...`
 
+Operational retrieval differences are also explicit exceptions:
+
+* typed cursor pagination
+* byte-metric diagnostics such as `bytes()` and `bytes_by(...)`
+
 Those may remain SQL-shaped without matching fluent builder forms.
 
 ## Surface Matrix
@@ -101,13 +106,39 @@ The strongest row-returning convergence exists on typed/fluent mutation APIs:
 
 These surfaces share one public row/projection payload family.
 
+The main fluent helper terminals are also no longer treated as a separate SQL
+parity gap. They map onto admitted SQL query terms instead of requiring one
+second SQL helper vocabulary:
+
+- `exists()` / `not_exists()` -> `SELECT COUNT(*) ...`
+- `min()` / `max()` -> ordered `SELECT id ... LIMIT 1`
+- `min_by(field)` / `max_by(field)` / `nth_by(field, n)` ->
+  ordered `SELECT id ... ORDER BY field, id`
+- `sum_by(field)` / `avg_by(field)` / `count_distinct_by(field)` ->
+  ordinary global aggregate SQL
+
+Representative evidence:
+
+- `crates/icydb-core/src/db/session/tests/sql_aggregate.rs`
+
+Cursor pagination is different.
+It is not another SQL helper spelling for the same admitted query semantics.
+It is an operational retrieval contract:
+
+- SQL owns filtering, ordering, projection, grouping, aggregation, and
+  mutation semantics
+- typed/fluent APIs own scalar continuation tokens, cursor traversal, and
+  byte-metric diagnostics
+
 ## Where The Surface Is Still Split
 
 ### Computed Text Projection
 
-Computed text projection is shipped and now has one canonical fluent
-representation through the shared `TextProjectionExpr` builder plus fluent
-projection terminals such as:
+Computed text projection is shipped and now lowers through one canonical
+`Expr::FunctionCall` path with executor-owned evaluation.
+
+It also has one canonical fluent representation through the shared
+`TextProjectionExpr` builder plus fluent projection terminals such as:
 
 - `project_values(...)`
 - `project_first_value(...)`
@@ -115,12 +146,15 @@ projection terminals such as:
 
 What is still true is that this remains a narrower projection-terminal family
 rather than one broad row-returning `execute()` projection model.
+Grouped computed text projection is still intentionally rejected in the
+current grouped SQL slice.
 
 Representative evidence:
 
 - `crates/icydb-core/src/db/query/builder/text_projection.rs`
+- `crates/icydb-core/src/db/sql/lowering/select.rs`
+- `crates/icydb-core/src/db/executor/projection/eval/text_function.rs`
 - `crates/icydb-core/src/db/query/fluent/load/terminals.rs`
-- `crates/icydb-core/src/db/session/sql/computed_projection/plan.rs`
 - `crates/icydb-core/src/db/session/tests/sql_surface.rs`
 - `crates/icydb-core/src/db/session/tests/sql_projection.rs`
 
@@ -155,6 +189,9 @@ entrypoint:
 
 - `execute_sql_update::<E>(...)`
 
+That means typed write helpers remain an ergonomic owner, not a missing SQL
+mutation capability.
+
 ## Introspection Boundary
 
 SQL parsing still owns route metadata for:
@@ -173,6 +210,29 @@ But the public operational helpers remain typed/session-owned:
 - `show_columns(...)`
 - `show_entities()`
 - `show_tables()`
+
+## Cursor Pagination Boundary
+
+Cursor-based pagination is not part of the scalar SQL language contract.
+
+- scalar SQL uses `LIMIT` / `OFFSET`
+- typed/fluent APIs expose cursor continuation
+- this split is intentional because cursor behavior is transport-level rather
+  than query-level
+
+Grouped SQL remains the one explicit exception because grouped result payloads
+already return structured `next_cursor` metadata as part of the admitted SQL
+result family.
+
+## Diagnostic Boundary
+
+Byte-metric terminals are not part of the SQL language contract.
+
+- `bytes()`
+- `bytes_by(...)`
+
+These are typed/fluent diagnostic helpers rather than ordinary SQL query
+semantics.
 
 ## Result Rule
 

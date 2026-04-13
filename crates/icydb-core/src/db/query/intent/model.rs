@@ -146,6 +146,17 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self
     }
 
+    /// Override scalar projection selection with one already-lowered planner contract.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::query::intent) fn projection_selection(
+        mut self,
+        selection: ProjectionSelection,
+    ) -> Self {
+        self.intent.set_projection_selection(selection);
+        self
+    }
+
     // Resolve one grouped field into one stable field slot and append it to the
     // grouped spec in declaration order.
     pub(in crate::db::query::intent) fn push_group_field(

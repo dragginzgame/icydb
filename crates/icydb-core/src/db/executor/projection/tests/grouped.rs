@@ -100,6 +100,34 @@ fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
 }
 
 #[test]
+fn grouped_projection_rejects_function_calls_until_grouped_support_is_explicit() {
+    let group_fields = [FieldSlot::from_parts_for_test(1, "label")];
+    let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
+    let key_values = [Value::Text("  Ada  ".to_string())];
+    let grouped_row = GroupedRowView::new(
+        key_values.as_slice(),
+        &[],
+        group_fields.as_slice(),
+        aggregate_execution_specs.as_slice(),
+    );
+    let expr = Expr::FunctionCall {
+        function: crate::db::query::plan::expr::Function::Trim,
+        args: vec![Expr::Field(FieldId::new("label"))],
+    };
+
+    let err = eval_expr_grouped(&expr, &grouped_row)
+        .expect_err("grouped projection should stay fail-closed on function calls");
+
+    assert!(matches!(
+        err,
+        crate::db::executor::projection::ProjectionEvalError::InvalidFunctionCall {
+            function,
+            ..
+        } if function == "TRIM"
+    ));
+}
+
+#[test]
 fn grouped_projection_alias_wrapping_is_semantic_no_op() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_execution_specs = grouped_execution_specs([sum("rank")]);

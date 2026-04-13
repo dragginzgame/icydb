@@ -21,6 +21,7 @@ use crate::{
 pub(crate) enum ProjectionSelection {
     All,
     Fields(Vec<FieldId>),
+    Exprs(Vec<ProjectionField>),
 }
 
 ///
@@ -104,7 +105,7 @@ pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField)
 pub(in crate::db) const fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Field(field) => Some(field.as_str()),
-        Expr::Aggregate(_) => None,
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) => None,
     }
 }
 
@@ -114,7 +115,11 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
     match expr {
         Expr::Field(field) => Some(field.as_str()),
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
-        Expr::Aggregate(_) | Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => None,
+        Expr::Literal(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Aggregate(_)
+        | Expr::Unary { .. }
+        | Expr::Binary { .. } => None,
     }
 }
 
@@ -155,8 +160,10 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
     match expr {
         Expr::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
         Expr::Aggregate(_) => true,
-        #[cfg(test)]
         Expr::Literal(_) => true,
+        Expr::FunctionCall { args, .. } => args
+            .iter()
+            .all(|arg| expr_references_only_fields(arg, allowed)),
         #[cfg(test)]
         Expr::Alias { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
         #[cfg(test)]

@@ -20,6 +20,6 @@ pub(crate) use aggregate::{
 };
 pub use field::FieldRef;
 pub use text_projection::{
-    TextProjectionExpr, TextProjectionTransform, contains, ends_with, left, length, lower, ltrim,
-    position, replace, right, rtrim, starts_with, substring, substring_with_length, trim, upper,
+    TextProjectionExpr, contains, ends_with, left, length, lower, ltrim, position, replace, right,
+    rtrim, starts_with, substring, substring_with_length, trim, upper,
 };

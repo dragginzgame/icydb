@@ -10,7 +10,7 @@ use crate::{
             FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                collect_unique_direct_projection_slots,
+                collect_unique_direct_projection_slots, projection_field_direct_field_name,
             },
         },
     },
@@ -26,7 +26,12 @@ pub(crate) fn lower_projection_intent(
 ) -> ProjectionSpec {
     match logical {
         LogicalPlan::Scalar(_) => lower_scalar_projection(model, selection),
-        LogicalPlan::Grouped(grouped) => lower_grouped_projection_from_plan(grouped),
+        LogicalPlan::Grouped(grouped) => match selection {
+            ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
+            ProjectionSelection::All | ProjectionSelection::Fields(_) => {
+                lower_grouped_projection_from_plan(grouped)
+            }
+        },
     }
 }
 
@@ -48,6 +53,7 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
                 alias: None,
             })
             .collect(),
+        ProjectionSelection::Exprs(fields) => fields.clone(),
     };
 
     ProjectionSpec::new(fields)
@@ -78,6 +84,13 @@ fn lower_scalar_direct_projection_slots(
         ProjectionSelection::Fields(field_ids) => {
             collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
         }
+        ProjectionSelection::Exprs(fields) => collect_unique_direct_projection_slots(
+            model,
+            fields
+                .iter()
+                .map(projection_field_direct_field_name)
+                .collect::<Option<Vec<_>>>()?,
+        ),
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingSpec,
             GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{Expr, ProjectionField, ProjectionSpec},
+            expr::{Expr, ProjectionField, ProjectionSpec, expr_references_only_fields},
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
             validate_grouped_projection_layout,
@@ -684,6 +684,10 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     Vec<GroupedAggregateProjectionSpec>,
     bool,
 ) {
+    let grouped_field_names = group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<Vec<_>>();
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
     let mut aggregate_projection_specs = Vec::new();
@@ -718,23 +722,22 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
                         aggregate_projection_specs.push(aggregate_projection_spec);
                         next_aggregate_index = next_aggregate_index.saturating_add(1);
                     }
-                    #[cfg(test)]
-                    Expr::Literal(_) => {
-                        return Err(InternalError::planner_executor_invariant(format!(
-                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
-                        )));
+                    _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
+                        group_field_positions.push(index);
+                        projection_is_identity &= next_aggregate_index == 0
+                            && matches!(
+                                root_expr,
+                                Expr::Field(field_id)
+                                    if group_fields.get(next_group_field_index).is_some_and(
+                                        |group_field| field_id.as_str() == group_field.field.as_str(),
+                                    )
+                            );
+                        next_group_field_index = next_group_field_index.saturating_add(1);
                     }
-                    #[cfg(test)]
-                    Expr::Unary { .. } | Expr::Binary { .. } => {
-                        return Err(InternalError::planner_executor_invariant(format!(
-                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
-                        )));
-                    }
-                    #[cfg(test)]
-                    Expr::Alias { .. } => {
-                        return Err(InternalError::planner_executor_invariant(
-                            "grouped projection layout alias normalization must remove alias wrappers",
-                        ));
+                    _ => {
+                        group_field_positions.push(index);
+                        projection_is_identity = false;
+                        next_group_field_index = next_group_field_index.saturating_add(1);
                     }
                 }
             }
@@ -767,6 +770,10 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     ),
     InternalError,
 > {
+    let grouped_field_names = group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<Vec<_>>();
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
     let mut aggregate_projection_specs = Vec::new();
@@ -801,7 +808,23 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
                         aggregate_projection_specs.push(aggregate_projection_spec);
                         next_aggregate_index = next_aggregate_index.saturating_add(1);
                     }
-                    Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
+                    Expr::Literal(_)
+                    | Expr::FunctionCall { .. }
+                    | Expr::Unary { .. }
+                    | Expr::Binary { .. }
+                        if expr_references_only_fields(
+                            root_expr,
+                            grouped_field_names.as_slice(),
+                        ) =>
+                    {
+                        group_field_positions.push(index);
+                        projection_is_identity = false;
+                        next_group_field_index = next_group_field_index.saturating_add(1);
+                    }
+                    Expr::Literal(_)
+                    | Expr::FunctionCall { .. }
+                    | Expr::Unary { .. }
+                    | Expr::Binary { .. } => {
                         return Err(InternalError::planner_executor_invariant(format!(
                             "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
                         )));

@@ -21,6 +21,7 @@ use crate::{
             },
         },
         query::{
+            builder::text_projection::render_text_projection_expr_sql_label,
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
@@ -142,13 +143,14 @@ pub(in crate::db::executor::explain::descriptor) fn projection_field_label(
 fn projection_expr_label(expr: &Expr) -> Cow<'_, str> {
     match expr {
         Expr::Field(field) => Cow::Borrowed(field.as_str()),
+        Expr::Literal(_) | Expr::FunctionCall { .. } => {
+            Cow::Owned(render_text_projection_expr_sql_label(expr))
+        }
         Expr::Aggregate(aggregate) => aggregate
             .target_field()
             .map_or_else(|| Cow::Borrowed("aggregate"), Cow::Borrowed),
         #[cfg(test)]
         Expr::Alias { expr, .. } => projection_expr_label(expr),
-        #[cfg(test)]
-        Expr::Literal(_) => Cow::Borrowed("literal"),
         #[cfg(test)]
         Expr::Unary { expr, .. } => projection_expr_label(expr),
         #[cfg(test)]

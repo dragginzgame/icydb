@@ -4,7 +4,6 @@
 //! Does not own: SQL parsing or executor runtime internals.
 //! Boundary: centralizes authority-aware SQL execution classification and result packaging.
 
-mod computed;
 mod lowered;
 
 use crate::{
@@ -20,7 +19,7 @@ use crate::{
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
-            SqlStatementResult, computed_projection,
+            SqlStatementResult,
             projection::{
                 SqlProjectionPayload, execute_sql_projection_rows_for_canister,
                 projection_labels_from_fields, projection_labels_from_projection_spec,
@@ -37,9 +36,9 @@ use crate::{
             prepare_sql_statement,
         },
         sql::parser::{
-            SqlAggregateCall, SqlAggregateKind, SqlInsertSource, SqlInsertStatement,
-            SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem,
-            SqlSelectStatement, SqlStatement, SqlTextFunction, SqlUpdateStatement,
+            SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+            SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
+            SqlUpdateStatement,
         },
     },
     model::{
@@ -85,49 +84,6 @@ fn parsed_requires_dedicated_sql_aggregate_lane(statement: &SqlStatement) -> boo
     crate::db::sql::lowering::is_sql_global_aggregate_statement(statement)
 }
 
-// Project parsed SELECT items into one stable outward column contract while
-// allowing parser-owned aliases to override only the final session label.
-fn sql_projection_labels_from_select_statement(
-    statement: &SqlStatement,
-) -> Result<Option<Vec<String>>, QueryError> {
-    let SqlStatement::Select(select) = statement else {
-        return Err(QueryError::invariant(
-            "SQL projection labels require SELECT statement shape",
-        ));
-    };
-    let SqlProjection::Items(items) = &select.projection else {
-        return Ok(None);
-    };
-
-    Ok(Some(
-        items
-            .iter()
-            .enumerate()
-            .map(|(index, item)| {
-                select
-                    .projection_alias(index)
-                    .map_or_else(|| grouped_sql_projection_item_label(item), str::to_string)
-            })
-            .collect(),
-    ))
-}
-
-// Render one grouped SELECT item into the public grouped-column label used by
-// unified SQL statement results.
-fn grouped_sql_projection_item_label(item: &SqlSelectItem) -> String {
-    match item {
-        SqlSelectItem::Field(field) => field.clone(),
-        SqlSelectItem::Aggregate(aggregate) => grouped_sql_aggregate_call_label(aggregate),
-        SqlSelectItem::TextFunction(call) => {
-            format!(
-                "{}({})",
-                grouped_sql_text_function_name(call.function),
-                call.field
-            )
-        }
-    }
-}
-
 // Keep the dedicated SQL aggregate lane on parser-owned outward labels
 // without reopening alias semantics in lowering or runtime strategy state.
 fn sql_aggregate_statement_label_override(statement: &SqlStatement) -> Option<String> {
@@ -136,43 +92,6 @@ fn sql_aggregate_statement_label_override(statement: &SqlStatement) -> Option<St
     };
 
     select.projection_alias(0).map(str::to_string)
-}
-
-// Render one aggregate call into one canonical SQL-style label.
-fn grouped_sql_aggregate_call_label(aggregate: &SqlAggregateCall) -> String {
-    let kind = match aggregate.kind {
-        SqlAggregateKind::Count => "COUNT",
-        SqlAggregateKind::Sum => "SUM",
-        SqlAggregateKind::Avg => "AVG",
-        SqlAggregateKind::Min => "MIN",
-        SqlAggregateKind::Max => "MAX",
-    };
-
-    match aggregate.field.as_deref() {
-        Some(field) => format!("{kind}({field})"),
-        None => format!("{kind}(*)"),
-    }
-}
-
-// Render one reduced SQL text-function identifier into one stable uppercase
-// SQL label for outward column metadata.
-const fn grouped_sql_text_function_name(function: SqlTextFunction) -> &'static str {
-    match function {
-        SqlTextFunction::Trim => "TRIM",
-        SqlTextFunction::Ltrim => "LTRIM",
-        SqlTextFunction::Rtrim => "RTRIM",
-        SqlTextFunction::Lower => "LOWER",
-        SqlTextFunction::Upper => "UPPER",
-        SqlTextFunction::Length => "LENGTH",
-        SqlTextFunction::Left => "LEFT",
-        SqlTextFunction::Right => "RIGHT",
-        SqlTextFunction::StartsWith => "STARTS_WITH",
-        SqlTextFunction::EndsWith => "ENDS_WITH",
-        SqlTextFunction::Contains => "CONTAINS",
-        SqlTextFunction::Position => "POSITION",
-        SqlTextFunction::Replace => "REPLACE",
-        SqlTextFunction::Substring => "SUBSTRING",
-    }
 }
 
 fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
@@ -1025,27 +944,6 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: reuse the already-shipped scalar computed-projection lane
-        // when the source SELECT widens beyond plain fields but still fits the
-        // admitted session-owned text projection contract.
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(
-            &SqlStatement::Select(source.clone()),
-        )? {
-            let result = self.execute_computed_sql_projection_statement_for_authority(
-                plan,
-                EntityAuthority::for_type::<E>(),
-            )?;
-
-            return match result {
-                SqlStatementResult::Projection { rows, .. } => Ok(rows),
-                other => Err(QueryError::invariant(format!(
-                    "INSERT SELECT computed source must produce projection rows, found {other:?}",
-                ))),
-            };
-        }
-
-        // Phase 2: keep the ordinary field-only source path on the shared
-        // scalar SQL projection lane.
         let prepared = prepare_sql_statement(SqlStatement::Select(source.clone()), E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let lowered =
@@ -1258,20 +1156,17 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         authority: EntityAuthority,
         unsupported_message: &'static str,
-    ) -> Result<(LoweredSqlQuery, Option<Vec<String>>), QueryError> {
+    ) -> Result<LoweredSqlQuery, QueryError> {
         let lowered = lower_sql_query_lane_for_entity(
             statement,
             authority.model().name(),
             authority.model().primary_key.name,
         )?;
-        let projection_columns = matches!(lowered.query(), Some(LoweredSqlQuery::Select(_)))
-            .then(|| sql_projection_labels_from_select_statement(statement))
-            .transpose()?;
         let query = lowered
             .into_query()
             .ok_or_else(|| QueryError::unsupported_query(unsupported_message))?;
 
-        Ok((query, projection_columns.flatten()))
+        Ok(query)
     }
 
     // Execute one parsed SQL query route through the shared aggregate,
@@ -1287,7 +1182,6 @@ impl<C: CanisterKind> DbSession<C> {
             LoweredSelectShape,
             EntityAuthority,
             bool,
-            Option<Vec<String>>,
         ) -> Result<SqlStatementResult, QueryError>,
         execute_delete: impl FnOnce(
             &Self,
@@ -1308,13 +1202,9 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        if let Some(plan) = computed_projection::computed_sql_projection_plan(statement)? {
-            return self.execute_computed_sql_projection_statement_for_authority(plan, authority);
-        }
-
         // Phase 2: lower the remaining query route once, then let the caller
         // decide only the final outward result packaging.
-        let (query, projection_columns) = Self::lowered_sql_query_statement_inputs_for_authority(
+        let query = Self::lowered_sql_query_statement_inputs_for_authority(
             statement,
             authority,
             unsupported_message,
@@ -1323,7 +1213,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match query {
             LoweredSqlQuery::Select(select) => {
-                execute_select(self, select, authority, grouped_surface, projection_columns)
+                execute_select(self, select, authority, grouped_surface)
             }
             LoweredSqlQuery::Delete(delete) => execute_delete(self, delete, authority),
         }
@@ -1337,17 +1227,7 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         authority: EntityAuthority,
     ) -> Result<SqlStatementResult, QueryError> {
-        // Phase 1: keep computed-projection explain ownership on the same
-        // parsed route boundary as the shared query lane.
-        if let Some((mode, plan)) =
-            computed_projection::computed_sql_projection_explain_plan(statement)?
-        {
-            return self
-                .explain_computed_sql_projection_statement_for_authority(mode, plan, authority)
-                .map(SqlStatementResult::Explain);
-        }
-
-        // Phase 2: lower once for execution/logical explain and preserve the
+        // Phase 1: lower once for execution/logical explain and preserve the
         // shared execution-first fallback policy across both callers.
         let lowered = lower_sql_query_lane_for_entity(
             statement,
@@ -1373,61 +1253,48 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         match sql_statement {
-            SqlStatement::Select(_) | SqlStatement::Delete(_) => self.execute_sql_query_route_for_authority(
+            SqlStatement::Select(_) | SqlStatement::Delete(_) => self
+                .execute_sql_query_route_for_authority(
+                    sql_statement,
+                    EntityAuthority::for_type::<E>(),
+                    "execute_sql_statement accepts SELECT or DELETE only",
+                    |session, select, authority, grouped_surface| {
+                        if grouped_surface {
+                            return session.execute_lowered_sql_grouped_statement_select_core(
+                                select, authority,
+                            );
+                        }
+
+                        let payload =
+                            session.execute_lowered_sql_projection_core(select, authority)?;
+                        Ok(payload.into_statement_result())
+                    },
+                    |session, delete, _authority| {
+                        let SqlStatement::Delete(statement) = sql_statement else {
+                            return Err(QueryError::invariant(
+                                "DELETE SQL route must carry parsed DELETE statement",
+                            ));
+                        };
+                        let typed_query = bind_lowered_sql_query::<E>(
+                            LoweredSqlQuery::Delete(delete),
+                            MissingRowPolicy::Ignore,
+                        )
+                        .map_err(QueryError::from_sql_lowering_error)?;
+
+                        match &statement.returning {
+                            Some(returning) => {
+                                session.execute_typed_sql_delete_returning(&typed_query, returning)
+                            }
+                            None => session.execute_typed_sql_delete_count(&typed_query),
+                        }
+                    },
+                ),
+            SqlStatement::Insert(statement) => self.execute_sql_insert_statement::<E>(statement),
+            SqlStatement::Update(statement) => self.execute_sql_update_statement::<E>(statement),
+            SqlStatement::Explain(_) => self.execute_sql_explain_route_for_authority(
                 sql_statement,
                 EntityAuthority::for_type::<E>(),
-                "execute_sql_statement accepts SELECT or DELETE only",
-                |session, select, authority, grouped_surface, projection_columns| {
-                    if grouped_surface {
-                        let columns = projection_columns.ok_or_else(|| {
-                            QueryError::unsupported_query(
-                                "grouped SQL statement execution requires explicit grouped projection items",
-                            )
-                        })?;
-
-                        return session.execute_lowered_sql_grouped_statement_select_core(
-                            select, authority, columns,
-                        );
-                    }
-
-                    let payload = session.execute_lowered_sql_projection_core(select, authority)?;
-                    if let Some(columns) = projection_columns {
-                        let (_, rows, row_count) = payload.into_parts();
-
-                        return Ok(SqlProjectionPayload::new(columns, rows, row_count)
-                            .into_statement_result());
-                    }
-
-                    Ok(payload.into_statement_result())
-                },
-                |session, delete, _authority| {
-                    let SqlStatement::Delete(statement) = sql_statement else {
-                        return Err(QueryError::invariant(
-                            "DELETE SQL route must carry parsed DELETE statement",
-                        ));
-                    };
-                    let typed_query = bind_lowered_sql_query::<E>(
-                        LoweredSqlQuery::Delete(delete),
-                        MissingRowPolicy::Ignore,
-                    )
-                    .map_err(QueryError::from_sql_lowering_error)?;
-
-                    match &statement.returning {
-                        Some(returning) => {
-                            session.execute_typed_sql_delete_returning(&typed_query, returning)
-                        }
-                        None => session.execute_typed_sql_delete_count(&typed_query),
-                    }
-                },
             ),
-            SqlStatement::Insert(statement) => {
-                self.execute_sql_insert_statement::<E>(statement)
-            }
-            SqlStatement::Update(statement) => {
-                self.execute_sql_update_statement::<E>(statement)
-            }
-            SqlStatement::Explain(_) => self
-                .execute_sql_explain_route_for_authority(sql_statement, EntityAuthority::for_type::<E>()),
             SqlStatement::Describe(_) => {
                 Ok(SqlStatementResult::Describe(self.describe_entity::<E>()))
             }

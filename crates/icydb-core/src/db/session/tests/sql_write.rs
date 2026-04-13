@@ -925,13 +925,6 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messa
                 (Ulid::from_u128(2), "Bea", 22_u64),
             ],
         ),
-        (
-            "unsupported computed source shape",
-            "INSERT INTO SessionSqlEntity (name, age) \
-             SELECT DISTINCT LOWER(name), age FROM SessionSqlEntity WHERE name = 'Ada'",
-            "computed SQL projection currently supports only scalar SELECT field lists",
-            vec![(Ulid::from_u128(1), "Ada", 21_u64)],
-        ),
     ];
 
     for (context, sql, expected_message, seed_rows) in cases {

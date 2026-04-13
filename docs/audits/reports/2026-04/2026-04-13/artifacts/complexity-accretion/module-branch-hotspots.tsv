@@ -1,0 +1,11 @@
+module	file	loc	match_count	match_arms_total	avg_match_arms	if_count	if_chain_count	max_branch_depth	fanout	branch_sites_total
+types::decimal	crates/icydb-core/src/types/decimal.rs	860	4	18	4.50	66	65	2	2	69
+db::session::sql::execute	crates/icydb-core/src/db/session/sql/execute/mod.rs	1166	25	84	3.36	40	39	3	6	64
+db::predicate::runtime	crates/icydb-core/src/db/predicate/runtime.rs	1127	39	178	4.56	24	24	3	3	63
+db::sql::parser::statement	crates/icydb-core/src/db/sql/parser/statement.rs	631	7	22	3.14	58	55	2	2	62
+db::reduced_sql::lexer	crates/icydb-core/src/db/reduced_sql/lexer.rs	248	4	67	16.75	57	56	2	1	60
+db::executor::aggregate::contracts::state	crates/icydb-core/src/db/executor/aggregate/contracts/state.rs	765	29	96	3.31	24	24	2	4	53
+db::executor::terminal::page	crates/icydb-core/src/db/executor/terminal/page.rs	1112	11	30	2.73	36	35	3	3	46
+db::query::plan::access_choice::evaluator::range	crates/icydb-core/src/db/query/plan/access_choice/evaluator/range.rs	358	9	23	2.56	33	33	3	2	42
+value	crates/icydb-core/src/value/mod.rs	916	22	158	7.18	20	20	2	3	42
+db::data::structural_field::value_storage	crates/icydb-core/src/db/data/structural_field/value_storage.rs	646	14	96	6.86	26	26	2	4	40

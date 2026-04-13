@@ -334,9 +334,8 @@ where
     session.execute_query(&query)
 }
 
-// Execute one grouped SELECT through the grouped query runtime while preserving
-// the cursor behavior and grouped computed projection coverage expected by the
-// legacy session SQL matrix.
+// Execute one grouped SELECT through the grouped query runtime while keeping
+// grouped-only routing and rejection contracts explicit at the helper boundary.
 fn execute_grouped_select_for_tests<E>(
     session: &impl SessionSqlRef,
     sql: &str,
@@ -387,6 +386,13 @@ where
         SqlStatement::Update(_) => {
             return Err(QueryError::unsupported_query(
                 "grouped SELECT helper rejects UPDATE; use execute_sql_update::<E>()",
+            ));
+        }
+        SqlStatement::Select(statement)
+            if sql_select_has_text_function(statement) && !statement.group_by.is_empty() =>
+        {
+            return Err(QueryError::unsupported_query(
+                "grouped SELECT helper rejects grouped computed text projection",
             ));
         }
         SqlStatement::Select(statement)

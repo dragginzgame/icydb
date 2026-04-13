@@ -7,10 +7,8 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
-        query::plan::{
-            ExpressionOrderTerm, OrderDirection, ResolvedOrder, ResolvedOrderValueSource,
-        },
-        scalar_expr::derive_expression_order_value,
+        executor::projection::eval_scalar_projection_expr_with_value_reader,
+        query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
     },
     value::Value,
 };
@@ -247,17 +245,8 @@ where
     let fields = resolved_order.fields();
     let mut cached_values = CachedOrderValues::with_capacity(fields.len());
 
-    for field in fields.iter().copied() {
-        let value = match field.source() {
-            ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot(slot),
-            ResolvedOrderValueSource::ExpressionLower(slot) => {
-                derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
-            }
-            ResolvedOrderValueSource::ExpressionUpper(slot) => {
-                derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Upper(""))
-            }
-        };
-        cached_values.push(value);
+    for field in fields {
+        cached_values.push(order_value_from_row(row, field.source()).map(Cow::into_owned));
     }
 
     cached_values
@@ -284,7 +273,7 @@ fn compare_cached_order_value_lists(
     for ((left_slot, right_slot), field) in left
         .iter()
         .zip(right.iter())
-        .zip(resolved_order.fields().iter().copied())
+        .zip(resolved_order.fields().iter())
     {
         let ordering = apply_order_direction(
             compare_cached_order_values(left_slot.as_ref(), right_slot.as_ref()),
@@ -304,9 +293,9 @@ fn compare_structural_order_slots<F>(
     mut compare_slot: F,
 ) -> Ordering
 where
-    F: FnMut(usize, ResolvedOrderValueSource, OrderDirection) -> Ordering,
+    F: FnMut(usize, &ResolvedOrderValueSource, OrderDirection) -> Ordering,
 {
-    for (slot_index, field) in resolved_order.fields().iter().copied().enumerate() {
+    for (slot_index, field) in resolved_order.fields().iter().enumerate() {
         let ordering = compare_slot(slot_index, field.source(), field.direction());
         if ordering != Ordering::Equal {
             return ordering;
@@ -317,35 +306,23 @@ where
 }
 
 // Borrow one slot-reader value through the shared ordering seam.
-fn order_value_from_row<R>(row: &R, source: ResolvedOrderValueSource) -> Option<Cow<'_, Value>>
+fn order_value_from_row<'a, R>(
+    row: &'a R,
+    source: &'a ResolvedOrderValueSource,
+) -> Option<Cow<'a, Value>>
 where
     R: OrderReadableRow + ?Sized,
 {
     match source {
-        ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(slot),
-        ResolvedOrderValueSource::ExpressionLower(slot) => {
-            derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
-                .map(Cow::Owned)
-        }
-        ResolvedOrderValueSource::ExpressionUpper(slot) => {
-            derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Upper(""))
-                .map(Cow::Owned)
+        ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(*slot),
+        ResolvedOrderValueSource::Expression(expr) => {
+            eval_scalar_projection_expr_with_value_reader(expr, &mut |slot| {
+                row.read_order_slot(slot)
+            })
+            .ok()
+            .map(Cow::Owned)
         }
     }
-}
-
-// Derive one owned expression-order value from one structural row slot.
-fn derive_expression_order_row_value<R>(
-    row: &R,
-    slot: usize,
-    term: ExpressionOrderTerm<'_>,
-) -> Option<Value>
-where
-    R: OrderReadableRow + ?Sized,
-{
-    let value = row.read_order_slot_cow(slot)?;
-
-    derive_expression_order_value(term, value.as_ref())
 }
 
 // Compare two cached owned ordering values after key precomputation.

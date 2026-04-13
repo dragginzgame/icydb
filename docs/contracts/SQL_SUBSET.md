@@ -38,6 +38,45 @@ The remaining public SQL surfaces are:
 
 Both stay hard-bound to one concrete entity type and return SQL-shaped output.
 
+## Cursor Pagination
+
+Cursor-based pagination is not part of the scalar SQL surface.
+
+- SQL uses `LIMIT` / `OFFSET` for scalar windowing.
+- Cursor pagination is available through typed and fluent APIs.
+- This is intentional: cursor semantics are transport-level, not query
+  semantics.
+
+Grouped SQL is the explicit exception.
+Grouped SQL result payloads may carry `next_cursor` because grouped execution
+already returns structured continuation-aware results as part of its admitted
+surface.
+
+## Operational vs Semantic Features
+
+The SQL surface defines query semantics only.
+
+SQL covers:
+
+- filtering
+- ordering
+- projection
+- grouping
+- aggregation
+- mutation
+
+The following are intentionally not part of SQL:
+
+- cursor-based pagination
+- continuation tokens
+- streaming controls
+- byte-metric diagnostics such as `bytes()` and `bytes_by(...)`
+
+These are available only through typed and fluent APIs.
+
+SQL guarantees semantic equivalence for admitted query and mutation shapes, but
+not transport-level or diagnostic behavior.
+
 ## Supported Public SQL Statements
 
 ### `SELECT`
@@ -140,6 +179,7 @@ Unsupported grouped projection examples:
 - grouped aggregates without grouped keys in the projection
 - grouped keys appearing after aggregate outputs
 - arbitrary expression widening in grouped projection
+- bounded text functions inside grouped projection
 
 ## Projection Aliases
 
@@ -154,7 +194,7 @@ Aliases may label:
 
 - scalar field projections
 - aggregate projections
-- admitted computed text projections
+- admitted scalar computed text projections
 
 `ORDER BY <alias>` is supported only when the alias resolves to an already
 supported order target:

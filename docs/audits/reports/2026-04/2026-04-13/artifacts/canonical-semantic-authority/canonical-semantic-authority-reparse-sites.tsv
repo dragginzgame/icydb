@@ -1,0 +1,7 @@
+concept_family	canonical_parse_or_normalize_site	total_parse_or_normalize_sites	non_canonical_sites	reparse_from_raw_string	duplicated_matcher_or_normalizer_families	drift_risk
+identifier normalization	db/sql/identifier.rs::normalize_identifier_to_scope	37	15	no	2	Medium-Low
+predicate normalization	db/predicate/normalize.rs::normalize + db/query/plan/access_planner.rs::normalize_query_predicate	19	4	no	3	Medium-Low
+index key-item interpretation	db/index/key/expression.rs::derive_index_expression_value	389	375	no	2	Medium
+route/statement classification	db/sql/parser/mod.rs::parse_statement + db/executor/route/contracts/shape.rs::RouteShapeKind	68	66	no	3	Medium-Low
+projection/expression tokenization	db/query/plan/expr/ast.rs::{Expr, FieldId, Alias} + db/session/sql/projection/labels.rs::projection_label_from_expr	822	819	no	3	Medium
+order-key normalization	db/sql/lowering/mod.rs::normalize_order_terms + db/query/plan/logical_builder.rs::canonicalize_order_spec	410	403	no	2	Low

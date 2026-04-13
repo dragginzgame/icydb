@@ -72,7 +72,7 @@ pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{
     DeterministicSecondaryOrderContract, ExecutionOrderContract, ExecutionOrdering,
 };
-pub(in crate::db) use order_term::{ExpressionOrderTerm, index_order_terms};
+pub(in crate::db) use order_term::index_order_terms;
 #[cfg(test)]
 pub(crate) use planner::plan_access;
 pub(crate) use planner::{PlannerError, plan_access_with_order};

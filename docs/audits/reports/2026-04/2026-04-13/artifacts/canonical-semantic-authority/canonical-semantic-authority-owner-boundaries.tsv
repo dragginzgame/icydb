@@ -1,0 +1,9 @@
+concept_family	semantic_owner_modules	owner_count	lowering_boundaries	boundary_count	canonical_bypass_paths	owner_drift_vs_baseline	risk
+identifiers	db/sql/identifier.rs; db/predicate/identifiers.rs	2	SQL lowering identifier scope normalization; predicate field rewrite adapter	2	0	0	Medium-Low
+predicates	db/predicate/normalize.rs; db/predicate/semantics.rs; db/query/plan/access_planner.rs; db/predicate/coercion.rs	4	SQL predicate ingress; planner normalize ingress	2	0	0	Medium-Low
+index key items	model/index.rs; schema/node/index.rs; db/index/key/expression.rs	3	schema key-item metadata to runtime model; runtime expression to derived key value	2	1	0	Medium
+route/statement classification	db/sql/parser/*; db/executor/route/contracts/shape.rs; db/sql/lowering/mod.rs	3	parser statement classification to lowering; lowering plan mode to route shape	2	0	0	Medium-Low
+projection labels	db/query/plan/expr/ast.rs; db/session/sql/projection/labels.rs; db/session/sql/computed_projection/model.rs; db/query/explain/plan.rs	4	planner projection AST to structural SQL presentation labels; bounded text-function plan item to computed SQL output label	2	1	0	Medium-Low
+expression forms	db/query/plan/expr/ast.rs; db/sql/parser/*; db/sql/lowering/mod.rs; db/session/sql/computed_projection/*	4	SQL parsed aggregates and fields to planner Expr AST; SQL text-function projection items to computed projection plan; builder expressions to planner projection selection	3	0	0	Medium
+order keys	db/query/plan/logical_builder.rs; db/query/plan/model.rs; db/sql/parser/mod.rs; db/sql/lowering/mod.rs	4	SQL order terms normalization to query order spec; order spec canonicalization with primary-key tie-break	2	0	0	Medium-Low
+entity/index identity	model/entity.rs; model/index.rs; db/sql/lowering/mod.rs; db/session/sql/dispatch/lowered.rs	4	SQL entity name to typed entity check; schema index metadata to runtime IndexModel identity	2	0	0	Medium-Low

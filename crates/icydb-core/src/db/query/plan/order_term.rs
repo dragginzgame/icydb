@@ -1,55 +1,9 @@
 //! Module: db::query::plan::order_term
-//! Responsibility: canonical ORDER BY term helpers shared by parser/lowering/planner boundaries.
-//! Does not own: SQL statement parsing or executor slot resolution.
-//! Boundary: keeps supported expression-order term parsing and index-key canonicalization in one place.
+//! Responsibility: canonical index-order term rendering shared by planner boundaries.
+//! Does not own: query expression parsing or executor slot resolution.
+//! Boundary: keeps index-key canonicalization in one place.
 
 use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
-
-///
-/// ExpressionOrderTerm
-///
-/// Canonical reduced-SQL expression ORDER BY term supported in the current release.
-/// This keeps expression ordering intentionally narrow until executor fallback
-/// ordering grows beyond raw field-slot comparison.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExpressionOrderTerm<'a> {
-    Lower(&'a str),
-    Upper(&'a str),
-}
-
-impl<'a> ExpressionOrderTerm<'a> {
-    /// Parse one supported expression ORDER BY term from its canonical text form.
-    #[must_use]
-    pub(in crate::db) fn parse(term: &'a str) -> Option<Self> {
-        if let Some(field) = parse_expression_order_term_inner(term, "LOWER") {
-            return Some(Self::Lower(field));
-        }
-        if let Some(field) = parse_expression_order_term_inner(term, "UPPER") {
-            return Some(Self::Upper(field));
-        }
-
-        None
-    }
-
-    /// Borrow the referenced field within this expression order term.
-    #[must_use]
-    pub(in crate::db) const fn field(self) -> &'a str {
-        match self {
-            Self::Lower(field) | Self::Upper(field) => field,
-        }
-    }
-
-    /// Rebuild this term with one replacement field identifier.
-    #[must_use]
-    pub(in crate::db) fn canonical_text_with_field(self, field: &str) -> String {
-        match self {
-            Self::Lower(_) => format!("LOWER({field})"),
-            Self::Upper(_) => format!("UPPER({field})"),
-        }
-    }
-}
 
 /// Return one canonical ORDER BY term list for an index key sequence.
 #[must_use]
@@ -62,15 +16,6 @@ pub(in crate::db) fn index_order_terms(index: &IndexModel) -> Vec<String> {
     }
 }
 
-fn parse_expression_order_term_inner<'a>(term: &'a str, function: &str) -> Option<&'a str> {
-    let open_index = term.find('(')?;
-    if !term[..open_index].eq_ignore_ascii_case(function) || !term.ends_with(')') {
-        return None;
-    }
-
-    Some(&term[open_index.saturating_add(1)..term.len().saturating_sub(1)])
-}
-
 ///
 /// TESTS
 ///
@@ -78,7 +23,12 @@ fn parse_expression_order_term_inner<'a>(term: &'a str, function: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::plan::{ExpressionOrderTerm, index_order_terms},
+        db::query::plan::{
+            expr::{
+                parse_supported_order_expr, render_supported_order_expr, supported_order_expr_field,
+            },
+            index_order_terms,
+        },
         model::index::{IndexExpression, IndexKeyItem, IndexModel},
     };
 
@@ -94,16 +44,27 @@ mod tests {
     );
 
     #[test]
-    fn expression_order_term_parse_recovers_supported_casefold_functions() {
+    fn supported_order_expr_helpers_round_trip_casefold_terms() {
+        let lower = parse_supported_order_expr("LOWER(name)")
+            .expect("lower(name) should parse onto the canonical expression tree");
         assert_eq!(
-            ExpressionOrderTerm::parse("LOWER(name)"),
-            Some(ExpressionOrderTerm::Lower("name")),
+            supported_order_expr_field(&lower)
+                .expect("lower(name) should preserve one field leaf")
+                .as_str(),
+            "name"
         );
         assert_eq!(
-            ExpressionOrderTerm::parse("UPPER(name)"),
-            Some(ExpressionOrderTerm::Upper("name")),
+            render_supported_order_expr(&lower),
+            Some("LOWER(name)".to_string())
         );
-        assert_eq!(ExpressionOrderTerm::parse("TRIM(name)"), None);
+
+        let upper = parse_supported_order_expr("UPPER(email)")
+            .expect("upper(email) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&upper),
+            Some("UPPER(email)".to_string())
+        );
+        assert_eq!(parse_supported_order_expr("TRIM(name)"), None);
     }
 
     #[test]

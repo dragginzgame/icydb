@@ -6,11 +6,17 @@ use crate::db::sql::lowering::{
 };
 use crate::{
     db::{
+        QueryError,
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
-        query::intent::{Query, StructuralQuery},
+        query::{
+            builder::TextProjectionExpr,
+            intent::{Query, StructuralQuery},
+            plan::expr::{Alias, Expr, FieldId, Function, ProjectionField, ProjectionSelection},
+        },
         sql::parser::{
             SqlAggregateCall, SqlDeleteStatement, SqlHavingClause, SqlHavingSymbol,
             SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
+            SqlTextFunction, SqlTextFunctionCall,
         },
     },
     model::{entity::EntityModel, field::FieldKind},
@@ -47,7 +53,7 @@ enum ResolvedHavingClause {
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
-    scalar_projection_fields: Option<Vec<String>>,
+    projection_selection: ProjectionSelection,
     grouped_projection_aggregates: Vec<SqlAggregateCall>,
     group_by_fields: Vec<String>,
     distinct: bool,
@@ -87,7 +93,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
-        projection_aliases: _,
+        projection_aliases,
         predicate,
         distinct,
         group_by,
@@ -101,18 +107,24 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     // Phase 1: resolve scalar/grouped projection shape.
     let has_grouping = !group_by.is_empty();
-    let (scalar_projection_fields, grouped_projection_aggregates, normalized_distinct) =
-        if has_grouping {
-            // Top-level DISTINCT is redundant for the admitted grouped SQL surface:
-            // grouped projection lowering already emits one row per group key plus
-            // declared aggregates, so distinctness does not widen the result set.
-            let grouped_projection_aggregates =
-                grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
-            (None, grouped_projection_aggregates, false)
-        } else {
-            let scalar_projection_fields = lower_scalar_projection_fields(projection, distinct)?;
-            (scalar_projection_fields, Vec::new(), distinct)
-        };
+    let (projection_selection, grouped_projection_aggregates, normalized_distinct) = if has_grouping
+    {
+        // Top-level DISTINCT is redundant for the admitted grouped SQL surface:
+        // grouped projection lowering already emits one row per group key plus
+        // declared aggregates, so distinctness does not widen the result set.
+        let projection_selection = lower_grouped_projection_selection(
+            projection.clone(),
+            projection_aliases.as_slice(),
+            group_by.as_slice(),
+        )?;
+        let grouped_projection_aggregates =
+            grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
+        (projection_selection, grouped_projection_aggregates, false)
+    } else {
+        let projection_selection =
+            lower_scalar_projection_selection(projection, projection_aliases.as_slice(), distinct)?;
+        (projection_selection, Vec::new(), distinct)
+    };
 
     // Phase 2: resolve HAVING symbols against grouped projection authority.
     let having = lower_having_clauses(
@@ -123,7 +135,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     )?;
 
     Ok(LoweredSelectShape {
-        scalar_projection_fields,
+        projection_selection,
         grouped_projection_aggregates,
         group_by_fields: group_by,
         distinct: normalized_distinct,
@@ -135,16 +147,14 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     })
 }
 
-fn lower_scalar_projection_fields(
+fn lower_scalar_projection_selection(
     projection: SqlProjection,
+    projection_aliases: &[Option<String>],
     distinct: bool,
-) -> Result<Option<Vec<String>>, SqlLoweringError> {
+) -> Result<ProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
-        if distinct {
-            return Ok(None);
-        }
-
-        return Ok(None);
+        let _ = distinct;
+        return Ok(ProjectionSelection::All);
     };
 
     let has_aggregate = items
@@ -154,21 +164,328 @@ fn lower_scalar_projection_fields(
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
+    if let Some(field_ids) = direct_scalar_field_selection(items.as_slice(), projection_aliases) {
+        return Ok(ProjectionSelection::Fields(field_ids));
+    }
+
     let fields = items
         .into_iter()
-        .map(|item| match item {
-            SqlSelectItem::Field(field) => Ok(field),
-            SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => {
-                Err(SqlLoweringError::unsupported_select_projection())
-            }
+        .enumerate()
+        .map(|(index, item)| {
+            lower_projection_field(
+                item,
+                projection_aliases.get(index).and_then(Option::as_deref),
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     if distinct && fields.is_empty() {
-        return Ok(Some(fields));
+        return Ok(ProjectionSelection::Exprs(fields));
     }
 
-    Ok(Some(fields))
+    Ok(ProjectionSelection::Exprs(fields))
+}
+
+fn lower_grouped_projection_selection(
+    projection: SqlProjection,
+    projection_aliases: &[Option<String>],
+    group_by: &[String],
+) -> Result<ProjectionSelection, SqlLoweringError> {
+    let SqlProjection::Items(items) = projection else {
+        return Err(SqlLoweringError::unsupported_select_group_by());
+    };
+
+    let mut projected_group_fields = Vec::new();
+    let mut seen_aggregate = false;
+    let mut fields = Vec::with_capacity(items.len());
+
+    for (index, item) in items.into_iter().enumerate() {
+        match &item {
+            SqlSelectItem::Field(field) => {
+                if seen_aggregate {
+                    return Err(SqlLoweringError::unsupported_select_group_by());
+                }
+
+                projected_group_fields.push(field.clone());
+            }
+            SqlSelectItem::TextFunction(_) => {
+                return Err(SqlLoweringError::unsupported_select_group_by());
+            }
+            SqlSelectItem::Aggregate(_) => {
+                seen_aggregate = true;
+            }
+        }
+
+        fields.push(lower_projection_field(
+            item,
+            projection_aliases.get(index).and_then(Option::as_deref),
+        )?);
+    }
+
+    if !seen_aggregate || projected_group_fields.as_slice() != group_by {
+        return Err(SqlLoweringError::unsupported_select_group_by());
+    }
+
+    if projection_aliases.iter().all(Option::is_none) {
+        return Ok(ProjectionSelection::All);
+    }
+
+    Ok(ProjectionSelection::Exprs(fields))
+}
+
+fn direct_scalar_field_selection(
+    items: &[SqlSelectItem],
+    projection_aliases: &[Option<String>],
+) -> Option<Vec<FieldId>> {
+    if !projection_aliases.iter().all(Option::is_none) {
+        return None;
+    }
+
+    items
+        .iter()
+        .map(|item| match item {
+            SqlSelectItem::Field(field) => Some(FieldId::new(field.clone())),
+            SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
+        })
+        .collect()
+}
+
+fn lower_projection_field(
+    item: SqlSelectItem,
+    alias: Option<&str>,
+) -> Result<ProjectionField, SqlLoweringError> {
+    Ok(ProjectionField::Scalar {
+        expr: match item {
+            SqlSelectItem::Field(field) => Expr::Field(FieldId::new(field)),
+            SqlSelectItem::Aggregate(aggregate) => {
+                Expr::Aggregate(lower_aggregate_call(aggregate)?)
+            }
+            SqlSelectItem::TextFunction(call) => lower_text_function_expr(&call)?,
+        },
+        alias: alias.map(Alias::new),
+    })
+}
+
+fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
+    validate_text_function_literal_contract(call)?;
+
+    let projection = match call.function {
+        SqlTextFunction::Trim => TextProjectionExpr::unary(call.field.clone(), Function::Trim),
+        SqlTextFunction::Ltrim => TextProjectionExpr::unary(call.field.clone(), Function::Ltrim),
+        SqlTextFunction::Rtrim => TextProjectionExpr::unary(call.field.clone(), Function::Rtrim),
+        SqlTextFunction::Lower => TextProjectionExpr::unary(call.field.clone(), Function::Lower),
+        SqlTextFunction::Upper => TextProjectionExpr::unary(call.field.clone(), Function::Upper),
+        SqlTextFunction::Length => TextProjectionExpr::unary(call.field.clone(), Function::Length),
+        SqlTextFunction::Left => TextProjectionExpr::with_literal(
+            call.field.clone(),
+            Function::Left,
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::Right => TextProjectionExpr::with_literal(
+            call.field.clone(),
+            Function::Right,
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::StartsWith => TextProjectionExpr::with_literal(
+            call.field.clone(),
+            Function::StartsWith,
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::EndsWith => TextProjectionExpr::with_literal(
+            call.field.clone(),
+            Function::EndsWith,
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::Contains => TextProjectionExpr::with_literal(
+            call.field.clone(),
+            Function::Contains,
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::Position => TextProjectionExpr::position(
+            call.field.clone(),
+            call.literal.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::Replace => TextProjectionExpr::with_two_literals(
+            call.field.clone(),
+            Function::Replace,
+            call.literal.clone().unwrap_or(Value::Null),
+            call.literal2.clone().unwrap_or(Value::Null),
+        ),
+        SqlTextFunction::Substring => match call.literal2.clone() {
+            Some(length) => TextProjectionExpr::with_two_literals(
+                call.field.clone(),
+                Function::Substring,
+                call.literal.clone().unwrap_or(Value::Null),
+                length,
+            ),
+            None => TextProjectionExpr::with_literal(
+                call.field.clone(),
+                Function::Substring,
+                call.literal.clone().unwrap_or(Value::Null),
+            ),
+        },
+    };
+
+    Ok(projection.expr().clone())
+}
+
+fn validate_text_function_literal_contract(
+    call: &SqlTextFunctionCall,
+) -> Result<(), SqlLoweringError> {
+    validate_text_function_primary_literal(
+        call.function,
+        call.field.as_str(),
+        call.literal.as_ref(),
+    )?;
+    validate_text_function_second_literal(
+        call.function,
+        call.field.as_str(),
+        call.literal2.as_ref(),
+    )?;
+    validate_text_function_numeric_literals(
+        call.function,
+        call.field.as_str(),
+        call.literal.as_ref(),
+        call.literal2.as_ref(),
+        call.literal3.as_ref(),
+    )?;
+
+    Ok(())
+}
+
+fn validate_text_function_primary_literal(
+    function: SqlTextFunction,
+    field: &str,
+    literal: Option<&Value>,
+) -> Result<(), SqlLoweringError> {
+    if matches!(
+        function,
+        SqlTextFunction::Substring | SqlTextFunction::Left | SqlTextFunction::Right
+    ) {
+        return Ok(());
+    }
+
+    match literal {
+        None | Some(Value::Null | Value::Text(_)) => Ok(()),
+        Some(other) => Err(QueryError::unsupported_query(format!(
+            "{}({field}, ...) requires text or NULL literal argument, found {other:?}",
+            sql_text_function_to_function(function).sql_label(),
+        ))
+        .into()),
+    }
+}
+
+fn validate_text_function_second_literal(
+    function: SqlTextFunction,
+    field: &str,
+    literal: Option<&Value>,
+) -> Result<(), SqlLoweringError> {
+    match (function, literal) {
+        (SqlTextFunction::Replace, Some(Value::Null | Value::Text(_)))
+        | (SqlTextFunction::Substring, _) => Ok(()),
+        (SqlTextFunction::Replace, Some(other)) => Err(QueryError::unsupported_query(format!(
+            "REPLACE({field}, ..., ...) requires text or NULL replacement literal, found {other:?}",
+        ))
+        .into()),
+        (SqlTextFunction::Replace, None) => Err(QueryError::invariant(
+            "REPLACE projection item was missing its replacement literal",
+        )
+        .into()),
+        (_, None) => Ok(()),
+        (_, Some(_)) => Err(QueryError::invariant(
+            "only REPLACE and SUBSTRING should carry a second projection literal",
+        )
+        .into()),
+    }
+}
+
+fn validate_text_function_numeric_literals(
+    function: SqlTextFunction,
+    field: &str,
+    start: Option<&Value>,
+    len: Option<&Value>,
+    extra: Option<&Value>,
+) -> Result<(), SqlLoweringError> {
+    if !matches!(
+        function,
+        SqlTextFunction::Substring | SqlTextFunction::Left | SqlTextFunction::Right
+    ) {
+        if extra.is_some() {
+            return Err(QueryError::invariant(
+                "only numeric text projection helpers should carry extra literal arguments",
+            )
+            .into());
+        }
+
+        return Ok(());
+    }
+
+    if matches!(function, SqlTextFunction::Left | SqlTextFunction::Right) {
+        let function_name = sql_text_function_to_function(function).sql_label();
+
+        validate_numeric_projection_literal(function_name, field, "length", start, true)?;
+        if len.is_some() || extra.is_some() {
+            return Err(QueryError::invariant(format!(
+                "{function_name} projection item carried unexpected extra literal arguments",
+            ))
+            .into());
+        }
+
+        return Ok(());
+    }
+
+    let function_name = sql_text_function_to_function(function).sql_label();
+
+    validate_numeric_projection_literal(function_name, field, "start", start, true)?;
+    validate_numeric_projection_literal(function_name, field, "length", len, false)?;
+    if extra.is_some() {
+        return Err(QueryError::invariant(
+            "SUBSTRING projection item carried an unexpected extra literal",
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn validate_numeric_projection_literal(
+    function_name: &str,
+    field: &str,
+    label: &str,
+    value: Option<&Value>,
+    required: bool,
+) -> Result<(), SqlLoweringError> {
+    match value {
+        Some(Value::Null | Value::Int(_) | Value::Uint(_)) => Ok(()),
+        Some(other) => Err(QueryError::unsupported_query(format!(
+            "{function_name}({field}, ...) requires integer or NULL {label}, found {other:?}",
+        ))
+        .into()),
+        None if required => Err(QueryError::invariant(format!(
+            "{function_name} projection item was missing its {label} literal",
+        ))
+        .into()),
+        None => Ok(()),
+    }
+}
+
+const fn sql_text_function_to_function(function: SqlTextFunction) -> Function {
+    match function {
+        SqlTextFunction::Trim => Function::Trim,
+        SqlTextFunction::Ltrim => Function::Ltrim,
+        SqlTextFunction::Rtrim => Function::Rtrim,
+        SqlTextFunction::Lower => Function::Lower,
+        SqlTextFunction::Upper => Function::Upper,
+        SqlTextFunction::Length => Function::Length,
+        SqlTextFunction::Left => Function::Left,
+        SqlTextFunction::Right => Function::Right,
+        SqlTextFunction::StartsWith => Function::StartsWith,
+        SqlTextFunction::EndsWith => Function::EndsWith,
+        SqlTextFunction::Contains => Function::Contains,
+        SqlTextFunction::Position => Function::Position,
+        SqlTextFunction::Replace => Function::Replace,
+        SqlTextFunction::Substring => Function::Substring,
+    }
 }
 
 fn lower_having_clauses(
@@ -365,7 +682,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
     lowered: LoweredSelectShape,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let LoweredSelectShape {
-        scalar_projection_fields,
+        projection_selection,
         grouped_projection_aggregates,
         group_by_fields,
         distinct,
@@ -386,9 +703,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
     if distinct {
         query = query.distinct();
     }
-    if let Some(fields) = scalar_projection_fields {
-        query = query.select_fields(fields);
-    }
+    query = query.projection_selection(projection_selection);
     for aggregate in grouped_projection_aggregates {
         query = query.aggregate(lower_aggregate_call(aggregate)?);
     }

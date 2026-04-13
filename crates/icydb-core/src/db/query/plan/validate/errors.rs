@@ -519,6 +519,14 @@ pub enum ExprPlanError {
     #[error("aggregate '{kind}' requires an explicit target field")]
     AggregateTargetRequired { kind: String },
 
+    /// Function call received one incompatible argument type.
+    #[error("function '{function}' argument at index={index} is incompatible with type {found}")]
+    InvalidFunctionArgument {
+        function: String,
+        index: usize,
+        found: String,
+    },
+
     #[cfg(test)]
     /// Unary operation is incompatible with inferred operand type.
     #[error("unary operator '{op}' is incompatible with operand type {found}")]
@@ -561,6 +569,19 @@ impl ExprPlanError {
         Self::NonNumericAggregateTarget {
             kind: kind.into(),
             field: field.into(),
+        }
+    }
+
+    /// Construct one invalid function-argument planner error.
+    pub(crate) fn invalid_function_argument(
+        function: impl Into<String>,
+        index: usize,
+        found: impl Into<String>,
+    ) -> Self {
+        Self::InvalidFunctionArgument {
+            function: function.into(),
+            index,
+            found: found.into(),
         }
     }
 

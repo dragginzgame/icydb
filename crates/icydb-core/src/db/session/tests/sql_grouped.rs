@@ -189,6 +189,12 @@ fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
             false,
         ),
         (
+            "SELECT TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY name",
+            "grouped SELECT helper rejects grouped computed text projection",
+            "grouped computed text projection",
+            false,
+        ),
+        (
             "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
             "grouped SELECT helper rejects DELETE",
             "delete execution",
@@ -1203,56 +1209,20 @@ fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts(
 }
 
 // This grouped payload matrix is intentionally kept as one table-driven surface
-// contract so grouped statement labels, rows, and aliases stay audited together.
-#[expect(
-    clippy::too_many_lines,
-    reason = "grouped payload matrix coverage is table-driven"
-)]
+// contract so grouped statement labels and rows stay audited together.
 #[test]
 fn execute_sql_statement_grouped_payload_matrix() {
-    let cases = [
-        (
-            "statement grouped SQL",
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
-            vec!["age", "COUNT(*)"],
-            vec![
-                (Value::Uint(20), vec![Value::Uint(2)]),
-                (Value::Uint(32), vec![Value::Uint(1)]),
-            ],
-            2u32,
-            false,
-        ),
-        (
-            "statement grouped aliased computed SQL",
-            "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            vec!["trimmed_name", "total"],
-            vec![
-                (Value::from("alpha"), vec![Value::Uint(2)]),
-                (Value::from("beta"), vec![Value::Uint(1)]),
-                (Value::from("gamma"), vec![Value::Uint(1)]),
-            ],
-            3u32,
-            false,
-        ),
-        (
-            "statement grouped computed SQL",
-            "SELECT TRIM(name), COUNT(*) \
-             FROM SessionSqlEntity \
-             GROUP BY name \
-             ORDER BY name ASC LIMIT 10",
-            vec!["TRIM(name)", "COUNT(*)"],
-            vec![
-                (Value::from("alpha"), vec![Value::Uint(2)]),
-                (Value::from("beta"), vec![Value::Uint(1)]),
-                (Value::from("gamma"), vec![Value::Uint(1)]),
-            ],
-            3u32,
-            true,
-        ),
-    ];
+    let cases = [(
+        "statement grouped SQL",
+        "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+        vec!["age", "COUNT(*)"],
+        vec![
+            (Value::Uint(20), vec![Value::Uint(2)]),
+            (Value::Uint(32), vec![Value::Uint(1)]),
+        ],
+        2u32,
+        false,
+    )];
 
     for (context, sql, expected_columns, expected_rows, expected_row_count, check_grouped_api) in
         cases
@@ -1283,17 +1253,6 @@ fn execute_sql_statement_grouped_payload_matrix() {
                         age: 32,
                     })
                     .expect("seed insert should succeed");
-            }
-            "statement grouped aliased computed SQL" | "statement grouped computed SQL" => {
-                seed_session_sql_entities(
-                    &session,
-                    &[
-                        (" alpha ", 20),
-                        (" alpha ", 21),
-                        ("beta", 30),
-                        ("gamma  ", 40),
-                    ],
-                );
             }
             _ => unreachable!("grouped payload matrix is fixed"),
         }
@@ -1332,6 +1291,46 @@ fn execute_sql_statement_grouped_payload_matrix() {
                 "{context} grouped SQL lane should preserve grouped key/value payloads",
             );
         }
+    }
+}
+
+#[test]
+fn execute_sql_statement_grouped_rejects_computed_text_projection_widening() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            (" alpha ", 20),
+            (" alpha ", 21),
+            ("beta", 30),
+            ("gamma  ", 40),
+        ],
+    );
+
+    for sql in [
+        "SELECT TRIM(name), COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+        "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
+         FROM SessionSqlEntity \
+         GROUP BY name \
+         ORDER BY name ASC LIMIT 10",
+    ] {
+        let err = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
+            .expect_err("grouped statement SQL should stay fail-closed for computed projections");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "grouped statement SQL should reject grouped computed projection widening",
+        );
     }
 }
 

@@ -240,6 +240,108 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
 }
 
 #[test]
+fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("helper-a", 20),
+            ("helper-b", 20),
+            ("helper-c", 32),
+            ("helper-d", 40),
+        ],
+    );
+
+    // Phase 1: prove existence helpers are only ergonomic sugar over admitted
+    // SQL aggregate query terms, not separate capability lanes.
+    let existing_count = statement_projection_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect("COUNT(*) SQL should execute for exists() parity");
+    assert_eq!(
+        session
+            .load::<SessionSqlEntity>()
+            .exists()
+            .expect("fluent exists() should succeed"),
+        matches!(existing_count, Value::Uint(count) if count > 0),
+        "exists() should match COUNT(*) > 0 over the same SQL window",
+    );
+
+    let missing_count = statement_projection_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity WHERE name = 'missing-helper'",
+    )
+    .expect("empty COUNT(*) SQL should execute for not_exists() parity");
+    assert_eq!(
+        session
+            .load::<SessionSqlEntity>()
+            .filter(Predicate::eq(
+                "name".to_string(),
+                "missing-helper".to_string().into(),
+            ))
+            .not_exists()
+            .expect("fluent not_exists() should succeed"),
+        matches!(missing_count, Value::Uint(0)),
+        "not_exists() should match COUNT(*) == 0 over the same SQL window",
+    );
+
+    // Phase 2: prove the order-sensitive id helpers map onto ordinary ordered
+    // SQL projection windows instead of requiring a separate SQL helper family.
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+        session
+            .load::<SessionSqlEntity>()
+            .min()
+            .expect("fluent min() should succeed")
+            .map_or(Value::Null, |id| Value::Ulid(id.key())),
+        "min()",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY id DESC LIMIT 1",
+        session
+            .load::<SessionSqlEntity>()
+            .max()
+            .expect("fluent max() should succeed")
+            .map_or(Value::Null, |id| Value::Ulid(id.key())),
+        "max()",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        session
+            .load::<SessionSqlEntity>()
+            .min_by("age")
+            .expect("fluent min_by(age) should succeed")
+            .map_or(Value::Null, |id| Value::Ulid(id.key())),
+        "min_by(age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY age DESC, id ASC LIMIT 1",
+        session
+            .load::<SessionSqlEntity>()
+            .max_by("age")
+            .expect("fluent max_by(age) should succeed")
+            .map_or(Value::Null, |id| Value::Ulid(id.key())),
+        "max_by(age)",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1 OFFSET 1",
+        session
+            .load::<SessionSqlEntity>()
+            .nth_by("age", 1)
+            .expect("fluent nth_by(age, 1) should succeed")
+            .map_or(Value::Null, |id| Value::Ulid(id.key())),
+        "nth_by(age, 1)",
+    );
+}
+
+#[test]
 fn global_aggregate_window_matrix_returns_expected_values() {
     // Phase 1: keep the aggregate window semantics table-driven so bounded
     // windows and offset-empty windows stay covered under one contract.

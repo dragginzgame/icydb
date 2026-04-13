@@ -48,7 +48,7 @@ use super::{
 };
 use crate::db::{
     executor::projection::eval::{
-        eval_canonical_scalar_projection_expr, eval_scalar_projection_expr,
+        eval_canonical_scalar_projection_expr, eval_scalar_projection_expr, eval_text_function_call,
     },
     query::plan::expr::compile_scalar_projection_expr,
 };
@@ -147,6 +147,19 @@ fn eval_expr_with_slot_reader(
             Ok(value)
         }
         Expr::Literal(value) => Ok(value.clone()),
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .iter()
+                .map(|arg| eval_expr_with_slot_reader(arg, fields, read_slot))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            eval_text_function_call(*function, args.as_slice()).map_err(|err| {
+                ProjectionEvalError::InvalidFunctionCall {
+                    function: function.sql_label().to_string(),
+                    message: err.to_string(),
+                }
+            })
+        }
         Expr::Unary { op, expr } => {
             let operand = eval_expr_with_slot_reader(expr.as_ref(), fields, read_slot)?;
             super::eval_unary_expr(*op, &operand)
@@ -184,6 +197,20 @@ fn eval_expr_with_required_value_reader(
             read_slot(field_index)
         }
         Expr::Literal(value) => Ok(value.clone()),
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .iter()
+                .map(|arg| eval_expr_with_required_value_reader(arg, fields, read_slot))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            eval_text_function_call(*function, args.as_slice()).map_err(|err| {
+                ProjectionEvalError::InvalidFunctionCall {
+                    function: function.sql_label().to_string(),
+                    message: err.to_string(),
+                }
+                .into_invalid_logical_plan_internal_error()
+            })
+        }
         Expr::Unary { op, expr } => {
             let operand = eval_expr_with_required_value_reader(expr.as_ref(), fields, read_slot)?;
             super::eval_unary_expr(*op, &operand)

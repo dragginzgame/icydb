@@ -74,7 +74,6 @@ impl<'a> GroupedRowView<'a> {
 pub(in crate::db::executor) enum GroupedProjectionExpr {
     Field(GroupedProjectionField),
     Aggregate(GroupedProjectionAggregate),
-    #[cfg(test)]
     Literal(Value),
     #[cfg(test)]
     Unary {
@@ -182,7 +181,6 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
 
             Ok(value.clone())
         }
-        #[cfg(test)]
         GroupedProjectionExpr::Literal(value) => Ok(value.clone()),
         #[cfg(test)]
         GroupedProjectionExpr::Unary { op, expr } => {
@@ -259,8 +257,19 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 GroupedProjectionAggregate { index },
             ))
         }
-        #[cfg(test)]
         Expr::Literal(value) => Ok(GroupedProjectionExpr::Literal(value.clone())),
+        Expr::FunctionCall { function, .. } => {
+            // Grouped projection stays fail-closed on function calls until the
+            // shared scalar function seam is widened for grouped execution too.
+            // Do not add grouped-only function semantics here; future support
+            // must extend the canonical compiled expression/eval path instead.
+            Err(ProjectionEvalError::InvalidFunctionCall {
+                function: function.sql_label().to_string(),
+                message:
+                    "grouped projection does not admit function expressions in the current slice"
+                        .to_string(),
+            })
+        }
         #[cfg(test)]
         Expr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
             op: *op,

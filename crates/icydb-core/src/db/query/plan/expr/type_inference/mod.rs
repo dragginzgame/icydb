@@ -5,7 +5,6 @@
 
 #[cfg(test)]
 use crate::db::query::plan::expr::ast::{BinaryOp, UnaryOp};
-#[cfg(test)]
 use crate::value::Value;
 use crate::{
     db::{
@@ -14,7 +13,7 @@ use crate::{
             builder::aggregate::AggregateExpr,
             plan::{
                 AggregateKind, PlanError,
-                expr::ast::{Expr, FieldId},
+                expr::ast::{Expr, FieldId, Function},
                 validate::ExprPlanError,
             },
         },
@@ -73,8 +72,10 @@ impl ExprType {
 pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     match expr {
         Expr::Field(field) => infer_field_expr_type(field, schema),
-        #[cfg(test)]
         Expr::Literal(value) => Ok(infer_literal_type(value)),
+        Expr::FunctionCall { function, args } => {
+            infer_function_expr_type(*function, args.as_slice(), schema)
+        }
         Expr::Aggregate(aggregate) => infer_aggregate_expr_type(aggregate, schema),
         #[cfg(test)]
         Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
@@ -85,6 +86,102 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
             infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
     }
+}
+
+fn infer_function_expr_type(
+    function: Function,
+    args: &[Expr],
+    schema: &SchemaInfo,
+) -> Result<ExprType, PlanError> {
+    let arg_types = args
+        .iter()
+        .map(|arg| infer_expr_type(arg, schema))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    match function {
+        Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Lower
+        | Function::Upper
+        | Function::Left
+        | Function::Right
+        | Function::Replace
+        | Function::Substring => {
+            validate_text_function_args(function, arg_types.as_slice())?;
+
+            Ok(ExprType::Text)
+        }
+        Function::Length | Function::Position => {
+            validate_text_function_args(function, arg_types.as_slice())?;
+
+            Ok(ExprType::Numeric(NumericSubtype::Integer))
+        }
+        Function::StartsWith | Function::EndsWith | Function::Contains => {
+            validate_text_function_args(function, arg_types.as_slice())?;
+
+            Ok(ExprType::Bool)
+        }
+    }
+}
+
+fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<(), PlanError> {
+    for (index, arg) in args.iter().enumerate() {
+        #[cfg(test)]
+        if matches!(arg, ExprType::Null) {
+            continue;
+        }
+
+        let text_positions = match function {
+            Function::Trim
+            | Function::Ltrim
+            | Function::Rtrim
+            | Function::Lower
+            | Function::Upper
+            | Function::Length
+            | Function::Left
+            | Function::Right
+            | Function::Substring => &[0][..],
+            Function::StartsWith | Function::EndsWith | Function::Contains | Function::Position => {
+                &[0, 1][..]
+            }
+            Function::Replace => &[0, 1, 2],
+        };
+
+        let numeric_positions = match function {
+            Function::Left | Function::Right => &[1][..],
+            Function::Substring => &[1, 2],
+            _ => &[][..],
+        };
+
+        if text_positions.contains(&index) && !matches!(arg, ExprType::Text) {
+            return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+                function.sql_label(),
+                index,
+                format!("{arg:?}"),
+            )));
+        }
+        let numeric_compatible = matches!(arg, ExprType::Numeric(_)) || {
+            #[cfg(test)]
+            {
+                matches!(arg, ExprType::Null)
+            }
+            #[cfg(not(test))]
+            {
+                false
+            }
+        };
+
+        if numeric_positions.contains(&index) && !numeric_compatible {
+            return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+                function.sql_label(),
+                index,
+                format!("{arg:?}"),
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn resolve_expr_field_kind<'a>(
@@ -278,7 +375,6 @@ const fn infer_numeric_result_subtype(
     }
 }
 
-#[cfg(test)]
 const fn infer_literal_type(value: &Value) -> ExprType {
     match value {
         Value::Bool(_) => ExprType::Bool,
@@ -294,7 +390,16 @@ const fn infer_literal_type(value: &Value) -> ExprType {
         Value::Float32(_) | Value::Float64(_) => ExprType::Numeric(NumericSubtype::Float),
         Value::Decimal(_) => ExprType::Numeric(NumericSubtype::Decimal),
         Value::List(_) | Value::Map(_) => ExprType::Collection,
-        Value::Null => ExprType::Null,
+        Value::Null => {
+            #[cfg(test)]
+            {
+                ExprType::Null
+            }
+            #[cfg(not(test))]
+            {
+                ExprType::Unknown
+            }
+        }
         Value::Account(_)
         | Value::Blob(_)
         | Value::Date(_)

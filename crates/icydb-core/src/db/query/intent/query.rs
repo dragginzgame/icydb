@@ -3,6 +3,8 @@
 //! Does not own: runtime execution semantics or access-path execution behavior.
 //! Boundary: exposes query APIs and emits planner-owned compiled query contracts.
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::ProjectionSelection;
 use crate::{
     db::{
         executor::{
@@ -124,6 +126,13 @@ impl StructuralQuery {
         S: Into<String>,
     {
         self.intent = self.intent.select_fields(fields);
+        self
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) fn projection_selection(mut self, selection: ProjectionSelection) -> Self {
+        self.intent = self.intent.projection_selection(selection);
         self
     }
 
