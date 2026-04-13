@@ -248,6 +248,122 @@ fn execute_sql_scalar_field_to_field_matches_fluent_runtime_result() {
 }
 
 #[test]
+fn execute_sql_scalar_not_between_matches_fluent_runtime_result() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic range matrix for SQL and fluent parity.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("not-between-a", 10),
+            ("not-between-b", 20),
+            ("not-between-c", 30),
+            ("not-between-d", 40),
+        ],
+    );
+
+    // Phase 2: execute the SQL and fluent surfaces over the same outside-range predicate.
+    let sql_rows = execute_sql_name_age_rows(
+        &session,
+        "SELECT * \
+         FROM SessionSqlEntity \
+         WHERE age NOT BETWEEN 20 AND 30 \
+         ORDER BY age ASC",
+    );
+
+    let fluent_rows = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").not_between(20_u64, 30_u64))
+        .order_by("age")
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("fluent NOT BETWEEN query should execute")
+        .into_iter()
+        .map(|row| (row.entity_ref().name.clone(), row.entity_ref().age))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        sql_rows, fluent_rows,
+        "NOT BETWEEN should lower to the same bounded outside-range predicate on SQL and fluent surfaces",
+    );
+    assert_eq!(
+        sql_rows,
+        vec![
+            ("not-between-a".to_string(), 10_u64),
+            ("not-between-d".to_string(), 40_u64),
+        ],
+        "NOT BETWEEN should keep only rows outside the inclusive bounds",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_symmetric_compare_forms_match_canonical_results() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar matrix for symmetric compare forms.
+    seed_session_sql_entities(
+        &session,
+        &[("symmetric-a", 5), ("symmetric-b", 10), ("symmetric-c", 20)],
+    );
+
+    // Phase 2: require literal-leading compares to match the canonical field-first form.
+    let canonical_rows = execute_sql_name_age_rows(
+        &session,
+        "SELECT * FROM SessionSqlEntity WHERE age > 5 ORDER BY age ASC",
+    );
+    let symmetric_rows = execute_sql_name_age_rows(
+        &session,
+        "SELECT * FROM SessionSqlEntity WHERE 5 < age ORDER BY age ASC",
+    );
+
+    assert_eq!(
+        symmetric_rows, canonical_rows,
+        "literal-leading symmetric compares should normalize to the same canonical field-first predicate",
+    );
+
+    // Phase 3: require swapped field equality to match the canonical field order.
+    reset_indexed_session_sql_store();
+    let indexed = indexed_sql_session();
+    for (score, handle, label) in [
+        (10_u64, "same", "same"),
+        (20_u64, "alpha", "zebra"),
+        (30_u64, "omega", "omega"),
+    ] {
+        indexed
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: "gold".to_string(),
+                score,
+                handle: handle.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic range fixture insert should succeed");
+    }
+
+    let canonical_eq = statement_projection_rows::<SessionDeterministicRangeEntity>(
+        &indexed,
+        "SELECT label FROM SessionDeterministicRangeEntity \
+         WHERE handle = label \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("canonical field equality query should execute");
+    let swapped_eq = statement_projection_rows::<SessionDeterministicRangeEntity>(
+        &indexed,
+        "SELECT label FROM SessionDeterministicRangeEntity \
+         WHERE label = handle \
+         ORDER BY score ASC, id ASC",
+    )
+    .expect("swapped field equality query should execute");
+
+    assert_eq!(
+        swapped_eq, canonical_eq,
+        "swapped field equality should normalize to the same canonical compare-fields predicate",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_field_to_field_same_field_compare_keeps_all_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -301,6 +417,25 @@ fn execute_sql_scalar_field_to_field_invalid_type_compare_rejects_semantically()
         err.to_string()
             .contains("operator Gt against field 'age' is not valid for field 'name'"),
         "invalid type compare should preserve the incompatible field-ordering boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_literal_leading_mixed_type_compare_still_rejects_semantically() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_scalar_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity WHERE '5' < age",
+    )
+    .expect_err(
+        "literal-leading mixed-type compare should fail schema validation after normalization",
+    );
+
+    assert!(
+        err.to_string().contains("field 'age'"),
+        "literal-leading normalization should not hide the existing invalid field-vs-literal type error",
     );
 }
 

@@ -176,6 +176,48 @@ fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
         },
         "query(sql) should preserve field-to-field predicate filtering at the live canister boundary",
     );
+
+    let mixed = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE age > 18 AND age > rank ORDER BY age ASC LIMIT 10",
+        )
+        .expect("mixed literal and field-to-field predicate SQL query should succeed"),
+    );
+    assert_eq!(
+        mixed,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["alice".to_string()]],
+            row_count: 1,
+        },
+        "query(sql) should preserve correct residual filtering when a literal predicate and a field-to-field predicate are combined at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_not_between_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let filtered = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE age NOT BETWEEN 25 AND 40 ORDER BY age ASC LIMIT 10",
+        )
+        .expect("NOT BETWEEN SQL query should succeed"),
+    );
+    assert_eq!(
+        filtered,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["bob".to_string()], vec!["charlie".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve NOT BETWEEN filtering at the live canister boundary",
+    );
 }
 
 #[test]

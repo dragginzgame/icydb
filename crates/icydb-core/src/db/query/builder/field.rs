@@ -234,6 +234,12 @@ impl FieldRef {
     pub fn between(self, lower: impl FieldValue, upper: impl FieldValue) -> Predicate {
         Predicate::and(vec![self.gte(lower), self.lte(upper)])
     }
+
+    /// Exclusive-outside range predicate lowered as `field < lower OR field > upper`.
+    #[must_use]
+    pub fn not_between(self, lower: impl FieldValue, upper: impl FieldValue) -> Predicate {
+        Predicate::or(vec![self.lt(lower), self.gt(upper)])
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -291,5 +297,28 @@ mod tests {
         assert_eq!(compare.op(), CompareOp::Gt);
         assert_eq!(compare.right_field(), "rank");
         assert_eq!(compare.coercion().id, CoercionId::NumericWiden);
+    }
+
+    #[test]
+    fn field_ref_not_between_builds_outside_range_predicate() {
+        let predicate = FieldRef::new("age").not_between(10_u64, 20_u64);
+
+        assert_eq!(
+            predicate,
+            Predicate::or(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Lt,
+                    Value::Uint(10),
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gt,
+                    Value::Uint(20),
+                    CoercionId::NumericWiden,
+                )),
+            ])
+        );
     }
 }

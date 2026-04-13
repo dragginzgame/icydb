@@ -167,6 +167,12 @@ impl Predicate {
             Self::lte(field, upper),
         ])
     }
+
+    /// Compare `field NOT BETWEEN lower AND upper`.
+    #[must_use]
+    pub fn not_between(field: String, lower: Value, upper: Value) -> Self {
+        Self::Or(vec![Self::lt(field.clone(), lower), Self::gt(field, upper)])
+    }
 }
 
 impl BitAnd for Predicate {
@@ -229,6 +235,24 @@ impl CompareOp {
     #[must_use]
     pub const fn tag(self) -> u8 {
         self as u8
+    }
+
+    /// Return the operator that preserves semantics when the two operands are swapped.
+    #[must_use]
+    pub const fn flipped(self) -> Self {
+        match self {
+            Self::Eq => Self::Eq,
+            Self::Ne => Self::Ne,
+            Self::Lt => Self::Gt,
+            Self::Lte => Self::Gte,
+            Self::Gt => Self::Lt,
+            Self::Gte => Self::Lte,
+            Self::In => Self::In,
+            Self::NotIn => Self::NotIn,
+            Self::Contains => Self::Contains,
+            Self::StartsWith => Self::StartsWith,
+            Self::EndsWith => Self::EndsWith,
+        }
     }
 }
 
@@ -357,7 +381,22 @@ pub struct CompareFieldsPredicate {
 }
 
 impl CompareFieldsPredicate {
+    fn canonicalize_symmetric_fields(
+        op: CompareOp,
+        left_field: String,
+        right_field: String,
+    ) -> (String, String) {
+        if matches!(op, CompareOp::Eq | CompareOp::Ne) && left_field < right_field {
+            (right_field, left_field)
+        } else {
+            (left_field, right_field)
+        }
+    }
+
     fn new(left_field: String, op: CompareOp, right_field: String) -> Self {
+        let (left_field, right_field) =
+            Self::canonicalize_symmetric_fields(op, left_field, right_field);
+
         Self {
             left_field,
             op,
@@ -375,10 +414,13 @@ impl CompareFieldsPredicate {
         right_field: impl Into<String>,
         coercion: CoercionId,
     ) -> Self {
+        let (left_field, right_field) =
+            Self::canonicalize_symmetric_fields(op, left_field.into(), right_field.into());
+
         Self {
-            left_field: left_field.into(),
+            left_field,
             op,
-            right_field: right_field.into(),
+            right_field,
             coercion: CoercionSpec::new(coercion),
         }
     }

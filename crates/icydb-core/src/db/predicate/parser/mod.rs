@@ -138,6 +138,10 @@ fn parse_predicate_primary(cursor: &mut SqlTokenCursor) -> Result<Predicate, Sql
         return parse_starts_with_predicate(cursor);
     }
 
+    if predicate_literal_starts(cursor.peek_kind()) {
+        return parse_literal_leading_predicate(cursor);
+    }
+
     parse_field_predicate(cursor)
 }
 
@@ -177,7 +181,14 @@ fn parse_plain_field_predicate(
             return parse_in_predicate(cursor, field, true);
         }
 
-        return Err(SqlParseError::expected("IN after NOT", cursor.peek_kind()));
+        if cursor.eat_keyword(Keyword::Between) {
+            return parse_between_predicate(cursor, field, true);
+        }
+
+        return Err(SqlParseError::expected(
+            "IN or BETWEEN after NOT",
+            cursor.peek_kind(),
+        ));
     }
 
     if cursor.eat_keyword(Keyword::In) {
@@ -185,7 +196,7 @@ fn parse_plain_field_predicate(
     }
 
     if cursor.eat_keyword(Keyword::Between) {
-        return parse_between_predicate(cursor, field);
+        return parse_between_predicate(cursor, field, false);
     }
 
     let op = cursor.parse_compare_operator()?;
@@ -197,6 +208,39 @@ fn parse_plain_field_predicate(
     let value = cursor.parse_literal()?;
 
     Ok(predicate_compare(field, op, value))
+}
+
+// Parse one symmetric literal-leading compare and normalize it back onto the
+// canonical field-first predicate seam.
+fn parse_literal_leading_predicate(
+    cursor: &mut SqlTokenCursor,
+) -> Result<Predicate, SqlParseError> {
+    let literal = cursor.parse_literal()?;
+    let op = cursor.parse_compare_operator()?;
+    let operand = parse_predicate_field_operand(cursor)?;
+    let flipped = op.flipped();
+
+    match operand {
+        PredicateFieldOperand::Plain(field) => Ok(predicate_compare(field, flipped, literal)),
+        PredicateFieldOperand::Wrapped { field, wrapper } => {
+            if !matches!(
+                flipped,
+                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+            ) || !matches!(literal, Value::Text(_))
+            {
+                return Err(SqlParseError::unsupported_feature(
+                    wrapper.unsupported_feature(),
+                ));
+            }
+
+            Ok(predicate_compare_with_coercion(
+                field,
+                flipped,
+                literal,
+                CoercionId::TextCasefold,
+            ))
+        }
+    }
 }
 
 // Parse the intentionally narrow wrapped-field predicate family.
@@ -241,6 +285,18 @@ fn parse_wrapped_field_predicate(
         value,
         CoercionId::TextCasefold,
     ))
+}
+
+const fn predicate_literal_starts(kind: Option<&TokenKind>) -> bool {
+    matches!(
+        kind,
+        Some(TokenKind::StringLiteral(_))
+            | Some(TokenKind::Number(_))
+            | Some(TokenKind::Minus)
+            | Some(TokenKind::Keyword(Keyword::Null))
+            | Some(TokenKind::Keyword(Keyword::True))
+            | Some(TokenKind::Keyword(Keyword::False))
+    )
 }
 
 // Parse one predicate field operand.
@@ -388,15 +444,23 @@ fn parse_in_predicate(
 fn parse_between_predicate(
     cursor: &mut SqlTokenCursor,
     field: String,
+    negated: bool,
 ) -> Result<Predicate, SqlParseError> {
     let lower = cursor.parse_literal()?;
     cursor.expect_keyword(Keyword::And)?;
     let upper = cursor.parse_literal()?;
 
-    Ok(Predicate::And(vec![
-        predicate_compare(field.clone(), CompareOp::Gte, lower),
-        predicate_compare(field, CompareOp::Lte, upper),
-    ]))
+    Ok(if negated {
+        Predicate::Or(vec![
+            predicate_compare(field.clone(), CompareOp::Lt, lower),
+            predicate_compare(field, CompareOp::Gt, upper),
+        ])
+    } else {
+        Predicate::And(vec![
+            predicate_compare(field.clone(), CompareOp::Gte, lower),
+            predicate_compare(field, CompareOp::Lte, upper),
+        ])
+    })
 }
 
 fn like_prefix_from_pattern(pattern: &str) -> Option<&str> {

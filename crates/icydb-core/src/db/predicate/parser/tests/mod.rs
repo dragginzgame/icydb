@@ -108,6 +108,30 @@ fn parse_sql_predicate_ordered_text_compares_stay_strict() {
 }
 
 #[test]
+fn parse_sql_predicate_not_between_lowers_to_outside_range_disjunction() {
+    let predicate =
+        parse_sql_predicate("age NOT BETWEEN 10 AND 20").expect("NOT BETWEEN should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Lt,
+                Value::Int(10),
+                CoercionId::NumericWiden,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gt,
+                Value::Int(20),
+                CoercionId::NumericWiden,
+            )),
+        ]),
+    );
+}
+
+#[test]
 fn parse_sql_predicate_wrapped_ordered_text_compares_lower_to_text_casefold() {
     let lower = parse_sql_predicate("LOWER(name) >= 'Al' AND LOWER(name) < 'Am'")
         .expect("LOWER(field) ordered text range should parse");
@@ -236,5 +260,36 @@ fn parse_sql_predicate_parses_field_to_field_compare_leaves() {
             )),
             Predicate::eq_fields("name".to_string(), "label".to_string()),
         ]),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_normalizes_literal_leading_compare_to_field_first() {
+    let predicate = parse_sql_predicate("5 < age").expect("literal-leading compare should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Gt,
+            Value::Int(5),
+            CoercionId::NumericWiden,
+        )),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_normalizes_swapped_field_equality_to_deterministic_order() {
+    let predicate =
+        parse_sql_predicate("dexterity = strength").expect("swapped field equality should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+            "strength",
+            CompareOp::Eq,
+            "dexterity",
+            CoercionId::Strict,
+        )),
     );
 }

@@ -10,7 +10,7 @@ authors = { workspace = true }
 
 [dependencies]
 icydb = { workspace = true }
-rustyline = "15.0"
+rustyline = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

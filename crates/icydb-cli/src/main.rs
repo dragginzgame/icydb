@@ -300,15 +300,13 @@ fn append_perf_suffix(lines: &mut [String], instructions: Option<u64>) {
 
 fn format_instructions(instructions: u64) -> String {
     if instructions >= 1_000_000 {
-        let whole = instructions / 1_000_000;
-        let tenths = (instructions % 1_000_000) / 100_000;
-        return format!("{whole}.{tenths}M instructions");
+        let millions = instructions as f64 / 1_000_000.0;
+        return format!("{millions:.2}M instructions");
     }
 
     if instructions >= 1_000 {
-        let whole = instructions / 1_000;
-        let tenths = (instructions % 1_000) / 100;
-        return format!("{whole}.{tenths}K instructions");
+        let thousands = instructions as f64 / 1_000.0;
+        return format!("{thousands:.2}K instructions");
     }
 
     format!("{instructions} instructions")
@@ -327,6 +325,10 @@ fn parse_perf_result(value: &Value) -> Option<(SqlQueryResult, u64)> {
 }
 
 fn find_result_payload(value: &Value) -> Option<&Value> {
+    if matches!(value, Value::Object(map) if map.contains_key("Ok") || map.contains_key("Err")) {
+        return Some(value);
+    }
+
     if let Some(result) = value.get("result") {
         return Some(result);
     }

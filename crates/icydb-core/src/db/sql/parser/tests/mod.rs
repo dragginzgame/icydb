@@ -251,6 +251,45 @@ fn parse_select_statement_with_field_to_field_predicate() {
 }
 
 #[test]
+fn parse_select_statement_with_symmetric_predicate_forms() {
+    let statement =
+        parse_sql("SELECT * FROM users WHERE 5 < age AND dexterity = strength ORDER BY age ASC")
+            .expect("symmetric predicate forms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: vec![],
+            predicate: Some(Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gt,
+                    Value::Int(5),
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "strength",
+                    CompareOp::Eq,
+                    "dexterity",
+                    CoercionId::Strict,
+                )),
+            ])),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_round_projection_items() {
     for (sql, expected_item, context) in [
         (
