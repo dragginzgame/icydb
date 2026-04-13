@@ -4,12 +4,13 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
-    SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
+    SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
+    SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
+    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+    SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -135,6 +136,58 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
             offset: None,
         }),
     );
+}
+
+#[test]
+fn parse_select_statement_with_scalar_add_projection_item() {
+    let statement = parse_sql("SELECT age + 1 FROM users")
+        .expect("scalar arithmetic projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
+                SqlArithmeticProjectionCall {
+                    field: "age".to_string(),
+                    op: SqlArithmeticProjectionOp::Add,
+                    literal: Value::Int(1),
+                },
+            )]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_rejects_scalar_subtraction_projection_item() {
+    let err = parse_sql("SELECT age - 1 FROM users")
+        .expect_err("subtraction projection should remain fail-closed in the add-only slice");
+
+    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+}
+
+#[test]
+fn parse_select_statement_rejects_field_plus_field_projection_item() {
+    let err = parse_sql("SELECT age + salary FROM users")
+        .expect_err("field-plus-field projection should remain fail-closed in the bounded slice");
+
+    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+}
+
+#[test]
+fn parse_select_statement_rejects_arithmetic_predicates_outside_projection_slice() {
+    let err = parse_sql("SELECT * FROM users WHERE age + 1 > 10")
+        .expect_err("arithmetic predicates should remain outside the shipped slice");
+
+    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
 }
 
 #[test]

@@ -9,7 +9,7 @@ use crate::db::query::{
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
     plan::{
         AggregateKind,
-        expr::{Expr, ProjectionField, ProjectionSpec},
+        expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
     },
 };
 #[cfg(test)]
@@ -17,10 +17,7 @@ use crate::value::Value;
 #[cfg(all(test, feature = "sql"))]
 use crate::{db::codec::new_hash_sha256, db::query::fingerprint::finalize_sha256_digest};
 #[cfg(test)]
-use crate::{
-    db::numeric::coerce_numeric_decimal,
-    db::query::plan::expr::{BinaryOp, UnaryOp},
-};
+use crate::{db::numeric::coerce_numeric_decimal, db::query::plan::expr::UnaryOp};
 use sha2::Sha256;
 
 const PROJECTION_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
@@ -31,7 +28,6 @@ const EXPR_FIELD_TAG: u8 = 0x20;
 const EXPR_LITERAL_TAG: u8 = 0x21;
 #[cfg(test)]
 const EXPR_UNARY_TAG: u8 = 0x22;
-#[cfg(test)]
 const EXPR_BINARY_TAG: u8 = 0x23;
 const EXPR_AGGREGATE_TAG: u8 = 0x24;
 const EXPR_FUNCTION_CALL_TAG: u8 = 0x25;
@@ -47,7 +43,6 @@ const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
 #[cfg(test)]
 const UNARY_OP_NOT_TAG: u8 = 0x02;
 
-#[cfg(test)]
 const BINARY_OP_ADD_TAG: u8 = 0x01;
 #[cfg(test)]
 const BINARY_OP_MUL_TAG: u8 = 0x03;
@@ -155,7 +150,6 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             write_tag(hasher, unary_op_tag(*op));
             hash_expr(hasher, expr.as_ref(), numeric_literal_context);
         }
-        #[cfg(test)]
         Expr::Binary { op, left, right } => {
             write_tag(hasher, EXPR_BINARY_TAG);
             write_tag(hasher, binary_op_tag(*op));
@@ -191,9 +185,14 @@ fn hash_numeric_literal_semantic(hasher: &mut Sha256, value: &Value) {
     write_value(hasher, &Value::Decimal(decimal));
 }
 
-#[cfg(test)]
 const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
-    matches!(op, BinaryOp::Add | BinaryOp::Mul | BinaryOp::Eq)
+    match op {
+        BinaryOp::Add => true,
+        #[cfg(test)]
+        BinaryOp::Mul | BinaryOp::Eq => true,
+        #[cfg(test)]
+        BinaryOp::And => false,
+    }
 }
 
 fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
@@ -222,12 +221,14 @@ const fn unary_op_tag(op: UnaryOp) -> u8 {
     }
 }
 
-#[cfg(test)]
 const fn binary_op_tag(op: BinaryOp) -> u8 {
     match op {
         BinaryOp::Add => BINARY_OP_ADD_TAG,
+        #[cfg(test)]
         BinaryOp::Mul => BINARY_OP_MUL_TAG,
+        #[cfg(test)]
         BinaryOp::And => BINARY_OP_AND_TAG,
+        #[cfg(test)]
         BinaryOp::Eq => BINARY_OP_EQ_TAG,
     }
 }

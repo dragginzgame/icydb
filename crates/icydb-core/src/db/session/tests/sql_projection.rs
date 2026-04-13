@@ -87,7 +87,7 @@ fn assert_projection_columns(
 fn assert_sql_projection_matches_fluent_text_projection(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
-    projection: &crate::db::TextProjectionExpr,
+    projection: &impl crate::db::ValueProjectionExpr,
     context: &str,
 ) {
     let sql_rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
@@ -110,6 +110,36 @@ fn assert_sql_projection_matches_fluent_text_projection(
     assert_eq!(
         fluent_values, sql_values,
         "{context} fluent projection should stay aligned with the SQL projection values",
+    );
+}
+
+#[test]
+fn execute_sql_projection_scalar_addition_matches_fluent_numeric_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    assert_sql_projection_matches_fluent_text_projection(
+        &session,
+        "SELECT age + 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+        &crate::db::add("age", 1_u64),
+        "scalar arithmetic projection",
+    );
+
+    assert_projection_columns_and_rows(
+        &session,
+        "SELECT age + 1 FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+        &["age + 1"],
+        vec![
+            vec![Value::Decimal(
+                crate::types::Decimal::from_u128(11).expect("11 decimal"),
+            )],
+            vec![Value::Decimal(
+                crate::types::Decimal::from_u128(21).expect("21 decimal"),
+            )],
+        ],
+        "scalar arithmetic projection rows",
     );
 }
 

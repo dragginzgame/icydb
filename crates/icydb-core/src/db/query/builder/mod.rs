@@ -5,6 +5,8 @@
 
 pub(crate) mod aggregate;
 pub(crate) mod field;
+pub(crate) mod numeric_projection;
+pub(crate) mod scalar_projection;
 pub(crate) mod text_projection;
 
 pub use aggregate::{
@@ -19,6 +21,8 @@ pub(crate) use aggregate::{
     PreparedFluentScalarTerminalStrategy,
 };
 pub use field::FieldRef;
+pub use numeric_projection::{NumericProjectionExpr, add};
+pub use scalar_projection::ValueProjectionExpr;
 pub use text_projection::{
     TextProjectionExpr, contains, ends_with, left, length, lower, ltrim, position, replace, right,
     rtrim, starts_with, substring, substring_with_length, trim, upper,

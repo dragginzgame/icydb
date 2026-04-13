@@ -17,11 +17,11 @@ use crate::db::{
 use crate::db::{
     reduced_sql::{Keyword, SqlParseError, TokenKind},
     sql::parser::{
-        Parser, SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
-        SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-        SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
-        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-        SqlTextFunctionCall, SqlUpdateStatement,
+        Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlAssignment, SqlDeleteStatement,
+        SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
+        SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection, SqlReturningProjection,
+        SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
     },
 };
 
@@ -267,6 +267,13 @@ pub(super) fn normalize_projection_for_table_alias(
                     SqlSelectItem::TextFunction(call) => SqlSelectItem::TextFunction(
                         normalize_text_function_call_for_table_alias(call, scope.as_slice()),
                     ),
+                    SqlSelectItem::Arithmetic(call) => {
+                        SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
+                            field: normalize_identifier_to_scope(call.field, scope.as_slice()),
+                            op: call.op,
+                            literal: call.literal,
+                        })
+                    }
                 })
                 .collect(),
         ),

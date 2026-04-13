@@ -7,7 +7,7 @@
 use crate::{
     db::{
         executor::KernelRow,
-        query::builder::text_projection::render_text_projection_expr_sql_label,
+        query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::{
             builder::aggregate::AggregateExpr,
             explain::ExplainExecutionNodeDescriptor,
@@ -40,7 +40,9 @@ fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
 fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
-        Expr::Literal(_) | Expr::FunctionCall { .. } => render_text_projection_expr_sql_label(expr),
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Binary { .. } => {
+            render_scalar_projection_expr_sql_label(expr)
+        }
         Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
     }
 }
@@ -50,10 +52,12 @@ fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
 fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
-        Expr::Literal(_) | Expr::FunctionCall { .. } => render_text_projection_expr_sql_label(expr),
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Binary { .. } => {
+            render_scalar_projection_expr_sql_label(expr)
+        }
         Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
         Expr::Alias { name, .. } => name.as_str().to_string(),
-        Expr::Unary { .. } | Expr::Binary { .. } => {
+        Expr::Unary { .. } => {
             format!("expr_{ordinal}")
         }
     }

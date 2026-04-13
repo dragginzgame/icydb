@@ -533,7 +533,6 @@ fn mark_projection_expr_slots(
         Expr::Unary { expr, .. } => {
             mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
         }
-        #[cfg(test)]
         Expr::Binary { left, right, .. } => {
             mark_projection_expr_slots(model, left.as_ref(), referenced)?;
             mark_projection_expr_slots(model, right.as_ref(), referenced)?;

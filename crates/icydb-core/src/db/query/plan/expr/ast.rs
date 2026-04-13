@@ -96,12 +96,14 @@ pub(crate) enum UnaryOp {
 /// Canonical binary expression operator taxonomy.
 ///
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryOp {
     Add,
+    #[cfg(test)]
     Mul,
+    #[cfg(test)]
     And,
+    #[cfg(test)]
     Eq,
 }
 
@@ -249,7 +251,6 @@ pub(crate) enum Expr {
         op: UnaryOp,
         expr: Box<Self>,
     },
-    #[cfg(test)]
     Binary {
         op: BinaryOp,
         left: Box<Self>,

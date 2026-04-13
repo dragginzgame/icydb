@@ -4,6 +4,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+#[cfg(test)]
 mod comparison;
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
     value::Value,
 };
 
-pub(in crate::db::executor) fn eval_binary_expr(
+pub(in crate::db) fn eval_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
@@ -25,8 +26,12 @@ pub(in crate::db::executor) fn eval_binary_expr(
     }
 
     match op {
-        BinaryOp::Add | BinaryOp::Mul => eval_numeric_binary_expr(op, left, right),
+        BinaryOp::Add => eval_numeric_binary_expr(op, left, right),
+        #[cfg(test)]
+        BinaryOp::Mul => eval_numeric_binary_expr(op, left, right),
+        #[cfg(test)]
         BinaryOp::And => eval_boolean_binary_expr(op, left, right),
+        #[cfg(test)]
         BinaryOp::Eq => comparison::eval_equality_binary_expr(op, left, right),
     }
 }
@@ -36,9 +41,7 @@ fn eval_numeric_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    let Some(arithmetic_op) = numeric_arithmetic_op(op) else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
+    let arithmetic_op = numeric_arithmetic_op(op);
     let Some(result) = apply_numeric_arithmetic(arithmetic_op, left, right) else {
         return Err(invalid_binary_operands(op, left, right));
     };
@@ -46,6 +49,7 @@ fn eval_numeric_binary_expr(
     Ok(Value::Decimal(result))
 }
 
+#[cfg(test)]
 fn eval_boolean_binary_expr(
     op: BinaryOp,
     left: &Value,
@@ -55,14 +59,12 @@ fn eval_boolean_binary_expr(
         return Err(invalid_binary_operands(op, left, right));
     };
 
-    let result = match op {
-        BinaryOp::And => *left_bool && *right_bool,
-        BinaryOp::Add | BinaryOp::Mul | BinaryOp::Eq => {
-            unreachable!("boolean binary evaluator called with non-boolean op")
-        }
-    };
+    debug_assert!(
+        matches!(op, BinaryOp::And),
+        "boolean binary evaluator called with non-boolean operator",
+    );
 
-    Ok(Value::Bool(result))
+    Ok(Value::Bool(*left_bool && *right_bool))
 }
 
 pub(super) fn invalid_binary_operands(
@@ -77,19 +79,24 @@ pub(super) fn invalid_binary_operands(
     }
 }
 
-const fn numeric_arithmetic_op(op: BinaryOp) -> Option<NumericArithmeticOp> {
+const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
     match op {
-        BinaryOp::Add => Some(NumericArithmeticOp::Add),
-        BinaryOp::Mul => Some(NumericArithmeticOp::Mul),
-        BinaryOp::And | BinaryOp::Eq => None,
+        BinaryOp::Add => NumericArithmeticOp::Add,
+        #[cfg(test)]
+        BinaryOp::Mul => NumericArithmeticOp::Mul,
+        #[cfg(test)]
+        BinaryOp::And | BinaryOp::Eq => NumericArithmeticOp::Add,
     }
 }
 
 pub(super) const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "add",
+        #[cfg(test)]
         BinaryOp::Mul => "mul",
+        #[cfg(test)]
         BinaryOp::And => "and",
+        #[cfg(test)]
         BinaryOp::Eq => "eq",
     }
 }

@@ -9,10 +9,14 @@ use crate::{
     db::{
         QueryError,
         executor::projection::eval_text_projection_expr_with_value,
-        query::plan::expr::{Expr, FieldId, Function},
+        query::{
+            builder::{
+                ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
+            },
+            plan::expr::{Expr, FieldId, Function},
+        },
     },
     traits::FieldValue,
-    value::Value,
 };
 
 ///
@@ -101,51 +105,24 @@ impl TextProjectionExpr {
         }
     }
 
-    /// Borrow the source field name.
-    #[must_use]
-    pub const fn field(&self) -> &str {
-        self.field.as_str()
-    }
-
     /// Borrow the canonical planner expression carried by this helper.
     #[must_use]
     pub(in crate::db) const fn expr(&self) -> &Expr {
         &self.expr
     }
-
-    /// Render the stable SQL-style output label for this projection.
-    #[must_use]
-    pub fn sql_label(&self) -> String {
-        render_text_projection_expr_sql_label(&self.expr)
-    }
-
-    /// Apply this projection to one already-loaded scalar field value.
-    pub fn apply_value(&self, value: Value) -> Result<Value, QueryError> {
-        eval_text_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
-    }
 }
 
-/// Render one canonical bounded text-function expression back into a stable
-/// SQL-style label.
-#[must_use]
-pub(in crate::db) fn render_text_projection_expr_sql_label(expr: &Expr) -> String {
-    match expr {
-        Expr::Field(field) => field.as_str().to_string(),
-        Expr::Literal(value) => render_text_projection_literal(value),
-        Expr::FunctionCall { function, args } => {
-            let rendered_args = args
-                .iter()
-                .map(render_text_projection_expr_sql_label)
-                .collect::<Vec<_>>()
-                .join(", ");
+impl ValueProjectionExpr for TextProjectionExpr {
+    fn field(&self) -> &str {
+        self.field.as_str()
+    }
 
-            format!("{}({rendered_args})", function.sql_label())
-        }
-        Expr::Aggregate(_) => "aggregate".to_string(),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => render_text_projection_expr_sql_label(expr.as_ref()),
-        #[cfg(test)]
-        Expr::Unary { .. } | Expr::Binary { .. } => "expr".to_string(),
+    fn sql_label(&self) -> String {
+        render_scalar_projection_expr_sql_label(&self.expr)
+    }
+
+    fn apply_value(&self, value: crate::value::Value) -> Result<crate::value::Value, QueryError> {
+        eval_text_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
     }
 }
 
@@ -252,17 +229,6 @@ pub fn substring_with_length(
     )
 }
 
-// Render one projection literal back into a stable SQL-style label fragment.
-fn render_text_projection_literal(value: &Value) -> String {
-    match value {
-        Value::Null => "NULL".to_string(),
-        Value::Text(text) => format!("'{}'", text.replace('\'', "''")),
-        Value::Int(value) => value.to_string(),
-        Value::Uint(value) => value.to_string(),
-        _ => "<invalid-text-literal>".to_string(),
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -270,6 +236,7 @@ fn render_text_projection_literal(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::Value;
 
     #[test]
     fn lower_text_projection_renders_sql_label() {

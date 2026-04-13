@@ -22,7 +22,7 @@ use crate::{
                 PreparedFluentOrderSensitiveTerminalStrategy,
                 PreparedFluentProjectionRuntimeRequest, PreparedFluentProjectionStrategy,
                 PreparedFluentScalarTerminalRuntimeRequest, PreparedFluentScalarTerminalStrategy,
-                TextProjectionExpr,
+                ValueProjectionExpr,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
@@ -213,13 +213,16 @@ where
         })
     }
 
-    // Apply one shared text projection to iterator-like terminal output while
-    // preserving source order and cardinality.
-    fn project_terminal_items<T, U>(
-        projection: &TextProjectionExpr,
+    // Apply one shared bounded value projection to iterator-like terminal
+    // output while preserving source order and cardinality.
+    fn project_terminal_items<P, T, U>(
+        projection: &P,
         values: impl IntoIterator<Item = T>,
-        mut map: impl FnMut(&TextProjectionExpr, T) -> Result<U, QueryError>,
-    ) -> Result<Vec<U>, QueryError> {
+        mut map: impl FnMut(&P, T) -> Result<U, QueryError>,
+    ) -> Result<Vec<U>, QueryError>
+    where
+        P: ValueProjectionExpr,
+    {
         values
             .into_iter()
             .map(|value| map(projection, value))
@@ -675,11 +678,12 @@ where
         })
     }
 
-    /// Execute and return projected values for one shared text projection over
-    /// the effective response window.
-    pub fn project_values(&self, projection: &TextProjectionExpr) -> Result<Vec<Value>, QueryError>
+    /// Execute and return projected values for one shared bounded projection
+    /// over the effective response window.
+    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<Value>, QueryError>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         self.ensure_non_paged_mode_ready()?;
 
@@ -698,12 +702,13 @@ where
     }
 
     /// Explain `project_values(projection)` routing without executing it.
-    pub fn explain_project_values(
+    pub fn explain_project_values<P>(
         &self,
-        projection: &TextProjectionExpr,
+        projection: &P,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         self.ensure_non_paged_mode_ready()?;
 
@@ -943,14 +948,15 @@ where
         })
     }
 
-    /// Execute and return projected id/value pairs for one shared text
+    /// Execute and return projected id/value pairs for one shared bounded
     /// projection over the effective response window.
-    pub fn project_values_with_ids(
+    pub fn project_values_with_ids<P>(
         &self,
-        projection: &TextProjectionExpr,
+        projection: &P,
     ) -> Result<Vec<(Id<E>, Value)>, QueryError>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         self.ensure_non_paged_mode_ready()?;
 
@@ -1002,14 +1008,12 @@ where
         })
     }
 
-    /// Execute and return the first projected value for one shared text
+    /// Execute and return the first projected value for one shared bounded
     /// projection in effective response order, if any.
-    pub fn project_first_value(
-        &self,
-        projection: &TextProjectionExpr,
-    ) -> Result<Option<Value>, QueryError>
+    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<Value>, QueryError>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         self.ensure_non_paged_mode_ready()?;
 
@@ -1064,14 +1068,12 @@ where
         })
     }
 
-    /// Execute and return the last projected value for one shared text
+    /// Execute and return the last projected value for one shared bounded
     /// projection in effective response order, if any.
-    pub fn project_last_value(
-        &self,
-        projection: &TextProjectionExpr,
-    ) -> Result<Option<Value>, QueryError>
+    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<Value>, QueryError>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         self.ensure_non_paged_mode_ready()?;
 

@@ -50,6 +50,34 @@ pub(crate) enum SqlSelectItem {
     Field(String),
     Aggregate(SqlAggregateCall),
     TextFunction(SqlTextFunctionCall),
+    Arithmetic(SqlArithmeticProjectionCall),
+}
+
+///
+/// SqlArithmeticProjectionOp
+///
+/// Reduced scalar arithmetic operator taxonomy admitted in projection
+/// position.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlArithmeticProjectionOp {
+    Add,
+}
+
+///
+/// SqlArithmeticProjectionCall
+///
+/// Parsed bounded scalar arithmetic projection item.
+/// Reduced SQL keeps this to one field plus one literal so projection support
+/// does not reopen generic expression parsing.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlArithmeticProjectionCall {
+    pub(crate) field: String,
+    pub(crate) op: SqlArithmeticProjectionOp,
+    pub(crate) literal: Value,
 }
 
 ///

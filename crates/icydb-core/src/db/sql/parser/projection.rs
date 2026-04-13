@@ -7,8 +7,9 @@ use crate::{
     db::{
         reduced_sql::{Keyword, TokenKind},
         sql::parser::{
-            Parser, SqlAggregateCall, SqlAggregateKind, SqlProjection, SqlSelectItem,
-            SqlTextFunction, SqlTextFunctionCall,
+            Parser, SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall,
+            SqlArithmeticProjectionOp, SqlProjection, SqlSelectItem, SqlTextFunction,
+            SqlTextFunctionCall,
         },
     },
     value::Value,
@@ -62,6 +63,12 @@ impl Parser {
 
             return Ok(SqlSelectItem::TextFunction(
                 self.parse_text_function_call(function)?,
+            ));
+        }
+
+        if self.eat_plus() {
+            return Ok(SqlSelectItem::Arithmetic(
+                self.parse_add_projection_call(field)?,
             ));
         }
 
@@ -250,6 +257,19 @@ impl Parser {
             "',' between text function arguments",
             self.peek_kind(),
         ))
+    }
+
+    fn parse_add_projection_call(
+        &mut self,
+        field: String,
+    ) -> Result<SqlArithmeticProjectionCall, crate::db::reduced_sql::SqlParseError> {
+        let literal = self.parse_literal()?;
+
+        Ok(SqlArithmeticProjectionCall {
+            field,
+            op: SqlArithmeticProjectionOp::Add,
+            literal,
+        })
     }
 
     const fn text_function_call(

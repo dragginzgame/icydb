@@ -833,7 +833,7 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
                 seen_aggregate = true;
                 aggregate_calls.push(aggregate.clone());
             }
-            SqlSelectItem::TextFunction(_) => {
+            SqlSelectItem::TextFunction(_) | SqlSelectItem::Arithmetic(_) => {
                 return Err(SqlLoweringError::unsupported_select_group_by());
             }
         }

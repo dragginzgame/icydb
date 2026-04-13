@@ -3,10 +3,13 @@ use crate::{
     db::{
         QueryError,
         query::{
-            builder::TextProjectionExpr,
+            builder::{NumericProjectionExpr, TextProjectionExpr},
             plan::expr::{Alias, Expr, FieldId, Function, ProjectionField, ProjectionSelection},
         },
-        sql::parser::{SqlProjection, SqlSelectItem, SqlTextFunction, SqlTextFunctionCall},
+        sql::parser::{
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection, SqlSelectItem,
+            SqlTextFunction, SqlTextFunctionCall,
+        },
     },
     value::Value,
 };
@@ -335,7 +338,7 @@ pub(super) fn lower_grouped_projection_selection(
 
                 projected_group_fields.push(field.clone());
             }
-            SqlSelectItem::TextFunction(_) => {
+            SqlSelectItem::TextFunction(_) | SqlSelectItem::Arithmetic(_) => {
                 return Err(SqlLoweringError::unsupported_select_group_by());
             }
             SqlSelectItem::Aggregate(_) => {
@@ -372,7 +375,9 @@ pub(super) fn direct_scalar_field_selection(
         .iter()
         .map(|item| match item {
             SqlSelectItem::Field(field) => Some(FieldId::new(field.clone())),
-            SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
+            SqlSelectItem::Aggregate(_)
+            | SqlSelectItem::TextFunction(_)
+            | SqlSelectItem::Arithmetic(_) => None,
         })
         .collect()
 }
@@ -388,6 +393,7 @@ fn lower_projection_field(
                 Expr::Aggregate(lower_aggregate_call(aggregate)?)
             }
             SqlSelectItem::TextFunction(call) => lower_text_function_expr(&call)?,
+            SqlSelectItem::Arithmetic(call) => lower_arithmetic_projection_expr(&call)?,
         },
         alias: alias.map(Alias::new),
     })
@@ -395,6 +401,18 @@ fn lower_projection_field(
 
 fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
     text_function_spec(call.function).lower_expr(call)
+}
+
+fn lower_arithmetic_projection_expr(
+    call: &SqlArithmeticProjectionCall,
+) -> Result<Expr, SqlLoweringError> {
+    match call.op {
+        SqlArithmeticProjectionOp::Add => {
+            NumericProjectionExpr::add_value(call.field.clone(), call.literal.clone())
+                .map(|projection| projection.expr().clone())
+                .map_err(SqlLoweringError::from)
+        }
+    }
 }
 
 fn text_function_spec(function: SqlTextFunction) -> TextFnSpec {

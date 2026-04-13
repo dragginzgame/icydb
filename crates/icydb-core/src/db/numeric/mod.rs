@@ -135,7 +135,6 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
     value.to_numeric_decimal()
 }
 
-#[cfg(test)]
 /// Apply one numeric arithmetic operation under the shared numeric runtime contract.
 ///
 /// Promotion and boundary rules:

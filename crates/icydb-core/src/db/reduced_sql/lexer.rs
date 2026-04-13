@@ -39,6 +39,10 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 TokenKind::Dot
             }
+            b'+' => {
+                self.pos += 1;
+                TokenKind::Plus
+            }
             b'(' => {
                 self.pos += 1;
                 TokenKind::LParen

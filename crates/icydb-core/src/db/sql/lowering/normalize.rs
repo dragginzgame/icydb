@@ -11,8 +11,9 @@ use crate::db::{
             rewrite_field_identifiers,
         },
         parser::{
-            SqlAggregateCall, SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection,
-            SqlSelectItem, SqlSelectStatement, SqlTextFunction, SqlTextFunctionCall,
+            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingSymbol,
+            SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
+            SqlTextFunctionCall,
         },
     },
 };
@@ -134,6 +135,15 @@ fn normalize_projection_identifiers(
                         literal2,
                         literal3,
                     }),
+                    SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
+                        field,
+                        op,
+                        literal,
+                    }) => SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
+                        field: normalize_identifier(field, entity_scope),
+                        op,
+                        literal,
+                    }),
                 })
                 .collect(),
         ),
@@ -224,7 +234,9 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
             function: Function::Upper,
             args: vec![Expr::Field(FieldId::new(field.clone()))],
         }),
-        SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
+        SqlSelectItem::Aggregate(_)
+        | SqlSelectItem::TextFunction(_)
+        | SqlSelectItem::Arithmetic(_) => None,
     }
 }
 

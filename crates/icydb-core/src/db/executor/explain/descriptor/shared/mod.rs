@@ -149,7 +149,6 @@ fn projection_expr_descriptor_name(expr: &crate::db::query::plan::expr::Expr) ->
         crate::db::query::plan::expr::Expr::Unary { expr, .. } => {
             projection_expr_descriptor_name(expr)
         }
-        #[cfg(test)]
         crate::db::query::plan::expr::Expr::Binary { .. } => "expr".to_string(),
     }
 }

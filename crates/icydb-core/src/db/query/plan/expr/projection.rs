@@ -105,7 +105,9 @@ pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField)
 pub(in crate::db) const fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Field(field) => Some(field.as_str()),
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) => None,
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
+            None
+        }
     }
 }
 
@@ -168,7 +170,6 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
         Expr::Alias { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
         #[cfg(test)]
         Expr::Unary { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
-        #[cfg(test)]
         Expr::Binary { left, right, .. } => {
             expr_references_only_fields(left.as_ref(), allowed)
                 && expr_references_only_fields(right.as_ref(), allowed)

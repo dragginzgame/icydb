@@ -3,7 +3,6 @@
 //! Does not own: grouped projection execution, generic `Expr` evaluation, or planner validation.
 //! Boundary: structural projection materialization calls into this file when a projection stays entirely on the scalar seam.
 
-#[cfg(test)]
 use crate::db::executor::projection::eval::operators;
 #[cfg(test)]
 use crate::db::scalar_expr::scalar_expr_value_into_value;
@@ -134,7 +133,6 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_ref_reader
     value.map(Cow::into_owned)
 }
 
-#[cfg(not(test))]
 fn eval_scalar_projection_expr_core<'a, E>(
     expr: &'a ScalarProjectionExpr,
     eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
@@ -162,61 +160,21 @@ fn eval_scalar_projection_expr_core<'a, E>(
 
             Ok(Cow::Owned(value))
         }
-    }
-}
-
-#[cfg(test)]
-fn eval_scalar_projection_expr_core<'a, E>(
-    expr: &'a ScalarProjectionExpr,
-    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
-    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
-) -> Result<Cow<'a, Value>, E> {
-    eval_scalar_projection_expr_core_impl(expr, eval_field, map_projection_error)
-}
-
-#[cfg(test)]
-fn eval_scalar_projection_expr_core_impl<'a, E>(
-    expr: &'a ScalarProjectionExpr,
-    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
-    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
-) -> Result<Cow<'a, Value>, E> {
-    match expr {
-        ScalarProjectionExpr::Field(field) => eval_field(field),
-        ScalarProjectionExpr::Literal(value) => Ok(Cow::Borrowed(value)),
-        ScalarProjectionExpr::FunctionCall { function, args } => {
-            let evaluated_args = args
-                .iter()
-                .map(|arg| {
-                    eval_scalar_projection_expr_core_impl(arg, eval_field, map_projection_error)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let evaluated_args = evaluated_args
-                .into_iter()
-                .map(Cow::into_owned)
-                .collect::<Vec<_>>();
-            let value =
-                eval_text_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
-                    map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                        function: projection_function_name(*function).to_string(),
-                        message: err.to_string(),
-                    })
-                })?;
-
-            Ok(Cow::Owned(value))
-        }
+        #[cfg(test)]
         ScalarProjectionExpr::Unary { op, expr } => {
-            let operand =
-                eval_scalar_projection_expr_core_impl(expr, eval_field, map_projection_error)?;
+            #[cfg(test)]
+            let operand = eval_scalar_projection_expr_core(expr, eval_field, map_projection_error)?;
 
-            operators::eval_unary_expr(*op, operand.as_ref())
-                .map(Cow::Owned)
-                .map_err(map_projection_error)
+            #[cfg(test)]
+            {
+                operators::eval_unary_expr(*op, operand.as_ref())
+                    .map(Cow::Owned)
+                    .map_err(map_projection_error)
+            }
         }
         ScalarProjectionExpr::Binary { op, left, right } => {
-            let left =
-                eval_scalar_projection_expr_core_impl(left, eval_field, map_projection_error)?;
-            let right =
-                eval_scalar_projection_expr_core_impl(right, eval_field, map_projection_error)?;
+            let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?;
+            let right = eval_scalar_projection_expr_core(right, eval_field, map_projection_error)?;
 
             operators::eval_binary_expr(*op, left.as_ref(), right.as_ref())
                 .map(Cow::Owned)

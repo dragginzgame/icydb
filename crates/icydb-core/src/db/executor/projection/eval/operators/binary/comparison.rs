@@ -14,6 +14,7 @@ use crate::{
     value::Value,
 };
 
+#[cfg(test)]
 pub(super) fn eval_equality_binary_expr(
     op: BinaryOp,
     left: &Value,
@@ -35,12 +36,10 @@ pub(super) fn eval_equality_binary_expr(
         return Err(invalid_binary_operands(op, left, right));
     };
 
-    let result = match op {
-        BinaryOp::Eq => are_equal,
-        BinaryOp::Add | BinaryOp::Mul | BinaryOp::And => {
-            unreachable!("equality evaluator called with non-equality op")
-        }
-    };
+    debug_assert!(
+        matches!(op, BinaryOp::Eq),
+        "equality evaluator called with non-equality operator",
+    );
 
-    Ok(Value::Bool(result))
+    Ok(Value::Bool(are_equal))
 }

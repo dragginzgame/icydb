@@ -161,12 +161,15 @@ pub(in crate::db) fn eval_text_projection_expr_with_value(
         Expr::Aggregate(_) => Err(QueryError::invariant(
             "text projection expressions cannot evaluate aggregate leaves",
         )),
+        Expr::Binary { .. } => Err(QueryError::invariant(
+            "text projection expressions cannot evaluate arithmetic leaves",
+        )),
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             eval_text_projection_expr_with_value(expr.as_ref(), field_name, value)
         }
         #[cfg(test)]
-        Expr::Unary { .. } | Expr::Binary { .. } => Err(QueryError::invariant(
+        Expr::Unary { .. } => Err(QueryError::invariant(
             "text projection expressions cannot evaluate generic test-only operators",
         )),
     }

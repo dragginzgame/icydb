@@ -647,6 +647,44 @@ fn compile_sql_command_select_field_projection_lowers_to_scalar_field_selection(
 }
 
 #[test]
+fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age + 1 FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("scalar arithmetic projection should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .expect("scalar arithmetic plan should build")
+        .projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+
+    assert_eq!(fields.len(), 1);
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr:
+                Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left,
+                    right,
+                },
+            alias: None,
+        } => {
+            assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+            assert!(matches!(right.as_ref(), Expr::Literal(Value::Int(1))));
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("scalar arithmetic projection should lower to one add expression: {other:?}")
+        }
+    }
+}
+
+#[test]
 fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT SqlLowerEntity.name, SqlLowerEntity.age \
@@ -1203,6 +1241,31 @@ fn compile_sql_command_rejects_grouped_projection_expression_widening_in_current
     .expect_err("grouped projection expression widening should remain fail-closed");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_arithmetic_projection_in_current_slice() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, age + 1, COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped arithmetic projection should remain fail-closed");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
+fn compile_sql_command_rejects_order_by_arithmetic_outside_projection_slice() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age + 1 FROM SqlLowerEntity ORDER BY age + 1 ASC",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("ORDER BY arithmetic should remain outside the shipped slice");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::Parse(SqlParseError::InvalidSyntax { .. })
+    ));
 }
 
 #[test]

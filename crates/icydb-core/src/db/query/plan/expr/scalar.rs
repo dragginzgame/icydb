@@ -4,14 +4,14 @@
 //! Boundary: freezes slot-resolved scalar projection programs before execution.
 
 #[cfg(test)]
-use crate::db::query::plan::expr::{BinaryOp, UnaryOp};
+use crate::db::query::plan::expr::UnaryOp;
 #[cfg(test)]
 use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 #[cfg(test)]
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
+    db::query::plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
     model::entity::{EntityModel, resolve_field_slot},
 };
 
@@ -38,7 +38,6 @@ pub(in crate::db) enum ScalarProjectionExpr {
         op: UnaryOp,
         expr: Box<Self>,
     },
-    #[cfg(test)]
     Binary {
         op: BinaryOp,
         left: Box<Self>,
@@ -106,7 +105,6 @@ pub(in crate::db) fn extend_scalar_projection_referenced_slots(
         ScalarProjectionExpr::Unary { expr, .. } => {
             extend_scalar_projection_referenced_slots(expr.as_ref(), referenced);
         }
-        #[cfg(test)]
         ScalarProjectionExpr::Binary { left, right, .. } => {
             extend_scalar_projection_referenced_slots(left.as_ref(), referenced);
             extend_scalar_projection_referenced_slots(right.as_ref(), referenced);
@@ -167,7 +165,6 @@ pub(in crate::db) fn compile_scalar_projection_expr(
                 }
             })
         }
-        #[cfg(test)]
         Expr::Binary { op, left, right } => {
             let left = compile_scalar_projection_expr(model, left.as_ref())?;
             let right = compile_scalar_projection_expr(model, right.as_ref())?;

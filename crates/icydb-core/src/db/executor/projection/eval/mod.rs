@@ -9,13 +9,13 @@ mod scalar;
 mod text_function;
 
 use crate::error::InternalError;
-#[cfg(test)]
 use crate::value::Value;
 use thiserror::Error as ThisError;
 
 pub(in crate::db) use crate::db::query::plan::expr::ScalarProjectionExpr;
+pub(in crate::db) use operators::eval_binary_expr;
 #[cfg(test)]
-pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
+pub(in crate::db::executor) use operators::eval_unary_expr;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
@@ -46,7 +46,6 @@ pub(in crate::db) enum ProjectionEvalError {
     #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
     InvalidUnaryOperand { op: String, found: Box<Value> },
 
-    #[cfg(test)]
     #[error(
         "projection binary operator '{op}' is incompatible with operand values ({left:?}, {right:?})"
     )]

@@ -95,9 +95,10 @@ pub use predicate::{
 pub use query::{
     api::ResponseCardinalityExt,
     builder::{
-        AggregateExpr, FieldRef, TextProjectionExpr, avg, contains, count, count_by, ends_with,
-        exists, first, last, left, length, lower, ltrim, max, max_by, min, min_by, position,
-        replace, right, rtrim, starts_with, substring, substring_with_length, sum, trim, upper,
+        AggregateExpr, FieldRef, NumericProjectionExpr, TextProjectionExpr, ValueProjectionExpr,
+        add, avg, contains, count, count_by, ends_with, exists, first, last, left, length, lower,
+        ltrim, max, max_by, min, min_by, position, replace, right, rtrim, starts_with, substring,
+        substring_with_length, sum, trim, upper,
     },
     explain::{
         ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,

@@ -532,7 +532,6 @@ pub enum ExprPlanError {
     #[error("unary operator '{op}' is incompatible with operand type {found}")]
     InvalidUnaryOperand { op: String, found: String },
 
-    #[cfg(test)]
     /// Binary operation is incompatible with inferred operand types.
     #[error("binary operator '{op}' is incompatible with operand types ({left}, {right})")]
     InvalidBinaryOperands {
@@ -594,7 +593,6 @@ impl ExprPlanError {
         }
     }
 
-    #[cfg(test)]
     /// Construct one invalid binary-operands planner error.
     pub(crate) fn invalid_binary_operands(
         op: impl Into<String>,

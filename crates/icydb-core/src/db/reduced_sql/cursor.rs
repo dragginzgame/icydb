@@ -150,6 +150,15 @@ impl SqlTokenCursor {
         true
     }
 
+    pub(in crate::db) fn eat_plus(&mut self) -> bool {
+        if !matches!(self.peek_kind(), Some(TokenKind::Plus)) {
+            return false;
+        }
+
+        self.pos += 1;
+        true
+    }
+
     pub(in crate::db) fn eat_lparen(&mut self) -> bool {
         if !matches!(self.peek_kind(), Some(TokenKind::LParen)) {
             return false;

@@ -3,7 +3,7 @@ use crate::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PersistedRow, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
-            Predicate, Query, QueryTracePlan, SortExpr, TextProjectionExpr,
+            Predicate, Query, QueryTracePlan, SortExpr, ValueProjectionExpr,
         },
         response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
@@ -429,22 +429,24 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         Ok(self.inner.values_by(field)?)
     }
 
-    /// Execute and return projected values for one shared text projection over
-    /// the effective response window.
-    pub fn project_values(&self, projection: &TextProjectionExpr) -> Result<Vec<Value>, Error>
+    /// Execute and return projected values for one shared bounded projection
+    /// over the effective response window.
+    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<Value>, Error>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         Ok(self.inner.project_values(projection)?)
     }
 
     /// Explain `project_values(projection)` routing without executing it.
-    pub fn explain_project_values(
+    pub fn explain_project_values<P>(
         &self,
-        projection: &TextProjectionExpr,
+        projection: &P,
     ) -> Result<ExplainExecutionNodeDescriptor, Error>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         Ok(self.inner.explain_project_values(projection)?)
     }
@@ -565,12 +567,10 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return projected id/value pairs for one shared text
     /// projection over the effective response window.
-    pub fn project_values_with_ids(
-        &self,
-        projection: &TextProjectionExpr,
-    ) -> Result<Vec<(Id<E>, Value)>, Error>
+    pub fn project_values_with_ids<P>(&self, projection: &P) -> Result<Vec<(Id<E>, Value)>, Error>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         Ok(self.inner.project_values_with_ids(projection)?)
     }
@@ -596,12 +596,10 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return the first projected value for one shared text
     /// projection in effective response order, if any.
-    pub fn project_first_value(
-        &self,
-        projection: &TextProjectionExpr,
-    ) -> Result<Option<Value>, Error>
+    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<Value>, Error>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         Ok(self.inner.project_first_value(projection)?)
     }
@@ -627,12 +625,10 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return the last projected value for one shared text
     /// projection in effective response order, if any.
-    pub fn project_last_value(
-        &self,
-        projection: &TextProjectionExpr,
-    ) -> Result<Option<Value>, Error>
+    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<Value>, Error>
     where
         E: EntityValue,
+        P: ValueProjectionExpr,
     {
         Ok(self.inner.project_last_value(projection)?)
     }

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.78.x] 🧮 - 2026-04-13 - Simple Scalar Projection Expressions
+
+- `0.78.0` starts the next SQL/fluent slice by adding one bounded computed projection shape, so both SQL and fluent can now project `field + numeric_literal` through the same shared expression and evaluation path without widening grouping, filtering, ordering, or generic expression support.
+
+See detailed breakdown:
+[docs/changelog/0.78.md](docs/changelog/0.78.md)
+
+---
+
 ## [0.77.x] 🧭 - 2026-04-12 - SQL Contract Freeze
 
 - `0.77.6` finishes the SQL ownership freeze by making duplicated semantic decisions a hard CI failure, collapsing SQL entity matching to one owner in lowering, narrowing the internal query-lane helper so only the public SQL read/write surfaces classify statement families, and then folding several small duplicated SQL/query helpers into shared owners so the frozen surface is easier to maintain without widening it.

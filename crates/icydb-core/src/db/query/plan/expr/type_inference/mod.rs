@@ -4,7 +4,7 @@
 //! Boundary: returns planner-domain type information and typed plan errors.
 
 #[cfg(test)]
-use crate::db::query::plan::expr::ast::{BinaryOp, UnaryOp};
+use crate::db::query::plan::expr::ast::UnaryOp;
 use crate::value::Value;
 use crate::{
     db::{
@@ -13,7 +13,7 @@ use crate::{
             builder::aggregate::AggregateExpr,
             plan::{
                 AggregateKind, PlanError,
-                expr::ast::{Expr, FieldId, Function},
+                expr::ast::{BinaryOp, Expr, FieldId, Function},
                 validate::ExprPlanError,
             },
         },
@@ -47,19 +47,16 @@ pub(crate) enum NumericSubtype {
     Integer,
     Float,
     Decimal,
-    #[cfg(test)]
     Unknown,
 }
 
 impl ExprType {
     // Eligibility answers "can this participate in numeric-only operators?".
     // Subtype answers "which numeric family?" and may remain unresolved.
-    #[cfg(test)]
     const fn is_numeric_eligible(&self) -> bool {
         matches!(self, Self::Numeric(_))
     }
 
-    #[cfg(test)]
     const fn numeric_subtype(&self) -> Option<NumericSubtype> {
         match self {
             Self::Numeric(subtype) => Some(*subtype),
@@ -81,7 +78,6 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
         Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
         #[cfg(test)]
         Expr::Unary { op, expr } => infer_unary_expr_type(*op, expr.as_ref(), schema),
-        #[cfg(test)]
         Expr::Binary { op, left, right } => {
             infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
@@ -278,7 +274,6 @@ fn infer_unary_expr_type(
     }
 }
 
-#[cfg(test)]
 fn infer_binary_expr_type(
     op: BinaryOp,
     left: &Expr,
@@ -289,7 +284,7 @@ fn infer_binary_expr_type(
     let right_ty = infer_expr_type(right, schema)?;
 
     match op {
-        BinaryOp::Add | BinaryOp::Mul => {
+        BinaryOp::Add => {
             if !binary_numeric_compatible(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
                     binary_op_name(op),
@@ -302,6 +297,21 @@ fn infer_binary_expr_type(
                 op, &left_ty, &right_ty,
             )))
         }
+        #[cfg(test)]
+        BinaryOp::Mul => {
+            if !binary_numeric_compatible(&left_ty, &right_ty) {
+                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
+                    binary_op_name(op),
+                    format!("{left_ty:?}"),
+                    format!("{right_ty:?}"),
+                )));
+            }
+
+            Ok(ExprType::Numeric(infer_numeric_result_subtype(
+                op, &left_ty, &right_ty,
+            )))
+        }
+        #[cfg(test)]
         BinaryOp::And => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
@@ -313,6 +323,7 @@ fn infer_binary_expr_type(
 
             Ok(ExprType::Bool)
         }
+        #[cfg(test)]
         BinaryOp::Eq => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
@@ -327,7 +338,6 @@ fn infer_binary_expr_type(
     }
 }
 
-#[cfg(test)]
 const fn binary_numeric_compatible(left: &ExprType, right: &ExprType) -> bool {
     left.is_numeric_eligible() && right.is_numeric_eligible()
 }
@@ -338,18 +348,21 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
         return true;
     }
 
+    #[cfg(test)]
+    if matches!((left, right), (ExprType::Null, ExprType::Null)) {
+        return true;
+    }
+
     matches!(
         (left, right),
         (ExprType::Bool, ExprType::Bool)
             | (ExprType::Text, ExprType::Text)
-            | (ExprType::Null, ExprType::Null)
             | (ExprType::Collection, ExprType::Collection)
             | (ExprType::Structured, ExprType::Structured)
             | (ExprType::Opaque, ExprType::Opaque)
     )
 }
 
-#[cfg(test)]
 const fn infer_numeric_result_subtype(
     _op: BinaryOp,
     left: &ExprType,
@@ -437,12 +450,14 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
     }
 }
 
-#[cfg(test)]
 const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "add",
+        #[cfg(test)]
         BinaryOp::Mul => "mul",
+        #[cfg(test)]
         BinaryOp::And => "and",
+        #[cfg(test)]
         BinaryOp::Eq => "eq",
     }
 }

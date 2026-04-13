@@ -279,20 +279,36 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 aggregate_execution_specs,
             )?),
         }),
-        #[cfg(test)]
-        Expr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
-            op: *op,
-            left: Box::new(compile_grouped_projection_expr(
-                left.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-            right: Box::new(compile_grouped_projection_expr(
-                right.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
+        Expr::Binary { op, left, right } => {
+            #[cfg(test)]
+            {
+                Ok(GroupedProjectionExpr::Binary {
+                    op: *op,
+                    left: Box::new(compile_grouped_projection_expr(
+                        left.as_ref(),
+                        group_fields,
+                        aggregate_execution_specs,
+                    )?),
+                    right: Box::new(compile_grouped_projection_expr(
+                        right.as_ref(),
+                        group_fields,
+                        aggregate_execution_specs,
+                    )?),
+                })
+            }
+
+            #[cfg(not(test))]
+            {
+                let _ = (op, left, right);
+
+                Err(ProjectionEvalError::InvalidFunctionCall {
+                    function: "binary".to_string(),
+                    message:
+                        "grouped projection does not admit arithmetic expressions in the current slice"
+                            .to_string(),
+                })
+            }
+        }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)
