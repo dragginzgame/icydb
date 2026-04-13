@@ -11,7 +11,7 @@ authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
-icydb = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
 serde = { workspace = true }
 
 [lints]
