@@ -9,6 +9,7 @@ members = [
     "canisters/test/sql",
     "crates/icydb",
     "crates/icydb-build",
+    "crates/icydb-cli",
     "crates/icydb-core",
     "crates/icydb-derive",
     "crates/icydb-primitives",

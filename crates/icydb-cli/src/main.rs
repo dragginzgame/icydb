@@ -288,62 +288,52 @@ fn uppercase_null_cells(rows: &mut [Vec<String>]) {
 }
 
 fn append_perf_suffix(lines: &mut [String], instructions: Option<u64>) {
+    let Some(last) = lines.last_mut() else {
+        return;
+    };
     let Some(instructions) = instructions else {
         return;
     };
-    let Some(last_line) = lines.last_mut() else {
-        return;
-    };
-    if last_line.ends_with(" in set") {
-        last_line.push_str(" (");
-        last_line.push_str(format_instruction_count(instructions).as_str());
-        last_line.push(')');
-    }
+
+    *last = format!("{last} ({})", format_instructions(instructions));
 }
 
-fn format_instruction_count(instructions: u64) -> String {
+fn format_instructions(instructions: u64) -> String {
     if instructions >= 1_000_000 {
-        let tenths = (instructions.saturating_mul(10) + 500_000) / 1_000_000;
-        return format!("{}.{}M instructions", tenths / 10, tenths % 10);
+        let whole = instructions / 1_000_000;
+        let tenths = (instructions % 1_000_000) / 100_000;
+        return format!("{whole}.{tenths}M instructions");
     }
 
     if instructions >= 1_000 {
-        let tenths = (instructions.saturating_mul(10) + 500) / 1_000;
-        return format!("{}.{}K instructions", tenths / 10, tenths % 10);
+        let whole = instructions / 1_000;
+        let tenths = (instructions % 1_000) / 100;
+        return format!("{whole}.{tenths}K instructions");
     }
 
     format!("{instructions} instructions")
 }
 
 fn parse_perf_result(value: &Value) -> Option<(SqlQueryResult, u64)> {
-    let Value::Object(map) = value else {
-        return None;
+    let result_value = value.get("result")?;
+    let instructions = match value.get("instructions")? {
+        Value::Number(number) => number.as_u64()?,
+        Value::String(text) => text.parse().ok()?,
+        _ => return None,
     };
-    let result_value = map.get("result")?;
-    let instructions = parse_instruction_count(map.get("instructions")?)?;
     let result = serde_json::from_value::<SqlQueryResult>(result_value.clone()).ok()?;
 
     Some((result, instructions))
 }
 
-fn parse_instruction_count(value: &Value) -> Option<u64> {
-    match value {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.parse::<u64>().ok(),
-        _ => None,
-    }
-}
-
 fn find_result_payload(value: &Value) -> Option<&Value> {
-    match value {
-        Value::Object(map) => {
-            if map.contains_key("Ok") || map.contains_key("Err") {
-                return Some(value);
-            }
+    if let Some(result) = value.get("result") {
+        return Some(result);
+    }
 
-            map.values().find_map(find_result_payload)
-        }
+    match value {
         Value::Array(items) => items.iter().find_map(find_result_payload),
+        Value::Object(map) => map.values().find_map(find_result_payload),
         _ => None,
     }
 }

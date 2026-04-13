@@ -100,7 +100,7 @@ if [[ "$reset_requested" == true ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-    exec cargo run --quiet -p icydb --bin sql_shell --features sql-shell -- --canister "$canister"
+    exec cargo run --quiet -p icydb-cli -- --canister "$canister"
 fi
 
-exec cargo run --quiet -p icydb --bin sql_shell --features sql-shell -- --canister "$canister" --sql "$*"
+exec cargo run --quiet -p icydb-cli -- --canister "$canister" --sql "$*"

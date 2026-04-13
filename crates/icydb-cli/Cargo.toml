@@ -1,0 +1,17 @@
+[package]
+name = "icydb-cli"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+description = "Developer CLI tools for IcyDB"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+icydb = { workspace = true }
+rustyline = "15.0"
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -1384,10 +1384,8 @@ dependencies = [
  "icydb-schema-derive",
  "icydb-utils",
  "remain",
- "rustyline",
  "serde",
  "serde_cbor",
- "serde_json",
  "thiserror 2.0.18",
 ]
 
@@ -1399,6 +1397,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "icydb-cli"
+version = "0.78.2"
+dependencies = [
+ "icydb",
+ "rustyline",
+ "serde_json",
 ]
 
 [[package]]

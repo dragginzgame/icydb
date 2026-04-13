@@ -13,7 +13,6 @@ default = ["sql"]
 sql = ["icydb-core/sql"]
 perf-attribution = ["icydb-core/perf-attribution"]
 structural-read-metrics = ["icydb-core/structural-read-metrics"]
-sql-shell = ["dep:rustyline", "dep:serde_json"]
 
 [dependencies]
 candid = { workspace = true }
@@ -28,18 +27,11 @@ icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }
 icydb-utils = { workspace = true }
 remain = { workspace = true }
-rustyline = { version = "15.0", optional = true }
 serde = { workspace = true }
-serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 serde_cbor = { workspace = true }
-
-[[bin]]
-name = "sql_shell"
-path = "src/bin/sql_shell.rs"
-required-features = ["sql-shell"]
 
 [lints]
 workspace = true
