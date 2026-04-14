@@ -425,7 +425,6 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
 }
 
 #[test]
-#[expect(clippy::too_many_lines)]
 fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_boundary() {
     reset_session_sql_store();
     let session = sql_session();
