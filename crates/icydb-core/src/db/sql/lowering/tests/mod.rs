@@ -1902,17 +1902,31 @@ fn compile_sql_command_rejects_grouped_field_to_field_predicate_in_current_slice
 }
 
 #[test]
-fn compile_sql_command_rejects_order_by_arithmetic_outside_projection_slice() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_accepts_projected_direct_bounded_numeric_order_terms() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age + 1 FROM SqlLowerEntity ORDER BY age + 1 ASC",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("ORDER BY arithmetic should remain outside the shipped slice");
+    .expect("projected direct ORDER BY arithmetic term should lower");
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::Parse(SqlParseError::InvalidSyntax { .. })
-    ));
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered projected arithmetic order query command");
+    };
+
+    let plan = sql_query
+        .plan()
+        .expect("projected direct arithmetic order plan should build")
+        .into_inner();
+    assert_eq!(
+        plan.scalar_plan()
+            .order
+            .as_ref()
+            .expect("projected direct arithmetic order should be present")
+            .fields[0]
+            .0,
+        "age + 1",
+        "projected direct ORDER BY arithmetic terms should normalize onto the canonical internal numeric expression",
+    );
 }
 
 #[test]
