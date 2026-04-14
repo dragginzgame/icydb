@@ -1040,6 +1040,152 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
 }
 
 #[test]
+fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
+    let is_not_true = parse_sql(
+        "SELECT * FROM users \
+         WHERE active IS NOT TRUE \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("IS NOT TRUE select statement should parse");
+    let is_not_false = parse_sql(
+        "SELECT * FROM users \
+         WHERE active IS NOT FALSE \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("IS NOT FALSE select statement should parse");
+
+    assert_eq!(
+        is_not_true,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+                ComparePredicate::with_coercion(
+                    "active",
+                    CompareOp::Eq,
+                    Value::Bool(true),
+                    CoercionId::Strict,
+                ),
+            )))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+    assert_eq!(
+        is_not_false,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+                ComparePredicate::with_coercion(
+                    "active",
+                    CompareOp::Eq,
+                    Value::Bool(false),
+                    CoercionId::Strict,
+                ),
+            )))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_field_bound_between_and_not_between_predicates() {
+    let between = parse_sql(
+        "SELECT * FROM users \
+         WHERE age BETWEEN min_age AND max_age \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("field-bound BETWEEN select statement should parse");
+    let not_between = parse_sql(
+        "SELECT * FROM users \
+         WHERE age NOT BETWEEN min_age AND max_age \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("field-bound NOT BETWEEN select statement should parse");
+
+    assert_eq!(
+        between,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::And(vec![
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    "min_age",
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Lte,
+                    "max_age",
+                    CoercionId::NumericWiden,
+                )),
+            ])),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+    assert_eq!(
+        not_between,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: Some(Predicate::Or(vec![
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Lt,
+                    "min_age",
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Gt,
+                    "max_age",
+                    CoercionId::NumericWiden,
+                )),
+            ])),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_strict_not_like_prefix_predicate() {
     let statement = parse_sql(
         "SELECT * FROM users \

@@ -235,10 +235,22 @@ impl FieldRef {
         Predicate::and(vec![self.gte(lower), self.lte(upper)])
     }
 
+    /// Inclusive range predicate against two other fields.
+    #[must_use]
+    pub fn between_fields(self, lower: impl AsRef<str>, upper: impl AsRef<str>) -> Predicate {
+        Predicate::and(vec![self.gte_field(lower), self.lte_field(upper)])
+    }
+
     /// Exclusive-outside range predicate lowered as `field < lower OR field > upper`.
     #[must_use]
     pub fn not_between(self, lower: impl FieldValue, upper: impl FieldValue) -> Predicate {
         Predicate::or(vec![self.lt(lower), self.gt(upper)])
+    }
+
+    /// Exclusive-outside range predicate against two other fields.
+    #[must_use]
+    pub fn not_between_fields(self, lower: impl AsRef<str>, upper: impl AsRef<str>) -> Predicate {
+        Predicate::or(vec![self.lt_field(lower), self.gt_field(upper)])
     }
 }
 
@@ -316,6 +328,29 @@ mod tests {
                     "age",
                     CompareOp::Gt,
                     Value::Uint(20),
+                    CoercionId::NumericWiden,
+                )),
+            ])
+        );
+    }
+
+    #[test]
+    fn field_ref_between_fields_builds_field_bound_range_predicate() {
+        let predicate = FieldRef::new("age").between_fields("min_age", "max_age");
+
+        assert_eq!(
+            predicate,
+            Predicate::and(vec![
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    "min_age",
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                    "age",
+                    CompareOp::Lte,
+                    "max_age",
                     CoercionId::NumericWiden,
                 )),
             ])

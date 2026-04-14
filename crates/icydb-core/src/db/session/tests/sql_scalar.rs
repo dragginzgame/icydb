@@ -400,6 +400,97 @@ fn execute_sql_scalar_symmetric_compare_forms_match_canonical_results() {
 }
 
 #[test]
+fn execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, score, min_score, max_score, expected_between) in [
+        ("field-bound-a", 15_u64, 10_u64, 20_u64, true),
+        ("field-bound-b", 10_u64, 10_u64, 20_u64, true),
+        ("field-bound-c", 20_u64, 10_u64, 20_u64, true),
+        ("field-bound-d", 9_u64, 10_u64, 20_u64, false),
+        ("field-bound-e", 21_u64, 10_u64, 20_u64, false),
+    ] {
+        session
+            .insert(SessionSqlFieldBoundRangeEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                score,
+                min_score,
+                max_score,
+            })
+            .expect("field-bound range fixture insert should succeed");
+
+        assert_eq!(
+            expected_between,
+            score >= min_score && score <= max_score,
+            "test matrix should label field-bound range rows correctly",
+        );
+    }
+
+    let between_rows = statement_projection_rows::<SessionSqlFieldBoundRangeEntity>(
+        &session,
+        "SELECT label FROM SessionSqlFieldBoundRangeEntity \
+         WHERE score BETWEEN min_score AND max_score \
+         ORDER BY label ASC",
+    )
+    .expect("field-bound BETWEEN query should execute");
+    let not_between_rows = statement_projection_rows::<SessionSqlFieldBoundRangeEntity>(
+        &session,
+        "SELECT label FROM SessionSqlFieldBoundRangeEntity \
+         WHERE score NOT BETWEEN min_score AND max_score \
+         ORDER BY label ASC",
+    )
+    .expect("field-bound NOT BETWEEN query should execute");
+    let fluent_between_rows = session
+        .load::<SessionSqlFieldBoundRangeEntity>()
+        .filter(crate::db::FieldRef::new("score").between_fields("min_score", "max_score"))
+        .order_by("label")
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("fluent field-bound BETWEEN query should execute")
+        .into_iter()
+        .map(|row| vec![Value::Text(row.entity_ref().label.clone())])
+        .collect::<Vec<_>>();
+    let fluent_not_between_rows = session
+        .load::<SessionSqlFieldBoundRangeEntity>()
+        .filter(crate::db::FieldRef::new("score").not_between_fields("min_score", "max_score"))
+        .order_by("label")
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("fluent field-bound NOT BETWEEN query should execute")
+        .into_iter()
+        .map(|row| vec![Value::Text(row.entity_ref().label.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        between_rows, fluent_between_rows,
+        "field-bound BETWEEN should lower to the same bounded compare-fields range predicate on SQL and fluent surfaces",
+    );
+    assert_eq!(
+        not_between_rows, fluent_not_between_rows,
+        "field-bound NOT BETWEEN should lower to the same bounded compare-fields outside-range predicate on SQL and fluent surfaces",
+    );
+    assert_eq!(
+        between_rows,
+        vec![
+            vec![Value::Text("field-bound-a".to_string())],
+            vec![Value::Text("field-bound-b".to_string())],
+            vec![Value::Text("field-bound-c".to_string())],
+        ],
+        "field-bound BETWEEN should keep rows inside the inclusive sibling-field bounds",
+    );
+    assert_eq!(
+        not_between_rows,
+        vec![
+            vec![Value::Text("field-bound-d".to_string())],
+            vec![Value::Text("field-bound-e".to_string())],
+        ],
+        "field-bound NOT BETWEEN should keep rows outside the inclusive sibling-field bounds",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_field_to_field_same_field_compare_keeps_all_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -494,7 +585,7 @@ fn execute_sql_scalar_field_to_field_bool_ordering_rejects_semantically() {
 }
 
 #[test]
-fn execute_sql_scalar_is_true_and_is_false_match_expected_rows() {
+fn execute_sql_scalar_is_true_false_and_is_not_true_false_match_expected_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -523,6 +614,16 @@ fn execute_sql_scalar_is_true_and_is_false_match_expected_rows() {
         "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS FALSE ORDER BY label ASC",
     )
     .expect("IS FALSE query should execute");
+    let not_true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT TRUE ORDER BY label ASC",
+    )
+    .expect("IS NOT TRUE query should execute");
+    let not_false_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT FALSE ORDER BY label ASC",
+    )
+    .expect("IS NOT FALSE query should execute");
 
     assert_eq!(
         true_rows,
@@ -536,6 +637,19 @@ fn execute_sql_scalar_is_true_and_is_false_match_expected_rows() {
         false_rows,
         vec![vec![Value::Text("bool-b".to_string())]],
         "IS FALSE should keep rows whose bool field is false",
+    );
+    assert_eq!(
+        not_true_rows,
+        vec![vec![Value::Text("bool-b".to_string())]],
+        "IS NOT TRUE should keep rows whose bool field is not true",
+    );
+    assert_eq!(
+        not_false_rows,
+        vec![
+            vec![Value::Text("bool-a".to_string())],
+            vec![Value::Text("bool-c".to_string())],
+        ],
+        "IS NOT FALSE should keep rows whose bool field is not false",
     );
 }
 

@@ -1814,6 +1814,51 @@ mod tests {
     }
 
     #[test]
+    fn scalar_predicate_not_bool_equality_treats_null_and_missing_as_not_true_or_false() {
+        let is_not_true = Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )));
+        let is_not_false = Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Eq,
+            Value::Bool(false),
+            CoercionId::Strict,
+        )));
+        let is_not_true_program =
+            PredicateProgram::compile_with_model(&PREDICATE_MODEL, &is_not_true);
+        let is_not_false_program =
+            PredicateProgram::compile_with_model(&PREDICATE_MODEL, &is_not_false);
+        let null_slots = PredicateTestSlotReader {
+            score: Some(ScalarSlotValueRef::Null),
+            name: None,
+        };
+
+        assert!(
+            is_not_true_program
+                .eval_with_structural_slot_reader(&null_slots)
+                .expect("IS NOT TRUE should evaluate against null scalar slots"),
+            "IS NOT TRUE should treat null as not true under the current predicate runtime",
+        );
+        assert!(
+            is_not_false_program
+                .eval_with_structural_slot_reader(&null_slots)
+                .expect("IS NOT FALSE should evaluate against null scalar slots"),
+            "IS NOT FALSE should treat null as not false under the current predicate runtime",
+        );
+        assert!(
+            is_not_true_program.eval_with_slot_value_ref_reader(&mut |_| None),
+            "IS NOT TRUE should treat missing values as not true under the current predicate runtime",
+        );
+        assert!(
+            is_not_false_program.eval_with_slot_value_ref_reader(&mut |_| None),
+            "IS NOT FALSE should treat missing values as not false under the current predicate runtime",
+        );
+    }
+
+    #[test]
     fn scalar_predicate_fast_path_matches_text_prefix_suffix_semantics() {
         let strict = CoercionSpec::new(CoercionId::Strict);
         let casefold = CoercionSpec::new(CoercionId::TextCasefold);

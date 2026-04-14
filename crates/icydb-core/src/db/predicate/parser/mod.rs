@@ -182,9 +182,28 @@ fn parse_plain_field_predicate(
 ) -> Result<Predicate, SqlParseError> {
     if cursor.eat_keyword(Keyword::Is) {
         if cursor.eat_keyword(Keyword::Not) {
-            cursor.expect_keyword(Keyword::Null)?;
+            if cursor.eat_keyword(Keyword::Null) {
+                return Ok(Predicate::IsNotNull { field });
+            }
+            if cursor.eat_keyword(Keyword::True) {
+                return Ok(Predicate::not(predicate_compare(
+                    field,
+                    CompareOp::Eq,
+                    Value::Bool(true),
+                )));
+            }
+            if cursor.eat_keyword(Keyword::False) {
+                return Ok(Predicate::not(predicate_compare(
+                    field,
+                    CompareOp::Eq,
+                    Value::Bool(false),
+                )));
+            }
 
-            return Ok(Predicate::IsNotNull { field });
+            return Err(SqlParseError::expected(
+                "NULL, TRUE, or FALSE after IS NOT",
+                cursor.peek_kind(),
+            ));
         }
 
         if cursor.eat_keyword(Keyword::Null) {
@@ -527,21 +546,37 @@ fn parse_between_predicate(
     field: String,
     negated: bool,
 ) -> Result<Predicate, SqlParseError> {
-    let lower = cursor.parse_literal()?;
+    let lower = parse_between_bound(cursor)?;
     cursor.expect_keyword(Keyword::And)?;
-    let upper = cursor.parse_literal()?;
+    let upper = parse_between_bound(cursor)?;
 
     Ok(if negated {
         Predicate::Or(vec![
-            predicate_compare(field.clone(), CompareOp::Lt, lower),
-            predicate_compare(field, CompareOp::Gt, upper),
+            predicate_between_bound(field.clone(), CompareOp::Lt, lower),
+            predicate_between_bound(field, CompareOp::Gt, upper),
         ])
     } else {
         Predicate::And(vec![
-            predicate_compare(field.clone(), CompareOp::Gte, lower),
-            predicate_compare(field, CompareOp::Lte, upper),
+            predicate_between_bound(field.clone(), CompareOp::Gte, lower),
+            predicate_between_bound(field, CompareOp::Lte, upper),
         ])
     })
+}
+
+// Track one bounded BETWEEN endpoint while keeping the surface limited to
+// plain literals or plain field references.
+enum BetweenBound {
+    Literal(Value),
+    Field(String),
+}
+
+// Parse one BETWEEN endpoint without widening into generic expression bounds.
+fn parse_between_bound(cursor: &mut SqlTokenCursor) -> Result<BetweenBound, SqlParseError> {
+    if matches!(cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
+        return cursor.expect_identifier().map(BetweenBound::Field);
+    }
+
+    cursor.parse_literal().map(BetweenBound::Literal)
 }
 
 fn like_prefix_from_pattern(pattern: &str) -> Option<&str> {
@@ -593,4 +628,11 @@ fn predicate_compare_fields(left_field: String, op: CompareOp, right_field: Stri
         right_field,
         coercion,
     ))
+}
+
+fn predicate_between_bound(field: String, op: CompareOp, bound: BetweenBound) -> Predicate {
+    match bound {
+        BetweenBound::Literal(value) => predicate_compare(field, op, value),
+        BetweenBound::Field(other_field) => predicate_compare_fields(field, op, other_field),
+    }
 }

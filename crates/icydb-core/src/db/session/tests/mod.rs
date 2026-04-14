@@ -564,6 +564,24 @@ struct SessionSqlBoolCompareEntity {
 }
 
 ///
+/// SessionSqlFieldBoundRangeEntity
+///
+/// Numeric field-bound range fixture used to lock `BETWEEN` / `NOT BETWEEN`
+/// lowering and execution when both bounds come from sibling fields.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionSqlFieldBoundRangeEntity {
+    id: Ulid,
+    label: String,
+    score: u64,
+    min_score: u64,
+    max_score: u64,
+}
+
+///
 /// IndexedSessionSqlEntity
 ///
 /// Indexed SQL session fixture used to lock strict text-prefix execution over a
@@ -1027,6 +1045,25 @@ crate::test_entity_schema! {
         ("label", FieldKind::Text),
         ("active", FieldKind::Bool),
         ("archived", FieldKind::Bool),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlFieldBoundRangeEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlFieldBoundRangeEntity",
+    entity_tag = EntityTag::new(0x104B),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("label", FieldKind::Text),
+        ("score", FieldKind::Uint),
+        ("min_score", FieldKind::Uint),
+        ("max_score", FieldKind::Uint),
     ],
     indexes = [],
     store = SessionSqlStore,

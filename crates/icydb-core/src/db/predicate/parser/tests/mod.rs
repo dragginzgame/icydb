@@ -106,6 +106,37 @@ fn parse_sql_predicate_is_true_and_is_false_lower_to_strict_bool_equality() {
 }
 
 #[test]
+fn parse_sql_predicate_is_not_true_and_is_not_false_lower_to_negated_bool_equality() {
+    let is_not_true =
+        parse_sql_predicate("active IS NOT TRUE").expect("IS NOT TRUE predicate should parse");
+    let is_not_false =
+        parse_sql_predicate("active IS NOT FALSE").expect("IS NOT FALSE predicate should parse");
+
+    assert_eq!(
+        is_not_true,
+        Predicate::Not(Box::new(Predicate::Compare(
+            ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Eq,
+                Value::Bool(true),
+                CoercionId::Strict,
+            ),
+        ))),
+    );
+    assert_eq!(
+        is_not_false,
+        Predicate::Not(Box::new(Predicate::Compare(
+            ComparePredicate::with_coercion(
+                "active",
+                CompareOp::Eq,
+                Value::Bool(false),
+                CoercionId::Strict,
+            ),
+        ))),
+    );
+}
+
+#[test]
 fn parse_sql_predicate_rejects_empty_or_double_comma_in_lists() {
     for sql in ["age IN ()", "age IN (10,, 20)", "age NOT IN (10,, 20)"] {
         let err = parse_sql_predicate(sql).expect_err("invalid list shape should stay rejected");
@@ -302,6 +333,49 @@ fn parse_sql_predicate_not_between_lowers_to_outside_range_disjunction() {
                 "age",
                 CompareOp::Gt,
                 Value::Int(20),
+                CoercionId::NumericWiden,
+            )),
+        ]),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_field_bound_between_and_not_between_lower_to_compare_fields() {
+    let between = parse_sql_predicate("age BETWEEN min_age AND max_age")
+        .expect("field-bound BETWEEN should parse");
+    let not_between = parse_sql_predicate("age NOT BETWEEN min_age AND max_age")
+        .expect("field-bound NOT BETWEEN should parse");
+
+    assert_eq!(
+        between,
+        Predicate::And(vec![
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                "min_age",
+                CoercionId::NumericWiden,
+            )),
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "age",
+                CompareOp::Lte,
+                "max_age",
+                CoercionId::NumericWiden,
+            )),
+        ]),
+    );
+    assert_eq!(
+        not_between,
+        Predicate::Or(vec![
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "age",
+                CompareOp::Lt,
+                "min_age",
+                CoercionId::NumericWiden,
+            )),
+            Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+                "age",
+                CompareOp::Gt,
+                "max_age",
                 CoercionId::NumericWiden,
             )),
         ]),
