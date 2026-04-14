@@ -415,17 +415,51 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
     let session = sql_session();
 
     seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
+    session
+        .insert(SessionAggregateEntity {
+            id: Ulid::generate(),
+            group: 3,
+            rank: 10,
+            label: "gamma".to_string(),
+        })
+        .expect("seed aggregate row insert should succeed");
+    session
+        .insert(SessionAggregateEntity {
+            id: Ulid::generate(),
+            group: 1,
+            rank: 20,
+            label: "alpha".to_string(),
+        })
+        .expect("seed aggregate row insert should succeed");
+    session
+        .insert(SessionAggregateEntity {
+            id: Ulid::generate(),
+            group: 2,
+            rank: 40,
+            label: "beta".to_string(),
+        })
+        .expect("seed aggregate row insert should succeed");
 
     let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT name, age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 3",
     )
     .expect("ORDER BY arithmetic alias should execute");
+    let field_to_field_rows = statement_projection_rows::<SessionAggregateEntity>(
+        &session,
+        "SELECT label, rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 3",
+    )
+    .expect("ORDER BY field-to-field arithmetic alias should execute");
     let round_rows = statement_projection_rows::<SessionSqlEntity>(
         &session,
         "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 3",
     )
     .expect("ORDER BY ROUND alias should execute");
+    let round_field_to_field_rows = statement_projection_rows::<SessionAggregateEntity>(
+        &session,
+        "SELECT label, ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 3",
+    )
+    .expect("ORDER BY ROUND(field + field) alias should execute");
 
     assert_eq!(
         arithmetic_rows,
@@ -446,6 +480,24 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
         "ORDER BY arithmetic alias should materialize rows in computed numeric order",
     );
     assert_eq!(
+        field_to_field_rows,
+        vec![
+            vec![
+                Value::Text("gamma".to_string()),
+                Value::Decimal(crate::types::Decimal::new(20, 0)),
+            ],
+            vec![
+                Value::Text("alpha".to_string()),
+                Value::Decimal(crate::types::Decimal::new(40, 0)),
+            ],
+            vec![
+                Value::Text("beta".to_string()),
+                Value::Decimal(crate::types::Decimal::new(80, 0)),
+            ],
+        ],
+        "ORDER BY field-to-field arithmetic alias should materialize rows in computed numeric order",
+    );
+    assert_eq!(
         round_rows,
         vec![
             vec![
@@ -462,6 +514,24 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
             ],
         ],
         "ORDER BY ROUND alias should materialize rows in rounded numeric order",
+    );
+    assert_eq!(
+        round_field_to_field_rows,
+        vec![
+            vec![
+                Value::Text("beta".to_string()),
+                Value::Decimal(crate::types::Decimal::new(80, 0)),
+            ],
+            vec![
+                Value::Text("alpha".to_string()),
+                Value::Decimal(crate::types::Decimal::new(40, 0)),
+            ],
+            vec![
+                Value::Text("gamma".to_string()),
+                Value::Decimal(crate::types::Decimal::new(20, 0)),
+            ],
+        ],
+        "ORDER BY ROUND(field + field) alias should materialize rows in rounded numeric order",
     );
 }
 

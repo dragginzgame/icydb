@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::sql::lowering::{SqlCommand, compile_sql_command};
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
 // statement lanes that belong to some other surface.
@@ -1194,6 +1195,50 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
         session.query_plan_cache_len(),
         1,
         "equivalent fluent execution should reuse the shared structural query-plan entry",
+    );
+}
+
+#[test]
+fn compile_sql_query_order_by_bounded_numeric_alias_matches_canonical_structural_query_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let sql = "SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 2";
+
+    // Phase 1: compile through the session-owned SQL surface so the test sees
+    // the exact artifact that the compiled-command cache will retain.
+    let compiled = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("bounded numeric ORDER BY alias should compile through the SQL surface");
+
+    let crate::db::session::sql::CompiledSqlCommand::Select { query, .. } = &compiled else {
+        panic!("bounded numeric ORDER BY alias should compile into one SELECT artifact");
+    };
+
+    // Phase 2: lower the same admitted SQL directly and require the session
+    // compile artifact to preserve that exact canonical structural identity.
+    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
+        .expect("bounded numeric ORDER BY alias should lower into one canonical query");
+
+    let SqlCommand::Query(lowered_query) = lowered else {
+        panic!("bounded numeric ORDER BY alias should lower to one query command");
+    };
+
+    assert_eq!(
+        query.cache_fingerprint(),
+        lowered_query.structural().cache_fingerprint(),
+        "admitted ORDER BY aliases must canonicalize onto the same structural query fingerprint before cache insertion",
+    );
+    assert_eq!(
+        query
+            .build_plan()
+            .expect("compiled session query plan should build")
+            .fingerprint(),
+        lowered_query
+            .plan()
+            .expect("canonical lowered query plan should build")
+            .into_inner()
+            .fingerprint(),
+        "admitted ORDER BY aliases must preserve the same canonical logical plan identity as the lowered internal form",
     );
 }
 

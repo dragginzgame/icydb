@@ -214,6 +214,13 @@ fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries()
         )
         .expect("ORDER BY arithmetic alias SQL query should succeed"),
     );
+    let field_to_field = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age + rank AS total FROM SqlTestUser ORDER BY total ASC LIMIT 2",
+        )
+        .expect("ORDER BY field-to-field arithmetic alias SQL query should succeed"),
+    );
     let rounded = expect_projection(
         query_sql(
             &fixture,
@@ -234,6 +241,19 @@ fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries()
             row_count: 2,
         },
         "query(sql) should preserve arithmetic alias ordering at the live canister boundary",
+    );
+    assert_eq!(
+        field_to_field,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "total".to_string()],
+            rows: vec![
+                vec!["bob".to_string(), "49".to_string()],
+                vec!["alice".to_string(), "59".to_string()],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve field-to-field arithmetic alias ordering at the live canister boundary",
     );
     assert_eq!(
         rounded,

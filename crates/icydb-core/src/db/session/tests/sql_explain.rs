@@ -611,6 +611,23 @@ fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
             "bounded numeric ORDER BY alias explain should still render one routed access shape",
         );
     }
+
+    for sql in [
+        "EXPLAIN SELECT rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 1",
+        "EXPLAIN SELECT ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 1",
+    ] {
+        let explain = statement_explain_sql::<SessionAggregateEntity>(&session, sql)
+            .expect("bounded numeric ORDER BY aliases should explain");
+
+        assert!(
+            explain.contains("mode=Load"),
+            "bounded numeric ORDER BY alias explain should still render the base load plan",
+        );
+        assert!(
+            explain.contains("access="),
+            "bounded numeric ORDER BY alias explain should still render one routed access shape",
+        );
+    }
 }
 
 #[test]
