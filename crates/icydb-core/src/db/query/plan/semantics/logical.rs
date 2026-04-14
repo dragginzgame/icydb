@@ -609,17 +609,7 @@ fn resolved_order_value_source_for_field(
     field: &str,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
     if let Some(expr) = parse_supported_order_expr(field) {
-        let Expr::FunctionCall { args, .. } = &expr else {
-            unreachable!("supported order expressions must stay on the function-call shape");
-        };
-        let Expr::Field(field_id) = &args[0] else {
-            unreachable!("supported order expressions must keep one field leaf");
-        };
-        resolve_field_slot(model, field_id.as_str()).ok_or_else(|| {
-            InternalError::query_invalid_logical_plan(format!(
-                "order expression references unknown field '{field}'",
-            ))
-        })?;
+        validate_resolved_order_expr_fields(model, &expr, field)?;
         let compiled = compile_scalar_projection_expr(model, &expr).ok_or_else(|| {
             InternalError::query_invalid_logical_plan(format!(
                 "order expression '{field}' did not stay on the scalar expression seam",
@@ -636,6 +626,45 @@ fn resolved_order_value_source_for_field(
     })?;
 
     Ok(ResolvedOrderValueSource::direct_field(slot))
+}
+
+fn validate_resolved_order_expr_fields(
+    model: &EntityModel,
+    expr: &Expr,
+    rendered: &str,
+) -> Result<(), InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            resolve_field_slot(model, field_id.as_str()).ok_or_else(|| {
+                InternalError::query_invalid_logical_plan(format!(
+                    "order expression references unknown field '{rendered}'",
+                ))
+            })?;
+        }
+        Expr::Literal(_) => {}
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_resolved_order_expr_fields(model, arg, rendered)?;
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            validate_resolved_order_expr_fields(model, left.as_ref(), rendered)?;
+            validate_resolved_order_expr_fields(model, right.as_ref(), rendered)?;
+        }
+        Expr::Aggregate(_) => {
+            return Err(InternalError::query_invalid_logical_plan(format!(
+                "order expression '{rendered}' did not stay on the scalar expression seam",
+            )));
+        }
+        #[cfg(test)]
+        Expr::Alias { .. } | Expr::Unary { .. } => {
+            return Err(InternalError::query_invalid_logical_plan(format!(
+                "order expression '{rendered}' did not stay on the scalar expression seam",
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn order_referenced_slots_for_resolved_order(

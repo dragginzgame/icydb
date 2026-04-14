@@ -391,17 +391,23 @@ fn lower_projection_field(
     alias: Option<&str>,
 ) -> Result<ProjectionField, SqlLoweringError> {
     Ok(ProjectionField::Scalar {
-        expr: match item {
-            SqlSelectItem::Field(field) => Expr::Field(FieldId::new(field)),
-            SqlSelectItem::Aggregate(aggregate) => {
-                Expr::Aggregate(lower_aggregate_call(aggregate)?)
-            }
-            SqlSelectItem::TextFunction(call) => lower_text_function_expr(&call)?,
-            SqlSelectItem::Arithmetic(call) => lower_arithmetic_projection_expr(&call)?,
-            SqlSelectItem::Round(call) => lower_round_projection_expr(&call)?,
-        },
+        expr: lower_select_item_expr(&item)?,
         alias: alias.map(Alias::new),
     })
+}
+
+pub(in crate::db::sql::lowering) fn lower_select_item_expr(
+    item: &SqlSelectItem,
+) -> Result<Expr, SqlLoweringError> {
+    match item {
+        SqlSelectItem::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
+        SqlSelectItem::Aggregate(aggregate) => {
+            Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
+        }
+        SqlSelectItem::TextFunction(call) => lower_text_function_expr(call),
+        SqlSelectItem::Arithmetic(call) => lower_arithmetic_projection_expr(call),
+        SqlSelectItem::Round(call) => lower_round_projection_expr(call),
+    }
 }
 
 fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {

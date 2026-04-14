@@ -591,6 +591,29 @@ fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
 }
 
 #[test]
+fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for sql in [
+        "EXPLAIN SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 1",
+        "EXPLAIN SELECT ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 1",
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .expect("bounded numeric ORDER BY aliases should explain");
+
+        assert!(
+            explain.contains("mode=Load"),
+            "bounded numeric ORDER BY alias explain should still render the base load plan",
+        );
+        assert!(
+            explain.contains("access="),
+            "bounded numeric ORDER BY alias explain should still render one routed access shape",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
     reset_session_sql_store();
     let session = sql_session();

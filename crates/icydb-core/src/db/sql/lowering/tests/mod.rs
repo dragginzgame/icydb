@@ -327,6 +327,59 @@ fn compile_sql_command_rejects_order_by_alias_for_unsupported_target_family() {
 }
 
 #[test]
+fn compile_sql_command_normalizes_order_by_alias_for_bounded_numeric_projection_targets() {
+    let arithmetic_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age + 1 AS next_age FROM SqlLowerEntity ORDER BY next_age ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("ORDER BY arithmetic alias should lower");
+    let round_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT ROUND(age / 3, 2) AS rounded_age FROM SqlLowerEntity ORDER BY rounded_age DESC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("ORDER BY ROUND alias should lower");
+
+    let SqlCommand::Query(arithmetic_query) = arithmetic_command else {
+        panic!("expected lowered arithmetic alias query command");
+    };
+    let SqlCommand::Query(round_query) = round_command else {
+        panic!("expected lowered round alias query command");
+    };
+
+    let arithmetic_plan = arithmetic_query
+        .plan()
+        .expect("arithmetic alias plan should build")
+        .into_inner();
+    let round_plan = round_query
+        .plan()
+        .expect("round alias plan should build")
+        .into_inner();
+
+    assert_eq!(
+        arithmetic_plan
+            .scalar_plan()
+            .order
+            .as_ref()
+            .expect("arithmetic alias ordering should be present")
+            .fields[0]
+            .0,
+        "age + 1",
+        "ORDER BY arithmetic aliases should normalize onto the canonical internal numeric expression",
+    );
+    assert_eq!(
+        round_plan
+            .scalar_plan()
+            .order
+            .as_ref()
+            .expect("round alias ordering should be present")
+            .fields[0]
+            .0,
+        "ROUND(age / 3, 2)",
+        "ORDER BY ROUND aliases should normalize onto the canonical internal round expression",
+    );
+}
+
+#[test]
 fn compile_sql_command_delete_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3",

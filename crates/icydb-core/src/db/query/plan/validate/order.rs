@@ -8,7 +8,7 @@ use crate::{
     db::{
         query::plan::{
             OrderSpec,
-            expr::{parse_supported_order_expr, supported_order_expr_field},
+            expr::{ExprType, infer_expr_type, parse_supported_order_expr},
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -37,15 +37,12 @@ fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<()
     let Some(expression) = parse_supported_order_expr(field) else {
         return Err(PlanError::from(OrderPlanError::unknown_field(field)));
     };
-    let field_type = schema
-        .field(
-            supported_order_expr_field(&expression)
-                .expect("supported order expression parsing must preserve one field argument")
-                .as_str(),
-        )
-        .ok_or_else(|| PlanError::from(OrderPlanError::unknown_field(field)))?;
+    let inferred = infer_expr_type(&expression, schema)?;
 
-    if !field_type.is_text() {
+    if !matches!(
+        inferred,
+        ExprType::Bool | ExprType::Text | ExprType::Numeric(_)
+    ) {
         return Err(PlanError::from(OrderPlanError::unorderable_field(field)));
     }
 

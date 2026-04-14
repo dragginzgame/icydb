@@ -1,9 +1,10 @@
-use crate::db::sql::lowering::SqlLoweringError;
+use crate::db::sql::lowering::{SqlLoweringError, select::lower_select_item_expr};
 use crate::db::{
     predicate::Predicate,
+    query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
     query::plan::expr::{
         Expr, FieldId, Function, parse_supported_order_expr, render_supported_order_expr,
-        rewrite_supported_order_expr_field, supported_order_expr_field,
+        rewrite_supported_order_expr_fields,
     },
     sql::{
         identifier::{
@@ -250,7 +251,7 @@ fn resolve_projection_order_alias(
 }
 
 // Restrict alias rewrites to the exact order target family already accepted by
-// the reduced SQL parser: plain fields and LOWER/UPPER(field) expressions.
+// the reduced SQL parser plus the internal bounded computed alias family.
 fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
     match item {
         SqlSelectItem::Field(field) => Some(field.clone()),
@@ -274,10 +275,13 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
             function: Function::Upper,
             args: vec![Expr::Field(FieldId::new(field.clone()))],
         }),
-        SqlSelectItem::Aggregate(_)
-        | SqlSelectItem::TextFunction(_)
-        | SqlSelectItem::Arithmetic(_)
-        | SqlSelectItem::Round(_) => None,
+        SqlSelectItem::Arithmetic(_) | SqlSelectItem::Round(_) => {
+            lower_select_item_expr(item).ok().and_then(|expr| {
+                render_supported_order_expr(&expr)
+                    .or_else(|| Some(render_scalar_projection_expr_sql_label(&expr)))
+            })
+        }
+        SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
     }
 }
 
@@ -298,18 +302,13 @@ fn normalize_order_term_identifier(identifier: String, entity_scope: &[String]) 
     let Some(expression) = parse_supported_order_expr(identifier.as_str()) else {
         return normalize_identifier(identifier, entity_scope);
     };
-    let normalized_field = normalize_identifier(
-        supported_order_expr_field(&expression)
-            .expect("supported order expression parsing must preserve one field argument")
-            .as_str()
-            .to_string(),
-        entity_scope,
-    );
-    let rewritten = rewrite_supported_order_expr_field(&expression, normalized_field)
-        .expect("supported order expression rewrite must preserve the admitted order function");
+    let rewritten = rewrite_supported_order_expr_fields(&expression, |field| {
+        normalize_identifier(field.to_string(), entity_scope)
+    })
+    .expect("supported order expression rewrite must preserve the admitted order family");
 
     render_supported_order_expr(&rewritten)
-        .expect("supported order expression rendering must preserve the admitted order function")
+        .expect("supported order expression rendering must preserve the admitted order family")
 }
 
 pub(in crate::db::sql::lowering) fn normalize_identifier_list(

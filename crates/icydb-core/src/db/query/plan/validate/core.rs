@@ -8,7 +8,9 @@ use crate::{
         access::validate_access_structure_model as validate_access_structure_model_shared,
         query::plan::{
             AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
-            expr::parse_supported_order_expr,
+            expr::{
+                parse_supported_order_expr, supported_order_expr_requires_index_satisfied_access,
+            },
             validate::{
                 GroupPlanError, PlanError, PolicyPlanError,
                 grouped::{
@@ -133,11 +135,13 @@ fn validate_expression_order_support(
     plan: &AccessPlannedQuery,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
-    if !order
+    let expressions_requiring_index_support = order
         .fields
         .iter()
-        .any(|(field, _)| parse_supported_order_expr(field).is_some())
-    {
+        .filter_map(|(field, _)| parse_supported_order_expr(field))
+        .any(|expr| supported_order_expr_requires_index_satisfied_access(&expr));
+
+    if !expressions_requiring_index_support {
         return Ok(());
     }
 

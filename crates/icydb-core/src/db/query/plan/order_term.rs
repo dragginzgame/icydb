@@ -68,6 +68,23 @@ mod tests {
     }
 
     #[test]
+    fn supported_order_expr_helpers_round_trip_bounded_numeric_terms() {
+        let arithmetic = parse_supported_order_expr("age + rank")
+            .expect("bounded field-to-field arithmetic should parse onto the canonical tree");
+        assert_eq!(
+            render_supported_order_expr(&arithmetic),
+            Some("age + rank".to_string())
+        );
+
+        let rounded = parse_supported_order_expr("ROUND(age + rank, 2)")
+            .expect("bounded ROUND(arithmetic, scale) should parse onto the canonical tree");
+        assert_eq!(
+            render_supported_order_expr(&rounded),
+            Some("ROUND(age + rank, 2)".to_string())
+        );
+    }
+
+    #[test]
     fn index_order_terms_use_canonical_key_item_text() {
         assert_eq!(
             index_order_terms(&EXPRESSION_INDEX_MODEL),

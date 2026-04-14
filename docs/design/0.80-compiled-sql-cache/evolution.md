@@ -23,6 +23,12 @@ Future widening should preserve this rule:
 
 **reuse should expand by making cache identity more general, not by letting cache values absorb more executor-specific machinery.**
 
+The same rule applies when SQL query families widen. New SQL surface such as
+computed alias ordering or grouped computed projections should extend the same
+query-owned semantic artifact and cache family. They are not justification for
+introducing grouped-only side caches, runtime-only semantic reuse, or a second
+planner-shaped cache model.
+
 ## Why This Addendum Exists
 
 It is likely that 0.80 will succeed structurally but still leave reuse on the table because the initial key is intentionally narrow:
@@ -180,6 +186,16 @@ Examples:
 
 If the answer is no, the design is moving in the wrong direction.
 
+The same check applies to ownership discipline more broadly:
+
+* parser still owns syntax branching
+* lowering still owns semantic/admission branching
+* execution still owns routing/materialization
+
+Widening SQL support is allowed to grow the query-owned compiled artifact, but
+it should not move lowering decisions into execution or create cache-managed
+semantic branches that bypass the existing ownership split.
+
 ### 5. Can a cache hit still be proven not to re-run semantic compile work?
 
 If widening causes semantic planning to leak back into execution, the cache contract has weakened.
@@ -194,6 +210,9 @@ Any widening slice should satisfy all of the following:
 * schema compatibility remains fail-closed
 * executor-derived reuse, if any, remains derivative and optional
 * new query families widen the semantic artifact model rather than introducing parallel cache systems
+* new grouped or computed SQL families do not assume the current fail-closed
+  grouped-expression policy is permanent, but they still extend the same
+  compiled artifact instead of adding a grouped-only cache path
 
 ## Suggested Future Milestones
 

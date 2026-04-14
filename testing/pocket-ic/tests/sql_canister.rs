@@ -203,6 +203,54 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let arithmetic = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age + 1 AS next_age FROM SqlTestUser ORDER BY next_age ASC LIMIT 2",
+        )
+        .expect("ORDER BY arithmetic alias SQL query should succeed"),
+    );
+    let rounded = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SqlTestUser ORDER BY rounded_age DESC LIMIT 2",
+        )
+        .expect("ORDER BY ROUND alias SQL query should succeed"),
+    );
+
+    assert_eq!(
+        arithmetic,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "next_age".to_string()],
+            rows: vec![
+                vec!["bob".to_string(), "25".to_string()],
+                vec!["alice".to_string(), "32".to_string()],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve arithmetic alias ordering at the live canister boundary",
+    );
+    assert_eq!(
+        rounded,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "rounded_age".to_string()],
+            rows: vec![
+                vec!["charlie".to_string(), "14.33".to_string()],
+                vec!["alice".to_string(), "10.33".to_string()],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve ROUND alias ordering at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

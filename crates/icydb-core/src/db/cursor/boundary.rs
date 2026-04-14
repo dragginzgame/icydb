@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         query::plan::{
             OrderDirection, OrderSpec,
-            expr::{parse_supported_order_expr, supported_order_expr_field},
+            expr::{Expr, ExprType, infer_expr_type, parse_supported_order_expr},
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
@@ -114,21 +114,11 @@ fn boundary_schema(model: &EntityModel) -> &'static SchemaInfo {
     SchemaInfo::cached_for_entity_model(model)
 }
 
-// Resolve one order field type from canonical schema info.
+// Resolve one plain order field type from canonical schema info.
 fn boundary_order_field_type<'a>(
     schema: &'a SchemaInfo,
     field: &str,
 ) -> Result<&'a FieldType, CursorPlanError> {
-    if let Some(expression) = parse_supported_order_expr(field) {
-        return schema
-            .field(
-                supported_order_expr_field(&expression)
-                    .expect("supported order expression parsing must preserve one field argument")
-                    .as_str(),
-            )
-            .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field));
-    }
-
     schema
         .field(field)
         .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field))
@@ -154,7 +144,12 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     let schema = boundary_schema(model);
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let field_type = boundary_order_field_type(schema, field)?;
+        let expression = parse_supported_order_expr(field);
+        let field_type = if expression.is_none() {
+            Some(boundary_order_field_type(schema, field)?)
+        } else {
+            None
+        };
 
         match slot {
             CursorBoundarySlot::Missing => {
@@ -162,19 +157,34 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                             field.clone(),
-                            field_type.to_string(),
+                            boundary_order_expected_type_name(
+                                schema,
+                                field_type,
+                                expression.as_ref(),
+                            ),
                             None,
                         ),
                     );
                 }
             }
             CursorBoundarySlot::Present(value) => {
-                if !literal_matches_type(value, field_type) {
+                let type_matches = match (field_type, expression.as_ref()) {
+                    (Some(field_type), None) => literal_matches_type(value, field_type),
+                    (None, Some(expression)) => {
+                        boundary_order_expression_value_matches(schema, expression, value)?
+                    }
+                    _ => false,
+                };
+
+                if !type_matches {
+                    let expected =
+                        boundary_order_expected_type_name(schema, field_type, expression.as_ref());
+
                     if field == model.primary_key.name {
                         return Err(
                             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                                 field.clone(),
-                                field_type.to_string(),
+                                expected,
                                 Some(value.clone()),
                             ),
                         );
@@ -182,7 +192,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
 
                     return Err(CursorPlanError::continuation_cursor_boundary_type_mismatch(
                         field.clone(),
-                        field_type.to_string(),
+                        expected,
                         value.clone(),
                     ));
                 }
@@ -191,7 +201,11 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                             field.clone(),
-                            field_type.to_string(),
+                            boundary_order_expected_type_name(
+                                schema,
+                                field_type,
+                                expression.as_ref(),
+                            ),
                             Some(value.clone()),
                         ),
                     );
@@ -201,6 +215,64 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     }
 
     Ok(())
+}
+
+fn boundary_order_expected_type_name(
+    schema: &SchemaInfo,
+    field_type: Option<&FieldType>,
+    expression: Option<&Expr>,
+) -> String {
+    if let Some(field_type) = field_type {
+        return field_type.to_string();
+    }
+
+    let Some(expression) = expression else {
+        return "unknown".to_string();
+    };
+
+    match infer_expr_type(expression, schema) {
+        Ok(ExprType::Bool) => "bool".to_string(),
+        Ok(ExprType::Text) => "text".to_string(),
+        Ok(ExprType::Numeric(_)) => "numeric".to_string(),
+        Ok(ExprType::Collection) => "collection".to_string(),
+        Ok(ExprType::Structured) => "structured".to_string(),
+        Ok(ExprType::Opaque) => "opaque".to_string(),
+        Ok(ExprType::Unknown) | Err(_) => "unknown".to_string(),
+        #[cfg(test)]
+        Ok(ExprType::Null) => "null".to_string(),
+    }
+}
+
+fn boundary_order_expression_value_matches(
+    schema: &SchemaInfo,
+    expression: &Expr,
+    value: &Value,
+) -> Result<bool, CursorPlanError> {
+    let inferred = infer_expr_type(expression, schema)
+        .map_err(|_| CursorPlanError::continuation_cursor_unknown_order_field("expression"))?;
+
+    Ok(match inferred {
+        ExprType::Bool => matches!(value, Value::Bool(_)),
+        ExprType::Text => matches!(value, Value::Text(_) | Value::Enum(_)),
+        ExprType::Numeric(_) => matches!(
+            value,
+            Value::Int(_)
+                | Value::Int128(_)
+                | Value::IntBig(_)
+                | Value::Uint(_)
+                | Value::Uint128(_)
+                | Value::UintBig(_)
+                | Value::Decimal(_)
+                | Value::Float32(_)
+                | Value::Float64(_)
+                | Value::Date(_)
+                | Value::Duration(_)
+                | Value::Timestamp(_)
+        ),
+        ExprType::Collection | ExprType::Structured | ExprType::Opaque | ExprType::Unknown => false,
+        #[cfg(test)]
+        ExprType::Null => matches!(value, Value::Null),
+    })
 }
 
 /// Decode the typed primary-key cursor slot from one validated cursor boundary.

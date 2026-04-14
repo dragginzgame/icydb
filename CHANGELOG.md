@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.81.x] ↕️ - 2026-04-14 - Bounded Computed ORDER BY Aliases
+
+- `0.81.0` lets SQL `ORDER BY <alias>` reuse one small admitted computed scalar family, so aliases like `next_age` or `rounded_age` now work when they come from bounded arithmetic or `ROUND(...)` projection items without opening direct expression ordering or grouped computed ordering.
+
+See detailed breakdown:
+[docs/changelog/0.81.md](docs/changelog/0.81.md)
+
+---
+
 ## [0.80.x] 🧠 - 2026-04-14 - Compiled SQL Cache
 
 - `0.80.3` widens one small SQL projection boundary so scalar `SELECT` lists can now do bounded field-to-field arithmetic like `dexterity + charisma AS total`, and it keeps `ROUND(..., scale)` output fixed to the requested decimal places even when that projection is aliased.

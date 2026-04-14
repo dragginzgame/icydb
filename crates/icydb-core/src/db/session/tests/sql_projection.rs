@@ -410,6 +410,62 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
 }
 
 #[test]
+fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
+
+    let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 3",
+    )
+    .expect("ORDER BY arithmetic alias should execute");
+    let round_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 3",
+    )
+    .expect("ORDER BY ROUND alias should execute");
+
+    assert_eq!(
+        arithmetic_rows,
+        vec![
+            vec![
+                Value::Text("bravo".to_string()),
+                Value::Decimal(crate::types::Decimal::new(21, 0)),
+            ],
+            vec![
+                Value::Text("alpha".to_string()),
+                Value::Decimal(crate::types::Decimal::new(31, 0)),
+            ],
+            vec![
+                Value::Text("charlie".to_string()),
+                Value::Decimal(crate::types::Decimal::new(41, 0)),
+            ],
+        ],
+        "ORDER BY arithmetic alias should materialize rows in computed numeric order",
+    );
+    assert_eq!(
+        round_rows,
+        vec![
+            vec![
+                Value::Text("charlie".to_string()),
+                Value::Decimal(crate::types::Decimal::new(1333, 2)),
+            ],
+            vec![
+                Value::Text("alpha".to_string()),
+                Value::Decimal(crate::types::Decimal::new(10, 0)),
+            ],
+            vec![
+                Value::Text("bravo".to_string()),
+                Value::Decimal(crate::types::Decimal::new(667, 2)),
+            ],
+        ],
+        "ORDER BY ROUND alias should materialize rows in rounded numeric order",
+    );
+}
+
+#[test]
 fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();
