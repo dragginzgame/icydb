@@ -25,7 +25,8 @@ mod tests {
     use crate::{
         db::query::plan::{
             expr::{
-                parse_supported_order_expr, render_supported_order_expr, supported_order_expr_field,
+                parse_supported_order_expr, render_supported_order_expr,
+                supported_order_expr_field, supported_order_expr_is_plain_field,
             },
             index_order_terms,
         },
@@ -81,6 +82,23 @@ mod tests {
         assert_eq!(
             render_supported_order_expr(&rounded),
             Some("ROUND(age + rank, 2)".to_string())
+        );
+    }
+
+    #[test]
+    fn supported_order_expr_helpers_distinguish_plain_fields_from_computed_terms() {
+        let field = parse_supported_order_expr("id")
+            .expect("plain field order terms should parse onto the canonical expression tree");
+        assert!(
+            supported_order_expr_is_plain_field(&field),
+            "plain field order terms must stay on the schema-field path",
+        );
+
+        let lower = parse_supported_order_expr("LOWER(name)")
+            .expect("lower(name) should parse onto the canonical expression tree");
+        assert!(
+            !supported_order_expr_is_plain_field(&lower),
+            "computed order terms must stay on the expression path",
         );
     }
 

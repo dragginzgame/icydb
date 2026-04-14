@@ -177,6 +177,12 @@ pub(in crate::db) fn parse_supported_order_expr(term: &str) -> Option<Expr> {
     parser.cursor.is_eof().then_some(expression)
 }
 
+/// Return whether one admitted `ORDER BY` expression is only a plain field.
+#[must_use]
+pub(in crate::db) const fn supported_order_expr_is_plain_field(expr: &Expr) -> bool {
+    matches!(expr, Expr::Field(_))
+}
+
 /// Borrow the referenced field when one expression is an admitted `ORDER BY`
 /// function term.
 #[must_use]
