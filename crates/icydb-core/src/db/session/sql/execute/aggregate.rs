@@ -1,20 +1,20 @@
 use crate::{
     db::{
-        DbSession, QueryError,
-        executor::EntityAuthority,
+        DbSession, PersistedRow, Query, QueryError,
+        executor::{EntityAuthority, ScalarTerminalBoundaryRequest},
         numeric::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
         query::intent::StructuralQuery,
-        session::sql::SqlStatementResult,
+        session::sql::{SqlCacheAttribution, SqlStatementResult},
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
             SqlGlobalAggregateCommandCore, is_sql_global_aggregate_statement,
         },
         sql::parser::SqlStatement,
     },
-    traits::CanisterKind,
+    traits::{CanisterKind, EntityValue},
     value::Value,
 };
 
@@ -221,15 +221,66 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(projected)
     }
 
-    // Execute one generic-free prepared SQL aggregate command through the
-    // structural SQL projection path and package the result as one row-shaped
-    // statement payload for unified SQL loops.
-    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_for_authority(
+    // Decide whether one field-target COUNT aggregate is semantically
+    // equivalent to COUNT(*) because the field is guaranteed non-null and the
+    // strategy does not deduplicate inputs.
+    fn sql_count_field_uses_shared_count_terminal(
+        model: &'static crate::model::entity::EntityModel,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+    ) -> bool {
+        if strategy.is_distinct() {
+            return false;
+        }
+
+        let Some(target_slot) = strategy.target_slot() else {
+            return false;
+        };
+        let Some(field) = model.fields().get(target_slot.index()) else {
+            return false;
+        };
+
+        !field.nullable()
+    }
+
+    // Execute one SQL COUNT(*) aggregate through the shared typed scalar
+    // terminal boundary so SQL reuses the existing count-route ownership.
+    fn execute_count_rows_sql_aggregate_with_shared_terminal<E>(
+        &self,
+        query: &StructuralQuery,
+    ) -> Result<(Value, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let query = Query::<E>::from_inner(query.clone());
+        let (plan, attribution) =
+            self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
+        let output = self
+            .with_metrics(|| {
+                self.load_executor::<E>()
+                    .execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)
+            })
+            .map_err(QueryError::execute)?;
+        let count = output.into_count().map_err(QueryError::execute)?;
+
+        Ok((
+            Value::Uint(u64::from(count)),
+            SqlCacheAttribution::from_shared_query_plan_cache(attribution),
+        ))
+    }
+
+    // Execute one prepared SQL aggregate command and package the result as one
+    // row-shaped statement payload for unified SQL loops.
+    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_for_authority<
+        E,
+    >(
         &self,
         command: SqlGlobalAggregateCommandCore,
         authority: EntityAuthority,
         label_overrides: Vec<Option<String>>,
-    ) -> Result<SqlStatementResult, QueryError> {
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         let model = authority.model();
         let strategies = command
             .prepared_scalar_strategies_with_model(model)
@@ -237,6 +288,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut columns = Vec::with_capacity(strategies.len());
         let mut fixed_scales = Vec::with_capacity(strategies.len());
         let mut row = Vec::with_capacity(strategies.len());
+        let mut cache_attribution = SqlCacheAttribution::default();
 
         for (index, strategy) in strategies.iter().enumerate() {
             columns.push(
@@ -250,17 +302,24 @@ impl<C: CanisterKind> DbSession<C> {
 
             let value = match strategy.runtime_descriptor() {
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                    let (payload, _) = self.execute_structural_sql_projection(
-                        command
-                            .query()
-                            .clone()
-                            .select_fields([authority.primary_key_name()]),
-                        authority,
-                        None,
-                    )?;
-                    let (_, _, _, row_count) = payload.into_parts();
+                    let (value, count_cache_attribution) = self
+                        .execute_count_rows_sql_aggregate_with_shared_terminal::<E>(
+                            command.query(),
+                        )?;
+                    cache_attribution = cache_attribution.merge(count_cache_attribution);
 
-                    Value::Uint(u64::from(row_count))
+                    value
+                }
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+                    if Self::sql_count_field_uses_shared_count_terminal(model, strategy) =>
+                {
+                    let (value, count_cache_attribution) = self
+                        .execute_count_rows_sql_aggregate_with_shared_terminal::<E>(
+                            command.query(),
+                        )?;
+                    cache_attribution = cache_attribution.merge(count_cache_attribution);
+
+                    value
                 }
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountField
                 | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
@@ -282,11 +341,14 @@ impl<C: CanisterKind> DbSession<C> {
             row.push(value);
         }
 
-        Ok(SqlStatementResult::Projection {
-            columns,
-            fixed_scales,
-            rows: vec![row],
-            row_count: 1,
-        })
+        Ok((
+            SqlStatementResult::Projection {
+                columns,
+                fixed_scales,
+                rows: vec![row],
+                row_count: 1,
+            },
+            cache_attribution,
+        ))
     }
 }

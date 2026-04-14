@@ -147,3 +147,24 @@ fn terminal_fast_path_derivation_stays_route_owned() {
         );
     }
 }
+
+#[test]
+fn sql_count_routes_stay_on_shared_scalar_terminal_route() {
+    let aggregate_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/session/sql/execute/aggregate.rs");
+    let source = fs::read_to_string(&aggregate_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", aggregate_path.display()));
+
+    assert!(
+        source.contains("ScalarTerminalBoundaryRequest::Count"),
+        "SQL count consumers should keep calling the shared scalar terminal boundary",
+    );
+    assert!(
+        !source.contains("select_fields([authority.primary_key_name()])"),
+        "SQL count consumers must not drift back to the structural projection-and-count detour",
+    );
+    assert!(
+        source.contains("sql_count_field_uses_shared_count_terminal"),
+        "SQL count-field routing should stay behind one explicit non-nullability guard helper",
+    );
+}

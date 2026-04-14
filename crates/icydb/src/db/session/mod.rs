@@ -103,6 +103,29 @@ pub struct DbSession<C: CanisterKind> {
     inner: core::db::DbSession<C>,
 }
 
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[expect(clippy::missing_const_for_fn)]
+fn read_sql_response_decode_local_instruction_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
+    let start = read_sql_response_decode_local_instruction_counter();
+    let result = run();
+    let delta = read_sql_response_decode_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
     where
@@ -212,12 +235,25 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (result, attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
+        let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
+        let entity_name = E::MODEL.name().to_string();
 
-        Ok((
-            crate::db::sql::sql_query_result_from_statement(result, E::MODEL.name().to_string()),
-            attribution,
-        ))
+        // Phase 1: measure the outward SQL response packaging step separately
+        // so shell/dev perf output can distinguish executor work from result
+        // decode and formatting prep.
+        let (response_decode_local_instructions, result) =
+            measure_sql_response_decode_stage(|| {
+                crate::db::sql::sql_query_result_from_statement(result, entity_name)
+            });
+        attribution.response_decode_local_instructions = response_decode_local_instructions;
+        attribution.execute_local_instructions = attribution
+            .execute_local_instructions
+            .saturating_add(response_decode_local_instructions);
+        attribution.total_local_instructions = attribution
+            .total_local_instructions
+            .saturating_add(response_decode_local_instructions);
+
+        Ok((result, attribution))
     }
 
     /// Execute one reduced SQL mutation statement against one concrete entity type.

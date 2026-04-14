@@ -322,7 +322,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn cached_prepared_query_plan_for_entity<E>(
+    pub(in crate::db::session) fn cached_prepared_query_plan_for_entity<E>(
         &self,
         query: &StructuralQuery,
     ) -> Result<(PreparedExecutionPlan<E>, QueryPlanCacheAttribution), QueryError>

@@ -292,17 +292,17 @@ impl<C: CanisterKind> DbSession<C> {
                 label_overrides,
             } => {
                 let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    self.execute_global_aggregate_statement_for_authority(
+                    self.execute_global_aggregate_statement_for_authority::<E>(
                         command.clone(),
                         authority,
                         label_overrides.clone(),
                     )
                 });
-                let result = result?;
+                let (result, cache_attribution) = result?;
 
                 Ok((
                     result,
-                    SqlCacheAttribution::default(),
+                    cache_attribution,
                     SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
                 ))
             }
@@ -444,13 +444,11 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::GlobalAggregate {
                 command,
                 label_overrides,
-            } => self
-                .execute_global_aggregate_statement_for_authority(
-                    command.clone(),
-                    authority,
-                    label_overrides.clone(),
-                )
-                .map(|result| (result, SqlCacheAttribution::default())),
+            } => self.execute_global_aggregate_statement_for_authority::<E>(
+                command.clone(),
+                authority,
+                label_overrides.clone(),
+            ),
             CompiledSqlCommand::Explain(lowered) => {
                 if let Some(explain) =
                     self.explain_lowered_sql_execution_for_authority(lowered, authority)?

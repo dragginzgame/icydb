@@ -240,6 +240,98 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
 }
 
 #[test]
+fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("count-cache-a", 10),
+            ("count-cache-b", 20),
+            ("count-cache-c", 30),
+            ("count-cache-d", 40),
+        ],
+    );
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "new session should start with an empty shared query-plan cache",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        Value::Uint(2),
+        "COUNT(*) SQL should execute through the shared count-terminal route",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "COUNT(*) SQL should populate one shared query-plan cache entry",
+    );
+
+    let fluent_count = session
+        .load::<SessionSqlEntity>()
+        .order_by_desc("age")
+        .limit(2)
+        .offset(1)
+        .count()
+        .expect("equivalent fluent count should succeed");
+    assert_eq!(fluent_count, 2);
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "equivalent fluent count should reuse the shared query-plan cache entry populated by SQL COUNT(*)",
+    );
+}
+
+#[test]
+fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with_fluent_count() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("count-field-cache-a", 10),
+            ("count-field-cache-b", 20),
+            ("count-field-cache-c", 30),
+            ("count-field-cache-d", 40),
+        ],
+    );
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "new session should start with an empty shared query-plan cache",
+    );
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(name) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+        Value::Uint(2),
+        "COUNT(non-null field) SQL should execute through the shared count-terminal route",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "COUNT(non-null field) SQL should populate one shared query-plan cache entry",
+    );
+
+    let fluent_count = session
+        .load::<SessionSqlEntity>()
+        .order_by_desc("age")
+        .limit(2)
+        .offset(1)
+        .count()
+        .expect("equivalent fluent count should succeed");
+    assert_eq!(fluent_count, 2);
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "equivalent fluent count should reuse the shared query-plan cache entry populated by COUNT(non-null field)",
+    );
+}
+
+#[test]
 fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
     reset_session_sql_store();
     let session = sql_session();

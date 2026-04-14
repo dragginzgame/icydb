@@ -7,6 +7,10 @@ The goal is not to maximize optimization surface area. The goal is to keep
 every admitted fast path attached to one canonical owner so new surfaces do
 not re-derive eligibility locally and drift semantically.
 
+It also records the current structural tripwires that guard those owner
+boundaries, so route changes and surface integrations have one place to update
+instead of relying on scattered institutional memory.
+
 ## Ownership Rule
 
 New fast-path eligibility must be derived in one of the canonical owners below.
@@ -94,6 +98,31 @@ Responsibilities:
 Current dedicated grouped family:
 - grouped `COUNT(*)` path
 
+## Current Consumer Routes
+
+These are the current consumer surfaces that intentionally reuse the shared
+owner boundaries instead of deriving fast-path eligibility locally.
+
+### SQL count terminals with row-count semantics
+
+Owner consumed:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/planning/route/terminal.rs`
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/terminals.rs`
+
+Consumer entrypoint:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/aggregate.rs`
+
+Current route:
+- SQL global `COUNT(*)` rebuilds one typed `Query<E>` from the lowered
+  structural base query
+- SQL global `COUNT(field)` may reuse the same route when:
+  - the target field is schema-non-nullable
+  - the aggregate is not `DISTINCT`
+- shared query-plan cache resolution happens through the ordinary typed session
+  query boundary
+- execution then calls the shared scalar terminal request with
+  `ScalarTerminalBoundaryRequest::Count`
+
 ## Surface Rule
 
 These surfaces must stay consumers only:
@@ -108,23 +137,33 @@ They may choose among existing shared contracts, but they must not re-derive:
 - covering-read eligibility
 - route precedence
 
-## Known Gap
+## Current Tripwires
 
-`SQL COUNT(*)` currently has a consumer integration gap:
-- `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/aggregate.rs`
+The current structural tripwires are:
 
-It still counts rows through the structural SQL projection path instead of
-reusing the shared count terminal boundary. That is a surface-routing problem,
-not a missing executor fast-path contract.
+### 1. Terminal fast-path derivation owner guard
 
-## Current Guard Coverage
+Guard:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/planning/route/tests/fast_path_guards.rs`
 
-The structural guard added with this note enforces the terminal-derivation seam:
+This guard enforces the terminal-derivation seam:
 - `count()`, `exists()`, and load-terminal fast-path derivation must stay under
   the route owner boundary, with only the known shared runtime consumers allowed
   to reference those derive helpers.
 
-This guard does not yet lock:
+### 2. SQL count consumer-route guard
+
+Guard:
+- `/home/adam/projects/icydb/crates/icydb-core/src/db/executor/planning/route/tests/fast_path_guards.rs`
+
+This guard checks that SQL count consumers keep using the shared scalar
+terminal request instead of reopening the old structural projection-and-count
+detour, and that the field-count widening stays behind one explicit
+non-nullability guard helper instead of scattered local conditionals.
+
+## Remaining Unguarded Areas
+
+The current tripwires do not yet lock:
 - stream fast-path precedence helpers
 - grouped dedicated fast-path ownership
 - the bytes-terminal derivation exception

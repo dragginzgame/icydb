@@ -52,6 +52,7 @@ struct ShellPerfAttribution {
     total: u64,
     planner: u64,
     executor: u64,
+    decode: u64,
     compiler: u64,
 }
 
@@ -305,14 +306,46 @@ fn append_perf_suffix(lines: &mut [String], attribution: Option<&ShellPerfAttrib
     let Some(attribution) = attribution else {
         return;
     };
+    let Some(perf_suffix) = render_perf_suffix(attribution) else {
+        return;
+    };
 
-    *last = format!(
-        "{last} ({}, {} comp, {} plan, {} exec)",
-        format_instructions(attribution.total),
-        format_instructions(attribution.compiler),
-        format_instructions(attribution.planner),
-        format_instructions(attribution.executor),
-    );
+    *last = format!("{last} ({perf_suffix})");
+}
+
+fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
+    let mut parts = Vec::new();
+
+    if attribution.total > 0 {
+        parts.push(format_instructions(attribution.total));
+    }
+    if attribution.compiler > 0 {
+        parts.push(format!(
+            "{} comp",
+            format_instructions(attribution.compiler)
+        ));
+    }
+    if attribution.planner > 0 {
+        parts.push(format!("{} plan", format_instructions(attribution.planner)));
+    }
+    if attribution.executor > 0 {
+        parts.push(format!(
+            "{} exec",
+            format_instructions(attribution.executor)
+        ));
+    }
+    if attribution.decode > 0 {
+        parts.push(format!(
+            "{} decode",
+            format_instructions(attribution.decode)
+        ));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(parts.join(", "))
 }
 
 fn format_instructions(instructions: u64) -> String {
@@ -353,6 +386,7 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
             total: parse_perf_u64(value, "instructions")?,
             planner: parse_perf_u64(value, "planner_instructions")?,
             executor: parse_perf_u64(value, "executor_instructions")?,
+            decode: parse_perf_u64_or_default(value, "decode_instructions")?,
             compiler: parse_perf_u64(value, "compiler_instructions")?,
         },
     ))
@@ -394,6 +428,14 @@ fn parse_perf_u64(value: &Value, field: &str) -> Result<u64, String> {
     }
 }
 
+fn parse_perf_u64_or_default(value: &Value, field: &str) -> Result<u64, String> {
+    if value.get(field).is_none() {
+        return Ok(0);
+    }
+
+    parse_perf_u64(value, field)
+}
+
 fn find_result_payload(value: &Value) -> Option<&Value> {
     if matches!(value, Value::Object(map) if map.contains_key("Ok") || map.contains_key("Err")) {
         return Some(value);
@@ -412,7 +454,10 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_grouped_next_cursor_json, parse_perf_result};
+    use super::{
+        ShellPerfAttribution, normalize_grouped_next_cursor_json, parse_perf_result,
+        render_perf_suffix,
+    };
     use serde_json::json;
 
     #[test]
@@ -430,6 +475,7 @@ mod tests {
             "instructions": "1",
             "planner_instructions": "1",
             "executor_instructions": "1",
+            "decode_instructions": "1",
             "compiler_instructions": "1"
         });
 
@@ -460,6 +506,35 @@ mod tests {
             value["Grouped"]["next_cursor"],
             json!("cursor-token"),
             "grouped next_cursor should normalize from candid option encoding",
+        );
+    }
+
+    #[test]
+    fn render_perf_suffix_skips_zero_instruction_segments() {
+        let suffix = render_perf_suffix(&ShellPerfAttribution {
+            total: 2_400,
+            planner: 0,
+            executor: 1_900,
+            decode: 0,
+            compiler: 500,
+        })
+        .expect("non-zero perf attribution should render a footer");
+
+        assert_eq!(suffix, "2.4Ki, 500i comp, 1.9Ki exec");
+    }
+
+    #[test]
+    fn render_perf_suffix_omits_empty_attribution() {
+        assert!(
+            render_perf_suffix(&ShellPerfAttribution {
+                total: 0,
+                planner: 0,
+                executor: 0,
+                decode: 0,
+                compiler: 0,
+            })
+            .is_none(),
+            "all-zero perf attribution should not render a footer",
         );
     }
 }

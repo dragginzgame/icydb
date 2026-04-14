@@ -85,21 +85,21 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.77.0`
-- Latest tagged release in this repo: `v0.77.0`
-- Current branch work in progress: `0.77.0`
+- Workspace version on `main`: `0.82.1`
+- Latest tagged release in this repo: `v0.82.1`
+- Current branch work in progress: `0.82.2`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.77.x` notes: `docs/changelog/0.77.md`
+- Detailed `0.82.x` notes: `docs/changelog/0.82.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- `0.77.0` removes the old generated canister SQL router, keeps reduced SQL as a narrower typed read/introspection surface, and moves canister SQL helpers onto explicit canister-owned query functions where they are still needed.
-- `0.76.14` admits `INSERT ... RETURNING`, `UPDATE ... RETURNING`, and `DELETE ... RETURNING` on the unified entity-bound SQL lane, while bare SQL mutations still keep their simpler count-first result shape.
-- `0.76.12` adds authored typed write shapes per entity, so generated fields and managed timestamps are structurally absent from caller-authored create payloads instead of being rejected only after full entity construction.
-- `0.76.10` keeps reduced SQL defaults explicit by widening `generated(insert = \"...\")` only to a small schema-owned allowlist, so entity-bound SQL inserts can synthesize `Timestamp::now` and `Ulid::generate` without turning ordinary Rust defaults into hidden SQL behavior.
+- `0.82.2` keeps SQL `COUNT(*)` on the same shared count-terminal route as fluent `count()`, and adds a small fast-path inventory plus tripwire so those route-owner boundaries are easier to maintain without regressions.
+- `0.82.1` version-locks the shared and SQL cache keys, fixes the local Rust SQL shell so grouped queries render again when the grouped cursor is empty, and widens the reduced SQL global aggregate lane so bounded queries like `SELECT MIN(age), MAX(age) ...` now return one row instead of failing closed.
+- `0.81.2` lets reduced SQL use bounded direct computed order terms like `ORDER BY age + 1`, `ORDER BY age + rank`, and `ORDER BY ROUND(age / 3, 2)` on the same canonical computed-order path instead of restricting that slice to aliases only.
+- `0.80.x` introduces explicit SQL compile/execute caching, then moves the reusable lower query-plan identity onto one shared structural cache key so repeated SQL and fluent reads can reuse the same lower planning work.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
 
 ---
@@ -130,14 +130,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.77.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.82.1" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.77.0", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.82.1", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*` and the reduced SQL session

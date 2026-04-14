@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.82.x] 🧭 - 2026-04-15 - Deterministic Compiled Query Reuse
 
+- `0.82.2` makes SQL `COUNT(*)` and `COUNT(non-null_field)` reuse the same shared count route as fluent queries instead of materializing rows just to count them, and adds a small fast-path inventory plus guard test so those shared route boundaries are documented and harder to regress.
 - `0.82.1` makes cache compatibility more explicit by versioning the shared and SQL cache keys, proves those version and query/update boundaries fail closed in tests, adds isolated cold-vs-warm PocketIC perf rows that show repeated query reuse now cuts the same logical read by about `22%` on fluent and about `30%` on SQL after an update warm, fixes the local Rust SQL shell so grouped queries render rows again instead of failing on the empty grouped continuation cursor JSON shape, and now lets bounded global aggregate lists like `SELECT MIN(age), MAX(age) ...` return one row instead of failing closed.
 - `0.82.0` makes the shared lower query-plan cache use one explicit canonical structural cache key instead of a hidden manual hash walk, keeps SHA-256 on deterministic identity boundaries and `xxh3` on in-heap cache hashing, and records the remaining manual hashing cleanup targets for later follow-up instead of widening the cache model further.
 

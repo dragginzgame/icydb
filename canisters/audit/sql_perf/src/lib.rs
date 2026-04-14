@@ -69,6 +69,7 @@ fn average_attribution(
     total_compile_local_instructions: u64,
     total_planner_local_instructions: u64,
     total_executor_local_instructions: u64,
+    total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
     total_sql_compiled_command_cache_hits: u64,
@@ -85,6 +86,7 @@ fn average_attribution(
         compile_local_instructions: total_compile_local_instructions / divisor,
         planner_local_instructions: total_planner_local_instructions / divisor,
         executor_local_instructions: total_executor_local_instructions / divisor,
+        response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
         sql_compiled_command_cache_hits: total_sql_compiled_command_cache_hits,
@@ -137,6 +139,7 @@ where
     let mut total_compile_local_instructions = 0_u64;
     let mut total_planner_local_instructions = 0_u64;
     let mut total_executor_local_instructions = 0_u64;
+    let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
     let mut total_sql_compiled_command_cache_hits = 0_u64;
@@ -160,6 +163,8 @@ where
             total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
         total_executor_local_instructions = total_executor_local_instructions
             .saturating_add(attribution.executor_local_instructions);
+        total_response_decode_local_instructions = total_response_decode_local_instructions
+            .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
             total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
         total_local_instructions =
@@ -184,6 +189,7 @@ where
             total_compile_local_instructions,
             total_planner_local_instructions,
             total_executor_local_instructions,
+            total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,
             total_sql_compiled_command_cache_hits,
