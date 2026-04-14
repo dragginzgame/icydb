@@ -49,10 +49,10 @@ struct ShellConfig {
 ///
 
 struct ShellPerfAttribution {
-    total_instructions: u64,
-    planner_instructions: u64,
-    executor_instructions: u64,
-    compiler_instructions: u64,
+    total: u64,
+    planner: u64,
+    executor: u64,
+    compiler: u64,
 }
 
 impl ShellConfig {
@@ -308,10 +308,10 @@ fn append_perf_suffix(lines: &mut [String], attribution: Option<&ShellPerfAttrib
 
     *last = format!(
         "{last} ({}, {} comp, {} plan, {} exec)",
-        format_instructions(attribution.total_instructions),
-        format_instructions(attribution.compiler_instructions),
-        format_instructions(attribution.planner_instructions),
-        format_instructions(attribution.executor_instructions),
+        format_instructions(attribution.total),
+        format_instructions(attribution.compiler),
+        format_instructions(attribution.planner),
+        format_instructions(attribution.executor),
     );
 }
 
@@ -346,10 +346,10 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
     Ok((
         result,
         ShellPerfAttribution {
-            total_instructions: parse_perf_u64(value, "instructions")?,
-            planner_instructions: parse_perf_u64(value, "planner_instructions")?,
-            executor_instructions: parse_perf_u64(value, "executor_instructions")?,
-            compiler_instructions: parse_perf_u64(value, "compiler_instructions")?,
+            total: parse_perf_u64(value, "instructions")?,
+            planner: parse_perf_u64(value, "planner_instructions")?,
+            executor: parse_perf_u64(value, "executor_instructions")?,
+            compiler: parse_perf_u64(value, "compiler_instructions")?,
         },
     ))
 }
