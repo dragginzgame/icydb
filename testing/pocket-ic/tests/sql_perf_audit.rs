@@ -370,6 +370,15 @@ fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
 }
 
 fn user_name_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(user_name_raw_order_scenarios());
+    scenarios.extend(user_name_expression_order_scenarios());
+    scenarios.extend(user_name_casefold_predicate_scenarios());
+
+    scenarios
+}
+
+fn user_name_raw_order_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
             "user.name.order_only.asc.limit3",
@@ -420,6 +429,11 @@ fn user_name_scenarios() -> Vec<SqlPerfScenario> {
             "negated_prefix_like",
             "SELECT id, name FROM PerfAuditUser WHERE name NOT LIKE 'A%' ORDER BY id ASC LIMIT 3",
         ),
+    ]
+}
+
+fn user_name_expression_order_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "user.name.lower.order_only.asc.limit3",
             SqlPerfSurface::User,
@@ -469,6 +483,11 @@ fn user_name_scenarios() -> Vec<SqlPerfScenario> {
             "expression_negated_casefold_prefix",
             "SELECT id, name FROM PerfAuditUser WHERE LOWER(name) NOT LIKE 'a%' ORDER BY id ASC LIMIT 3",
         ),
+    ]
+}
+
+fn user_name_casefold_predicate_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "user.name.ilike_prefix.limit3",
             SqlPerfSurface::User,
@@ -487,6 +506,16 @@ fn user_name_scenarios() -> Vec<SqlPerfScenario> {
 }
 
 fn user_predicate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(user_bool_predicate_scenarios());
+    scenarios.extend(user_field_predicate_scenarios());
+    scenarios.extend(user_membership_and_between_scenarios());
+    scenarios.extend(user_aggregate_and_metadata_scenarios());
+
+    scenarios
+}
+
+fn user_bool_predicate_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
             "user.active.is_true.order_id.limit4",
@@ -502,6 +531,11 @@ fn user_predicate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "bool_predicate",
             "SELECT id, active FROM PerfAuditUser WHERE active IS NOT TRUE ORDER BY id ASC LIMIT 4",
         ),
+    ]
+}
+
+fn user_field_predicate_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "user.field_compare.age_gt_rank.limit3",
             SqlPerfSurface::User,
@@ -523,6 +557,11 @@ fn user_predicate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "field_compare",
             "SELECT id, name FROM PerfAuditUser WHERE age = rank ORDER BY age ASC, id ASC LIMIT 3",
         ),
+    ]
+}
+
+fn user_membership_and_between_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "user.age.in.limit3",
             SqlPerfSurface::User,
@@ -551,6 +590,11 @@ fn user_predicate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "field_not_between",
             "SELECT id, name FROM PerfAuditUser WHERE rank NOT BETWEEN age AND age ORDER BY id ASC LIMIT 3",
         ),
+    ]
+}
+
+fn user_aggregate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "user.count.active_true",
             SqlPerfSurface::User,
