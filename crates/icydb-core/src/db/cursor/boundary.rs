@@ -9,10 +9,7 @@ use crate::{
         direction::Direction,
         query::plan::{
             OrderDirection, OrderSpec,
-            expr::{
-                Expr, ExprType, infer_expr_type, parse_supported_order_expr,
-                supported_order_expr_is_plain_field,
-            },
+            expr::{Expr, ExprType, infer_expr_type, parse_supported_computed_order_expr},
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
@@ -147,8 +144,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     let schema = boundary_schema(model);
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let expression = parse_supported_order_expr(field)
-            .filter(|expression| !supported_order_expr_is_plain_field(expression));
+        let expression = parse_supported_computed_order_expr(field);
         let field_type = if expression.is_none() {
             Some(boundary_order_field_type(schema, field)?)
         } else {

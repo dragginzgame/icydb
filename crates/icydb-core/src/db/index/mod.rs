@@ -17,9 +17,8 @@ pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryExistenceWitness, RawIndexEntry,
 };
 pub(in crate::db) use envelope::{
-    KeyEnvelope, continuation_advanced, envelope_is_empty, key_within_envelope,
-    resume_bounds_from_refs, validate_index_scan_continuation_advancement,
-    validate_index_scan_continuation_envelope,
+    KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
+    validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,

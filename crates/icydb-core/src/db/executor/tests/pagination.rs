@@ -378,6 +378,32 @@ fn assert_simple_resume_suffixes_from_tokens(
     }
 }
 
+fn assert_simple_pagination_parity_matrix(
+    load: &LoadExecutor<SimpleEntity>,
+    limits: &[u32],
+    build_left_plan: impl Fn(u32) -> PreparedExecutionPlan<SimpleEntity>,
+    build_right_plan: impl Fn(u32) -> PreparedExecutionPlan<SimpleEntity>,
+    context_prefix: &str,
+) {
+    for &limit in limits {
+        let build_left_plan_for_limit = || build_left_plan(limit);
+        let build_right_plan_for_limit = || build_right_plan(limit);
+        let (left_ids, left_boundaries) =
+            collect_simple_pages_from_executable_plan(load, build_left_plan_for_limit, 20);
+        let (right_ids, right_boundaries) =
+            collect_simple_pages_from_executable_plan(load, build_right_plan_for_limit, 20);
+
+        assert_eq!(
+            left_ids, right_ids,
+            "{context_prefix} ids should match for limit={limit}",
+        );
+        assert_eq!(
+            left_boundaries, right_boundaries,
+            "{context_prefix} boundaries should match for limit={limit}",
+        );
+    }
+}
+
 fn seed_pushdown_rows(rows: &[(u128, u32, u32, &str)]) {
     let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
     for (id, group, rank, label) in rows {
@@ -516,6 +542,33 @@ fn pushdown_trace_rows(prefix: u128) -> [(u128, u32, u32, &'static str); 5] {
         (prefix + 3, 7, 20, "g7-r20-b"),
         (prefix + 4, 7, 30, "g7-r30"),
         (prefix + 5, 8, 15, "g8-r15"),
+    ]
+}
+
+fn distinct_secondary_pushdown_rows(prefix: u128) -> [(u128, u32, u32, &'static str); 9] {
+    [
+        (prefix + 1, 7, 10, "g7-r10"),
+        (prefix + 2, 7, 20, "g7-r20-a"),
+        (prefix + 3, 7, 20, "g7-r20-b"),
+        (prefix + 4, 7, 30, "g7-r30"),
+        (prefix + 5, 7, 40, "g7-r40"),
+        (prefix + 6, 8, 10, "g8-r10"),
+        (prefix + 7, 8, 20, "g8-r20"),
+        (prefix + 8, 8, 30, "g8-r30"),
+        (prefix + 9, 9, 10, "g9-r10"),
+    ]
+}
+
+fn indexed_metric_range_rows(prefix: u128) -> [(u128, u32, &'static str); 8] {
+    [
+        (prefix + 1, 10, "t10-a"),
+        (prefix + 2, 10, "t10-b"),
+        (prefix + 3, 20, "t20-a"),
+        (prefix + 4, 20, "t20-b"),
+        (prefix + 5, 25, "t25"),
+        (prefix + 6, 28, "t28-a"),
+        (prefix + 7, 28, "t28-b"),
+        (prefix + 8, 40, "t40"),
     ]
 }
 
@@ -705,6 +758,53 @@ fn assert_indexed_metric_resume_suffixes_from_tokens(
             resumed_ids.as_slice(),
             &expected_ids[expected_start..expected_start.saturating_add(resumed_ids.len())],
             "{context}: resumed indexed-metrics page should preserve suffix order",
+        );
+    }
+}
+
+fn assert_indexed_metric_resume_and_fallback_parity_matrix(
+    load: &LoadExecutor<IndexedMetricsEntity>,
+    limits: &[u32],
+    expected_ids: &[Ulid],
+    build_fast_plan: impl Fn(u32) -> PreparedExecutionPlan<IndexedMetricsEntity>,
+    build_fallback_plan: impl Fn(u32) -> PreparedExecutionPlan<IndexedMetricsEntity>,
+    context_prefix: &str,
+) {
+    for &limit in limits {
+        let build_fast_plan_for_limit = || build_fast_plan(limit);
+        let (fast_ids, fast_boundaries, fast_tokens) =
+            collect_indexed_metric_pages_from_executable_plan_with_tokens(
+                load,
+                build_fast_plan_for_limit,
+                20,
+            );
+        assert_eq!(
+            fast_ids, expected_ids,
+            "{context_prefix} should preserve canonical ordering for limit={limit}",
+        );
+
+        let token_context = format!("{context_prefix} token resume limit={limit}");
+        assert_indexed_metric_resume_suffixes_from_tokens(
+            load,
+            &build_fast_plan_for_limit,
+            &fast_tokens,
+            expected_ids,
+            token_context.as_str(),
+        );
+
+        let build_fallback_plan_for_limit = || build_fallback_plan(limit);
+        let (fallback_ids, fallback_boundaries) = collect_indexed_metric_pages_from_executable_plan(
+            load,
+            build_fallback_plan_for_limit,
+            20,
+        );
+        assert_eq!(
+            fast_ids, fallback_ids,
+            "{context_prefix} fast path and fallback ids should match for limit={limit}",
+        );
+        assert_eq!(
+            fast_boundaries, fallback_boundaries,
+            "{context_prefix} fast path and fallback boundaries should match for limit={limit}",
         );
     }
 }
@@ -901,6 +1001,7 @@ fn assert_distinct_secondary_offset_parity_case(
     load: &LoadExecutor<PushdownParityEntity>,
     predicate: Predicate,
     group_ids: &[Ulid],
+    expected_ids: &[Ulid],
     direction: OrderDirection,
     case_name: &str,
 ) {
@@ -929,8 +1030,12 @@ fn assert_distinct_secondary_offset_parity_case(
         "distinct secondary offset fallback should remain non-optimized for case={case_name}",
     );
 
-    let (fast_ids, fast_boundaries, fast_tokens) =
-        collect_pushdown_pages_from_executable_plan_with_tokens(load, build_fast_plan, 20);
+    let (fast_ids, fast_boundaries) = collect_pushdown_pages_and_assert_token_resumes(
+        load,
+        build_fast_plan,
+        expected_ids,
+        case_name,
+    );
     let (fallback_ids, fallback_boundaries) =
         collect_pushdown_pages_from_executable_plan(load, build_fallback_plan, 20);
     assert_eq!(
@@ -940,13 +1045,6 @@ fn assert_distinct_secondary_offset_parity_case(
     assert_eq!(
         fast_boundaries, fallback_boundaries,
         "distinct secondary offset fast/fallback boundaries should match for case={case_name}",
-    );
-    assert_pushdown_resume_suffixes_from_tokens(
-        load,
-        &build_fast_plan,
-        &fast_tokens,
-        &fast_ids,
-        case_name,
     );
 }
 
@@ -958,6 +1056,7 @@ fn assert_distinct_index_range_offset_parity_case(
 ) {
     let build_fast_plan = || build_distinct_index_range_offset_fast_plan(direction);
     let candidate_ids = ordered_index_candidate_ids_for_direction(rows, 10, 30, direction);
+    let expected_ids = candidate_ids.iter().copied().skip(1).collect::<Vec<_>>();
     let build_fallback_plan =
         || build_distinct_index_range_offset_fallback_plan(direction, &candidate_ids);
 
@@ -981,23 +1080,12 @@ fn assert_distinct_index_range_offset_parity_case(
         "distinct index-range offset fallback should remain non-optimized for case={case_name}",
     );
 
-    let (fast_ids, fast_boundaries, fast_tokens) =
-        collect_indexed_metric_pages_from_executable_plan_with_tokens(load, build_fast_plan, 20);
-    let (fallback_ids, fallback_boundaries) =
-        collect_indexed_metric_pages_from_executable_plan(load, build_fallback_plan, 20);
-    assert_eq!(
-        fast_ids, fallback_ids,
-        "distinct index-range offset fast/fallback ids should match for case={case_name}",
-    );
-    assert_eq!(
-        fast_boundaries, fallback_boundaries,
-        "distinct index-range offset fast/fallback boundaries should match for case={case_name}",
-    );
-    assert_indexed_metric_resume_suffixes_from_tokens(
+    assert_indexed_metric_resume_and_fallback_parity_matrix(
         load,
-        &build_fast_plan,
-        &fast_tokens,
-        &fast_ids,
+        &[2_u32],
+        &expected_ids,
+        |_| build_distinct_index_range_offset_fast_plan(direction),
+        |_| build_distinct_index_range_offset_fallback_plan(direction, &candidate_ids),
         case_name,
     );
 }
@@ -1659,6 +1747,86 @@ fn assert_pushdown_resume_suffixes_from_tokens(
             resumed_ids.as_slice(),
             &expected_ids[expected_start..expected_start.saturating_add(resumed_ids.len())],
             "{context}: resumed pushdown page should preserve suffix order",
+        );
+    }
+}
+
+fn collect_pushdown_pages_and_assert_token_resumes(
+    load: &LoadExecutor<PushdownParityEntity>,
+    build_plan: impl Fn() -> PreparedExecutionPlan<PushdownParityEntity>,
+    expected_ids: &[Ulid],
+    context: &str,
+) -> (Vec<Ulid>, Vec<CursorBoundary>) {
+    let (ids, boundaries, tokens) =
+        collect_pushdown_pages_from_executable_plan_with_tokens(load, &build_plan, 20);
+    assert_eq!(
+        ids, expected_ids,
+        "{context}: traversal should preserve canonical ordering"
+    );
+    assert_pushdown_resume_suffixes_from_tokens(load, &build_plan, &tokens, expected_ids, context);
+
+    (ids, boundaries)
+}
+
+fn assert_pushdown_distinct_resume_matrix(
+    load: &LoadExecutor<PushdownParityEntity>,
+    limits: &[u32],
+    expected_ids: &[Ulid],
+    build_plan: impl Fn(u32) -> PreparedExecutionPlan<PushdownParityEntity>,
+    context_prefix: &str,
+) {
+    for &limit in limits {
+        let build_plan_for_limit = || build_plan(limit);
+        let (actual_ids, boundaries) =
+            collect_pushdown_pages_from_executable_plan(load, build_plan_for_limit, 20);
+
+        assert_eq!(
+            actual_ids, expected_ids,
+            "{context_prefix} should preserve canonical ordering for limit={limit}",
+        );
+
+        let unique: BTreeSet<Ulid> = actual_ids.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            actual_ids.len(),
+            "{context_prefix} must not emit duplicates for limit={limit}",
+        );
+
+        let context = format!("{context_prefix} limit={limit}");
+        assert_pushdown_resume_suffixes_from_boundaries(
+            load,
+            &build_plan_for_limit,
+            &boundaries,
+            expected_ids,
+            context.as_str(),
+        );
+    }
+}
+
+// Compare two pagination shapes across a shared limit matrix and assert that
+// they produce identical rows and continuation boundaries.
+fn assert_pushdown_pagination_parity_matrix(
+    load: &LoadExecutor<PushdownParityEntity>,
+    limits: &[u32],
+    build_left_plan: impl Fn(u32) -> PreparedExecutionPlan<PushdownParityEntity>,
+    build_right_plan: impl Fn(u32) -> PreparedExecutionPlan<PushdownParityEntity>,
+    context_prefix: &str,
+) {
+    for &limit in limits {
+        let build_left_plan_for_limit = || build_left_plan(limit);
+        let build_right_plan_for_limit = || build_right_plan(limit);
+        let (left_ids, left_boundaries) =
+            collect_pushdown_pages_from_executable_plan(load, build_left_plan_for_limit, 20);
+        let (right_ids, right_boundaries) =
+            collect_pushdown_pages_from_executable_plan(load, build_right_plan_for_limit, 20);
+
+        assert_eq!(
+            left_ids, right_ids,
+            "{context_prefix} ids should match for limit={limit}",
+        );
+        assert_eq!(
+            left_boundaries, right_boundaries,
+            "{context_prefix} boundaries should match for limit={limit}",
         );
     }
 }
@@ -4439,17 +4607,7 @@ fn load_cursor_token_replay_parity_holds_between_pk_fast_and_by_ids_shapes() {
 fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
     setup_pagination_test();
 
-    let rows = [
-        (42_001, 7, 10, "g7-r10"),
-        (42_002, 7, 20, "g7-r20-a"),
-        (42_003, 7, 20, "g7-r20-b"),
-        (42_004, 7, 30, "g7-r30"),
-        (42_005, 7, 40, "g7-r40"),
-        (42_006, 8, 10, "g8-r10"),
-        (42_007, 8, 20, "g8-r20"),
-        (42_008, 8, 30, "g8-r30"),
-        (42_009, 9, 10, "g9-r10"),
-    ];
+    let rows = distinct_secondary_pushdown_rows(42_000);
     seed_pushdown_rows(&rows);
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
@@ -4491,16 +4649,9 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
                 .into_iter()
                 .skip(1)
                 .collect::<Vec<_>>();
-        let (ids, _boundaries, tokens) =
-            collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
-        assert_eq!(
-            ids, expected_ids,
-            "secondary offset traversal must preserve canonical order for case={case_name}",
-        );
-        assert_pushdown_resume_suffixes_from_tokens(
+        let _ = collect_pushdown_pages_and_assert_token_resumes(
             &load,
-            &build_plan,
-            &tokens,
+            build_plan,
             &expected_ids,
             case_name,
         );
@@ -4511,16 +4662,7 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
 fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_complete() {
     setup_pagination_test();
 
-    let rows = [
-        (42_101, 10, "t10-a"),
-        (42_102, 10, "t10-b"),
-        (42_103, 20, "t20-a"),
-        (42_104, 20, "t20-b"),
-        (42_105, 25, "t25"),
-        (42_106, 28, "t28-a"),
-        (42_107, 28, "t28-b"),
-        (42_108, 40, "t40"),
-    ];
+    let rows = indexed_metric_range_rows(42_100);
     seed_indexed_metrics_rows(&rows);
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
@@ -6836,8 +6978,11 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
             ids.iter().copied().rev().collect()
         };
 
-        for limit in [1_u32, 2, 3] {
-            let build_plan = || {
+        assert_pushdown_distinct_resume_matrix(
+            &load,
+            &[1_u32, 2, 3],
+            &expected_ids,
+            |limit| {
                 PreparedExecutionPlan::<PushdownParityEntity>::new(AccessPlannedQuery {
                     logical: LogicalPlan::Scalar(ScalarPlan {
                         mode: QueryMode::Load(LoadSpec::new()),
@@ -6884,31 +7029,9 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                         crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(false),
                     static_planning_shape: None,
                 })
-            };
-
-            let (distinct_ids, boundaries) =
-                collect_pushdown_pages_from_executable_plan(&load, build_plan, 30);
-            assert_eq!(
-                distinct_ids, expected_ids,
-                "case '{case_name}' with limit={limit} should preserve distinct canonical ordering",
-            );
-
-            let unique: BTreeSet<Ulid> = distinct_ids.iter().copied().collect();
-            assert_eq!(
-                unique.len(),
-                distinct_ids.len(),
-                "case '{case_name}' with limit={limit} distinct pagination must not duplicate rows",
-            );
-
-            let context = format!("case '{case_name}' with limit={limit}");
-            assert_pushdown_resume_suffixes_from_boundaries(
-                &load,
-                &build_plan,
-                &boundaries,
-                &expected_ids,
-                context.as_str(),
-            );
-        }
+            },
+            format!("case '{case_name}'").as_str(),
+        );
     }
 }
 
@@ -6916,17 +7039,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
 fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
     setup_pagination_test();
 
-    let rows = [
-        (39_401, 7, 10, "g7-r10"),
-        (39_402, 7, 20, "g7-r20-a"),
-        (39_403, 7, 20, "g7-r20-b"),
-        (39_404, 7, 30, "g7-r30"),
-        (39_405, 7, 40, "g7-r40"),
-        (39_406, 8, 10, "g8-r10"),
-        (39_407, 8, 20, "g8-r20"),
-        (39_408, 8, 30, "g8-r30"),
-        (39_409, 9, 10, "g9-r10"),
-    ];
+    let rows = distinct_secondary_pushdown_rows(39_400);
     seed_pushdown_rows(&rows);
 
     let predicate = pushdown_group_predicate(7);
@@ -6955,8 +7068,13 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
             "distinct DESC residual-filter plan should remain materialized for limit={limit}",
         );
         let _ = seed_page;
+    }
 
-        let build_plan = || {
+    assert_pushdown_distinct_resume_matrix(
+        &load,
+        &[1_u32, 2, 3],
+        &expected_ids,
+        |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
@@ -6966,48 +7084,16 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct secondary DESC plan should build")
-        };
-
-        let (distinct_ids, boundaries) =
-            collect_pushdown_pages_from_executable_plan(&load, build_plan, 20);
-        assert_eq!(
-            distinct_ids, expected_ids,
-            "distinct DESC secondary pushdown should preserve canonical ordering for limit={limit}",
-        );
-
-        let unique: BTreeSet<Ulid> = distinct_ids.iter().copied().collect();
-        assert_eq!(
-            unique.len(),
-            distinct_ids.len(),
-            "distinct DESC secondary pagination must not emit duplicates for limit={limit}",
-        );
-
-        let context = format!("distinct DESC secondary limit={limit}");
-        assert_pushdown_resume_suffixes_from_boundaries(
-            &load,
-            &build_plan,
-            &boundaries,
-            &expected_ids,
-            context.as_str(),
-        );
-    }
+        },
+        "distinct DESC secondary pushdown",
+    );
 }
 
 #[test]
 fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries() {
     setup_pagination_test();
 
-    let rows = [
-        (39_501, 7, 10, "g7-r10"),
-        (39_502, 7, 20, "g7-r20-a"),
-        (39_503, 7, 20, "g7-r20-b"),
-        (39_504, 7, 30, "g7-r30"),
-        (39_505, 7, 40, "g7-r40"),
-        (39_506, 8, 10, "g8-r10"),
-        (39_507, 8, 20, "g8-r20"),
-        (39_508, 8, 30, "g8-r30"),
-        (39_509, 9, 10, "g9-r10"),
-    ];
+    let rows = distinct_secondary_pushdown_rows(39_500);
     seed_pushdown_rows(&rows);
 
     let group7_ids = pushdown_group_ids(&rows, 7);
@@ -7056,8 +7142,12 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             None,
             "distinct DESC by-ids fallback seed execution should not report fast-path optimization for limit={limit}",
         );
+    }
 
-        let build_fast_plan = || {
+    assert_pushdown_pagination_parity_matrix(
+        &load,
+        &[1_u32, 2, 3],
+        |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
@@ -7067,8 +7157,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC fast-path plan should build")
-        };
-        let build_fallback_plan = || {
+        },
+        |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_by_desc("rank")
@@ -7078,39 +7168,16 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC fallback plan should build")
-        };
-
-        let (fast_ids, fast_boundaries, _fast_tokens) =
-            collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_fast_plan, 20);
-        let (fallback_ids, fallback_boundaries, _fallback_tokens) =
-            collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_fallback_plan, 20);
-
-        assert_eq!(
-            fast_ids, fallback_ids,
-            "distinct DESC fast-path and fallback ids should match for limit={limit}",
-        );
-        assert_eq!(
-            fast_boundaries, fallback_boundaries,
-            "distinct DESC fast-path and fallback boundaries should match for limit={limit}",
-        );
-    }
+        },
+        "distinct DESC fast-path and fallback",
+    );
 }
 
 #[test]
 fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fallback() {
     setup_pagination_test();
 
-    let rows = [
-        (39_701, 7, 10, "g7-r10"),
-        (39_702, 7, 20, "g7-r20-a"),
-        (39_703, 7, 20, "g7-r20-b"),
-        (39_704, 7, 30, "g7-r30"),
-        (39_705, 7, 40, "g7-r40"),
-        (39_706, 8, 10, "g8-r10"),
-        (39_707, 8, 20, "g8-r20"),
-        (39_708, 8, 30, "g8-r30"),
-        (39_709, 9, 10, "g9-r10"),
-    ];
+    let rows = distinct_secondary_pushdown_rows(39_700);
     seed_pushdown_rows(&rows);
     let group7_ids = pushdown_group_ids(&rows, 7);
 
@@ -7152,8 +7219,12 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
             None,
             "distinct mixed-direction index-shape seed execution should not report fast-path optimization for limit={limit}",
         );
+    }
 
-        let build_index_shape_plan = || {
+    assert_pushdown_pagination_parity_matrix(
+        &load,
+        &[1_u32, 2, 3],
+        |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
@@ -7163,8 +7234,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct mixed-direction index-shape plan should build")
-        };
-        let build_fallback_plan = || {
+        },
+        |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_by_desc("rank")
@@ -7174,21 +7245,9 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct mixed-direction fallback plan should build")
-        };
-
-        let (index_shape_ids, index_shape_boundaries) =
-            collect_pushdown_pages_from_executable_plan(&load, build_index_shape_plan, 20);
-        let (fallback_ids, fallback_boundaries) =
-            collect_pushdown_pages_from_executable_plan(&load, build_fallback_plan, 20);
-        assert_eq!(
-            index_shape_ids, fallback_ids,
-            "distinct mixed-direction index-shape and fallback ids should match for limit={limit}",
-        );
-        assert_eq!(
-            index_shape_boundaries, fallback_boundaries,
-            "distinct mixed-direction index-shape and fallback boundaries should match for limit={limit}",
-        );
-    }
+        },
+        "distinct mixed-direction index-shape and fallback",
+    );
 }
 
 #[test]
@@ -7254,8 +7313,12 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
             None,
             "distinct DESC by-ids seed execution should not report fast-path optimization for limit={limit}",
         );
+    }
 
-        let build_fast_plan = || {
+    assert_simple_pagination_parity_matrix(
+        &load,
+        &[1_u32, 2, 3],
+        |limit| {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by_desc("id")
                 .distinct()
@@ -7264,8 +7327,8 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC PK fast-path plan should build")
-        };
-        let build_fallback_plan = || {
+        },
+        |limit| {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(keys.into_iter().map(Ulid::from_u128))
                 .order_by_desc("id")
@@ -7275,37 +7338,16 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC PK fallback plan should build")
-        };
-
-        let (fast_ids, fast_boundaries) =
-            collect_simple_pages_from_executable_plan(&load, build_fast_plan, 20);
-        let (fallback_ids, fallback_boundaries) =
-            collect_simple_pages_from_executable_plan(&load, build_fallback_plan, 20);
-        assert_eq!(
-            fast_ids, fallback_ids,
-            "distinct DESC PK fast-path and fallback ids should match for limit={limit}",
-        );
-        assert_eq!(
-            fast_boundaries, fallback_boundaries,
-            "distinct DESC PK fast-path and fallback boundaries should match for limit={limit}",
-        );
-    }
+        },
+        "distinct DESC PK fast-path and fallback",
+    );
 }
 
 #[test]
 fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_parity() {
     setup_pagination_test();
 
-    let rows = [
-        (39_601, 10, "t10-a"),
-        (39_602, 10, "t10-b"),
-        (39_603, 20, "t20-a"),
-        (39_604, 20, "t20-b"),
-        (39_605, 25, "t25"),
-        (39_606, 28, "t28-a"),
-        (39_607, 28, "t28-b"),
-        (39_608, 40, "t40"),
-    ];
+    let rows = indexed_metric_range_rows(39_600);
     seed_indexed_metrics_rows(&rows);
 
     let expected_ids =
@@ -7322,27 +7364,14 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
             Some(crate::db::diagnostics::ExecutionOptimization::IndexRangeLimitPushdown),
             "distinct DESC index-range seed execution should use limit pushdown for limit={limit}",
         );
+    }
 
-        let build_fast_plan = || build_distinct_desc_index_range_plan(limit, 0);
-        let (fast_ids, fast_boundaries, fast_tokens) =
-            collect_indexed_metric_pages_from_executable_plan_with_tokens(
-                &load,
-                build_fast_plan,
-                20,
-            );
-        assert_eq!(
-            fast_ids, expected_ids,
-            "distinct DESC index-range pushdown should preserve canonical ordering for limit={limit}",
-        );
-        assert_indexed_metric_resume_suffixes_from_tokens(
-            &load,
-            &build_fast_plan,
-            &fast_tokens,
-            &expected_ids,
-            "distinct DESC index-range token resume",
-        );
-
-        let build_fallback_plan = || {
+    assert_indexed_metric_resume_and_fallback_parity_matrix(
+        &load,
+        &[1_u32, 2, 3],
+        &expected_ids,
+        |limit| build_distinct_desc_index_range_plan(limit, 0),
+        |limit| {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(expected_ids.iter().copied())
                 .order_by_desc("tag")
@@ -7352,58 +7381,41 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("distinct DESC index-range fallback plan should build")
-        };
-        let (fallback_ids, fallback_boundaries) =
-            collect_indexed_metric_pages_from_executable_plan(&load, build_fallback_plan, 20);
-        assert_eq!(
-            fast_ids, fallback_ids,
-            "distinct DESC index-range fast path and fallback ids should match for limit={limit}",
-        );
-        assert_eq!(
-            fast_boundaries, fallback_boundaries,
-            "distinct DESC index-range fast path and fallback boundaries should match for limit={limit}",
-        );
-    }
+        },
+        "distinct DESC index-range",
+    );
 }
 
 #[test]
 fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
     setup_pagination_test();
 
-    let secondary_rows = [
-        (42_301, 7, 10, "g7-r10"),
-        (42_302, 7, 20, "g7-r20-a"),
-        (42_303, 7, 20, "g7-r20-b"),
-        (42_304, 7, 30, "g7-r30"),
-        (42_305, 7, 40, "g7-r40"),
-        (42_306, 8, 10, "g8-r10"),
-        (42_307, 8, 20, "g8-r20"),
-        (42_308, 8, 30, "g8-r30"),
-        (42_309, 9, 10, "g9-r10"),
-    ];
+    let secondary_rows = distinct_secondary_pushdown_rows(42_300);
     seed_pushdown_rows(&secondary_rows);
     let secondary_predicate = pushdown_group_predicate(7);
     let secondary_group_ids = pushdown_group_ids(&secondary_rows, 7);
 
-    let index_rows = [
-        (42_401, 10, "t10-a"),
-        (42_402, 10, "t10-b"),
-        (42_403, 20, "t20-a"),
-        (42_404, 20, "t20-b"),
-        (42_405, 25, "t25"),
-        (42_406, 28, "t28-a"),
-        (42_407, 28, "t28-b"),
-        (42_408, 40, "t40"),
-    ];
+    let index_rows = indexed_metric_range_rows(42_400);
     seed_indexed_metrics_rows(&index_rows);
 
     let load_secondary = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     let load_index_range = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        let descending = matches!(direction, OrderDirection::Desc);
+        let secondary_expected_ids = ordered_pushdown_ids_with_rank_and_id_direction(
+            &secondary_rows,
+            7,
+            descending,
+            descending,
+        )
+        .into_iter()
+        .skip(1)
+        .collect::<Vec<_>>();
         assert_distinct_secondary_offset_parity_case(
             &load_secondary,
             secondary_predicate.clone(),
             &secondary_group_ids,
+            &secondary_expected_ids,
             direction,
             case_name,
         );
@@ -7807,17 +7819,17 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
 
     // Phase 3: row order, emitted boundaries, and token resumes must all stay
     // aligned across both paths.
-    let (mixed_ids, mixed_boundaries, mixed_tokens) =
-        collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_mixed_plan, 20);
-    let (uniform_ids, uniform_boundaries, uniform_tokens) =
-        collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_uniform_plan, 20);
-    assert_eq!(
-        mixed_ids, expected_ids,
-        "mixed-direction traversal should preserve expected ordering",
+    let (mixed_ids, mixed_boundaries) = collect_pushdown_pages_and_assert_token_resumes(
+        &load,
+        build_mixed_plan,
+        &expected_ids,
+        "mixed-direction fallback resumes",
     );
-    assert_eq!(
-        uniform_ids, expected_ids,
-        "uniform-direction traversal should preserve expected ordering",
+    let (uniform_ids, uniform_boundaries) = collect_pushdown_pages_and_assert_token_resumes(
+        &load,
+        build_uniform_plan,
+        &expected_ids,
+        "uniform-direction pushdown resumes",
     );
     assert_eq!(
         mixed_ids, uniform_ids,
@@ -7826,20 +7838,6 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     assert_eq!(
         mixed_boundaries, uniform_boundaries,
         "mixed-direction fallback and uniform pushdown should emit identical boundaries",
-    );
-    assert_pushdown_resume_suffixes_from_tokens(
-        &load,
-        &build_mixed_plan,
-        &mixed_tokens,
-        &mixed_ids,
-        "mixed-direction fallback resumes",
-    );
-    assert_pushdown_resume_suffixes_from_tokens(
-        &load,
-        &build_uniform_plan,
-        &uniform_tokens,
-        &uniform_ids,
-        "uniform-direction pushdown resumes",
     );
 }
 

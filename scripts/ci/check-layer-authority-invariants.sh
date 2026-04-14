@@ -122,11 +122,11 @@ fi
 envelope_authority_leaks="$(
   run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)(\\s*<[^>]+>)?\\s*\\(" \
     "$DB_ROOT" \
-    --glob '!crates/icydb-core/src/db/index/envelope.rs' \
+    --glob '!crates/icydb-core/src/db/index/envelope/mod.rs' \
     | strip_comment_only
 )"
 if [[ -n "$envelope_authority_leaks" ]]; then
-  echo "[ERROR] Envelope/continuation authority must remain centralized in db/index/envelope.rs." >&2
+  echo "[ERROR] Envelope/continuation authority must remain centralized in db/index/envelope/mod.rs." >&2
   echo "$envelope_authority_leaks" >&2
   status=1
 fi
@@ -143,11 +143,11 @@ fi
 
 continuation_rewrite_leaks="$(
   run_rg "\\bfn\\s+resume_bounds_from_refs(\\s*<[^>]+>)?\\s*\\(" "$DB_ROOT" \
-    --glob '!crates/icydb-core/src/db/index/envelope.rs' \
+    --glob '!crates/icydb-core/src/db/index/envelope/mod.rs' \
     | strip_comment_only
 )"
 if [[ -n "$continuation_rewrite_leaks" ]]; then
-  echo "[ERROR] Continuation bound rewrite logic must stay in db/index/envelope.rs." >&2
+  echo "[ERROR] Continuation bound rewrite logic must stay in db/index/envelope/mod.rs." >&2
   echo "$continuation_rewrite_leaks" >&2
   status=1
 fi

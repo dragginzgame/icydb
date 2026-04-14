@@ -1243,6 +1243,80 @@ fn compile_sql_query_order_by_bounded_numeric_alias_matches_canonical_structural
 }
 
 #[test]
+fn direct_bounded_numeric_order_terms_use_the_normal_sql_cache_path() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let sql = "SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 2";
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new SQL session should start with an empty compiled-command cache",
+    );
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        0,
+        "new SQL session should start with an empty select-plan cache",
+    );
+
+    let compiled = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("direct bounded numeric ORDER BY should compile through the SQL surface");
+    let repeat = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("repeating one direct bounded numeric ORDER BY compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "direct bounded numeric ORDER BY should stay on the normal SELECT compile lane",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one direct bounded numeric ORDER BY compile should stay on the normal SELECT compile lane",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical direct bounded numeric ORDER BY compile must not grow the compiled-command cache",
+    );
+
+    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
+        .expect("direct bounded numeric ORDER BY should lower into one canonical query");
+    let SqlCommand::Query(lowered_query) = lowered else {
+        panic!("direct bounded numeric ORDER BY should lower to one query command");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select { query, .. } = &compiled else {
+        panic!("direct bounded numeric ORDER BY should compile into one SELECT artifact");
+    };
+
+    assert_eq!(
+        query.cache_fingerprint(),
+        lowered_query.structural().cache_fingerprint(),
+        "direct bounded numeric ORDER BY terms must canonicalize onto the same structural query fingerprint before cache insertion",
+    );
+    assert_eq!(
+        query
+            .build_plan()
+            .expect("compiled session query plan should build")
+            .fingerprint(),
+        lowered_query
+            .plan()
+            .expect("canonical lowered query plan should build")
+            .into_inner()
+            .fingerprint(),
+        "direct bounded numeric ORDER BY terms must preserve the same canonical logical plan identity as the lowered internal form",
+    );
+
+    assert_scalar_select_plan_cache_behavior(&session, &compiled);
+}
+
+#[test]
 fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     reset_session_sql_store();
     let session = sql_session();

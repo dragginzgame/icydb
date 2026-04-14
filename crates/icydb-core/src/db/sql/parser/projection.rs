@@ -279,7 +279,7 @@ impl Parser {
         ))
     }
 
-    fn parse_arithmetic_projection_call(
+    pub(super) fn parse_arithmetic_projection_call(
         &mut self,
         field: String,
         op: SqlArithmeticProjectionOp,
@@ -293,7 +293,7 @@ impl Parser {
         Ok(SqlArithmeticProjectionCall { field, op, rhs })
     }
 
-    fn parse_round_projection_call(
+    pub(super) fn parse_round_projection_call(
         &mut self,
     ) -> Result<SqlRoundProjectionCall, crate::db::reduced_sql::SqlParseError> {
         self.expect_lparen()?;

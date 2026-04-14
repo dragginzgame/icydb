@@ -271,6 +271,54 @@ fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries()
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_direct_bounded_numeric_order_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let arithmetic = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY age + 1 ASC LIMIT 2",
+        )
+        .expect("direct ORDER BY arithmetic SQL query should succeed"),
+    );
+    let rounded = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, age FROM SqlTestUser ORDER BY ROUND(age / 3, 2) DESC LIMIT 2",
+        )
+        .expect("direct ORDER BY ROUND SQL query should succeed"),
+    );
+
+    assert_eq!(
+        arithmetic,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            rows: vec![
+                vec!["bob".to_string(), "24".to_string()],
+                vec!["alice".to_string(), "31".to_string()],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve direct arithmetic ordering at the live canister boundary",
+    );
+    assert_eq!(
+        rounded,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "age".to_string()],
+            rows: vec![
+                vec!["charlie".to_string(), "43".to_string()],
+                vec!["alice".to_string(), "31".to_string()],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve direct ROUND ordering at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

@@ -7,13 +7,14 @@ use crate::{
     db::{
         access::{AccessPlan, LoweredKey},
         cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, continuation_advanced,
-            cursor_anchor_from_raw_index_key, resume_bounds_from_refs,
-            validate_index_scan_continuation_advancement,
-            validate_index_scan_continuation_envelope,
+            ContinuationSignature, ContinuationToken, CursorBoundary,
+            cursor_anchor_from_raw_index_key,
         },
         direction::Direction,
-        index::RawIndexKey,
+        index::{
+            RawIndexKey, resume_bounds_for_continuation,
+            validate_index_scan_continuation_advancement,
+        },
         query::plan::{
             AccessPlannedQuery, OrderSpec, PageSpec, effective_offset_for_cursor_window,
         },
@@ -60,14 +61,7 @@ impl<'a> IndexScanContinuationInput<'a> {
         &self,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
     ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), InternalError> {
-        validate_index_scan_continuation_envelope(self.anchor, bounds.0, bounds.1)?;
-
-        let resumed_bounds = match self.anchor {
-            Some(anchor) => resume_bounds_from_refs(self.direction, bounds.0, bounds.1, anchor),
-            None => (bounds.0.clone(), bounds.1.clone()),
-        };
-
-        Ok(resumed_bounds)
+        resume_bounds_for_continuation(self.direction, self.anchor, bounds.0, bounds.1)
     }
 
     /// Validate strict directional advancement for one raw-key scan candidate.
@@ -207,18 +201,11 @@ fn next_cursor_for_row<K>(
                 "cursor row is not indexable for planned index-range access",
             ));
         };
-        let advanced = previous_index_range_anchor.is_none_or(|previous_anchor_raw_key| {
-            continuation_advanced(direction, last_emitted_raw_key, previous_anchor_raw_key)
-        });
-        if !advanced {
-            return Err(InternalError::cursor_executor_invariant(
-                "index-range continuation anchor must advance strictly against previous anchor",
-            ));
-        }
-        debug_assert!(
-            advanced,
-            "index-range continuation anchor must advance strictly against previous anchor",
-        );
+        validate_next_index_range_anchor_progression(
+            direction,
+            previous_index_range_anchor,
+            last_emitted_raw_key,
+        )?;
 
         ContinuationToken::new_index_range_with_direction(
             signature,
@@ -232,6 +219,33 @@ fn next_cursor_for_row<K>(
     };
 
     Ok(token)
+}
+
+fn validate_next_index_range_anchor_progression(
+    direction: Direction,
+    previous_anchor: Option<&LoweredKey>,
+    last_emitted_raw_key: &RawIndexKey,
+) -> Result<(), InternalError> {
+    validate_index_scan_continuation_advancement(direction, previous_anchor, last_emitted_raw_key)
+        .map_err(|_| {
+            InternalError::cursor_executor_invariant(
+                "index-range continuation anchor must advance strictly against previous anchor",
+            )
+        })?;
+
+    debug_assert!(
+        previous_anchor.is_none_or(
+            |previous_anchor| validate_index_scan_continuation_advancement(
+                direction,
+                Some(previous_anchor),
+                last_emitted_raw_key,
+            )
+            .is_ok()
+        ),
+        "index-range continuation anchor must advance strictly against previous anchor",
+    );
+
+    Ok(())
 }
 
 // Derive the effective keep-count (`offset + limit`) under cursor-window semantics.

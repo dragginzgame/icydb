@@ -8,12 +8,15 @@ use crate::{
         predicate::CompareOp,
         reduced_sql::{Keyword, SqlParseError},
         sql::parser::{
-            Parser, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm,
-            SqlTextFunction,
+            Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
+            SqlArithmeticProjectionOperand, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
+            SqlOrderTerm, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
         },
     },
     value::Value,
 };
+
+const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported field, LOWER/UPPER(...), bounded arithmetic, or ROUND(...) forms";
 
 impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
@@ -38,13 +41,22 @@ impl Parser {
 
     fn parse_order_term_target(&mut self) -> Result<String, SqlParseError> {
         let field = self.expect_identifier()?;
+        if let Some(op) = self.parse_direct_order_arithmetic_op() {
+            return Ok(render_order_arithmetic_term(
+                self.parse_arithmetic_projection_call(field, op)?,
+            ));
+        }
         if !self.peek_lparen() {
             return Ok(field);
         }
 
+        if field.eq_ignore_ascii_case("ROUND") {
+            return Ok(render_order_round_term(self.parse_round_projection_call()?));
+        }
+
         let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
             return Err(SqlParseError::unsupported_feature(
-                "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+                ORDER_BY_UNSUPPORTED_FEATURE,
             ));
         };
 
@@ -83,9 +95,26 @@ impl Parser {
             | SqlTextFunction::Position
             | SqlTextFunction::Replace
             | SqlTextFunction::Substring => Err(SqlParseError::unsupported_feature(
-                "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+                ORDER_BY_UNSUPPORTED_FEATURE,
             )),
         }
+    }
+
+    fn parse_direct_order_arithmetic_op(&mut self) -> Option<SqlArithmeticProjectionOp> {
+        if self.eat_plus() {
+            return Some(SqlArithmeticProjectionOp::Add);
+        }
+        if self.eat_minus() {
+            return Some(SqlArithmeticProjectionOp::Sub);
+        }
+        if self.eat_star() {
+            return Some(SqlArithmeticProjectionOp::Mul);
+        }
+        if self.eat_slash() {
+            return Some(SqlArithmeticProjectionOp::Div);
+        }
+
+        None
     }
 
     pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlHavingClause>, SqlParseError> {
@@ -145,5 +174,47 @@ impl Parser {
         }
 
         Ok(SqlHavingSymbol::Field(field))
+    }
+}
+
+fn render_order_arithmetic_term(term: SqlArithmeticProjectionCall) -> String {
+    let rhs = match term.rhs {
+        SqlArithmeticProjectionOperand::Field(field) => field,
+        SqlArithmeticProjectionOperand::Literal(literal) => render_order_literal(literal),
+    };
+    let op = match term.op {
+        SqlArithmeticProjectionOp::Add => "+",
+        SqlArithmeticProjectionOp::Sub => "-",
+        SqlArithmeticProjectionOp::Mul => "*",
+        SqlArithmeticProjectionOp::Div => "/",
+    };
+
+    format!("{} {op} {rhs}", term.field)
+}
+
+fn render_order_round_term(term: SqlRoundProjectionCall) -> String {
+    let input = match term.input {
+        SqlRoundProjectionInput::Field(field) => field,
+        SqlRoundProjectionInput::Arithmetic(arithmetic) => render_order_arithmetic_term(arithmetic),
+    };
+
+    format!("ROUND({input}, {})", render_order_literal(term.scale))
+}
+
+fn render_order_literal(value: Value) -> String {
+    match value {
+        Value::Null => "NULL".to_string(),
+        Value::Text(text) => format!("'{}'", text.replace('\'', "''")),
+        Value::Int(value) => value.to_string(),
+        Value::Int128(value) => value.to_string(),
+        Value::IntBig(value) => value.to_string(),
+        Value::Uint(value) => value.to_string(),
+        Value::Uint128(value) => value.to_string(),
+        Value::UintBig(value) => value.to_string(),
+        Value::Decimal(value) => value.to_string(),
+        Value::Float32(value) => value.to_string(),
+        Value::Float64(value) => value.to_string(),
+        Value::Bool(value) => value.to_string().to_uppercase(),
+        other => format!("{other:?}"),
     }
 }

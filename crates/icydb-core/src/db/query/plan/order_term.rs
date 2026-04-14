@@ -25,8 +25,9 @@ mod tests {
     use crate::{
         db::query::plan::{
             expr::{
-                parse_supported_order_expr, render_supported_order_expr,
-                supported_order_expr_field, supported_order_expr_is_plain_field,
+                parse_supported_computed_order_expr, parse_supported_order_expr,
+                render_supported_order_expr, supported_order_expr_field,
+                supported_order_expr_is_plain_field,
             },
             index_order_terms,
         },
@@ -93,12 +94,22 @@ mod tests {
             supported_order_expr_is_plain_field(&field),
             "plain field order terms must stay on the schema-field path",
         );
+        assert_eq!(
+            parse_supported_computed_order_expr("id"),
+            None,
+            "plain field order terms must not re-enter computed-expression paths",
+        );
 
         let lower = parse_supported_order_expr("LOWER(name)")
             .expect("lower(name) should parse onto the canonical expression tree");
         assert!(
             !supported_order_expr_is_plain_field(&lower),
             "computed order terms must stay on the expression path",
+        );
+        assert_eq!(
+            parse_supported_computed_order_expr("LOWER(name)"),
+            Some(lower),
+            "computed order terms must stay parseable through the shared helper",
         );
     }
 

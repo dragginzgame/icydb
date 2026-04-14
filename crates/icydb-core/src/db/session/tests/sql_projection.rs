@@ -33,6 +33,21 @@ fn seed_projection_window_fixture(session: &DbSession<SessionSqlCanister>) {
     );
 }
 
+// Seed the aggregate rows used by the bounded computed ORDER BY coverage in
+// this file.
+fn seed_projection_alias_order_aggregate_fixture(session: &DbSession<SessionSqlCanister>) {
+    for (group, rank, label) in [(3_u64, 10_u64, "gamma"), (1, 20, "alpha"), (2, 40, "beta")] {
+        session
+            .insert(SessionAggregateEntity {
+                id: Ulid::generate(),
+                group,
+                rank,
+                label: label.to_string(),
+            })
+            .expect("seed aggregate row insert should succeed");
+    }
+}
+
 // Execute one projection SQL query and assert both the derived column labels
 // and the projected rows against one explicit expected surface.
 fn assert_projection_columns_and_rows(
@@ -416,30 +431,7 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
     let session = sql_session();
 
     seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
-    session
-        .insert(SessionAggregateEntity {
-            id: Ulid::generate(),
-            group: 3,
-            rank: 10,
-            label: "gamma".to_string(),
-        })
-        .expect("seed aggregate row insert should succeed");
-    session
-        .insert(SessionAggregateEntity {
-            id: Ulid::generate(),
-            group: 1,
-            rank: 20,
-            label: "alpha".to_string(),
-        })
-        .expect("seed aggregate row insert should succeed");
-    session
-        .insert(SessionAggregateEntity {
-            id: Ulid::generate(),
-            group: 2,
-            rank: 40,
-            label: "beta".to_string(),
-        })
-        .expect("seed aggregate row insert should succeed");
+    seed_projection_alias_order_aggregate_fixture(&session);
 
     let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
         &session,
@@ -533,6 +525,44 @@ fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_bou
             ],
         ],
         "ORDER BY ROUND(field + field) alias should materialize rows in rounded numeric order",
+    );
+}
+
+#[test]
+fn execute_sql_projection_direct_bounded_numeric_order_terms_run_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
+
+    let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 3",
+    )
+    .expect("direct ORDER BY arithmetic term should execute");
+    let round_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 3",
+    )
+    .expect("direct ORDER BY ROUND term should execute");
+
+    assert_eq!(
+        arithmetic_rows,
+        vec![
+            vec![Value::Text("bravo".to_string()), Value::Uint(20),],
+            vec![Value::Text("alpha".to_string()), Value::Uint(30),],
+            vec![Value::Text("charlie".to_string()), Value::Uint(40),],
+        ],
+        "direct ORDER BY arithmetic terms should materialize rows in computed numeric order",
+    );
+    assert_eq!(
+        round_rows,
+        vec![
+            vec![Value::Text("charlie".to_string()), Value::Uint(40),],
+            vec![Value::Text("alpha".to_string()), Value::Uint(30),],
+            vec![Value::Text("bravo".to_string()), Value::Uint(20),],
+        ],
+        "direct ORDER BY ROUND terms should materialize rows in rounded numeric order",
     );
 }
 

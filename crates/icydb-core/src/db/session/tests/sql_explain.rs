@@ -631,6 +631,29 @@ fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
 }
 
 #[test]
+fn explain_sql_accepts_direct_bounded_numeric_order_terms() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for sql in [
+        "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 1",
+        "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 1",
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .expect("direct bounded numeric ORDER BY terms should explain");
+
+        assert!(
+            explain.contains("mode=Load"),
+            "direct bounded numeric ORDER BY explain should still render the base load plan",
+        );
+        assert!(
+            explain.contains("access="),
+            "direct bounded numeric ORDER BY explain should still render one routed access shape",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
     reset_session_sql_store();
     let session = sql_session();

@@ -471,6 +471,43 @@ fn parse_select_statement_with_expression_order_terms() {
 }
 
 #[test]
+fn parse_select_statement_with_direct_bounded_computed_order_terms() {
+    let statement = parse_sql(
+        "SELECT * FROM users ORDER BY age + 1 ASC, age + salary DESC, ROUND(age / 3, 2) ASC LIMIT 2",
+    )
+    .expect("direct bounded computed ORDER BY terms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![
+                SqlOrderTerm {
+                    field: "age + 1".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+                SqlOrderTerm {
+                    field: "age + salary".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                },
+                SqlOrderTerm {
+                    field: "ROUND(age / 3, 2)".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+            ],
+            limit: Some(2),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_rejects_unsupported_expression_order_terms() {
     let err = parse_sql("SELECT * FROM users ORDER BY TRIM(name)")
         .expect_err("unsupported ORDER BY function must fail closed");
@@ -478,7 +515,7 @@ fn parse_select_statement_rejects_unsupported_expression_order_terms() {
     assert_eq!(
         err,
         SqlParseError::UnsupportedFeature {
-            feature: "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+            feature: "ORDER BY terms beyond supported field, LOWER/UPPER(...), bounded arithmetic, or ROUND(...) forms",
         },
     );
 }

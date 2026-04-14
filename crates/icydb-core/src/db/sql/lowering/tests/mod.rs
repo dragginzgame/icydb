@@ -426,6 +426,78 @@ fn compile_sql_command_normalizes_order_by_alias_for_bounded_numeric_projection_
 }
 
 #[test]
+fn compile_sql_command_accepts_direct_bounded_numeric_order_terms() {
+    let arithmetic_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age FROM SqlLowerEntity ORDER BY age + 1 ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct ORDER BY arithmetic term should lower");
+    let field_to_field_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age FROM SqlLowerEntity ORDER BY age + age ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct ORDER BY field-to-field arithmetic term should lower");
+    let round_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age FROM SqlLowerEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct ORDER BY ROUND term should lower");
+
+    let SqlCommand::Query(arithmetic_query) = arithmetic_command else {
+        panic!("expected lowered arithmetic order query command");
+    };
+    let SqlCommand::Query(field_to_field_query) = field_to_field_command else {
+        panic!("expected lowered field-to-field order query command");
+    };
+    let SqlCommand::Query(round_query) = round_command else {
+        panic!("expected lowered round order query command");
+    };
+
+    assert_eq!(
+        arithmetic_query
+            .plan()
+            .expect("direct arithmetic order plan should build")
+            .into_inner()
+            .scalar_plan()
+            .order
+            .as_ref()
+            .expect("direct arithmetic order should be present")
+            .fields[0]
+            .0,
+        "age + 1",
+        "direct ORDER BY arithmetic terms should normalize onto the canonical internal numeric expression",
+    );
+    assert_eq!(
+        field_to_field_query
+            .plan()
+            .expect("direct field-to-field order plan should build")
+            .into_inner()
+            .scalar_plan()
+            .order
+            .as_ref()
+            .expect("direct field-to-field order should be present")
+            .fields[0]
+            .0,
+        "age + age",
+        "direct ORDER BY field-to-field arithmetic terms should normalize onto the canonical internal numeric expression",
+    );
+    assert_eq!(
+        round_query
+            .plan()
+            .expect("direct round order plan should build")
+            .into_inner()
+            .scalar_plan()
+            .order
+            .as_ref()
+            .expect("direct round order should be present")
+            .fields[0]
+            .0,
+        "ROUND(age / 3, 2)",
+        "direct ORDER BY ROUND terms should normalize onto the canonical internal round expression",
+    );
+}
+
+#[test]
 fn compile_sql_command_delete_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3",

@@ -183,6 +183,12 @@ pub(in crate::db) const fn supported_order_expr_is_plain_field(expr: &Expr) -> b
     matches!(expr, Expr::Field(_))
 }
 
+/// Parse one supported computed `ORDER BY` term while rejecting plain fields.
+#[must_use]
+pub(in crate::db) fn parse_supported_computed_order_expr(term: &str) -> Option<Expr> {
+    parse_supported_order_expr(term).filter(|expr| !supported_order_expr_is_plain_field(expr))
+}
+
 /// Borrow the referenced field when one expression is an admitted `ORDER BY`
 /// function term.
 #[must_use]

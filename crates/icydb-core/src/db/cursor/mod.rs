@@ -29,10 +29,6 @@ use crate::{
     types::EntityTag,
 };
 
-pub(in crate::db) use crate::db::index::{
-    continuation_advanced, resume_bounds_from_refs, validate_index_scan_continuation_advancement,
-    validate_index_scan_continuation_envelope,
-};
 pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{

@@ -712,6 +712,20 @@ fn user_name_expression_order_scenarios() -> Vec<SqlPerfScenario> {
             "computed_alias_order",
             "SELECT id, age + rank AS total FROM PerfAuditUser ORDER BY total ASC, id ASC LIMIT 3",
         ),
+        scenario(
+            "user.age_plus_rank.direct_order.asc.limit3",
+            SqlPerfSurface::User,
+            "materialized_computed_order",
+            "computed_order",
+            "SELECT id, age + rank FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age_div3_round.direct_order.desc.limit3",
+            SqlPerfSurface::User,
+            "materialized_computed_order",
+            "computed_round_order",
+            "SELECT id, age FROM PerfAuditUser ORDER BY ROUND(age / 3, 2) DESC, id DESC LIMIT 3",
+        ),
     ]
 }
 

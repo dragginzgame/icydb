@@ -17,7 +17,7 @@ use crate::{
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
                 compile_scalar_projection_expr, compile_scalar_projection_plan,
-                parse_supported_order_expr, supported_order_expr_is_plain_field,
+                parse_supported_computed_order_expr,
             },
             grouped_aggregate_execution_specs_with_model,
             grouped_aggregate_projection_specs_from_projection_spec,
@@ -608,9 +608,7 @@ fn resolved_order_value_source_for_field(
     model: &EntityModel,
     field: &str,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
-    if let Some(expr) =
-        parse_supported_order_expr(field).filter(|expr| !supported_order_expr_is_plain_field(expr))
-    {
+    if let Some(expr) = parse_supported_computed_order_expr(field) {
         validate_resolved_order_expr_fields(model, &expr, field)?;
         let compiled = compile_scalar_projection_expr(model, &expr).ok_or_else(|| {
             InternalError::query_invalid_logical_plan(format!(
