@@ -4711,21 +4711,29 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
             "index-range offset shape should use limit pushdown for case={case_name}",
         );
 
-        let expected_ids = ordered_index_candidate_ids_for_direction(&rows, 10, 30, direction)
-            .into_iter()
-            .skip(1)
-            .collect::<Vec<_>>();
-        let (ids, _boundaries, tokens) =
-            collect_indexed_metric_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
-        assert_eq!(
-            ids, expected_ids,
-            "index-range offset traversal must preserve canonical order for case={case_name}",
-        );
-        assert_indexed_metric_resume_suffixes_from_tokens(
+        let candidate_ids = ordered_index_candidate_ids_for_direction(&rows, 10, 30, direction);
+        let expected_ids = candidate_ids.iter().copied().skip(1).collect::<Vec<_>>();
+
+        assert_indexed_metric_resume_and_fallback_parity_matrix(
             &load,
-            &build_plan,
-            &tokens,
+            &[2_u32],
             &expected_ids,
+            |_| build_plan(),
+            |_| {
+                let base = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                    .by_ids(candidate_ids.iter().copied())
+                    .limit(2)
+                    .offset(1);
+                let ordered = match direction {
+                    OrderDirection::Asc => base.order_by("tag").order_by("id"),
+                    OrderDirection::Desc => base.order_by_desc("tag").order_by_desc("id"),
+                };
+
+                ordered
+                    .plan()
+                    .map(PreparedExecutionPlan::from)
+                    .expect("index-range offset fallback plan should build")
+            },
             case_name,
         );
     }
