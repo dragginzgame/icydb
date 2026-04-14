@@ -19,6 +19,17 @@ fn seed_projection_text_fixture(session: &DbSession<SessionSqlCanister>) {
         .expect("seed insert should succeed");
 }
 
+// Reset the shared SQL store and seed the shared text fixture used by the
+// computed text projection surfaces in this file.
+fn seeded_projection_text_session() -> DbSession<SessionSqlCanister> {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_text_fixture(&session);
+
+    session
+}
+
 // Seed the deterministic ordered projection fixture used by the matrix/window
 // checks in this file.
 fn seed_projection_window_fixture(session: &DbSession<SessionSqlCanister>) {
@@ -31,6 +42,29 @@ fn seed_projection_window_fixture(session: &DbSession<SessionSqlCanister>) {
             ("matrix-d", 40),
         ],
     );
+}
+
+// Reset the shared SQL store and seed the deterministic ordered fixture used
+// by the bounded numeric projection matrices in this file.
+fn seeded_projection_window_session() -> DbSession<SessionSqlCanister> {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    session
+}
+
+// Reset the shared SQL store and seed the bounded ORDER BY fixture rows used
+// by the alias/direct numeric ordering checks in this file.
+fn seeded_projection_bounded_order_session() -> DbSession<SessionSqlCanister> {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
+    seed_projection_alias_order_aggregate_fixture(&session);
+
+    session
 }
 
 // Seed the aggregate rows used by the bounded computed ORDER BY coverage in
@@ -97,6 +131,56 @@ fn assert_projection_columns(
     );
 }
 
+// Execute one row-producing projection SQL statement for the requested entity
+// type and assert the public row payload stays exactly as expected.
+fn assert_projection_rows_match<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    expected_rows: ProjectedRows,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let rows = statement_projection_rows::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} projection rows should execute: {err:?}"));
+
+    assert_eq!(
+        rows, expected_rows,
+        "{context} should materialize the expected projection row payloads",
+    );
+}
+
+// Run one table of projection row assertions against the requested entity
+// surface so nearby matrix tests can share the same assertion loop.
+fn assert_projection_row_case_matrix<E>(
+    session: &DbSession<SessionSqlCanister>,
+    cases: &[(&str, ProjectedRows, &str)],
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    for (sql, expected_rows, context) in cases {
+        assert_projection_rows_match::<E>(session, sql, expected_rows.clone(), context);
+    }
+}
+
+// Collect the first scalar value from each projected SQL row so fluent
+// projection terminals can compare against the public SQL surface directly.
+fn statement_projection_values(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) -> Vec<Value> {
+    statement_projection_rows::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} SQL projection should execute: {err:?}"))
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .next()
+                .expect("single-column SQL projection row should contain one value")
+        })
+        .collect::<Vec<_>>()
+}
+
 // Assert that one single-column SQL computed projection stays aligned with the
 // shared fluent bounded value-projection terminal over the same ordered
 // response window.
@@ -106,22 +190,12 @@ fn assert_sql_projection_matches_fluent_value_projection(
     projection: &impl crate::db::ValueProjectionExpr,
     context: &str,
 ) {
-    let sql_rows = statement_projection_rows::<SessionSqlEntity>(session, sql)
-        .unwrap_or_else(|err| panic!("{context} SQL projection should execute: {err:?}"));
+    let sql_values = statement_projection_values(session, sql, context);
     let fluent_values = session
         .load::<SessionSqlEntity>()
         .order_by_desc("age")
         .project_values(projection)
         .unwrap_or_else(|err| panic!("{context} fluent projection should execute: {err:?}"));
-
-    let sql_values = sql_rows
-        .into_iter()
-        .map(|row| {
-            row.into_iter()
-                .next()
-                .expect("single-column SQL projection row should contain one value")
-        })
-        .collect::<Vec<_>>();
 
     assert_eq!(
         fluent_values, sql_values,
@@ -129,71 +203,236 @@ fn assert_sql_projection_matches_fluent_value_projection(
     );
 }
 
-#[test]
-fn execute_sql_projection_scalar_addition_matches_fluent_numeric_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_window_fixture(&session);
-
-    assert_sql_projection_matches_fluent_value_projection(
-        &session,
-        "SELECT age + 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-        &crate::db::add("age", 1_u64),
-        "scalar arithmetic projection",
-    );
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT age + 1 FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
-        &["age + 1"],
-        vec![
-            vec![Value::Decimal(
-                crate::types::Decimal::from_u128(11).expect("11 decimal"),
-            )],
-            vec![Value::Decimal(
-                crate::types::Decimal::from_u128(21).expect("21 decimal"),
-            )],
-        ],
-        "scalar arithmetic projection rows",
-    );
+// Route one shared text-function parity case through the corresponding fluent
+// bounded projection helper so the parity matrix stays table-driven.
+fn assert_text_projection_case_matches_fluent(
+    session: &DbSession<SessionSqlCanister>,
+    case: TextProjectionCase,
+    sql: &str,
+    context: &str,
+) {
+    match case {
+        TextProjectionCase::Trim => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::trim("name"),
+            context,
+        ),
+        TextProjectionCase::Ltrim => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::ltrim("name"),
+            context,
+        ),
+        TextProjectionCase::Rtrim => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::rtrim("name"),
+            context,
+        ),
+        TextProjectionCase::Lower => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::lower("name"),
+            context,
+        ),
+        TextProjectionCase::Upper => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::upper("name"),
+            context,
+        ),
+        TextProjectionCase::Length => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::length("name"),
+            context,
+        ),
+        TextProjectionCase::LeftTwo => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::left("name", 2_i64),
+            context,
+        ),
+        TextProjectionCase::RightThree => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::right("name", 3_i64),
+            context,
+        ),
+        TextProjectionCase::StartsWithSpace => {
+            assert_sql_projection_matches_fluent_value_projection(
+                session,
+                sql,
+                &crate::db::starts_with("name", " "),
+                context,
+            );
+        }
+        TextProjectionCase::EndsWithB => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::ends_with("name", "b"),
+            context,
+        ),
+        TextProjectionCase::ContainsDa => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::contains("name", "da"),
+            context,
+        ),
+        TextProjectionCase::PositionDa => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::position("name", "da"),
+            context,
+        ),
+        TextProjectionCase::ReplaceAWithE => assert_sql_projection_matches_fluent_value_projection(
+            session,
+            sql,
+            &crate::db::replace("name", "A", "E"),
+            context,
+        ),
+        TextProjectionCase::SubstringThreeThree => {
+            assert_sql_projection_matches_fluent_value_projection(
+                session,
+                sql,
+                &crate::db::substring_with_length("name", 3_i64, 3_i64),
+                context,
+            );
+        }
+    }
 }
 
-#[test]
-fn execute_sql_projection_scalar_field_to_field_addition_returns_computed_rows() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_window_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT age + age AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
-        &["total"],
-        vec![
-            vec![Value::Decimal(
-                crate::types::Decimal::from_u128(20).expect("20 decimal"),
-            )],
-            vec![Value::Decimal(
-                crate::types::Decimal::from_u128(40).expect("40 decimal"),
-            )],
-        ],
-        "scalar field-to-field arithmetic projection rows",
-    );
+#[derive(Clone, Copy)]
+enum TextProjectionCase {
+    Trim,
+    Ltrim,
+    Rtrim,
+    Lower,
+    Upper,
+    Length,
+    LeftTwo,
+    RightThree,
+    StartsWithSpace,
+    EndsWithB,
+    ContainsDa,
+    PositionDa,
+    ReplaceAWithE,
+    SubstringThreeThree,
 }
 
+#[derive(Clone, Copy)]
+enum NumericProjectionCase {
+    AddOne,
+    SubOne,
+    MulTwo,
+    DivTwo,
+    RoundDivThree,
+    RoundAge,
+}
+
+#[expect(clippy::too_many_lines)]
 #[test]
-fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn execute_sql_projection_scalar_numeric_projection_matrix_matches_fluent_and_rows() {
+    let session = seeded_projection_window_session();
 
-    seed_projection_window_fixture(&session);
-
-    for (sql, projection, expected_columns, expected_rows, context) in [
+    // Keep the bounded numeric SQL helpers aligned with the fluent
+    // value-projection terminals over the same ordered window.
+    for (sql, case, context) in [
+        (
+            "SELECT age + 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            NumericProjectionCase::AddOne,
+            "scalar arithmetic projection",
+        ),
         (
             "SELECT age - 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-            crate::db::sub("age", 1_u64),
-            vec!["age - 1"],
+            NumericProjectionCase::SubOne,
+            "scalar subtraction projection",
+        ),
+        (
+            "SELECT age * 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            NumericProjectionCase::MulTwo,
+            "scalar multiplication projection",
+        ),
+        (
+            "SELECT age / 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            NumericProjectionCase::DivTwo,
+            "scalar division projection",
+        ),
+        (
+            "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            NumericProjectionCase::RoundDivThree,
+            "scalar round projection over bounded arithmetic expression",
+        ),
+        (
+            "SELECT ROUND(age, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            NumericProjectionCase::RoundAge,
+            "scalar round projection over plain field",
+        ),
+    ] {
+        match case {
+            NumericProjectionCase::AddOne => assert_sql_projection_matches_fluent_value_projection(
+                &session,
+                sql,
+                &crate::db::add("age", 1_u64),
+                context,
+            ),
+            NumericProjectionCase::SubOne => assert_sql_projection_matches_fluent_value_projection(
+                &session,
+                sql,
+                &crate::db::sub("age", 1_u64),
+                context,
+            ),
+            NumericProjectionCase::MulTwo => assert_sql_projection_matches_fluent_value_projection(
+                &session,
+                sql,
+                &crate::db::mul("age", 2_u64),
+                context,
+            ),
+            NumericProjectionCase::DivTwo => assert_sql_projection_matches_fluent_value_projection(
+                &session,
+                sql,
+                &crate::db::div("age", 2_u64),
+                context,
+            ),
+            NumericProjectionCase::RoundDivThree => {
+                assert_sql_projection_matches_fluent_value_projection(
+                    &session,
+                    sql,
+                    &crate::db::round_expr(&crate::db::div("age", 3_u64), 2),
+                    context,
+                );
+            }
+            NumericProjectionCase::RoundAge => {
+                assert_sql_projection_matches_fluent_value_projection(
+                    &session,
+                    sql,
+                    &crate::db::round("age", 2),
+                    context,
+                );
+            }
+        }
+    }
+
+    // Assert the public projection columns and projected row payloads stay
+    // stable across the bounded numeric surfaces that materialize values.
+    for (sql, expected_columns, expected_rows, context) in [
+        (
+            "SELECT age + 1 FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+            &["age + 1"][..],
+            vec![
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(11).expect("11 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(21).expect("21 decimal"),
+                )],
+            ],
+            "scalar arithmetic projection rows",
+        ),
+        (
+            "SELECT age - 1 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
+            &["age - 1"][..],
             vec![
                 vec![Value::Decimal(
                     crate::types::Decimal::from_i128(39).expect("39 decimal"),
@@ -212,8 +451,7 @@ fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
         ),
         (
             "SELECT age * 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-            crate::db::mul("age", 2_u64),
-            vec!["age * 2"],
+            &["age * 2"][..],
             vec![
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(80).expect("80 decimal"),
@@ -232,8 +470,7 @@ fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
         ),
         (
             "SELECT age / 2 FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-            crate::db::div("age", 2_u64),
-            vec!["age / 2"],
+            &["age / 2"][..],
             vec![
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(20).expect("20 decimal"),
@@ -250,68 +487,50 @@ fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
             ],
             "scalar division projection",
         ),
+        (
+            "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+            &["ROUND(age / 3, 2)"][..],
+            vec![
+                vec![Value::Decimal(crate::types::Decimal::new(333, 2))],
+                vec![Value::Decimal(crate::types::Decimal::new(667, 2))],
+            ],
+            "scalar round projection rows",
+        ),
     ] {
-        assert_sql_projection_matches_fluent_value_projection(&session, sql, &projection, context);
-        assert_projection_columns_and_rows(
-            &session,
-            sql,
-            expected_columns.as_slice(),
-            expected_rows,
-            context,
-        );
+        assert_projection_columns_and_rows(&session, sql, expected_columns, expected_rows, context);
     }
 }
 
 #[test]
-fn execute_sql_projection_scalar_round_matches_fluent_numeric_projection() {
-    reset_session_sql_store();
-    let session = sql_session();
+fn execute_sql_projection_scalar_field_to_field_numeric_projection_rows_match_expected_surface() {
+    let session = seeded_projection_window_session();
 
-    seed_projection_window_fixture(&session);
-
-    assert_sql_projection_matches_fluent_value_projection(
-        &session,
-        "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-        &crate::db::round_expr(&crate::db::div("age", 3_u64), 2),
-        "scalar round projection over bounded arithmetic expression",
-    );
-
-    assert_sql_projection_matches_fluent_value_projection(
-        &session,
-        "SELECT ROUND(age, 2) FROM SessionSqlEntity ORDER BY age DESC LIMIT 4",
-        &crate::db::round("age", 2),
-        "scalar round projection over plain field",
-    );
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT ROUND(age / 3, 2) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
-        &["ROUND(age / 3, 2)"],
-        vec![
-            vec![Value::Decimal(crate::types::Decimal::new(333, 2))],
-            vec![Value::Decimal(crate::types::Decimal::new(667, 2))],
-        ],
-        "scalar round projection rows",
-    );
-}
-
-#[test]
-fn execute_sql_projection_round_field_to_field_addition_returns_computed_rows() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_window_fixture(&session);
-
-    assert_projection_columns_and_rows(
-        &session,
-        "SELECT ROUND(age + age, 2) AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
-        &["total"],
-        vec![
-            vec![Value::Decimal(crate::types::Decimal::new(2000, 2))],
-            vec![Value::Decimal(crate::types::Decimal::new(4000, 2))],
-        ],
-        "scalar round over field-to-field arithmetic projection rows",
-    );
+    for (sql, expected_columns, expected_rows, context) in [
+        (
+            "SELECT age + age AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+            &["total"][..],
+            vec![
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(20).expect("20 decimal"),
+                )],
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(40).expect("40 decimal"),
+                )],
+            ],
+            "scalar field-to-field arithmetic projection rows",
+        ),
+        (
+            "SELECT ROUND(age + age, 2) AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+            &["total"][..],
+            vec![
+                vec![Value::Decimal(crate::types::Decimal::new(2000, 2))],
+                vec![Value::Decimal(crate::types::Decimal::new(4000, 2))],
+            ],
+            "scalar round over field-to-field arithmetic projection rows",
+        ),
+    ] {
+        assert_projection_columns_and_rows(&session, sql, expected_columns, expected_rows, context);
+    }
 }
 
 #[test]
@@ -426,142 +645,119 @@ fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family()
 
 #[test]
 fn execute_sql_projection_order_by_bounded_numeric_aliases_runs_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
+    let session = seeded_projection_bounded_order_session();
 
-    seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
-    seed_projection_alias_order_aggregate_fixture(&session);
+    assert_projection_row_case_matrix::<SessionSqlEntity>(
+        &session,
+        &[
+            (
+                "SELECT name, age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 3",
+                vec![
+                    vec![
+                        Value::Text("bravo".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(21, 0)),
+                    ],
+                    vec![
+                        Value::Text("alpha".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(31, 0)),
+                    ],
+                    vec![
+                        Value::Text("charlie".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(41, 0)),
+                    ],
+                ],
+                "ORDER BY arithmetic alias",
+            ),
+            (
+                "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 3",
+                vec![
+                    vec![
+                        Value::Text("charlie".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(1333, 2)),
+                    ],
+                    vec![
+                        Value::Text("alpha".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(10, 0)),
+                    ],
+                    vec![
+                        Value::Text("bravo".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(667, 2)),
+                    ],
+                ],
+                "ORDER BY ROUND alias",
+            ),
+        ],
+    );
 
-    let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
+    assert_projection_row_case_matrix::<SessionAggregateEntity>(
         &session,
-        "SELECT name, age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 3",
-    )
-    .expect("ORDER BY arithmetic alias should execute");
-    let field_to_field_rows = statement_projection_rows::<SessionAggregateEntity>(
-        &session,
-        "SELECT label, rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 3",
-    )
-    .expect("ORDER BY field-to-field arithmetic alias should execute");
-    let round_rows = statement_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 3",
-    )
-    .expect("ORDER BY ROUND alias should execute");
-    let round_field_to_field_rows = statement_projection_rows::<SessionAggregateEntity>(
-        &session,
-        "SELECT label, ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 3",
-    )
-    .expect("ORDER BY ROUND(field + field) alias should execute");
-
-    assert_eq!(
-        arithmetic_rows,
-        vec![
-            vec![
-                Value::Text("bravo".to_string()),
-                Value::Decimal(crate::types::Decimal::new(21, 0)),
-            ],
-            vec![
-                Value::Text("alpha".to_string()),
-                Value::Decimal(crate::types::Decimal::new(31, 0)),
-            ],
-            vec![
-                Value::Text("charlie".to_string()),
-                Value::Decimal(crate::types::Decimal::new(41, 0)),
-            ],
+        &[
+            (
+                "SELECT label, rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 3",
+                vec![
+                    vec![
+                        Value::Text("gamma".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(20, 0)),
+                    ],
+                    vec![
+                        Value::Text("alpha".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(40, 0)),
+                    ],
+                    vec![
+                        Value::Text("beta".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(80, 0)),
+                    ],
+                ],
+                "ORDER BY field-to-field arithmetic alias",
+            ),
+            (
+                "SELECT label, ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 3",
+                vec![
+                    vec![
+                        Value::Text("beta".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(80, 0)),
+                    ],
+                    vec![
+                        Value::Text("alpha".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(40, 0)),
+                    ],
+                    vec![
+                        Value::Text("gamma".to_string()),
+                        Value::Decimal(crate::types::Decimal::new(20, 0)),
+                    ],
+                ],
+                "ORDER BY ROUND(field + field) alias",
+            ),
         ],
-        "ORDER BY arithmetic alias should materialize rows in computed numeric order",
-    );
-    assert_eq!(
-        field_to_field_rows,
-        vec![
-            vec![
-                Value::Text("gamma".to_string()),
-                Value::Decimal(crate::types::Decimal::new(20, 0)),
-            ],
-            vec![
-                Value::Text("alpha".to_string()),
-                Value::Decimal(crate::types::Decimal::new(40, 0)),
-            ],
-            vec![
-                Value::Text("beta".to_string()),
-                Value::Decimal(crate::types::Decimal::new(80, 0)),
-            ],
-        ],
-        "ORDER BY field-to-field arithmetic alias should materialize rows in computed numeric order",
-    );
-    assert_eq!(
-        round_rows,
-        vec![
-            vec![
-                Value::Text("charlie".to_string()),
-                Value::Decimal(crate::types::Decimal::new(1333, 2)),
-            ],
-            vec![
-                Value::Text("alpha".to_string()),
-                Value::Decimal(crate::types::Decimal::new(10, 0)),
-            ],
-            vec![
-                Value::Text("bravo".to_string()),
-                Value::Decimal(crate::types::Decimal::new(667, 2)),
-            ],
-        ],
-        "ORDER BY ROUND alias should materialize rows in rounded numeric order",
-    );
-    assert_eq!(
-        round_field_to_field_rows,
-        vec![
-            vec![
-                Value::Text("beta".to_string()),
-                Value::Decimal(crate::types::Decimal::new(80, 0)),
-            ],
-            vec![
-                Value::Text("alpha".to_string()),
-                Value::Decimal(crate::types::Decimal::new(40, 0)),
-            ],
-            vec![
-                Value::Text("gamma".to_string()),
-                Value::Decimal(crate::types::Decimal::new(20, 0)),
-            ],
-        ],
-        "ORDER BY ROUND(field + field) alias should materialize rows in rounded numeric order",
     );
 }
 
 #[test]
 fn execute_sql_projection_direct_bounded_numeric_order_terms_run_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
+    let session = seeded_projection_bounded_order_session();
 
-    seed_session_sql_entities(&session, &[("bravo", 20), ("alpha", 30), ("charlie", 40)]);
-
-    let arithmetic_rows = statement_projection_rows::<SessionSqlEntity>(
+    assert_projection_row_case_matrix::<SessionSqlEntity>(
         &session,
-        "SELECT name, age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 3",
-    )
-    .expect("direct ORDER BY arithmetic term should execute");
-    let round_rows = statement_projection_rows::<SessionSqlEntity>(
-        &session,
-        "SELECT name, age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 3",
-    )
-    .expect("direct ORDER BY ROUND term should execute");
-
-    assert_eq!(
-        arithmetic_rows,
-        vec![
-            vec![Value::Text("bravo".to_string()), Value::Uint(20),],
-            vec![Value::Text("alpha".to_string()), Value::Uint(30),],
-            vec![Value::Text("charlie".to_string()), Value::Uint(40),],
+        &[
+            (
+                "SELECT name, age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 3",
+                vec![
+                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
+                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
+                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                ],
+                "direct ORDER BY arithmetic terms",
+            ),
+            (
+                "SELECT name, age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 3",
+                vec![
+                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
+                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
+                ],
+                "direct ORDER BY ROUND terms",
+            ),
         ],
-        "direct ORDER BY arithmetic terms should materialize rows in computed numeric order",
-    );
-    assert_eq!(
-        round_rows,
-        vec![
-            vec![Value::Text("charlie".to_string()), Value::Uint(40),],
-            vec![Value::Text("alpha".to_string()), Value::Uint(30),],
-            vec![Value::Text("bravo".to_string()), Value::Uint(20),],
-        ],
-        "direct ORDER BY ROUND terms should materialize rows in rounded numeric order",
     );
 }
 
@@ -601,10 +797,7 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     reason = "table-driven computed projection matrix"
 )]
 fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
+    let session = seeded_projection_text_session();
 
     for (sql, expected_columns, expected_rows, context) in [
         (
@@ -721,108 +914,94 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
 
 #[test]
 fn fluent_text_projection_terminals_match_sql_projection_matrix() {
-    reset_session_sql_store();
-    let session = sql_session();
+    let session = seeded_projection_text_session();
 
-    seed_projection_text_fixture(&session);
-
-    for (sql, projection, context) in [
+    for (sql, case, context) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::trim("name"),
+            TextProjectionCase::Trim,
             "TRIM(name) parity",
         ),
         (
             "SELECT LTRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::ltrim("name"),
+            TextProjectionCase::Ltrim,
             "LTRIM(name) parity",
         ),
         (
             "SELECT RTRIM(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::rtrim("name"),
+            TextProjectionCase::Rtrim,
             "RTRIM(name) parity",
         ),
         (
             "SELECT LOWER(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::lower("name"),
+            TextProjectionCase::Lower,
             "LOWER(name) parity",
         ),
         (
             "SELECT UPPER(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::upper("name"),
+            TextProjectionCase::Upper,
             "UPPER(name) parity",
         ),
         (
             "SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::length("name"),
+            TextProjectionCase::Length,
             "LENGTH(name) parity",
         ),
         (
             "SELECT LEFT(name, 2) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::left("name", 2_i64),
+            TextProjectionCase::LeftTwo,
             "LEFT(name, 2) parity",
         ),
         (
             "SELECT RIGHT(name, 3) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::right("name", 3_i64),
+            TextProjectionCase::RightThree,
             "RIGHT(name, 3) parity",
         ),
         (
             "SELECT STARTS_WITH(name, ' ') FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::starts_with("name", " "),
+            TextProjectionCase::StartsWithSpace,
             "STARTS_WITH(name, ' ') parity",
         ),
         (
             "SELECT ENDS_WITH(name, 'b') FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::ends_with("name", "b"),
+            TextProjectionCase::EndsWithB,
             "ENDS_WITH(name, 'b') parity",
         ),
         (
             "SELECT CONTAINS(name, 'da') FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::contains("name", "da"),
+            TextProjectionCase::ContainsDa,
             "CONTAINS(name, 'da') parity",
         ),
         (
             "SELECT POSITION('da', name) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::position("name", "da"),
+            TextProjectionCase::PositionDa,
             "POSITION('da', name) parity",
         ),
         (
             "SELECT REPLACE(name, 'A', 'E') FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::replace("name", "A", "E"),
+            TextProjectionCase::ReplaceAWithE,
             "REPLACE(name, 'A', 'E') parity",
         ),
         (
             "SELECT SUBSTRING(name, 3, 3) FROM SessionSqlEntity ORDER BY age DESC",
-            crate::db::substring_with_length("name", 3_i64, 3_i64),
+            TextProjectionCase::SubstringThreeThree,
             "SUBSTRING(name, 3, 3) parity",
         ),
     ] {
-        assert_sql_projection_matches_fluent_value_projection(&session, sql, &projection, context);
+        assert_text_projection_case_matches_fluent(&session, case, sql, context);
     }
 }
 
 #[test]
 fn fluent_text_projection_first_and_last_values_match_sql_ordered_windows() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    seed_projection_text_fixture(&session);
+    let session = seeded_projection_text_session();
 
     let projection = crate::db::lower("name");
-    let sql_rows = statement_projection_rows::<SessionSqlEntity>(
+    let expected = statement_projection_values(
         &session,
         "SELECT LOWER(name) FROM SessionSqlEntity ORDER BY age ASC",
-    )
-    .expect("LOWER(name) SQL projection should execute");
-    let expected = sql_rows
-        .into_iter()
-        .map(|row| {
-            row.into_iter()
-                .next()
-                .expect("single-column SQL projection row should contain one value")
-        })
-        .collect::<Vec<_>>();
+        "LOWER(name) ordered SQL projection",
+    );
 
     let first_value = session
         .load::<SessionSqlEntity>()

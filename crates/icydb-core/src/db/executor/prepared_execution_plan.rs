@@ -30,6 +30,7 @@ use crate::{
 use std::marker::PhantomData;
 #[cfg(test)]
 use std::ops::Bound;
+use std::sync::Arc;
 ///
 /// ExecutionFamily
 ///
@@ -97,14 +98,19 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
 /// outer executor boundary.
 ///
 
-#[derive(Clone, Debug)]
-struct PreparedExecutionPlanCore {
+#[derive(Debug)]
+struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
     continuation: Option<PlannedContinuationContract>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
     index_range_spec_invalid: bool,
+}
+
+#[derive(Clone, Debug)]
+struct PreparedExecutionPlanCore {
+    shared: Arc<PreparedExecutionPlanCoreShared>,
 }
 
 ///
@@ -155,7 +161,7 @@ impl SharedPreparedExecutionPlan {
 
 impl PreparedExecutionPlanCore {
     #[must_use]
-    const fn new(
+    fn new(
         plan: AccessPlannedQuery,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
@@ -164,28 +170,30 @@ impl PreparedExecutionPlanCore {
         index_range_spec_invalid: bool,
     ) -> Self {
         Self {
-            plan,
-            continuation,
-            index_prefix_specs,
-            index_prefix_spec_invalid,
-            index_range_specs,
-            index_range_spec_invalid,
+            shared: Arc::new(PreparedExecutionPlanCoreShared {
+                plan,
+                continuation,
+                index_prefix_specs,
+                index_prefix_spec_invalid,
+                index_range_specs,
+                index_range_spec_invalid,
+            }),
         }
     }
 
     #[must_use]
-    const fn plan(&self) -> &AccessPlannedQuery {
-        &self.plan
+    fn plan(&self) -> &AccessPlannedQuery {
+        &self.shared.plan
     }
 
     #[must_use]
-    const fn mode(&self) -> QueryMode {
-        self.plan.scalar_plan().mode
+    fn mode(&self) -> QueryMode {
+        self.shared.plan.scalar_plan().mode
     }
 
     #[must_use]
-    const fn is_grouped(&self) -> bool {
-        match self.continuation {
+    fn is_grouped(&self) -> bool {
+        match self.shared.continuation {
             Some(ref contract) => contract.is_grouped(),
             None => false,
         }
@@ -207,41 +215,41 @@ impl PreparedExecutionPlanCore {
     }
 
     #[must_use]
-    const fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.plan)
+    fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(&self.shared.plan)
     }
 
     #[must_use]
-    const fn order_spec(&self) -> Option<&OrderSpec> {
-        self.plan.scalar_plan().order.as_ref()
+    fn order_spec(&self) -> Option<&OrderSpec> {
+        self.shared.plan.scalar_plan().order.as_ref()
     }
 
     #[must_use]
     fn has_predicate(&self) -> bool {
-        self.plan.has_residual_predicate()
+        self.shared.plan.has_residual_predicate()
     }
 
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.index_prefix_spec_invalid {
+        if self.shared.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
 
-        Ok(self.index_prefix_specs.as_slice())
+        Ok(self.shared.index_prefix_specs.as_slice())
     }
 
     fn index_range_specs(&self) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.index_range_spec_invalid {
+        if self.shared.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        Ok(self.index_range_specs.as_slice())
+        Ok(self.shared.index_range_specs.as_slice())
     }
 
     #[must_use]
     fn into_inner(self) -> AccessPlannedQuery {
-        self.plan
+        self.shared.plan.clone()
     }
 
     fn prepare_cursor(
@@ -249,7 +257,7 @@ impl PreparedExecutionPlanCore {
         authority: EntityAuthority,
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.continuation.as_ref() else {
+        let Some(contract) = self.shared.continuation.as_ref() else {
             return Err(ExecutorPlanError::continuation_cursor_requires_load_plan());
         };
 
@@ -263,7 +271,7 @@ impl PreparedExecutionPlanCore {
         authority: EntityAuthority,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
-        let Some(contract) = self.continuation.as_ref() else {
+        let Some(contract) = self.shared.continuation.as_ref() else {
             return Err(
                 ExecutorPlanError::continuation_cursor_requires_load_plan().into_internal_error()
             );
@@ -278,7 +286,7 @@ impl PreparedExecutionPlanCore {
         &self,
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
-        let Some(contract) = self.continuation.as_ref() else {
+        let Some(contract) = self.shared.continuation.as_ref() else {
             return Err(
                 ExecutorPlanError::grouped_cursor_revalidation_requires_grouped_plan()
                     .into_internal_error(),
@@ -334,7 +342,7 @@ impl PreparedExecutionPlanCore {
 
     // Borrow immutable continuation contract for load-mode plans.
     fn continuation_contract(&self) -> Result<&PlannedContinuationContract, InternalError> {
-        self.continuation.as_ref().ok_or_else(|| {
+        self.shared.continuation.as_ref().ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })
     }
@@ -420,12 +428,12 @@ impl PreparedLoadPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn mode(&self) -> QueryMode {
+    pub(in crate::db::executor) fn mode(&self) -> QueryMode {
         self.core.mode()
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn logical_plan(&self) -> &AccessPlannedQuery {
+    pub(in crate::db::executor) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
     }
 
@@ -518,20 +526,20 @@ impl PreparedAggregatePlan {
         InternalError,
     > {
         let Self { authority, core } = self;
-        if core.index_prefix_spec_invalid {
+        if core.shared.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if core.index_range_spec_invalid {
+        if core.shared.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok((
             authority,
-            core.plan,
-            core.index_prefix_specs,
-            core.index_range_specs,
+            core.shared.plan.clone(),
+            core.shared.index_prefix_specs.clone(),
+            core.shared.index_range_specs.clone(),
         ))
     }
 
@@ -596,13 +604,13 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Return the plan mode (load vs delete).
     #[must_use]
-    pub(in crate::db) const fn mode(&self) -> QueryMode {
+    pub(in crate::db) fn mode(&self) -> QueryMode {
         self.core.mode()
     }
 
     /// Return whether this prepared execution plan carries grouped logical shape.
     #[must_use]
-    pub(in crate::db) const fn is_grouped(&self) -> bool {
+    pub(in crate::db) fn is_grouped(&self) -> bool {
         self.core.is_grouped()
     }
 
@@ -614,7 +622,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     /// Borrow the structural logical plan for executor-owned tests.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn logical_plan(&self) -> &AccessPlannedQuery {
+    pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
     }
 
@@ -624,15 +632,13 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.execution_ordering()
     }
 
-    pub(in crate::db) const fn access(
-        &self,
-    ) -> &crate::db::access::AccessPlan<crate::value::Value> {
+    pub(in crate::db) fn access(&self) -> &crate::db::access::AccessPlan<crate::value::Value> {
         &self.core.plan().access
     }
 
     /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
-    pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
+    pub(in crate::db) fn consistency(&self) -> MissingRowPolicy {
         self.core.consistency()
     }
 
@@ -668,7 +674,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Borrow scalar ORDER BY contract for this prepared execution plan, if any.
     #[must_use]
-    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
+    pub(in crate::db::executor) fn order_spec(&self) -> Option<&OrderSpec> {
         self.core.order_spec()
     }
 
@@ -769,7 +775,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.core.continuation.as_ref() else {
+        let Some(contract) = self.core.shared.continuation.as_ref() else {
             return Err(ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
         };
 
@@ -783,7 +789,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.core.continuation.as_ref() else {
+        let Some(contract) = self.core.shared.continuation.as_ref() else {
             return Err(ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
         };
 

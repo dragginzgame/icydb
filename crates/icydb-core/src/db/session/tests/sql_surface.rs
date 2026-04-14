@@ -61,6 +61,41 @@ fn assert_specific_sql_unsupported_feature_detail<T, F>(
     assert_sql_unsupported_feature_detail(err, feature);
 }
 
+// Require one session-compiled SELECT artifact to preserve the same canonical
+// structural and logical identity as the directly lowered internal query.
+fn assert_compiled_select_query_matches_lowered_identity(
+    compiled: &crate::db::session::sql::CompiledSqlCommand,
+    sql: &str,
+    context: &str,
+) {
+    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
+        .unwrap_or_else(|err| panic!("{context} should lower into one canonical query: {err:?}"));
+    let SqlCommand::Query(lowered_query) = lowered else {
+        panic!("{context} should lower to one query command");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select { query, .. } = compiled else {
+        panic!("{context} should compile into one SELECT artifact");
+    };
+
+    assert_eq!(
+        query.structural_cache_key(),
+        lowered_query.structural().structural_cache_key(),
+        "{context} must canonicalize onto the same structural query cache key before cache insertion",
+    );
+    assert_eq!(
+        query
+            .build_plan()
+            .expect("compiled session query plan should build")
+            .fingerprint(),
+        lowered_query
+            .plan()
+            .expect("canonical lowered query plan should build")
+            .into_inner()
+            .fingerprint(),
+        "{context} must preserve the same canonical logical plan identity as the lowered internal form",
+    );
+}
+
 // This query-surface matrix keeps every non-query statement rejection on one
 // outward contract table so the boundary stays easy to audit.
 #[expect(
@@ -1199,121 +1234,73 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
 }
 
 #[test]
-fn compile_sql_query_order_by_bounded_numeric_alias_matches_canonical_structural_query_identity() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let sql = "SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 2";
-
-    // Phase 1: compile through the session-owned SQL surface so the test sees
-    // the exact artifact that the compiled-command cache will retain.
-    let compiled = session
-        .compile_sql_query::<SessionSqlEntity>(sql)
-        .expect("bounded numeric ORDER BY alias should compile through the SQL surface");
-
-    let crate::db::session::sql::CompiledSqlCommand::Select { query, .. } = &compiled else {
-        panic!("bounded numeric ORDER BY alias should compile into one SELECT artifact");
-    };
-
-    // Phase 2: lower the same admitted SQL directly and require the session
-    // compile artifact to preserve that exact canonical structural identity.
-    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
-        .expect("bounded numeric ORDER BY alias should lower into one canonical query");
-
-    let SqlCommand::Query(lowered_query) = lowered else {
-        panic!("bounded numeric ORDER BY alias should lower to one query command");
-    };
-
-    assert_eq!(
-        query.cache_fingerprint(),
-        lowered_query.structural().cache_fingerprint(),
-        "admitted ORDER BY aliases must canonicalize onto the same structural query fingerprint before cache insertion",
-    );
-    assert_eq!(
-        query
-            .build_plan()
-            .expect("compiled session query plan should build")
-            .fingerprint(),
-        lowered_query
-            .plan()
-            .expect("canonical lowered query plan should build")
-            .into_inner()
-            .fingerprint(),
-        "admitted ORDER BY aliases must preserve the same canonical logical plan identity as the lowered internal form",
-    );
-}
-
-#[test]
-fn direct_bounded_numeric_order_terms_use_the_normal_sql_cache_path() {
-    reset_session_sql_store();
-    let session = sql_session();
-    let sql = "SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 2";
-
-    assert_eq!(
-        session.sql_compiled_command_cache_len(),
-        0,
-        "new SQL session should start with an empty compiled-command cache",
-    );
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        0,
-        "new SQL session should start with an empty select-plan cache",
-    );
-
-    let compiled = session
-        .compile_sql_query::<SessionSqlEntity>(sql)
-        .expect("direct bounded numeric ORDER BY should compile through the SQL surface");
-    let repeat = session
-        .compile_sql_query::<SessionSqlEntity>(sql)
-        .expect("repeating one direct bounded numeric ORDER BY compile should hit the same compiled-command cache entry");
-
-    assert!(
-        matches!(
-            compiled,
-            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+fn bounded_numeric_order_terms_use_the_normal_sql_surface_identity_and_cache_path() {
+    for (sql, compile_context, identity_context) in [
+        (
+            "SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 2",
+            "bounded numeric ORDER BY alias",
+            "admitted ORDER BY aliases",
         ),
-        "direct bounded numeric ORDER BY should stay on the normal SELECT compile lane",
-    );
-    assert!(
-        matches!(
-            repeat,
-            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        (
+            "SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 2",
+            "direct bounded numeric ORDER BY",
+            "direct bounded numeric ORDER BY terms",
         ),
-        "repeating one direct bounded numeric ORDER BY compile should stay on the normal SELECT compile lane",
-    );
-    assert_eq!(
-        session.sql_compiled_command_cache_len(),
-        1,
-        "repeating one identical direct bounded numeric ORDER BY compile must not grow the compiled-command cache",
-    );
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
 
-    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
-        .expect("direct bounded numeric ORDER BY should lower into one canonical query");
-    let SqlCommand::Query(lowered_query) = lowered else {
-        panic!("direct bounded numeric ORDER BY should lower to one query command");
-    };
-    let crate::db::session::sql::CompiledSqlCommand::Select { query, .. } = &compiled else {
-        panic!("direct bounded numeric ORDER BY should compile into one SELECT artifact");
-    };
+        assert_eq!(
+            session.sql_compiled_command_cache_len(),
+            0,
+            "new SQL session should start with an empty compiled-command cache",
+        );
+        assert_eq!(
+            session.sql_select_plan_cache_len(),
+            0,
+            "new SQL session should start with an empty select-plan cache",
+        );
 
-    assert_eq!(
-        query.cache_fingerprint(),
-        lowered_query.structural().cache_fingerprint(),
-        "direct bounded numeric ORDER BY terms must canonicalize onto the same structural query fingerprint before cache insertion",
-    );
-    assert_eq!(
-        query
-            .build_plan()
-            .expect("compiled session query plan should build")
-            .fingerprint(),
-        lowered_query
-            .plan()
-            .expect("canonical lowered query plan should build")
-            .into_inner()
-            .fingerprint(),
-        "direct bounded numeric ORDER BY terms must preserve the same canonical logical plan identity as the lowered internal form",
-    );
+        let compiled = session
+            .compile_sql_query::<SessionSqlEntity>(sql)
+            .unwrap_or_else(|err| {
+                panic!("{compile_context} should compile through the SQL surface: {err:?}")
+            });
+        let repeat = session
+            .compile_sql_query::<SessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("repeating one {compile_context} compile should hit the same compiled-command cache entry: {err:?}"));
 
-    assert_scalar_select_plan_cache_behavior(&session, &compiled);
+        assert!(
+            matches!(
+                compiled,
+                crate::db::session::sql::CompiledSqlCommand::Select { .. }
+            ),
+            "{compile_context} should stay on the normal SELECT compile lane",
+        );
+        assert!(
+            matches!(
+                repeat,
+                crate::db::session::sql::CompiledSqlCommand::Select { .. }
+            ),
+            "repeating one {compile_context} compile should stay on the normal SELECT compile lane",
+        );
+        assert_eq!(
+            session.sql_compiled_command_cache_len(),
+            1,
+            "repeating one identical {compile_context} compile must not grow the compiled-command cache",
+        );
+
+        assert_compiled_select_query_matches_lowered_identity(
+            &compiled,
+            sql,
+            format!(
+                "{identity_context} must canonicalize onto the same structural query cache key before cache insertion"
+            )
+            .as_str(),
+        );
+
+        assert_scalar_select_plan_cache_behavior(&session, &compiled);
+    }
 }
 
 #[test]

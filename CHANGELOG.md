@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.81.x] ↕️ - 2026-04-14 - Bounded Computed ORDER BY Aliases
 
+- `0.81.4` cleans up the shared lower query-plan cache so SQL and fluent now reuse one explicit canonical structural cache key instead of hiding that identity inside a manual hash walk, without widening the SQL surface again.
 - `0.81.3` closes out the line with security-audit hygiene: the recurring security-boundary audit now points at the current test names, and the live SQL canister suite explicitly checks that malformed SQL is rejected before execution at the public boundary.
 - `0.81.2` removes the last alias-only restriction from the same bounded scalar ordering slice, so direct SQL forms like `ORDER BY age + 1`, `ORDER BY age + rank`, and `ORDER BY ROUND(age / 3, 2)` now work on the existing canonical computed-order path, and the same line also adds the first recurring security-boundary audit plus CI-script updates so that audit follows the current module layout cleanly.
 - `0.81.1` hardens the new bounded computed `ORDER BY <alias>` slice by proving alias normalization reaches the same cached internal query shape, widening tests to cover field-to-field arithmetic and `ROUND(field + field, scale)` alias ordering, and adding a matching SQL perf-audit row so that family is measured in the recurring PocketIC harness.

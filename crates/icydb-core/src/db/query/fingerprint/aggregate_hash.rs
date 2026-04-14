@@ -109,7 +109,7 @@ mod tests {
         },
         plan::{AggregateKind, GroupAggregateSpec},
     };
-    use sha2::Sha256;
+    use sha2::{Digest, Sha256};
 
     ///
     /// AggregateSource
@@ -136,7 +136,7 @@ mod tests {
     }
 
     fn hash_shapes(shapes: &[AggregateHashShape<'_>]) -> [u8; 32] {
-        let mut hasher = crate::db::codec::new_hash_sha256();
+        let mut hasher = Sha256::new();
         for shape in shapes {
             hash_group_aggregate_structural_fingerprint(&mut hasher, shape);
         }

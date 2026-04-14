@@ -42,7 +42,7 @@ pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(in crate::db) use parser::parse_predicate_from_cursor;
 pub(crate) use parser::parse_sql_predicate;
 
-pub(in crate::db) use fingerprint::hash_predicate;
+pub(in crate::db) use fingerprint::{hash_predicate, predicate_fingerprint};
 pub(in crate::db) use resolved::{
     ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
 };

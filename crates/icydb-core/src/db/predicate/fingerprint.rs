@@ -12,6 +12,14 @@ pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) 
     hash_predicate_structural(hasher, &normalized);
 }
 
+/// Return one canonical SHA-256 predicate digest for cache and plan identity.
+pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hash_predicate(&mut hasher, predicate);
+
+    crate::db::codec::finalize_hash_sha256(hasher)
+}
+
 // Hash structural predicate bytes without running normalization.
 //
 // Predicate sort-key encoding already owns the canonical structural traversal
@@ -27,11 +35,12 @@ fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_predicate, hash_predicate_structural};
+    use super::{hash_predicate_structural, predicate_fingerprint};
     use crate::{
         db::predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionId, normalize},
         value::Value,
     };
+    use sha2::Digest;
 
     #[test]
     fn hash_predicate_preserves_raw_and_child_order_before_normalization() {
@@ -179,13 +188,11 @@ mod tests {
     }
 
     fn digest(predicate: &Predicate) -> [u8; 32] {
-        let mut hasher = crate::db::codec::new_hash_sha256();
-        hash_predicate(&mut hasher, predicate);
-        crate::db::codec::finalize_hash_sha256(hasher)
+        predicate_fingerprint(predicate)
     }
 
     fn digest_structural(predicate: &Predicate) -> [u8; 32] {
-        let mut hasher = crate::db::codec::new_hash_sha256();
+        let mut hasher = sha2::Sha256::new();
         hash_predicate_structural(&mut hasher, predicate);
         crate::db::codec::finalize_hash_sha256(hasher)
     }

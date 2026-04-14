@@ -24,6 +24,33 @@ fn execute_indexed_grouped_case(
         .collect()
 }
 
+// Reset the indexed SQL store and seed one deterministic indexed grouped
+// cohort so grouped aggregate matrix tests can share the same setup path.
+fn seeded_indexed_grouped_session(rows: &[(&'static str, u64)]) -> DbSession<SessionSqlCanister> {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_indexed_session_sql_entities(&session, rows);
+
+    session
+}
+
+// Execute one table of indexed grouped SQL cases and assert the compact
+// grouped row payload stays stable for every case in the matrix.
+type IndexedGroupedCase<'a> = (&'a str, &'a str, Vec<(Value, Vec<Value>)>);
+
+fn assert_indexed_grouped_case_matrix(
+    session: &DbSession<SessionSqlCanister>,
+    cases: &[IndexedGroupedCase<'_>],
+    failure_suffix: &str,
+) {
+    for (label, sql, expected_rows) in cases {
+        let actual_rows = execute_indexed_grouped_case(session, sql, label);
+
+        assert_eq!(actual_rows, *expected_rows, "{label} {failure_suffix}");
+    }
+}
+
 // Execute one grouped SQL statement execution case and assert the grouped payload surface
 // stays stable across different projection shapes.
 fn assert_grouped_statement_payload_case(
@@ -380,21 +407,15 @@ fn grouped_select_lowering_indexed_grouped_ordered_explain_matrix_projects_order
 #[test]
 #[expect(clippy::too_many_lines)]
 fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
     // Phase 1: seed one deterministic duplicate-free cohort for the plain
     // ordered grouped aggregate matrix.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-        ],
-    );
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("charlie", 50),
+    ]);
 
     // Phase 2: execute the ordered grouped aggregate matrix and assert each
     // aggregate shape stays on the same public grouped-row contract.
@@ -533,35 +554,26 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
         ),
     ];
 
-    for (label, sql, expected_rows) in cases {
-        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
-
-        assert_eq!(
-            actual_rows, expected_rows,
-            "{label} should preserve grouped-key order on the admitted ordered grouped lane",
-        );
-    }
+    assert_indexed_grouped_case_matrix(
+        &session,
+        &cases,
+        "should preserve grouped-key order on the admitted ordered grouped lane",
+    );
 }
 
 #[test]
 fn grouped_select_helper_indexed_distinct_aggregate_matrix_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
     // Phase 1: seed one deterministic duplicate-heavy cohort for the distinct
     // aggregate matrix on the ordered grouped lane.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("charlie", 50),
-            ("charlie", 50),
-        ],
-    );
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("charlie", 50),
+        ("charlie", 50),
+    ]);
 
     // Phase 2: execute the distinct aggregate matrix and assert the public
     // grouped rows keep both ordering and per-group dedupe semantics.
@@ -634,14 +646,11 @@ fn grouped_select_helper_indexed_distinct_aggregate_matrix_preserves_ordered_gro
         ),
     ];
 
-    for (label, sql, expected_rows) in cases {
-        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
-
-        assert_eq!(
-            actual_rows, expected_rows,
-            "{label} should preserve ordered grouped rows after per-group DISTINCT dedupe",
-        );
-    }
+    assert_indexed_grouped_case_matrix(
+        &session,
+        &cases,
+        "should preserve ordered grouped rows after per-group DISTINCT dedupe",
+    );
 }
 
 #[test]
@@ -699,21 +708,15 @@ fn grouped_select_lowering_indexed_filtered_grouped_ordered_explain_matrix_proje
 
 #[test]
 fn grouped_select_helper_indexed_filtered_aggregate_matrix_preserves_ordered_group_rows() {
-    reset_indexed_session_sql_store();
-    let session = indexed_sql_session();
-
     // Phase 1: seed one deterministic filtered cohort for the ordered grouped
     // aggregate matrix on the admitted index-backed filter path.
-    seed_indexed_session_sql_entities(
-        &session,
-        &[
-            ("alpha", 10),
-            ("alpha", 20),
-            ("bravo", 30),
-            ("charlie", 40),
-            ("delta", 50),
-        ],
-    );
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
 
     // Phase 2: execute the filtered grouped aggregate matrix and assert the
     // grouped public surface stays stable after the index-backed filter.
@@ -753,14 +756,11 @@ fn grouped_select_helper_indexed_filtered_aggregate_matrix_preserves_ordered_gro
         ),
     ];
 
-    for (label, sql, expected_rows) in cases {
-        let actual_rows = execute_indexed_grouped_case(&session, sql, label);
-
-        assert_eq!(
-            actual_rows, expected_rows,
-            "{label} should preserve grouped-key order on the admitted ordered grouped lane",
-        );
-    }
+    assert_indexed_grouped_case_matrix(
+        &session,
+        &cases,
+        "should preserve grouped-key order on the admitted ordered grouped lane",
+    );
 }
 
 #[test]

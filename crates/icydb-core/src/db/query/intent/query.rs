@@ -238,8 +238,10 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn cache_fingerprint(&self) -> [u8; 32] {
-        self.intent.cache_fingerprint()
+    pub(in crate::db) fn structural_cache_key(
+        &self,
+    ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        self.intent.structural_cache_key()
     }
 
     // Build one access plan using either schema-owned indexes or the session

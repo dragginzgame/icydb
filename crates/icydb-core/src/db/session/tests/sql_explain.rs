@@ -40,6 +40,26 @@ fn assert_explain_equivalence_case<E>(
     );
 }
 
+fn assert_explain_load_shape_case<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    let explain = statement_explain_sql::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+    assert!(
+        explain.contains("mode=Load"),
+        "{context} should still render the base load plan",
+    );
+    assert!(
+        explain.contains("access="),
+        "{context} should still render one routed access shape",
+    );
+}
+
 fn assert_explain_json_index_range_case(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
@@ -599,16 +619,10 @@ fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
         "EXPLAIN SELECT age + 1 AS next_age FROM SessionSqlEntity ORDER BY next_age ASC LIMIT 1",
         "EXPLAIN SELECT ROUND(age / 3, 2) AS rounded_age FROM SessionSqlEntity ORDER BY rounded_age DESC LIMIT 1",
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
-            .expect("bounded numeric ORDER BY aliases should explain");
-
-        assert!(
-            explain.contains("mode=Load"),
-            "bounded numeric ORDER BY alias explain should still render the base load plan",
-        );
-        assert!(
-            explain.contains("access="),
-            "bounded numeric ORDER BY alias explain should still render one routed access shape",
+        assert_explain_load_shape_case::<SessionSqlEntity>(
+            &session,
+            sql,
+            "bounded numeric ORDER BY alias explain",
         );
     }
 
@@ -616,16 +630,10 @@ fn explain_sql_accepts_order_by_bounded_numeric_aliases() {
         "EXPLAIN SELECT rank + rank AS total FROM SessionAggregateEntity ORDER BY total ASC LIMIT 1",
         "EXPLAIN SELECT ROUND(rank + rank, 2) AS rounded_total FROM SessionAggregateEntity ORDER BY rounded_total DESC LIMIT 1",
     ] {
-        let explain = statement_explain_sql::<SessionAggregateEntity>(&session, sql)
-            .expect("bounded numeric ORDER BY aliases should explain");
-
-        assert!(
-            explain.contains("mode=Load"),
-            "bounded numeric ORDER BY alias explain should still render the base load plan",
-        );
-        assert!(
-            explain.contains("access="),
-            "bounded numeric ORDER BY alias explain should still render one routed access shape",
+        assert_explain_load_shape_case::<SessionAggregateEntity>(
+            &session,
+            sql,
+            "bounded numeric ORDER BY alias explain",
         );
     }
 }
@@ -639,16 +647,10 @@ fn explain_sql_accepts_direct_bounded_numeric_order_terms() {
         "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 1",
         "EXPLAIN SELECT age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 1",
     ] {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
-            .expect("direct bounded numeric ORDER BY terms should explain");
-
-        assert!(
-            explain.contains("mode=Load"),
-            "direct bounded numeric ORDER BY explain should still render the base load plan",
-        );
-        assert!(
-            explain.contains("access="),
-            "direct bounded numeric ORDER BY explain should still render one routed access shape",
+        assert_explain_load_shape_case::<SessionSqlEntity>(
+            &session,
+            sql,
+            "direct bounded numeric ORDER BY explain",
         );
     }
 }

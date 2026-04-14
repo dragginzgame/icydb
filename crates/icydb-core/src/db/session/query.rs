@@ -35,9 +35,12 @@ use crate::{
 };
 #[cfg(feature = "perf-attribution")]
 use candid::CandidType;
+use icydb_utils::Xxh3;
 #[cfg(feature = "perf-attribution")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
+
+type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) enum QueryPlanVisibility {
@@ -50,7 +53,7 @@ pub(in crate::db) struct QueryPlanCacheKey {
     entity_path: &'static str,
     schema_fingerprint: CommitSchemaFingerprint,
     visibility: QueryPlanVisibility,
-    query_fingerprint: [u8; 32],
+    structural_query: crate::db::query::intent::StructuralQueryCacheKey,
 }
 
 #[derive(Clone, Debug)]
@@ -82,15 +85,16 @@ impl QueryPlanCacheEntry {
     }
 }
 
-pub(in crate::db) type QueryPlanCache = HashMap<QueryPlanCacheKey, QueryPlanCacheEntry>;
+pub(in crate::db) type QueryPlanCache =
+    HashMap<QueryPlanCacheKey, QueryPlanCacheEntry, CacheBuildHasher>;
 
 thread_local! {
     // Keep one in-heap query-plan cache per store registry so fresh `DbSession`
     // facades can share prepared logical plans across update/query calls while
     // tests and multi-registry host processes remain isolated by registry
     // identity.
-    static QUERY_PLAN_CACHES: RefCell<HashMap<usize, QueryPlanCache>> =
-        RefCell::new(HashMap::new());
+    static QUERY_PLAN_CACHES: RefCell<HashMap<usize, QueryPlanCache, CacheBuildHasher>> =
+        RefCell::new(HashMap::default());
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -217,7 +221,7 @@ impl<C: CanisterKind> DbSession<C> {
             entity_path: authority.entity_path(),
             schema_fingerprint,
             visibility,
-            query_fingerprint: query.cache_fingerprint(),
+            structural_query: query.structural_cache_key(),
         };
 
         {
@@ -513,16 +517,18 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: measure compile work at the typed/fluent boundary.
-        let (compile_local_instructions, compiled) =
-            measure_query_stage(|| self.compile_query_with_visible_indexes(query));
-        let _compiled = compiled?;
+        // Phase 1: measure compile work at the typed/fluent boundary,
+        // including the shared lower query-plan cache lookup/build exactly
+        // once. This preserves honest hit/miss attribution without
+        // double-building plans on one-shot cache misses.
+        let (compile_local_instructions, plan_and_cache) = measure_query_stage(|| {
+            self.cached_prepared_query_plan_for_entity::<E>(query.structural())
+        });
+        let (plan, cache_attribution) = plan_and_cache?;
 
-        // Phase 2: resolve the shared lower cache and execute one query result.
-        let (execute_local_instructions, result_and_cache) = measure_query_stage(|| {
-            let (plan, cache_attribution) =
-                self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
-
+        // Phase 2: execute one query result using the prepared plan produced
+        // by the compile/cache boundary above.
+        let (execute_local_instructions, result) = measure_query_stage(|| {
             if query.has_grouping() {
                 self.execute_grouped_plan_with_trace(plan, None)
                     .map(|(page, trace)| {
@@ -543,22 +549,16 @@ impl<C: CanisterKind> DbSession<C> {
                             })
                             .transpose()?;
 
-                        Ok::<(LoadQueryResult<E>, QueryPlanCacheAttribution), QueryError>((
-                            LoadQueryResult::Grouped(PagedGroupedExecutionWithTrace::new(
-                                page.rows,
-                                next_cursor,
-                                trace,
-                            )),
-                            cache_attribution,
+                        Ok::<LoadQueryResult<E>, QueryError>(LoadQueryResult::Grouped(
+                            PagedGroupedExecutionWithTrace::new(page.rows, next_cursor, trace),
                         ))
                     })?
             } else {
                 self.execute_query_dyn(query.mode(), plan)
                     .map(LoadQueryResult::Rows)
-                    .map(|result| (result, cache_attribution))
             }
         });
-        let (result, cache_attribution) = result_and_cache?;
+        let result = result?;
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
 

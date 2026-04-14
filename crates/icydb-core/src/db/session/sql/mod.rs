@@ -10,9 +10,12 @@ mod projection;
 
 #[cfg(feature = "perf-attribution")]
 use candid::CandidType;
+use icydb_utils::Xxh3;
 #[cfg(feature = "perf-attribution")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
+
+type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
@@ -328,17 +331,18 @@ impl SqlSelectPlanCacheKey {
 }
 
 pub(in crate::db) type SqlCompiledCommandCache =
-    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
-pub(in crate::db) type SqlSelectPlanCache = HashMap<SqlSelectPlanCacheKey, SqlSelectPlanCacheEntry>;
+    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand, CacheBuildHasher>;
+pub(in crate::db) type SqlSelectPlanCache =
+    HashMap<SqlSelectPlanCacheKey, SqlSelectPlanCacheEntry, CacheBuildHasher>;
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
     // store registry identity so update calls can warm query-facing SQL reuse
     // without leaking entries across unrelated registries in tests.
-    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
-        RefCell::new(HashMap::new());
-    static SQL_SELECT_PLAN_CACHES: RefCell<HashMap<usize, SqlSelectPlanCache>> =
-        RefCell::new(HashMap::new());
+    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache, CacheBuildHasher>> =
+        RefCell::new(HashMap::default());
+    static SQL_SELECT_PLAN_CACHES: RefCell<HashMap<usize, SqlSelectPlanCache, CacheBuildHasher>> =
+        RefCell::new(HashMap::default());
 }
 
 // Keep the compile artifact session-owned and generic-free so the SQL surface

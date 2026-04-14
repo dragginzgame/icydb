@@ -100,6 +100,28 @@ crate::test_entity_schema! {
     canister = SqlLowerCanister,
 }
 
+// Lower one SQL query command and extract the normalized first ORDER BY field
+// so matrix tests can assert canonical ordering without repeating unwrap steps.
+fn first_lowered_order_field(sql: &str, context: &str) -> String {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("{context} should lower to a query command");
+    };
+    let plan = sql_query
+        .plan()
+        .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"))
+        .into_inner();
+
+    plan.scalar_plan()
+        .order
+        .as_ref()
+        .unwrap_or_else(|| panic!("{context} ordering should be present"))
+        .fields[0]
+        .0
+        .clone()
+}
+
 #[test]
 fn compile_sql_command_select_star_lowers_to_load_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
@@ -328,173 +350,61 @@ fn compile_sql_command_rejects_order_by_alias_for_unsupported_target_family() {
 
 #[test]
 fn compile_sql_command_normalizes_order_by_alias_for_bounded_numeric_projection_targets() {
-    let arithmetic_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age + 1 AS next_age FROM SqlLowerEntity ORDER BY next_age ASC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("ORDER BY arithmetic alias should lower");
-    let field_to_field_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age + age AS total_age FROM SqlLowerEntity ORDER BY total_age ASC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("ORDER BY field-to-field arithmetic alias should lower");
-    let round_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT ROUND(age / 3, 2) AS rounded_age FROM SqlLowerEntity ORDER BY rounded_age DESC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("ORDER BY ROUND alias should lower");
-    let round_field_to_field_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT ROUND(age + age, 2) AS rounded_total FROM SqlLowerEntity ORDER BY rounded_total DESC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("ORDER BY ROUND(field + field) alias should lower");
-
-    let SqlCommand::Query(arithmetic_query) = arithmetic_command else {
-        panic!("expected lowered arithmetic alias query command");
-    };
-    let SqlCommand::Query(field_to_field_query) = field_to_field_command else {
-        panic!("expected lowered field-to-field arithmetic alias query command");
-    };
-    let SqlCommand::Query(round_query) = round_command else {
-        panic!("expected lowered round alias query command");
-    };
-    let SqlCommand::Query(round_field_to_field_query) = round_field_to_field_command else {
-        panic!("expected lowered round field-to-field alias query command");
-    };
-
-    let arithmetic_plan = arithmetic_query
-        .plan()
-        .expect("arithmetic alias plan should build")
-        .into_inner();
-    let field_to_field_plan = field_to_field_query
-        .plan()
-        .expect("field-to-field arithmetic alias plan should build")
-        .into_inner();
-    let round_plan = round_query
-        .plan()
-        .expect("round alias plan should build")
-        .into_inner();
-    let round_field_to_field_plan = round_field_to_field_query
-        .plan()
-        .expect("round field-to-field alias plan should build")
-        .into_inner();
-
-    assert_eq!(
-        arithmetic_plan
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("arithmetic alias ordering should be present")
-            .fields[0]
-            .0,
-        "age + 1",
-        "ORDER BY arithmetic aliases should normalize onto the canonical internal numeric expression",
-    );
-    assert_eq!(
-        field_to_field_plan
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("field-to-field arithmetic alias ordering should be present")
-            .fields[0]
-            .0,
-        "age + age",
-        "ORDER BY field-to-field arithmetic aliases should normalize onto the canonical internal numeric expression",
-    );
-    assert_eq!(
-        round_plan
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("round alias ordering should be present")
-            .fields[0]
-            .0,
-        "ROUND(age / 3, 2)",
-        "ORDER BY ROUND aliases should normalize onto the canonical internal round expression",
-    );
-    assert_eq!(
-        round_field_to_field_plan
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("round field-to-field alias ordering should be present")
-            .fields[0]
-            .0,
-        "ROUND(age + age, 2)",
-        "ORDER BY ROUND(field + field) aliases should normalize onto the canonical internal round expression",
-    );
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT age + 1 AS next_age FROM SqlLowerEntity ORDER BY next_age ASC LIMIT 2",
+            "age + 1",
+            "ORDER BY arithmetic aliases",
+        ),
+        (
+            "SELECT age + age AS total_age FROM SqlLowerEntity ORDER BY total_age ASC LIMIT 2",
+            "age + age",
+            "ORDER BY field-to-field arithmetic aliases",
+        ),
+        (
+            "SELECT ROUND(age / 3, 2) AS rounded_age FROM SqlLowerEntity ORDER BY rounded_age DESC LIMIT 2",
+            "ROUND(age / 3, 2)",
+            "ORDER BY ROUND aliases",
+        ),
+        (
+            "SELECT ROUND(age + age, 2) AS rounded_total FROM SqlLowerEntity ORDER BY rounded_total DESC LIMIT 2",
+            "ROUND(age + age, 2)",
+            "ORDER BY ROUND(field + field) aliases",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical internal order expression",
+        );
+    }
 }
 
 #[test]
 fn compile_sql_command_accepts_direct_bounded_numeric_order_terms() {
-    let arithmetic_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age FROM SqlLowerEntity ORDER BY age + 1 ASC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct ORDER BY arithmetic term should lower");
-    let field_to_field_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age FROM SqlLowerEntity ORDER BY age + age ASC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct ORDER BY field-to-field arithmetic term should lower");
-    let round_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age FROM SqlLowerEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct ORDER BY ROUND term should lower");
-
-    let SqlCommand::Query(arithmetic_query) = arithmetic_command else {
-        panic!("expected lowered arithmetic order query command");
-    };
-    let SqlCommand::Query(field_to_field_query) = field_to_field_command else {
-        panic!("expected lowered field-to-field order query command");
-    };
-    let SqlCommand::Query(round_query) = round_command else {
-        panic!("expected lowered round order query command");
-    };
-
-    assert_eq!(
-        arithmetic_query
-            .plan()
-            .expect("direct arithmetic order plan should build")
-            .into_inner()
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("direct arithmetic order should be present")
-            .fields[0]
-            .0,
-        "age + 1",
-        "direct ORDER BY arithmetic terms should normalize onto the canonical internal numeric expression",
-    );
-    assert_eq!(
-        field_to_field_query
-            .plan()
-            .expect("direct field-to-field order plan should build")
-            .into_inner()
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("direct field-to-field order should be present")
-            .fields[0]
-            .0,
-        "age + age",
-        "direct ORDER BY field-to-field arithmetic terms should normalize onto the canonical internal numeric expression",
-    );
-    assert_eq!(
-        round_query
-            .plan()
-            .expect("direct round order plan should build")
-            .into_inner()
-            .scalar_plan()
-            .order
-            .as_ref()
-            .expect("direct round order should be present")
-            .fields[0]
-            .0,
-        "ROUND(age / 3, 2)",
-        "direct ORDER BY ROUND terms should normalize onto the canonical internal round expression",
-    );
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY age + 1 ASC LIMIT 2",
+            "age + 1",
+            "direct ORDER BY arithmetic terms",
+        ),
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY age + age ASC LIMIT 2",
+            "age + age",
+            "direct ORDER BY field-to-field arithmetic terms",
+        ),
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 2",
+            "ROUND(age / 3, 2)",
+            "direct ORDER BY ROUND terms",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical internal order expression",
+        );
+    }
 }
 
 #[test]

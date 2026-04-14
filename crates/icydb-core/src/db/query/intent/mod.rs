@@ -3,6 +3,7 @@
 //! Does not own: executor runtime behavior or index storage details.
 //! Boundary: typed/fluent query inputs lowered into validated logical plans.
 
+mod cache_key;
 mod errors;
 mod key_access;
 mod model;
@@ -13,6 +14,7 @@ mod state;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::db) use cache_key::StructuralQueryCacheKey;
 pub use errors::{IntentError, QueryError, QueryExecutionError};
 pub(crate) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, build_access_plan_from_keys,
