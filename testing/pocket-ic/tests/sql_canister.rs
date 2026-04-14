@@ -468,3 +468,27 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
         "wrong-lane SQL should keep query-owned origin metadata",
     );
 }
+
+#[test]
+fn sql_canister_query_endpoint_rejects_malformed_sql() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let err = query_sql(&fixture, "SELECT FROM SqlTestUser")
+        .expect_err("query(sql) must reject malformed SQL before execution");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "malformed SQL should stay an unsupported runtime error at the canister boundary",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "malformed SQL should keep query-owned origin metadata",
+    );
+    assert!(
+        err.message().contains("invalid SQL syntax"),
+        "malformed SQL should preserve parser-owned invalid-syntax detail",
+    );
+}

@@ -437,11 +437,14 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 * `bash scripts/ci/check-layer-authority-invariants.sh`
 * `bash scripts/ci/check-architecture-text-scan-invariants.sh`
 * `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture`
-* `cargo test -p icydb-core access_plan_rejects_misaligned_index_range_spec -- --nocapture`
 * `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
 * `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
 * `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture`
+* `cargo test -p icydb-core grouped_plan_rejects_validation_shape_matrix -- --nocapture`
+* `cargo test -p icydb-core sql_query_surfaces_reject_non_query_statement_lanes_matrix -- --nocapture`
+* `cargo test -p icydb-core grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy -- --nocapture`
+* `cargo test -p icydb-core shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
+* `cargo test -p icydb-core sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`
 
 Then add targeted SQL/cursor boundary tests for any newly widened public surface.
 
@@ -450,6 +453,7 @@ For current architecture, this should also include live canister checks for:
 * malformed SQL at the public canister boundary
 * forged or mismatched continuation payloads
 * update-warms-query cache reuse without standalone `query` persistence claims
+* query-lane mutation rejection at the public SQL canister boundary
 
 ---
 
