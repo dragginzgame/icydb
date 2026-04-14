@@ -85,6 +85,36 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
     labels
 }
 
+// Derive fixed decimal display scales for outward SQL projection columns.
+// This preserves `ROUND(..., scale)` display semantics even when the outward
+// SQL column label is aliased and no longer exposes the original function
+// text to downstream renderers.
+pub(in crate::db::session::sql) fn projection_fixed_scales_from_projection_spec(
+    projection: &ProjectionSpec,
+) -> Vec<Option<u32>> {
+    projection
+        .fields()
+        .map(|field| match field {
+            ProjectionField::Scalar { expr, .. } => round_scale_from_expr(expr),
+        })
+        .collect()
+}
+
+fn round_scale_from_expr(expr: &Expr) -> Option<u32> {
+    let Expr::FunctionCall { function, args } = expr else {
+        return None;
+    };
+    if !matches!(function, crate::db::query::plan::expr::Function::Round) {
+        return None;
+    }
+
+    match args.get(1) {
+        Some(Expr::Literal(Value::Uint(scale))) => u32::try_from(*scale).ok(),
+        Some(Expr::Literal(Value::Int(scale))) if *scale >= 0 => u32::try_from(*scale).ok(),
+        _ => None,
+    }
+}
+
 // Attach SQL-facing projection labels to one execution descriptor only at the
 // session SQL boundary so executor-owned EXPLAIN assembly stays structural.
 pub(in crate::db::session::sql) fn annotate_sql_projection_labels_on_execution_descriptor(

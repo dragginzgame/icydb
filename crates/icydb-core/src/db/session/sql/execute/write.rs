@@ -317,6 +317,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlStatementResult::Projection {
             columns,
+            fixed_scales: vec![None; E::MODEL.fields().len()],
             rows,
             row_count,
         })
@@ -336,6 +337,7 @@ impl<C: CanisterKind> DbSession<C> {
             Some(returning) => {
                 let SqlStatementResult::Projection {
                     columns,
+                    fixed_scales: _,
                     rows,
                     row_count,
                 } = Self::sql_write_statement_projection(entities)?
@@ -359,6 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
         match returning {
             SqlReturningProjection::All => Ok(SqlStatementResult::Projection {
                 columns,
+                fixed_scales: vec![None; rows.first().map_or(0, Vec::len)],
                 rows,
                 row_count,
             }),
@@ -393,6 +396,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok(SqlStatementResult::Projection {
                     columns: fields.clone(),
+                    fixed_scales: vec![None; fields.len()],
                     rows: projected_rows,
                     row_count,
                 })
@@ -571,7 +575,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let payload =
             self.execute_lowered_sql_projection_core(select, EntityAuthority::for_type::<E>())?;
-        let (_, rows, _) = payload.into_parts();
+        let (_, _, rows, _) = payload.into_parts();
 
         Ok(rows)
     }
@@ -676,6 +680,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(
             crate::db::session::sql::projection::SqlProjectionPayload::new(
                 projection_labels_from_fields(E::MODEL.fields()),
+                vec![None; E::MODEL.fields().len()],
                 rows,
                 row_count,
             )
@@ -705,6 +710,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let SqlStatementResult::Projection {
             columns,
+            fixed_scales: _,
             rows,
             row_count,
         } = self.execute_typed_sql_delete(query)?

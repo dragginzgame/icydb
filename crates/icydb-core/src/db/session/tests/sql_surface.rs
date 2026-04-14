@@ -617,6 +617,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = scalar
     else {
         panic!("execute_sql_statement scalar SELECT should emit projection rows");
@@ -648,6 +649,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = aggregate
     else {
         panic!("execute_sql_statement aggregate SELECT should emit projection rows");
@@ -691,6 +693,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = delete
     else {
         panic!("execute_sql_statement DELETE RETURNING should emit projection rows");
@@ -747,6 +750,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = scalar
     else {
         panic!("execute_sql_query scalar SELECT should emit projection rows");
@@ -776,6 +780,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = aggregate
     else {
         panic!("execute_sql_query aggregate SELECT should emit projection rows");
@@ -907,6 +912,7 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
         columns,
         rows,
         row_count,
+        ..
     } = delete
     else {
         panic!("execute_sql_update DELETE RETURNING should emit projection rows");

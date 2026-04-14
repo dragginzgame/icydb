@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
         let (payload, _) = self.execute_structural_sql_projection(query, authority, None)?;
-        let (_, rows, _) = payload.into_parts();
+        let (_, _, rows, _) = payload.into_parts();
         let mut projected = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -243,7 +243,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority,
                     None,
                 )?;
-                let (_, _, row_count) = payload.into_parts();
+                let (_, _, _, row_count) = payload.into_parts();
 
                 Value::Uint(u64::from(row_count))
             }
@@ -266,6 +266,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(SqlStatementResult::Projection {
             columns: vec![label],
+            fixed_scales: vec![None],
             rows: vec![vec![value]],
             row_count: 1,
         })

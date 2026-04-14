@@ -281,6 +281,25 @@ fn execute_sql_projection_scalar_round_matches_fluent_numeric_projection() {
 }
 
 #[test]
+fn execute_sql_projection_round_field_to_field_addition_returns_computed_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    assert_projection_columns_and_rows(
+        &session,
+        "SELECT ROUND(age + age, 2) AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+        &["total"],
+        vec![
+            vec![Value::Decimal(crate::types::Decimal::new(2000, 2))],
+            vec![Value::Decimal(crate::types::Decimal::new(4000, 2))],
+        ],
+        "scalar round over field-to-field arithmetic projection rows",
+    );
+}
+
+#[test]
 fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();

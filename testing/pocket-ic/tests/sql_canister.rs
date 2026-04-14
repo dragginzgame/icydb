@@ -155,6 +155,30 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_round_field_to_field_arithmetic_projection_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let rounded = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(age + rank, 2) AS total FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("ROUND(field + field) SQL query should succeed"),
+    );
+    assert_eq!(
+        rounded,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["total".to_string()],
+            rows: vec![vec!["49.00".to_string()], vec!["59.00".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve ROUND(field + field) projection payloads at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

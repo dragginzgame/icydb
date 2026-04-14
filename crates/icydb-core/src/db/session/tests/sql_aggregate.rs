@@ -433,6 +433,7 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             columns,
             rows,
             row_count,
+            ..
         } = payload
         else {
             panic!("{context} should return projection payload");

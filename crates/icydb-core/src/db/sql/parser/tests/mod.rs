@@ -341,6 +341,18 @@ fn parse_select_statement_with_round_projection_items() {
             }),
             "round over bounded arithmetic expression",
         ),
+        (
+            "SELECT ROUND(age + salary, 2) FROM users",
+            SqlSelectItem::Round(SqlRoundProjectionCall {
+                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
+                    field: "age".to_string(),
+                    op: SqlArithmeticProjectionOp::Add,
+                    rhs: SqlArithmeticProjectionOperand::Field("salary".to_string()),
+                }),
+                scale: Value::Int(2),
+            }),
+            "round over bounded field-to-field arithmetic expression",
+        ),
     ] {
         let statement =
             parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
@@ -365,11 +377,31 @@ fn parse_select_statement_with_round_projection_items() {
 }
 
 #[test]
-fn parse_select_statement_rejects_field_plus_field_projection_item() {
-    let err = parse_sql("SELECT age + salary FROM users")
-        .expect_err("field-plus-field projection should remain fail-closed in the bounded slice");
+fn parse_select_statement_with_scalar_field_plus_field_projection_item() {
+    let statement = parse_sql("SELECT age + salary FROM users")
+        .expect("field-plus-field projection should parse in the bounded projection slice");
 
-    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
+                SqlArithmeticProjectionCall {
+                    field: "age".to_string(),
+                    op: SqlArithmeticProjectionOp::Add,
+                    rhs: SqlArithmeticProjectionOperand::Field("salary".to_string()),
+                },
+            )]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
 }
 
 #[test]

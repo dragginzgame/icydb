@@ -165,12 +165,13 @@ pub(crate) fn sql_query_result_from_statement(
         },
         SqlStatementResult::Projection {
             columns,
+            fixed_scales,
             rows,
             row_count,
         } => {
             // Preserve projection-local display contracts such as
             // `ROUND(..., scale)` before packaging the outward shell rows.
-            let rows = render_projection_rows(columns.as_slice(), rows);
+            let rows = render_projection_rows(columns.as_slice(), fixed_scales.as_slice(), rows);
 
             SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
                 entity_name,
@@ -245,19 +246,35 @@ pub fn render_value_text(value: &Value) -> String {
     }
 }
 
-fn render_projection_rows(columns: &[String], rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
+fn render_projection_rows(
+    columns: &[String],
+    fixed_scales: &[Option<u32>],
+    rows: Vec<Vec<Value>>,
+) -> Vec<Vec<String>> {
     rows.into_iter()
         .map(|row| {
             row.into_iter()
                 .enumerate()
-                .map(|(index, value)| render_projection_value_text(columns.get(index), &value))
+                .map(|(index, value)| {
+                    render_projection_value_text(
+                        columns.get(index),
+                        fixed_scales.get(index).copied().flatten(),
+                        &value,
+                    )
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
 }
 
-fn render_projection_value_text(column: Option<&String>, value: &Value) -> String {
-    let Some(scale) = column.and_then(|label| round_projection_scale(label.as_str())) else {
+fn render_projection_value_text(
+    column: Option<&String>,
+    fixed_scale: Option<u32>,
+    value: &Value,
+) -> String {
+    let Some(scale) =
+        fixed_scale.or_else(|| column.and_then(|label| round_projection_scale(label.as_str())))
+    else {
         return render_value_text(value);
     };
 
@@ -932,6 +949,7 @@ mod tests {
         let result = sql_query_result_from_statement(
             SqlStatementResult::Projection {
                 columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
+                fixed_scales: vec![None, Some(2)],
                 rows: vec![
                     vec![
                         Value::Decimal(Decimal::from_i128(23).expect("23 decimal")),
@@ -967,6 +985,7 @@ mod tests {
         let result = sql_query_result_from_statement(
             SqlStatementResult::Projection {
                 columns: vec!["ROUND(age / 10, 3)".to_string()],
+                fixed_scales: vec![Some(3)],
                 rows: vec![vec![Value::Decimal(Decimal::ZERO)]],
                 row_count: 1,
             },
@@ -982,6 +1001,32 @@ mod tests {
                 row_count: 1,
             }),
             "public SQL packaging must keep ROUND projection scale even for zero values",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_from_statement_preserves_fixed_scale_for_aliased_round_projection_rows() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Projection {
+                columns: vec!["dextrisma".to_string()],
+                fixed_scales: vec![Some(3)],
+                rows: vec![vec![Value::Decimal(
+                    Decimal::from_i128(16).expect("16 decimal"),
+                )]],
+                row_count: 1,
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Projection(SqlQueryRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["dextrisma".to_string()],
+                rows: vec![vec!["16.000".to_string()]],
+                row_count: 1,
+            }),
+            "public SQL packaging must preserve aliased ROUND projection scale even when the outward label no longer exposes ROUND(..., scale)",
         );
     }
 

@@ -9,6 +9,8 @@ use crate::{
     value::Value,
 };
 
+type SqlProjectionPayloadParts = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
+
 ///
 /// SqlProjectionPayload
 ///
@@ -20,6 +22,7 @@ use crate::{
 #[derive(Debug)]
 pub(in crate::db::session::sql) struct SqlProjectionPayload {
     columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
     rows: Vec<Vec<Value>>,
     row_count: u32,
 }
@@ -28,25 +31,28 @@ impl SqlProjectionPayload {
     #[must_use]
     pub(in crate::db::session::sql) const fn new(
         columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
         rows: Vec<Vec<Value>>,
         row_count: u32,
     ) -> Self {
         Self {
             columns,
+            fixed_scales,
             rows,
             row_count,
         }
     }
 
     #[must_use]
-    pub(in crate::db::session::sql) fn into_parts(self) -> (Vec<String>, Vec<Vec<Value>>, u32) {
-        (self.columns, self.rows, self.row_count)
+    pub(in crate::db::session::sql) fn into_parts(self) -> SqlProjectionPayloadParts {
+        (self.columns, self.fixed_scales, self.rows, self.row_count)
     }
 
     #[must_use]
     pub(in crate::db::session::sql) fn into_statement_result(self) -> SqlStatementResult {
         SqlStatementResult::Projection {
             columns: self.columns,
+            fixed_scales: self.fixed_scales,
             rows: self.rows,
             row_count: self.row_count,
         }

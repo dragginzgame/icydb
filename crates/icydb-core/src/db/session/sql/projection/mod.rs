@@ -19,7 +19,8 @@ pub(in crate::db) use crate::db::session::sql::projection::runtime::{
 };
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
     labels::{
-        annotate_sql_projection_labels_on_execution_descriptor, projection_labels_from_fields,
+        annotate_sql_projection_labels_on_execution_descriptor,
+        projection_fixed_scales_from_projection_spec, projection_labels_from_fields,
         projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
     },
     payload::{SqlProjectionPayload, grouped_sql_statement_result},

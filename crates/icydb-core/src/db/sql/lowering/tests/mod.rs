@@ -832,6 +832,20 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
             Value::Uint(2),
             "round over bounded arithmetic expression",
         ),
+        (
+            "SELECT ROUND(age + age, 2) FROM SqlLowerEntity",
+            Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(Expr::Field(crate::db::query::plan::expr::FieldId::new(
+                    "age",
+                ))),
+                right: Box::new(Expr::Field(crate::db::query::plan::expr::FieldId::new(
+                    "age",
+                ))),
+            },
+            Value::Uint(2),
+            "round over bounded field-to-field arithmetic expression",
+        ),
     ] {
         let command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
             .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));

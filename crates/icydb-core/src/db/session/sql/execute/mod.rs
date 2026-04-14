@@ -28,6 +28,13 @@ use crate::{
     traits::{CanisterKind, EntityValue},
 };
 
+type PreparedStructuralSqlProjectionExecution = (
+    Vec<String>,
+    Vec<Option<u32>>,
+    AccessPlannedQuery,
+    SqlCacheAttribution,
+);
+
 #[cfg(feature = "perf-attribution")]
 #[expect(
     clippy::missing_const_for_fn,
@@ -62,14 +69,14 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
         compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
-    ) -> Result<(Vec<String>, AccessPlannedQuery, SqlCacheAttribution), QueryError> {
+    ) -> Result<PreparedStructuralSqlProjectionExecution, QueryError> {
         // Phase 1: build the structural access plan once and freeze its outward
         // column contract for all projection materialization surfaces.
         let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
-        let (plan, columns) = entry.into_parts();
+        let (plan, columns, fixed_scales) = entry.into_parts();
 
-        Ok((columns, plan, cache_attribution))
+        Ok((columns, fixed_scales, plan, cache_attribution))
     }
 
     // Execute one structural SQL load query and return only row-oriented SQL
@@ -82,7 +89,7 @@ impl<C: CanisterKind> DbSession<C> {
         compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         // Phase 1: build the shared structural plan and outward column contract once.
-        let (columns, plan, cache_attribution) =
+        let (columns, fixed_scales, plan, cache_attribution) =
             self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)?;
 
         // Phase 2: execute the shared structural load path with the already
@@ -93,7 +100,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows, row_count) = projected.into_parts();
 
         Ok((
-            SqlProjectionPayload::new(columns, rows, row_count),
+            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
             cache_attribution,
         ))
     }
@@ -130,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (planner_local_instructions, prepared) = measure_execute_phase(|| {
             self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)
         });
-        let (columns, plan, cache_attribution) = prepared?;
+        let (columns, fixed_scales, plan, cache_attribution) = prepared?;
 
         let (executor_local_instructions, payload) = measure_execute_phase(move || {
             let projected =
@@ -139,7 +146,10 @@ impl<C: CanisterKind> DbSession<C> {
             let (rows, row_count) = projected.into_parts();
 
             Ok::<SqlProjectionPayload, QueryError>(SqlProjectionPayload::new(
-                columns, rows, row_count,
+                columns,
+                fixed_scales,
+                rows,
+                row_count,
             ))
         });
         let payload = payload?;
@@ -174,7 +184,7 @@ impl<C: CanisterKind> DbSession<C> {
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)
         });
         let (entry, cache_attribution) = prepared?;
-        let (plan, columns) = entry.into_parts();
+        let (plan, columns, _) = entry.into_parts();
 
         let (executor_local_instructions, statement_result) = measure_execute_phase(move || {
             let page =

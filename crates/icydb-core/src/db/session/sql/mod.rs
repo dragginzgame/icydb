@@ -26,7 +26,9 @@ use crate::{
         },
         schema::commit_schema_fingerprint_for_entity,
         session::query::QueryPlanCacheAttribution,
-        session::sql::projection::projection_labels_from_projection_spec,
+        session::sql::projection::{
+            projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
+        },
         sql::lowering::{LoweredBaseQueryShape, LoweredSqlCommand, SqlGlobalAggregateCommandCore},
         sql::parser::{SqlStatement, parse_sql},
     },
@@ -54,6 +56,7 @@ pub enum SqlStatementResult {
     },
     Projection {
         columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
         rows: Vec<Vec<crate::value::Value>>,
         row_count: u32,
     },
@@ -256,17 +259,26 @@ pub(in crate::db) struct SqlSelectPlanCacheKey {
 pub(in crate::db) struct SqlSelectPlanCacheEntry {
     plan: AccessPlannedQuery,
     columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
 }
 
 impl SqlSelectPlanCacheEntry {
     #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery, columns: Vec<String>) -> Self {
-        Self { plan, columns }
+    pub(in crate::db) const fn new(
+        plan: AccessPlannedQuery,
+        columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
+    ) -> Self {
+        Self {
+            plan,
+            columns,
+            fixed_scales,
+        }
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (AccessPlannedQuery, Vec<String>) {
-        (self.plan, self.columns)
+    pub(in crate::db) fn into_parts(self) -> (AccessPlannedQuery, Vec<String>, Vec<Option<u32>>) {
+        (self.plan, self.columns, self.fixed_scales)
     }
 }
 
@@ -455,12 +467,12 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_schema_fingerprint,
                 query,
             )?;
-            let columns = projection_labels_from_projection_spec(
-                &entry.logical_plan().projection_spec(authority.model()),
-            );
+            let projection = entry.logical_plan().projection_spec(authority.model());
+            let columns = projection_labels_from_projection_spec(&projection);
+            let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
 
             return Ok((
-                SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns),
+                SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns, fixed_scales),
                 SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
             ));
         };
@@ -477,10 +489,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         let (entry, cache_attribution) =
             self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
-        let columns = projection_labels_from_projection_spec(
-            &entry.logical_plan().projection_spec(authority.model()),
-        );
-        let entry = SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns);
+        let projection = entry.logical_plan().projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
+        let entry =
+            SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns, fixed_scales);
         self.with_sql_select_plan_cache(|cache| {
             cache.insert(plan_cache_key, entry.clone());
         });
