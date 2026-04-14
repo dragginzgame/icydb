@@ -6,6 +6,7 @@
 mod aggregate;
 mod aggregate_matrix;
 mod covering;
+mod fast_path_guards;
 mod field_extrema;
 mod grouped;
 
