@@ -97,6 +97,7 @@ fn average_attribution(
 }
 
 #[cfg(feature = "sql")]
+#[expect(clippy::too_many_arguments)]
 fn average_fluent_attribution(
     total_compile_local_instructions: u64,
     total_runtime_local_instructions: u64,
