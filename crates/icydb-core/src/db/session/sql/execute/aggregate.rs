@@ -242,7 +242,8 @@ impl<C: CanisterKind> DbSession<C> {
             columns.push(
                 label_overrides
                     .get(index)
-                    .and_then(|label| label.clone())
+                    .cloned()
+                    .flatten()
                     .unwrap_or_else(|| Self::sql_scalar_aggregate_label(strategy)),
             );
             fixed_scales.push(None);
