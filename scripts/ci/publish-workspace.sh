@@ -36,6 +36,48 @@ workspace_version() {
     ' Cargo.toml
 }
 
+# Reuse the operator's normal cargo registry token even when `make publish`
+# overrides `CARGO_HOME` to the repo-local workspace cache.
+registry_token_from_credentials_file() {
+    local credentials_file="$1"
+
+    awk '
+        /^\[registry\]/ { in_registry = 1; next }
+        /^\[/ && in_registry { exit }
+        in_registry && $1 == "token" {
+            gsub(/"/, "", $3);
+            print $3;
+            exit;
+        }
+    ' "$credentials_file"
+}
+
+# Fail fast with a clear non-interactive error instead of letting `cargo
+# publish` prompt for `cargo login` after `CARGO_HOME` has been redirected.
+ensure_registry_token() {
+    local credentials_file
+    local token=""
+
+    if [ -n "${CARGO_REGISTRY_TOKEN:-}" ]; then
+        return 0
+    fi
+
+    for credentials_file in "$HOME/.cargo/credentials.toml" "$HOME/.cargo/credentials"; do
+        if [ ! -f "$credentials_file" ]; then
+            continue
+        fi
+
+        token="$(registry_token_from_credentials_file "$credentials_file")"
+        if [ -n "$token" ]; then
+            export CARGO_REGISTRY_TOKEN="$token"
+            return 0
+        fi
+    done
+
+    echo "Missing crates.io token. Set CARGO_REGISTRY_TOKEN or run cargo login in your home cargo config." >&2
+    exit 1
+}
+
 # Treat crates.io visibility as the publish completion signal. This keeps the
 # script restartable and allows `PUBLISH_FROM` resumes after partial publishes.
 registry_has_version() {
@@ -81,6 +123,8 @@ if [ -z "$version" ]; then
     echo "Failed to determine workspace version from Cargo.toml" >&2
     exit 1
 fi
+
+ensure_registry_token
 
 started=0
 matched_from=0
