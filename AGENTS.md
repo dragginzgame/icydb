@@ -278,7 +278,9 @@ These are intentional post-0.34 cleanup candidates identified during the DB narr
   * `SCREAMING_SNAKE_CASE` for constants
 * Linting: Code must pass `make clippy`; prefer `?` over `unwrap()`, handle errors explicitly.
 * Functions should generally stay under 100 lines when feasible; treat that as the default shaping target during refactors and new work.
-* If a function legitimately remains over 100 lines, annotate it explicitly with `#[expect(clippy::too_many_lines, reason = \"...\")]` instead of leaving the lint boundary implicit.
+* If a function legitimately remains over 100 lines, annotate it explicitly with `#[expect(clippy::too_many_lines)]` instead of leaving the lint boundary implicit.
+* Functions should generally stay at 7 arguments or fewer when feasible.
+* If a function legitimately remains over 7 arguments, annotate it explicitly with `#[expect(clippy::too_many_arguments)]` instead of leaving the lint boundary implicit.
 * Keep public APIs documented; co-locate small unit tests in the same file under `mod tests`.
 * Backwards compatibility is **not** a goal; prefer breaking changes when they simplify the model.
 * Before `1.0.0`, internal protocols/formats must hard-cut to the latest single version; do not keep parallel `v1`/`v2` support, compatibility branches, or decode fallbacks for superseded internal protocol versions.
