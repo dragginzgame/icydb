@@ -41,7 +41,6 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
-pub(in crate::db) use select::LoweredSelectQueryShape;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;
@@ -156,18 +155,6 @@ impl LoweredSqlCommand {
 pub(crate) enum LoweredSqlQuery {
     Select(LoweredSelectShape),
     Delete(LoweredBaseQueryShape),
-}
-
-impl LoweredSqlQuery {
-    // Surface the lowered query execution family without re-deriving it from
-    // grouped fields or statement syntax in downstream layers.
-    #[cfg(test)]
-    pub(crate) const fn select_shape(&self) -> Option<LoweredSelectQueryShape> {
-        match self {
-            Self::Select(select) => Some(select.shape()),
-            Self::Delete(_) => None,
-        }
-    }
 }
 
 ///

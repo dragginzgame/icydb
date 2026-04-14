@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.80.x] 🧠 - 2026-04-14 - Compiled SQL Cache
 
+- `0.80.1` moves the new repeated-query cache down to a shared lower query-plan boundary so SQL and fluent reads can reuse the same session-local plan work, and it adds a separate fluent PocketIC perf audit plus baseline so both frontends can be measured on the same fixture/index surface without turning one audit into a dual-purpose harness.
 - `0.80.0` starts the compiled SQL cache line by splitting SQL work into an explicit compile step and execute step, so the engine now has one concrete semantic command artifact to reuse later without claiming any cache hits or repeated-query speedups yet.
 
 See detailed breakdown:

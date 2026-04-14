@@ -16,11 +16,8 @@ use crate::{
         executor::EntityAuthority,
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         session::sql::{
-            CompiledSqlCommand, SqlStatementResult,
-            projection::{
-                SqlProjectionPayload, execute_sql_projection_rows_for_canister,
-                projection_labels_from_projection_spec,
-            },
+            CompiledSqlCommand, SqlCompiledCommandCacheKey, SqlStatementResult,
+            projection::{SqlProjectionPayload, execute_sql_projection_rows_for_canister},
         },
     },
     traits::{CanisterKind, EntityValue},
@@ -33,13 +30,13 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
+        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
     ) -> Result<(Vec<String>, AccessPlannedQuery), QueryError> {
         // Phase 1: build the structural access plan once and freeze its outward
         // column contract for all projection materialization surfaces.
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(query, authority)?;
-        let projection = plan.projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
+        let entry =
+            self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
+        let (plan, columns) = entry.into_parts();
 
         Ok((columns, plan))
     }
@@ -51,9 +48,11 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
+        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
     ) -> Result<SqlProjectionPayload, QueryError> {
         // Phase 1: build the shared structural plan and outward column contract once.
-        let (columns, plan) = self.prepare_structural_sql_projection_execution(query, authority)?;
+        let (columns, plan) =
+            self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)?;
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics.
@@ -76,16 +75,23 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = EntityAuthority::for_type::<E>();
 
         match compiled {
-            CompiledSqlCommand::Select(select) => {
-                if select.shape() == crate::db::sql::lowering::LoweredSelectQueryShape::Grouped {
-                    return self.execute_lowered_sql_grouped_statement_select_core(
-                        select.clone(),
+            CompiledSqlCommand::Select {
+                query,
+                compiled_cache_key,
+            } => {
+                if query.has_grouping() {
+                    return self.execute_structural_sql_grouped_statement_select_core(
+                        query.clone(),
                         authority,
+                        compiled_cache_key.as_ref(),
                     );
                 }
 
-                let payload =
-                    self.execute_lowered_sql_projection_core(select.clone(), authority)?;
+                let payload = self.execute_structural_sql_projection(
+                    query.clone(),
+                    authority,
+                    compiled_cache_key.as_ref(),
+                )?;
 
                 Ok(payload.into_statement_result())
             }

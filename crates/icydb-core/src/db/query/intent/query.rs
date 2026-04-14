@@ -68,7 +68,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    const fn has_grouping(&self) -> bool {
+    pub(in crate::db) const fn has_grouping(&self) -> bool {
         self.intent.has_grouping()
     }
 
@@ -235,6 +235,11 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         self.intent.build_plan_model_with_indexes(visible_indexes)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn cache_fingerprint(&self) -> [u8; 32] {
+        self.intent.cache_fingerprint()
     }
 
     // Build one access plan using either schema-owned indexes or the session
@@ -693,14 +698,14 @@ impl<E: EntityKind> Query<E> {
     }
 
     // Wrap one built plan as the typed planned-query DTO.
-    fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
+    pub(in crate::db) fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
         let _projection = plan.projection_spec(E::MODEL);
 
         PlannedQuery::from_inner(PlannedQueryCore::new(E::MODEL, plan))
     }
 
     // Wrap one built plan as the typed compiled-query DTO.
-    fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
+    pub(in crate::db) fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
         let _projection = plan.projection_spec(E::MODEL);
 
         CompiledQuery::from_inner(CompiledQueryCore::new(E::MODEL, E::PATH, plan))
@@ -709,6 +714,11 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub(crate) fn has_explicit_order(&self) -> bool {
         self.inner.has_explicit_order()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn structural(&self) -> &StructuralQuery {
+        &self.inner
     }
 
     #[must_use]
@@ -1075,15 +1085,6 @@ impl<E: EntityKind> Query<E> {
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         let plan = self.build_plan_for_visibility(None)?;
-
-        Ok(Self::planned_query_from_plan(plan))
-    }
-
-    pub(in crate::db) fn planned_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<PlannedQuery<E>, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
         Ok(Self::planned_query_from_plan(plan))
     }

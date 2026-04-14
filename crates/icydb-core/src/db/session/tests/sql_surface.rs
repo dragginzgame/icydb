@@ -799,7 +799,7 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
     assert!(
         matches!(
             scalar,
-            crate::db::session::sql::CompiledSqlCommand::Select(_)
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
         ),
         "scalar SELECT should compile to lowered SELECT artifact",
     );
@@ -819,7 +819,7 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
     assert!(
         matches!(
             grouped,
-            crate::db::session::sql::CompiledSqlCommand::Select(_)
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
         ),
         "grouped SELECT should stay on the lowered SELECT artifact family",
     );
@@ -1028,7 +1028,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     assert!(
         matches!(
             scalar,
-            crate::db::session::sql::CompiledSqlCommand::Select(_)
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
         ),
         "scalar SELECT should stay on the lowered SELECT artifact family",
     );
@@ -1046,7 +1046,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     assert!(
         matches!(
             scalar_repeat,
-            crate::db::session::sql::CompiledSqlCommand::Select(_)
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
         ),
         "repeated scalar SELECT should still resolve to the same artifact family",
     );
@@ -1055,6 +1055,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         1,
         "repeating one identical query-surface compile must not grow the cache",
     );
+    assert_scalar_select_plan_cache_behavior(&session, &scalar_repeat);
 
     let explain = session
         .compile_sql_query::<SessionSqlEntity>(
@@ -1117,6 +1118,76 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         session.sql_compiled_command_cache_len(),
         6,
         "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
+    );
+}
+
+fn assert_scalar_select_plan_cache_behavior(
+    session: &DbSession<SessionSqlCanister>,
+    compiled: &crate::db::session::sql::CompiledSqlCommand,
+) {
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        0,
+        "compile-only coverage should not populate the select plan cache before execution",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(compiled)
+        .expect("executing one compiled scalar SELECT should populate one select plan entry");
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        1,
+        "first compiled SELECT execution should populate one select plan cache entry",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(compiled)
+        .expect("repeating one compiled scalar SELECT should reuse the existing select plan");
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        1,
+        "repeating one compiled SELECT execution must not grow the select plan cache",
+    );
+}
+
+#[test]
+fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("Bob", 32)]);
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "new session should start with an empty shared query-plan cache",
+    );
+
+    let sql = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("scalar SELECT * should compile");
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&sql)
+        .expect("executing one compiled SQL select should populate the shared query-plan cache");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first SQL execution should populate one shared query-plan cache entry",
+    );
+
+    let fluent = session
+        .load::<SessionSqlEntity>()
+        .order_by("age")
+        .order_by("id")
+        .limit(1);
+    let _ = session
+        .execute_query(fluent.query())
+        .expect("equivalent fluent query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "equivalent fluent execution should reuse the shared structural query-plan entry",
     );
 }
 

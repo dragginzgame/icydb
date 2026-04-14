@@ -31,7 +31,7 @@ const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct AggregateHashShape<'a> {
+pub(in crate::db) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
     distinct: bool,
@@ -40,7 +40,7 @@ pub(super) struct AggregateHashShape<'a> {
 impl<'a> AggregateHashShape<'a> {
     /// Build one semantic grouped aggregate hash shape.
     #[must_use]
-    pub(super) const fn semantic(
+    pub(in crate::db) const fn semantic(
         kind: AggregateKind,
         target_field: Option<&'a str>,
         distinct: bool,
@@ -54,7 +54,7 @@ impl<'a> AggregateHashShape<'a> {
 }
 
 // Hash one grouped aggregate semantic shape using the current structural encoding.
-pub(super) fn hash_group_aggregate_structural_fingerprint(
+pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
     hasher: &mut Sha256,
     shape: &AggregateHashShape<'_>,
 ) {

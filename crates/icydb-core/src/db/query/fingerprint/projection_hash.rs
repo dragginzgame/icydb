@@ -68,14 +68,14 @@ const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct ProjectionHashShape<'a> {
+pub(in crate::db) struct ProjectionHashShape<'a> {
     projection: &'a ProjectionSpec,
 }
 
 impl<'a> ProjectionHashShape<'a> {
     /// Build one semantic projection hash shape.
     #[must_use]
-    pub(super) const fn semantic(projection: &'a ProjectionSpec) -> Self {
+    pub(in crate::db) const fn semantic(projection: &'a ProjectionSpec) -> Self {
         Self { projection }
     }
 }
@@ -93,7 +93,7 @@ impl ProjectionSpec {
 
 /// Hash one projection semantic shape using the current structural encoding.
 #[expect(clippy::cast_possible_truncation)]
-pub(super) fn hash_projection_structural_fingerprint(
+pub(in crate::db) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
 ) {
@@ -102,6 +102,19 @@ pub(super) fn hash_projection_structural_fingerprint(
     write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_TAG);
     write_u32(hasher, shape.projection.fields().count() as u32);
     for field in shape.projection.fields() {
+        hash_projection_field(hasher, field);
+    }
+}
+
+/// Hash one expression projection-field slice using the same semantic
+/// fingerprint contract as planner-lowered `ProjectionSpec`.
+pub(in crate::db) fn hash_projection_field_selection_fingerprint(
+    hasher: &mut Sha256,
+    fields: &[ProjectionField],
+) {
+    write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_TAG);
+    write_u32(hasher, u32::try_from(fields.len()).unwrap_or(u32::MAX));
+    for field in fields {
         hash_projection_field(hasher, field);
     }
 }

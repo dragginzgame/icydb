@@ -3,24 +3,33 @@
 //! Does not own: executor runtime behavior or post-plan execution routing.
 //! Boundary: turns fluent/query intent state into validated logical/planned contracts.
 
+use crate::db::query::intent::state::GroupedIntent;
 #[cfg(feature = "sql")]
-use crate::db::query::plan::expr::{FieldId, ProjectionSelection};
+use crate::db::query::plan::expr::FieldId;
 use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
-        predicate::{CompareOp, MissingRowPolicy, Predicate},
+        codec::{finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_u64},
+        predicate::{
+            CompareOp, MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate,
+        },
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, SortExpr},
-            intent::{IntentError, QueryError, QueryIntent},
+            fingerprint::{
+                aggregate_hash::{AggregateHashShape, hash_group_aggregate_structural_fingerprint},
+                hash_parts::{hash_access_plan, write_str, write_tag, write_u32, write_value},
+                projection_hash::hash_projection_field_selection_fingerprint,
+            },
+            intent::{IntentError, QueryError, QueryIntent, build_access_plan_from_keys},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
-                fold_constant_predicate, is_limit_zero_load_window,
-                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, project_access_choice_explain_snapshot_with_indexes,
-                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
-                validate_query_semantics,
+                LogicalPlan, OrderDirection, OrderSpec, QueryMode, VisibleIndexes,
+                build_logical_plan, expr::ProjectionSelection, fold_constant_predicate,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
+                project_access_choice_explain_snapshot_with_indexes, resolve_group_field_slot,
+                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -29,6 +38,41 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
+
+const QUERY_PLAN_CACHE_FINGERPRINT_PROFILE_TAG: &[u8] = b"querycache";
+const QUERY_CACHE_SECTION_MODE_TAG: u8 = 0x01;
+const QUERY_CACHE_SECTION_PREDICATE_TAG: u8 = 0x02;
+const QUERY_CACHE_SECTION_KEY_ACCESS_TAG: u8 = 0x03;
+const QUERY_CACHE_SECTION_ORDER_TAG: u8 = 0x04;
+const QUERY_CACHE_SECTION_DISTINCT_TAG: u8 = 0x05;
+const QUERY_CACHE_SECTION_PROJECTION_TAG: u8 = 0x06;
+const QUERY_CACHE_SECTION_GROUP_TAG: u8 = 0x07;
+const QUERY_CACHE_SECTION_CONSISTENCY_TAG: u8 = 0x08;
+
+const QUERY_MODE_LOAD_TAG: u8 = 0x60;
+const QUERY_MODE_DELETE_TAG: u8 = 0x61;
+
+const PREDICATE_ABSENT_TAG: u8 = 0x20;
+const PREDICATE_PRESENT_TAG: u8 = 0x21;
+const KEY_ACCESS_ABSENT_TAG: u8 = 0x22;
+const KEY_ACCESS_PRESENT_TAG: u8 = 0x23;
+const ORDER_NONE_TAG: u8 = 0x30;
+const ORDER_FIELDS_TAG: u8 = 0x31;
+const DISTINCT_DISABLED_TAG: u8 = 0x45;
+const DISTINCT_ENABLED_TAG: u8 = 0x44;
+const PROJECTION_ALL_TAG: u8 = 0x80;
+const PROJECTION_FIELDS_TAG: u8 = 0x81;
+const PROJECTION_EXPRS_TAG: u8 = 0x82;
+const GROUP_NONE_TAG: u8 = 0x70;
+const GROUP_PRESENT_TAG: u8 = 0x71;
+const GROUP_HAVING_ABSENT_TAG: u8 = 0x74;
+const GROUP_HAVING_PRESENT_TAG: u8 = 0x75;
+const GROUP_HAVING_GROUP_FIELD_TAG: u8 = 0x76;
+const GROUP_HAVING_AGGREGATE_INDEX_TAG: u8 = 0x77;
+const CONSISTENCY_IGNORE_TAG: u8 = 0x50;
+const CONSISTENCY_ERROR_TAG: u8 = 0x51;
+const ORDER_DIRECTION_ASC_TAG: u8 = 0x01;
+const ORDER_DIRECTION_DESC_TAG: u8 = 0x02;
 
 ///
 /// QueryModel
@@ -52,6 +96,45 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             intent: QueryIntent::new(),
             consistency,
         }
+    }
+
+    // Fingerprint one generic-free query intent at the pre-plan boundary so
+    // repeated session-local planning can reuse one cached `AccessPlannedQuery`
+    // without depending on SQL strings or typed fluent wrappers.
+    #[must_use]
+    pub(in crate::db) fn cache_fingerprint(&self) -> [u8; 32] {
+        let scalar = self.intent.scalar();
+        let key_access_override = scalar
+            .key_access
+            .as_ref()
+            .map(|state| build_access_plan_from_keys(&state.access));
+        let mut hasher = new_hash_sha256_prefixed(QUERY_PLAN_CACHE_FINGERPRINT_PROFILE_TAG);
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_MODE_TAG);
+        hash_query_mode(&mut hasher, self.intent.mode());
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_PREDICATE_TAG);
+        hash_query_predicate(&mut hasher, scalar.predicate.as_ref());
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_KEY_ACCESS_TAG);
+        hash_query_key_access(&mut hasher, key_access_override.as_ref());
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_ORDER_TAG);
+        hash_query_order(&mut hasher, scalar.order.as_ref());
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_DISTINCT_TAG);
+        hash_query_distinct(&mut hasher, scalar.distinct);
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_PROJECTION_TAG);
+        hash_query_projection_selection(&mut hasher, &scalar.projection_selection);
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_GROUP_TAG);
+        hash_query_grouping(&mut hasher, self.intent.grouped());
+
+        write_tag(&mut hasher, QUERY_CACHE_SECTION_CONSISTENCY_TAG);
+        hash_query_consistency(&mut hasher, self.consistency);
+
+        finalize_hash_sha256(hasher)
     }
 
     /// Return the intent mode (load vs delete).
@@ -371,6 +454,181 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         plan.set_access_choice(access_choice);
 
         Ok(plan)
+    }
+}
+
+fn hash_query_mode(hasher: &mut sha2::Sha256, mode: QueryMode) {
+    match mode {
+        QueryMode::Load(spec) => {
+            write_tag(hasher, QUERY_MODE_LOAD_TAG);
+            hash_query_optional_u32(hasher, spec.limit());
+            write_u32(hasher, spec.offset());
+        }
+        QueryMode::Delete(spec) => {
+            write_tag(hasher, QUERY_MODE_DELETE_TAG);
+            hash_query_optional_u32(hasher, spec.limit());
+            write_u32(hasher, spec.offset());
+        }
+    }
+}
+
+fn hash_query_predicate(hasher: &mut sha2::Sha256, predicate: Option<&Predicate>) {
+    let Some(predicate) = predicate else {
+        write_tag(hasher, PREDICATE_ABSENT_TAG);
+        return;
+    };
+
+    write_tag(hasher, PREDICATE_PRESENT_TAG);
+    hash_model_predicate(hasher, predicate);
+}
+
+fn hash_query_key_access(
+    hasher: &mut sha2::Sha256,
+    key_access_override: Option<&AccessPlan<Value>>,
+) {
+    let Some(key_access_override) = key_access_override else {
+        write_tag(hasher, KEY_ACCESS_ABSENT_TAG);
+        return;
+    };
+
+    write_tag(hasher, KEY_ACCESS_PRESENT_TAG);
+    hash_access_plan(hasher, key_access_override);
+}
+
+fn hash_query_order(hasher: &mut sha2::Sha256, order: Option<&OrderSpec>) {
+    let Some(order) = order else {
+        write_tag(hasher, ORDER_NONE_TAG);
+        return;
+    };
+    if order.fields.is_empty() {
+        write_tag(hasher, ORDER_NONE_TAG);
+        return;
+    }
+
+    write_tag(hasher, ORDER_FIELDS_TAG);
+    write_u32(
+        hasher,
+        u32::try_from(order.fields.len()).unwrap_or(u32::MAX),
+    );
+    for (field, direction) in &order.fields {
+        write_str(hasher, field);
+        write_tag(hasher, order_direction_tag(*direction));
+    }
+}
+
+fn hash_query_distinct(hasher: &mut sha2::Sha256, distinct: bool) {
+    if distinct {
+        write_tag(hasher, DISTINCT_ENABLED_TAG);
+    } else {
+        write_tag(hasher, DISTINCT_DISABLED_TAG);
+    }
+}
+
+fn hash_query_projection_selection(hasher: &mut sha2::Sha256, projection: &ProjectionSelection) {
+    match projection {
+        ProjectionSelection::All => write_tag(hasher, PROJECTION_ALL_TAG),
+        ProjectionSelection::Fields(fields) => {
+            write_tag(hasher, PROJECTION_FIELDS_TAG);
+            write_u32(hasher, u32::try_from(fields.len()).unwrap_or(u32::MAX));
+            for field in fields {
+                write_str(hasher, field.as_str());
+            }
+        }
+        ProjectionSelection::Exprs(fields) => {
+            write_tag(hasher, PROJECTION_EXPRS_TAG);
+            hash_projection_field_selection_fingerprint(hasher, fields);
+        }
+    }
+}
+
+fn hash_query_grouping<K>(hasher: &mut sha2::Sha256, grouped: Option<&GroupedIntent<K>>) {
+    let Some(grouped) = grouped else {
+        write_tag(hasher, GROUP_NONE_TAG);
+        return;
+    };
+
+    write_tag(hasher, GROUP_PRESENT_TAG);
+    write_u32(
+        hasher,
+        u32::try_from(grouped.group.group_fields.len()).unwrap_or(u32::MAX),
+    );
+    for field in &grouped.group.group_fields {
+        write_u32(hasher, u32::try_from(field.index).unwrap_or(u32::MAX));
+        write_str(hasher, field.field.as_str());
+    }
+
+    write_u32(
+        hasher,
+        u32::try_from(grouped.group.aggregates.len()).unwrap_or(u32::MAX),
+    );
+    for aggregate in &grouped.group.aggregates {
+        hash_group_aggregate_structural_fingerprint(
+            hasher,
+            &AggregateHashShape::semantic(
+                aggregate.kind,
+                aggregate.target_field.as_deref(),
+                aggregate.distinct,
+            ),
+        );
+    }
+
+    hash_query_group_having(hasher, grouped.having.as_ref());
+    write_hash_u64(hasher, grouped.group.execution.max_groups);
+    write_hash_u64(hasher, grouped.group.execution.max_group_bytes);
+}
+
+fn hash_query_group_having(
+    hasher: &mut sha2::Sha256,
+    having: Option<&crate::db::query::plan::GroupHavingSpec>,
+) {
+    let Some(having) = having else {
+        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
+        return;
+    };
+
+    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
+    write_u32(
+        hasher,
+        u32::try_from(having.clauses.len()).unwrap_or(u32::MAX),
+    );
+    for clause in &having.clauses {
+        match &clause.symbol {
+            GroupHavingSymbol::GroupField(field) => {
+                write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
+                write_u32(hasher, u32::try_from(field.index).unwrap_or(u32::MAX));
+                write_str(hasher, field.field.as_str());
+            }
+            GroupHavingSymbol::AggregateIndex(index) => {
+                write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
+                write_u32(hasher, u32::try_from(*index).unwrap_or(u32::MAX));
+            }
+        }
+        write_tag(hasher, clause.op.tag());
+        write_value(hasher, &clause.value);
+    }
+}
+
+fn hash_query_consistency(hasher: &mut sha2::Sha256, consistency: MissingRowPolicy) {
+    match consistency {
+        MissingRowPolicy::Ignore => write_tag(hasher, CONSISTENCY_IGNORE_TAG),
+        MissingRowPolicy::Error => write_tag(hasher, CONSISTENCY_ERROR_TAG),
+    }
+}
+
+fn hash_query_optional_u32(hasher: &mut sha2::Sha256, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            write_tag(hasher, 1);
+            write_u32(hasher, value);
+        }
+        None => write_tag(hasher, 0),
+    }
+}
+
+const fn order_direction_tag(direction: OrderDirection) -> u8 {
+    match direction {
+        OrderDirection::Asc => ORDER_DIRECTION_ASC_TAG,
+        OrderDirection::Desc => ORDER_DIRECTION_DESC_TAG,
     }
 }
 

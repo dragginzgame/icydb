@@ -5,6 +5,9 @@ mod session;
 pub mod sql;
 
 // re-exports
+#[cfg(feature = "perf-attribution")]
+#[doc(hidden)]
+pub use icydb_core::db::QueryExecutionAttribution;
 pub use icydb_core::db::Row;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 #[doc(hidden)]

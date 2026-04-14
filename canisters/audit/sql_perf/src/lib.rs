@@ -11,8 +11,12 @@ use canic_cdk::query;
 use canic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::{
-    db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    db::{
+        PersistedRow, QueryExecutionAttribution, SqlQueryExecutionAttribution,
+        response::QueryResponse, sql::SqlQueryResult,
+    },
     error::{ErrorKind, ErrorOrigin, QueryErrorKind},
+    prelude::{FieldRef, Predicate, count},
 };
 use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditCanister, PerfAuditUser};
 
@@ -27,6 +31,27 @@ icydb::start!();
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     attribution: SqlQueryExecutionAttribution,
+}
+
+// FluentQueryPerfOutcome
+//
+// Dedicated fluent audit summary keeps the canister response stable and small:
+// only the response family and row count are needed for perf-baseline checks.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct FluentQueryPerfOutcome {
+    result_kind: String,
+    entity: String,
+    row_count: u32,
+}
+
+// FluentQueryPerfResult
+//
+// Dedicated fluent perf envelope mirrors the SQL audit shape but carries one
+// reduced fluent response summary instead of the full query payload.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+struct FluentQueryPerfResult {
+    outcome: FluentQueryPerfOutcome,
+    attribution: QueryExecutionAttribution,
 }
 
 #[cfg(feature = "sql")]
@@ -48,6 +73,22 @@ fn average_attribution(
     let divisor = u64::from(runs);
 
     SqlQueryExecutionAttribution {
+        compile_local_instructions: total_compile_local_instructions / divisor,
+        execute_local_instructions: total_execute_local_instructions / divisor,
+        total_local_instructions: total_local_instructions / divisor,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn average_fluent_attribution(
+    total_compile_local_instructions: u64,
+    total_execute_local_instructions: u64,
+    total_local_instructions: u64,
+    runs: u32,
+) -> QueryExecutionAttribution {
+    let divisor = u64::from(runs);
+
+    QueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
@@ -88,6 +129,222 @@ where
     Ok(SqlQueryPerfResult {
         result: first_result.expect("perf loop with runs > 0 should record one result"),
         attribution: average_attribution(
+            total_compile_local_instructions,
+            total_execute_local_instructions,
+            total_local_instructions,
+            runs,
+        ),
+    })
+}
+
+#[cfg(feature = "sql")]
+fn summarize_fluent_outcome<E>(result: &QueryResponse<E>) -> FluentQueryPerfOutcome
+where
+    E: PersistedRow<Canister = PerfAuditCanister> + icydb::traits::EntityValue,
+{
+    match result {
+        QueryResponse::Rows(rows) => FluentQueryPerfOutcome {
+            result_kind: "rows".to_string(),
+            entity: E::MODEL.name().to_string(),
+            row_count: rows.count(),
+        },
+        QueryResponse::Grouped(grouped) => FluentQueryPerfOutcome {
+            result_kind: "grouped".to_string(),
+            entity: E::MODEL.name().to_string(),
+            row_count: u32::try_from(grouped.items().len()).unwrap_or(u32::MAX),
+        },
+    }
+}
+
+#[cfg(feature = "sql")]
+fn run_user_fluent_scenario_once(
+    session: &icydb::db::DbSession<PerfAuditCanister>,
+    scenario: &str,
+) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
+    match scenario {
+        "user.id.order_only.asc.limit2" => {
+            let query = session.load::<PerfAuditUser>().order_by("id").limit(2);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.age.order_only.asc.limit3" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .order_by("age")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.active_true.order_age.limit3" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .filter(FieldRef::new("active").eq(true))
+                .order_by("age")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.field_compare.age_eq_age_nat.limit3" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .filter(FieldRef::new("age").eq_field("age_nat"))
+                .order_by("age")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.field_between.rank_age_age.limit3" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .filter(FieldRef::new("rank").between_fields("age", "age"))
+                .order_by("age")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.rank.in_list.limit3" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .filter(FieldRef::new("rank").in_list([17_i32, 28_i32, 30_i32]))
+                .order_by("age")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.grouped.age_count.limit10" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .group_by("age")?
+                .aggregate(count())
+                .order_by("age")
+                .limit(10);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        _ => Err(icydb::Error::new(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Query,
+            format!("unknown fluent user perf scenario: {scenario}"),
+        )),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn run_account_fluent_scenario_once(
+    session: &icydb::db::DbSession<PerfAuditCanister>,
+    scenario: &str,
+) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
+    match scenario {
+        "account.active_true.order_handle.asc.limit3" => {
+            let query = session
+                .load::<PerfAuditAccount>()
+                .filter(FieldRef::new("active").eq(true))
+                .order_by("handle")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "account.gold_active.order_handle.asc.limit3" => {
+            let query = session
+                .load::<PerfAuditAccount>()
+                .filter(Predicate::and(vec![
+                    FieldRef::new("active").eq(true),
+                    FieldRef::new("tier").eq("gold"),
+                ]))
+                .order_by("handle")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "account.score_gte_75.order_score.limit3" => {
+            let query = session
+                .load::<PerfAuditAccount>()
+                .filter(FieldRef::new("score").gte(75_u64))
+                .order_by("score")
+                .order_by("id")
+                .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        _ => Err(icydb::Error::new(
+            ErrorKind::Query(QueryErrorKind::Validate),
+            ErrorOrigin::Query,
+            format!("unknown fluent account perf scenario: {scenario}"),
+        )),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn query_fluent_scenario_loop(
+    surface: &str,
+    scenario: &str,
+    runs: u32,
+) -> Result<FluentQueryPerfResult, icydb::Error> {
+    if runs == 0 {
+        return Err(invalid_perf_loop_runs_error());
+    }
+
+    let session = db();
+    let mut first_outcome = None;
+    let mut total_compile_local_instructions = 0_u64;
+    let mut total_execute_local_instructions = 0_u64;
+    let mut total_local_instructions = 0_u64;
+
+    for _ in 0..runs {
+        let (outcome, attribution) = match surface {
+            "user" => run_user_fluent_scenario_once(&session, scenario)?,
+            "account" => run_account_fluent_scenario_once(&session, scenario)?,
+            _ => {
+                return Err(icydb::Error::new(
+                    ErrorKind::Query(QueryErrorKind::Validate),
+                    ErrorOrigin::Query,
+                    format!("unknown fluent perf surface: {surface}"),
+                ));
+            }
+        };
+
+        if first_outcome.is_none() {
+            first_outcome = Some(outcome);
+        }
+
+        total_compile_local_instructions =
+            total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_execute_local_instructions =
+            total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
+        total_local_instructions =
+            total_local_instructions.saturating_add(attribution.total_local_instructions);
+    }
+
+    Ok(FluentQueryPerfResult {
+        outcome: first_outcome.expect("perf loop with runs > 0 should record one fluent outcome"),
+        attribution: average_fluent_attribution(
             total_compile_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,
@@ -174,6 +431,45 @@ fn query_account_loop_with_perf(
     runs: u32,
 ) -> Result<SqlQueryPerfResult, icydb::Error> {
     query_entity_with_perf_loop::<PerfAuditAccount>(sql.as_str(), runs)
+}
+
+/// Execute one dedicated PerfAuditUser fluent perf scenario and attach one
+/// local instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_user_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("user", scenario.as_str(), 1)
+}
+
+/// Execute one dedicated PerfAuditUser fluent perf scenario repeatedly inside
+/// one canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_user_fluent_loop_with_perf(
+    scenario: String,
+    runs: u32,
+) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("user", scenario.as_str(), runs)
+}
+
+/// Execute one dedicated PerfAuditAccount fluent perf scenario and attach one
+/// local instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_account_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("account", scenario.as_str(), 1)
+}
+
+/// Execute one dedicated PerfAuditAccount fluent perf scenario repeatedly
+/// inside one canister query call and report the per-run average instruction
+/// sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_account_fluent_loop_with_perf(
+    scenario: String,
+    runs: u32,
+) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("account", scenario.as_str(), runs)
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.

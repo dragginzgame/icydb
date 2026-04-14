@@ -16,11 +16,8 @@ use crate::{
         executor::{EntityAuthority, pipeline::execute_initial_grouped_rows_for_canister},
         query::intent::StructuralQuery,
         session::sql::{
-            SqlStatementResult,
-            projection::{
-                SqlProjectionPayload, grouped_sql_statement_result,
-                projection_labels_from_projection_spec,
-            },
+            SqlCompiledCommandCacheKey, SqlStatementResult,
+            projection::{SqlProjectionPayload, grouped_sql_statement_result},
         },
         sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
     },
@@ -117,11 +114,9 @@ impl<C: CanisterKind> DbSession<C> {
         select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
-        self.execute_lowered_sql_select_with(
-            select,
-            authority,
-            Self::execute_structural_sql_projection,
-        )
+        self.execute_lowered_sql_select_with(select, authority, |session, query, authority| {
+            session.execute_structural_sql_projection(query, authority, None)
+        })
     }
 
     #[cfg(feature = "perf-attribution")]
@@ -156,7 +151,11 @@ impl<C: CanisterKind> DbSession<C> {
         let (projection_labels_local_instructions, columns) = measure_statement_result(|| {
             let projection = plan.projection_spec(authority.model());
 
-            Ok::<Vec<String>, QueryError>(projection_labels_from_projection_spec(&projection))
+            Ok::<Vec<String>, QueryError>(
+                crate::db::session::sql::projection::projection_labels_from_projection_spec(
+                    &projection,
+                ),
+            )
         });
         let columns = columns?;
 
@@ -195,16 +194,15 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one lowered grouped SQL SELECT command through the shared
     // structural grouped runtime and package the page for statement consumers.
     #[inline(never)]
-    pub(in crate::db::session::sql::execute) fn execute_lowered_sql_grouped_statement_select_core(
+    pub(in crate::db::session::sql::execute) fn execute_structural_sql_grouped_statement_select_core(
         &self,
-        select: LoweredSelectShape,
+        structural: StructuralQuery,
         authority: EntityAuthority,
+        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
     ) -> Result<SqlStatementResult, QueryError> {
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
-        let columns =
-            projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
+        let entry =
+            self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
+        let (plan, columns) = entry.into_parts();
         let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
             .map_err(QueryError::execute)?;
         let next_cursor = page

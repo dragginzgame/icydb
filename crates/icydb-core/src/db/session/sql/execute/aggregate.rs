@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
         let (_, rows, _) = self
-            .execute_structural_sql_projection(query, authority)?
+            .execute_structural_sql_projection(query, authority, None)?
             .into_parts();
         let mut projected = Vec::with_capacity(rows.len());
 
@@ -243,6 +243,7 @@ impl<C: CanisterKind> DbSession<C> {
                             .clone()
                             .select_fields([authority.primary_key_name()]),
                         authority,
+                        None,
                     )?
                     .into_parts();
 

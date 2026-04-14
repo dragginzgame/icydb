@@ -5,6 +5,7 @@ use crate::{
         session::sql::CompiledSqlCommand,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlQuery, SqlLoweringError,
+            bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
@@ -79,8 +80,17 @@ impl<C: CanisterKind> DbSession<C> {
                         "compiled SQL SELECT lane must lower to lowered SQL SELECT",
                     ));
                 };
+                let query = bind_lowered_sql_select_query_structural(
+                    authority.model(),
+                    select,
+                    MissingRowPolicy::Ignore,
+                )
+                .map_err(QueryError::from_sql_lowering_error)?;
 
-                Ok(CompiledSqlCommand::Select(select))
+                Ok(CompiledSqlCommand::Select {
+                    query,
+                    compiled_cache_key: None,
+                })
             }
             SqlStatement::Delete(_) => {
                 let prepared = Self::prepare_sql_statement_for_authority(statement, authority)?;

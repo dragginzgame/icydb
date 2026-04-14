@@ -25,10 +25,8 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::commit_schema_fingerprint_for_entity,
-        sql::lowering::{
-            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand,
-            SqlGlobalAggregateCommandCore,
-        },
+        session::sql::projection::projection_labels_from_projection_spec,
+        sql::lowering::{LoweredBaseQueryShape, LoweredSqlCommand, SqlGlobalAggregateCommandCore},
         sql::parser::{SqlStatement, parse_sql},
     },
     traits::{CanisterKind, EntityValue},
@@ -38,8 +36,7 @@ use crate::{
 use crate::db::{
     MissingRowPolicy, PagedGroupedExecutionWithTrace,
     sql::lowering::{
-        LoweredSelectQueryShape, bind_lowered_sql_query, lower_sql_command_from_prepared_statement,
-        prepare_sql_statement,
+        bind_lowered_sql_query, lower_sql_command_from_prepared_statement, prepare_sql_statement,
     },
 };
 
@@ -119,6 +116,39 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
     sql: String,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(in crate::db) struct SqlSelectPlanCacheKey {
+    compiled: SqlCompiledCommandCacheKey,
+    visibility: crate::db::session::query::QueryPlanVisibility,
+}
+
+///
+/// SqlSelectPlanCacheEntry
+///
+/// SqlSelectPlanCacheEntry keeps the session-owned SQL projection contract
+/// beside the already planned structural SELECT access plan.
+/// This lets repeated SQL execution reuse both planner output and outward
+/// column-label derivation without caching executor-owned runtime state.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct SqlSelectPlanCacheEntry {
+    plan: AccessPlannedQuery,
+    columns: Vec<String>,
+}
+
+impl SqlSelectPlanCacheEntry {
+    #[must_use]
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery, columns: Vec<String>) -> Self {
+        Self { plan, columns }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (AccessPlannedQuery, Vec<String>) {
+        (self.plan, self.columns)
+    }
+}
+
 impl SqlCompiledCommandCacheKey {
     fn query_for_entity<E>(sql: &str) -> Self
     where
@@ -145,17 +175,43 @@ impl SqlCompiledCommandCacheKey {
             sql: sql.to_string(),
         }
     }
+
+    #[must_use]
+    pub(in crate::db) const fn entity_path(&self) -> &'static str {
+        self.entity_path
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+}
+
+impl SqlSelectPlanCacheKey {
+    const fn from_compiled_key(
+        compiled: SqlCompiledCommandCacheKey,
+        visibility: crate::db::session::query::QueryPlanVisibility,
+    ) -> Self {
+        Self {
+            compiled,
+            visibility,
+        }
+    }
 }
 
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
+pub(in crate::db) type SqlSelectPlanCache = HashMap<SqlSelectPlanCacheKey, SqlSelectPlanCacheEntry>;
 
 // Keep the compile artifact session-owned and generic-free so the SQL surface
 // can separate semantic compilation from execution without coupling the seam to
 // typed entity binding or executor scratch state.
 #[derive(Clone, Debug)]
 pub(in crate::db) enum CompiledSqlCommand {
-    Select(LoweredSelectShape),
+    Select {
+        query: StructuralQuery,
+        compiled_cache_key: Option<SqlCompiledCommandCacheKey>,
+    },
     Delete {
         query: LoweredBaseQueryShape,
         statement: SqlDeleteStatement,
@@ -213,9 +269,81 @@ impl<C: CanisterKind> DbSession<C> {
             .get_or_init(|| RefCell::new(SqlCompiledCommandCache::new()))
     }
 
+    // Lazily allocate one session-local SELECT plan cache so repeat query
+    // execution can reuse planner output once store visibility is known.
+    fn sql_select_plan_cache(&self) -> &RefCell<SqlSelectPlanCache> {
+        self.sql_select_plan_cache
+            .get_or_init(|| RefCell::new(SqlSelectPlanCache::new()))
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn sql_compiled_command_cache_len(&self) -> usize {
         self.sql_compiled_command_cache().borrow().len()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn sql_select_plan_cache_len(&self) -> usize {
+        self.sql_select_plan_cache().borrow().len()
+    }
+
+    fn planned_sql_select_with_visibility(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
+    ) -> Result<SqlSelectPlanCacheEntry, QueryError> {
+        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let fallback_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
+            authority.model().path,
+            authority.model(),
+        );
+        let cache_entity_path = compiled_cache_key.map_or_else(
+            || authority.model().path,
+            SqlCompiledCommandCacheKey::entity_path,
+        );
+        let cache_schema_fingerprint = compiled_cache_key.map_or(
+            fallback_schema_fingerprint,
+            SqlCompiledCommandCacheKey::schema_fingerprint,
+        );
+
+        let Some(compiled_cache_key) = compiled_cache_key else {
+            let plan = self.cached_structural_plan_for_authority(
+                cache_entity_path,
+                cache_schema_fingerprint,
+                authority.store_path(),
+                authority.model(),
+                query,
+            )?;
+            let columns =
+                projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
+
+            return Ok(SqlSelectPlanCacheEntry::new(plan, columns));
+        };
+
+        let plan_cache_key =
+            SqlSelectPlanCacheKey::from_compiled_key(compiled_cache_key.clone(), visibility);
+        {
+            let cache = self.sql_select_plan_cache().borrow();
+            if let Some(plan) = cache.get(&plan_cache_key) {
+                return Ok(plan.clone());
+            }
+        }
+
+        let plan = self.cached_structural_plan_for_authority(
+            cache_entity_path,
+            cache_schema_fingerprint,
+            authority.store_path(),
+            authority.model(),
+            query,
+        )?;
+        let columns =
+            projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
+        let entry = SqlSelectPlanCacheEntry::new(plan, columns);
+        self.sql_select_plan_cache()
+            .borrow_mut()
+            .insert(plan_cache_key, entry.clone());
+
+        Ok(entry)
     }
 
     // Resolve planner-visible indexes and build one execution-ready
@@ -363,13 +491,13 @@ impl<C: CanisterKind> DbSession<C> {
                 "grouped SELECT helper requires grouped SELECT",
             ));
         };
-        if query.select_shape() != Some(LoweredSelectQueryShape::Grouped) {
+        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)?;
+        if !query.has_grouping() {
             return Err(QueryError::unsupported_query(
                 "grouped SELECT helper requires grouped SELECT",
             ));
         }
-        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
-            .map_err(QueryError::from_sql_lowering_error)?;
 
         self.execute_grouped(&query, cursor_token)
     }
@@ -426,7 +554,13 @@ impl<C: CanisterKind> DbSession<C> {
 
         let parsed = parse_sql_statement(sql)?;
         ensure_surface_supported(&parsed)?;
-        let compiled = Self::compile_sql_statement_inner::<E>(&parsed)?;
+        let mut compiled = Self::compile_sql_statement_inner::<E>(&parsed)?;
+        if let CompiledSqlCommand::Select {
+            compiled_cache_key, ..
+        } = &mut compiled
+        {
+            *compiled_cache_key = Some(cache_key.clone());
+        }
 
         self.sql_compiled_command_cache()
             .borrow_mut()

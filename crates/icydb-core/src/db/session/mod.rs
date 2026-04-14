@@ -33,10 +33,10 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
-#[cfg(feature = "sql")]
-use std::cell::OnceCell;
-use std::thread::LocalKey;
+use std::{cell::OnceCell, collections::HashMap, thread::LocalKey};
 
+#[cfg(feature = "perf-attribution")]
+pub use query::QueryExecutionAttribution;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
@@ -54,8 +54,13 @@ pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
     metrics: Option<&'static dyn MetricsSink>,
+    query_plan_cache: OnceCell<std::cell::RefCell<query::QueryPlanCache>>,
+    query_plan_visibility_cache:
+        OnceCell<std::cell::RefCell<HashMap<&'static str, query::QueryPlanVisibility>>>,
     #[cfg(feature = "sql")]
     sql_compiled_command_cache: OnceCell<std::cell::RefCell<sql::SqlCompiledCommandCache>>,
+    #[cfg(feature = "sql")]
+    sql_select_plan_cache: OnceCell<std::cell::RefCell<sql::SqlSelectPlanCache>>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -66,8 +71,12 @@ impl<C: CanisterKind> DbSession<C> {
             db,
             debug: false,
             metrics: None,
+            query_plan_cache: OnceCell::new(),
+            query_plan_visibility_cache: OnceCell::new(),
             #[cfg(feature = "sql")]
             sql_compiled_command_cache: OnceCell::new(),
+            #[cfg(feature = "sql")]
+            sql_select_plan_cache: OnceCell::new(),
         }
     }
 

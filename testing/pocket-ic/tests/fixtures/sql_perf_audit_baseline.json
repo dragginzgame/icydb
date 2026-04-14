@@ -1,434 +1,434 @@
 [
   {
     "scenario_key": "user.pk.order_only.asc.limit2",
-    "avg_compile_local_instructions": 103429,
-    "avg_execute_local_instructions": 419085,
-    "avg_local_instructions": 522514
+    "avg_compile_local_instructions": 84490,
+    "avg_execute_local_instructions": 508893,
+    "avg_local_instructions": 593383
   },
   {
     "scenario_key": "user.pk.order_only.desc.limit2",
-    "avg_compile_local_instructions": 103462,
-    "avg_execute_local_instructions": 417292,
-    "avg_local_instructions": 520754
+    "avg_compile_local_instructions": 84531,
+    "avg_execute_local_instructions": 506779,
+    "avg_local_instructions": 591310
   },
   {
     "scenario_key": "user.pk.range.asc.limit2",
-    "avg_compile_local_instructions": 114582,
-    "avg_execute_local_instructions": 550602,
-    "avg_local_instructions": 665184
+    "avg_compile_local_instructions": 97780,
+    "avg_execute_local_instructions": 654527,
+    "avg_local_instructions": 752307
   },
   {
     "scenario_key": "user.name.eq.order_id.limit1",
-    "avg_compile_local_instructions": 115918,
-    "avg_execute_local_instructions": 545764,
-    "avg_local_instructions": 661682
+    "avg_compile_local_instructions": 99215,
+    "avg_execute_local_instructions": 650827,
+    "avg_local_instructions": 750042
   },
   {
     "scenario_key": "user.age.order_only.asc.limit3",
-    "avg_compile_local_instructions": 108883,
-    "avg_execute_local_instructions": 752435,
-    "avg_local_instructions": 861318
+    "avg_compile_local_instructions": 93530,
+    "avg_execute_local_instructions": 840480,
+    "avg_local_instructions": 934010
   },
   {
     "scenario_key": "user.age.order_only.desc.limit3",
-    "avg_compile_local_instructions": 108988,
-    "avg_execute_local_instructions": 758748,
-    "avg_local_instructions": 867736
+    "avg_compile_local_instructions": 93647,
+    "avg_execute_local_instructions": 847104,
+    "avg_local_instructions": 940751
   },
   {
     "scenario_key": "user.age.range.order.limit3",
-    "avg_compile_local_instructions": 135253,
-    "avg_execute_local_instructions": 925185,
-    "avg_local_instructions": 1060438
+    "avg_compile_local_instructions": 123793,
+    "avg_execute_local_instructions": 1060010,
+    "avg_local_instructions": 1183803
   },
   {
     "scenario_key": "user.age.between.limit3",
-    "avg_compile_local_instructions": 133953,
-    "avg_execute_local_instructions": 918878,
-    "avg_local_instructions": 1052831
+    "avg_compile_local_instructions": 122517,
+    "avg_execute_local_instructions": 1056943,
+    "avg_local_instructions": 1179460
   },
   {
     "scenario_key": "user.age.not_between.limit3",
-    "avg_compile_local_instructions": 130016,
-    "avg_execute_local_instructions": 858009,
-    "avg_local_instructions": 988025
+    "avg_compile_local_instructions": 115411,
+    "avg_execute_local_instructions": 988956,
+    "avg_local_instructions": 1104367
   },
   {
     "scenario_key": "user.scalar_arithmetic.age_minus_one.limit3",
-    "avg_compile_local_instructions": 110386,
-    "avg_execute_local_instructions": 760994,
-    "avg_local_instructions": 871380
+    "avg_compile_local_instructions": 95335,
+    "avg_execute_local_instructions": 854649,
+    "avg_local_instructions": 949984
   },
   {
     "scenario_key": "user.scalar_round.age_div3.limit3",
-    "avg_compile_local_instructions": 125115,
-    "avg_execute_local_instructions": 815536,
-    "avg_local_instructions": 940651
+    "avg_compile_local_instructions": 109891,
+    "avg_execute_local_instructions": 923547,
+    "avg_local_instructions": 1033438
   },
   {
     "scenario_key": "user.name.order_only.asc.limit3",
-    "avg_compile_local_instructions": 109181,
-    "avg_execute_local_instructions": 674188,
-    "avg_local_instructions": 783369
+    "avg_compile_local_instructions": 93837,
+    "avg_execute_local_instructions": 770550,
+    "avg_local_instructions": 864387
   },
   {
     "scenario_key": "user.name.covering_key_only.asc.limit3",
-    "avg_compile_local_instructions": 100031,
-    "avg_execute_local_instructions": 650593,
-    "avg_local_instructions": 750624
+    "avg_compile_local_instructions": 85027,
+    "avg_execute_local_instructions": 744303,
+    "avg_local_instructions": 829330
   },
   {
     "scenario_key": "user.name.materialized_rank.asc.limit3",
-    "avg_compile_local_instructions": 109161,
-    "avg_execute_local_instructions": 672458,
-    "avg_local_instructions": 781619
+    "avg_compile_local_instructions": 93817,
+    "avg_execute_local_instructions": 768504,
+    "avg_local_instructions": 862321
   },
   {
     "scenario_key": "user.name.order_only.desc.limit3",
-    "avg_compile_local_instructions": 109268,
-    "avg_execute_local_instructions": 660835,
-    "avg_local_instructions": 770103
+    "avg_compile_local_instructions": 94179,
+    "avg_execute_local_instructions": 756416,
+    "avg_local_instructions": 850595
   },
   {
     "scenario_key": "user.name.range.limit3",
-    "avg_compile_local_instructions": 137191,
-    "avg_execute_local_instructions": 1646244,
-    "avg_local_instructions": 1783435
+    "avg_compile_local_instructions": 126177,
+    "avg_execute_local_instructions": 1795042,
+    "avg_local_instructions": 1921219
   },
   {
     "scenario_key": "user.name.like_prefix.limit3",
-    "avg_compile_local_instructions": 124393,
-    "avg_execute_local_instructions": 671884,
-    "avg_local_instructions": 796277
+    "avg_compile_local_instructions": 111433,
+    "avg_execute_local_instructions": 788623,
+    "avg_local_instructions": 900056
   },
   {
     "scenario_key": "user.name.not_like_prefix.limit3",
-    "avg_compile_local_instructions": 122210,
-    "avg_execute_local_instructions": 647453,
-    "avg_local_instructions": 769663
+    "avg_compile_local_instructions": 108668,
+    "avg_execute_local_instructions": 759384,
+    "avg_local_instructions": 868052
   },
   {
     "scenario_key": "user.name.lower.order_only.asc.limit3",
-    "avg_compile_local_instructions": 120769,
-    "avg_execute_local_instructions": 709156,
-    "avg_local_instructions": 829925
+    "avg_compile_local_instructions": 105925,
+    "avg_execute_local_instructions": 809586,
+    "avg_local_instructions": 915511
   },
   {
     "scenario_key": "user.name.lower.covering_key_only.asc.limit3",
-    "avg_compile_local_instructions": 110651,
-    "avg_execute_local_instructions": 688083,
-    "avg_local_instructions": 798734
+    "avg_compile_local_instructions": 95633,
+    "avg_execute_local_instructions": 783315,
+    "avg_local_instructions": 878948
   },
   {
     "scenario_key": "user.name.lower.materialized_rank.asc.limit3",
-    "avg_compile_local_instructions": 120749,
-    "avg_execute_local_instructions": 708318,
-    "avg_local_instructions": 829067
+    "avg_compile_local_instructions": 105905,
+    "avg_execute_local_instructions": 808430,
+    "avg_local_instructions": 914335
   },
   {
     "scenario_key": "user.name.lower.order_only.desc.limit3",
-    "avg_compile_local_instructions": 120814,
-    "avg_execute_local_instructions": 689984,
-    "avg_local_instructions": 810798
+    "avg_compile_local_instructions": 106412,
+    "avg_execute_local_instructions": 788944,
+    "avg_local_instructions": 895356
   },
   {
     "scenario_key": "user.name.lower.range.limit3",
-    "avg_compile_local_instructions": 152463,
-    "avg_execute_local_instructions": 1360628,
-    "avg_local_instructions": 1513091
+    "avg_compile_local_instructions": 140465,
+    "avg_execute_local_instructions": 1515857,
+    "avg_local_instructions": 1656322
   },
   {
     "scenario_key": "user.name.lower.like_prefix.limit3",
-    "avg_compile_local_instructions": 136767,
-    "avg_execute_local_instructions": 857005,
-    "avg_local_instructions": 993772
+    "avg_compile_local_instructions": 124629,
+    "avg_execute_local_instructions": 974341,
+    "avg_local_instructions": 1098970
   },
   {
     "scenario_key": "user.name.lower.not_like_prefix.limit3",
-    "avg_compile_local_instructions": 124967,
-    "avg_execute_local_instructions": 768623,
-    "avg_local_instructions": 893590
+    "avg_compile_local_instructions": 110296,
+    "avg_execute_local_instructions": 881619,
+    "avg_local_instructions": 991915
   },
   {
     "scenario_key": "user.name.ilike_prefix.limit3",
-    "avg_compile_local_instructions": 117418,
-    "avg_execute_local_instructions": 845808,
-    "avg_local_instructions": 963226
+    "avg_compile_local_instructions": 100507,
+    "avg_execute_local_instructions": 953517,
+    "avg_local_instructions": 1054024
   },
   {
     "scenario_key": "user.name.not_ilike_prefix.limit3",
-    "avg_compile_local_instructions": 122501,
-    "avg_execute_local_instructions": 768329,
-    "avg_local_instructions": 890830
+    "avg_compile_local_instructions": 108677,
+    "avg_execute_local_instructions": 881807,
+    "avg_local_instructions": 990484
   },
   {
     "scenario_key": "user.active.is_true.order_id.limit4",
-    "avg_compile_local_instructions": 116069,
-    "avg_execute_local_instructions": 678918,
-    "avg_local_instructions": 794987
+    "avg_compile_local_instructions": 99959,
+    "avg_execute_local_instructions": 777154,
+    "avg_local_instructions": 877113
   },
   {
     "scenario_key": "user.active.is_not_true.order_id.limit4",
-    "avg_compile_local_instructions": 120987,
-    "avg_execute_local_instructions": 741902,
-    "avg_local_instructions": 862889
+    "avg_compile_local_instructions": 106932,
+    "avg_execute_local_instructions": 842606,
+    "avg_local_instructions": 949538
   },
   {
     "scenario_key": "user.field_compare.age_gt_rank.limit3",
-    "avg_compile_local_instructions": 124157,
-    "avg_execute_local_instructions": 791612,
-    "avg_local_instructions": 915769
+    "avg_compile_local_instructions": 111274,
+    "avg_execute_local_instructions": 891121,
+    "avg_local_instructions": 1002395
   },
   {
     "scenario_key": "user.field_compare.age_eq_age_nat.limit3",
-    "avg_compile_local_instructions": 124350,
-    "avg_execute_local_instructions": 799276,
-    "avg_local_instructions": 923626
+    "avg_compile_local_instructions": 111534,
+    "avg_execute_local_instructions": 899957,
+    "avg_local_instructions": 1011491
   },
   {
     "scenario_key": "user.field_compare.age_eq_rank.limit3",
-    "avg_compile_local_instructions": 124142,
-    "avg_execute_local_instructions": 762823,
-    "avg_local_instructions": 886965
+    "avg_compile_local_instructions": 111289,
+    "avg_execute_local_instructions": 861977,
+    "avg_local_instructions": 973266
   },
   {
     "scenario_key": "user.age.in.limit3",
-    "avg_compile_local_instructions": 130933,
-    "avg_execute_local_instructions": 1109707,
-    "avg_local_instructions": 1240640
+    "avg_compile_local_instructions": 119944,
+    "avg_execute_local_instructions": 1232191,
+    "avg_local_instructions": 1352135
   },
   {
     "scenario_key": "user.age.not_in.limit3",
-    "avg_compile_local_instructions": 126728,
-    "avg_execute_local_instructions": 769236,
-    "avg_local_instructions": 895964
+    "avg_compile_local_instructions": 112457,
+    "avg_execute_local_instructions": 886340,
+    "avg_local_instructions": 998797
   },
   {
     "scenario_key": "user.field_between.rank_age_age.limit3",
-    "avg_compile_local_instructions": 138095,
-    "avg_execute_local_instructions": 899612,
-    "avg_local_instructions": 1037707
+    "avg_compile_local_instructions": 126445,
+    "avg_execute_local_instructions": 1027486,
+    "avg_local_instructions": 1153931
   },
   {
     "scenario_key": "user.field_not_between.rank_age_age.limit3",
-    "avg_compile_local_instructions": 134101,
-    "avg_execute_local_instructions": 750774,
-    "avg_local_instructions": 884875
+    "avg_compile_local_instructions": 117632,
+    "avg_execute_local_instructions": 881241,
+    "avg_local_instructions": 998873
   },
   {
     "scenario_key": "user.count.active_true",
-    "avg_compile_local_instructions": 91854,
-    "avg_execute_local_instructions": 662185,
-    "avg_local_instructions": 754039
+    "avg_compile_local_instructions": 62246,
+    "avg_execute_local_instructions": 739705,
+    "avg_local_instructions": 801951
   },
   {
     "scenario_key": "user.grouped.age_count.limit10",
-    "avg_compile_local_instructions": 117844,
-    "avg_execute_local_instructions": 818534,
-    "avg_local_instructions": 936378
+    "avg_compile_local_instructions": 109467,
+    "avg_execute_local_instructions": 900343,
+    "avg_local_instructions": 1009810
   },
   {
     "scenario_key": "user.explain.lower.order.limit1",
-    "avg_compile_local_instructions": 127231,
-    "avg_execute_local_instructions": 177852,
-    "avg_local_instructions": 305083
+    "avg_compile_local_instructions": 97722,
+    "avg_execute_local_instructions": 178313,
+    "avg_local_instructions": 276035
   },
   {
     "scenario_key": "user.explain_execution.lower.order.limit1",
-    "avg_compile_local_instructions": 129640,
-    "avg_execute_local_instructions": 424905,
-    "avg_local_instructions": 554545
+    "avg_compile_local_instructions": 100049,
+    "avg_execute_local_instructions": 424792,
+    "avg_local_instructions": 524841
   },
   {
     "scenario_key": "user.explain_json.lower.order.limit1",
-    "avg_compile_local_instructions": 129139,
-    "avg_execute_local_instructions": 225356,
-    "avg_local_instructions": 354495
+    "avg_compile_local_instructions": 98990,
+    "avg_execute_local_instructions": 224186,
+    "avg_local_instructions": 323176
   },
   {
     "scenario_key": "user.describe",
-    "avg_compile_local_instructions": 47881,
+    "avg_compile_local_instructions": 18634,
     "avg_execute_local_instructions": 13801,
-    "avg_local_instructions": 61682
+    "avg_local_instructions": 32435
   },
   {
     "scenario_key": "user.show_indexes",
-    "avg_compile_local_instructions": 49704,
+    "avg_compile_local_instructions": 20457,
     "avg_execute_local_instructions": 21402,
-    "avg_local_instructions": 71106
+    "avg_local_instructions": 41859
   },
   {
     "scenario_key": "user.show_columns",
-    "avg_compile_local_instructions": 49689,
+    "avg_compile_local_instructions": 20442,
     "avg_execute_local_instructions": 27081,
-    "avg_local_instructions": 76770
+    "avg_local_instructions": 47523
   },
   {
     "scenario_key": "user.show_tables",
-    "avg_compile_local_instructions": 44022,
-    "avg_execute_local_instructions": 1572,
-    "avg_local_instructions": 45594
+    "avg_compile_local_instructions": 14825,
+    "avg_execute_local_instructions": 1569,
+    "avg_local_instructions": 16394
   },
   {
     "scenario_key": "account.active.order_handle.asc.limit3",
-    "avg_compile_local_instructions": 185818,
-    "avg_execute_local_instructions": 1390878,
-    "avg_local_instructions": 1576696
+    "avg_compile_local_instructions": 110787,
+    "avg_execute_local_instructions": 1562825,
+    "avg_local_instructions": 1673612
   },
   {
     "scenario_key": "account.active.order_handle.asc.limit2.offset1",
-    "avg_compile_local_instructions": 189102,
-    "avg_execute_local_instructions": 1060451,
-    "avg_local_instructions": 1249553
+    "avg_compile_local_instructions": 113997,
+    "avg_execute_local_instructions": 1230794,
+    "avg_local_instructions": 1344791
   },
   {
     "scenario_key": "account.active.order_handle.desc.limit3",
-    "avg_compile_local_instructions": 185996,
-    "avg_execute_local_instructions": 1393564,
-    "avg_local_instructions": 1579560
+    "avg_compile_local_instructions": 110977,
+    "avg_execute_local_instructions": 1569575,
+    "avg_local_instructions": 1680552
   },
   {
     "scenario_key": "account.active.ilike_br.limit3",
-    "avg_compile_local_instructions": 196296,
-    "avg_execute_local_instructions": 931856,
-    "avg_local_instructions": 1128152
+    "avg_compile_local_instructions": 119677,
+    "avg_execute_local_instructions": 1131220,
+    "avg_local_instructions": 1250897
   },
   {
     "scenario_key": "account.active.not_ilike_br.limit3",
-    "avg_compile_local_instructions": 200025,
-    "avg_execute_local_instructions": 888774,
-    "avg_local_instructions": 1088799
+    "avg_compile_local_instructions": 124196,
+    "avg_execute_local_instructions": 1078572,
+    "avg_local_instructions": 1202768
   },
   {
     "scenario_key": "account.active.lower.order_handle.asc.limit3",
-    "avg_compile_local_instructions": 196170,
-    "avg_execute_local_instructions": 1451051,
-    "avg_local_instructions": 1647221
+    "avg_compile_local_instructions": 121700,
+    "avg_execute_local_instructions": 1631205,
+    "avg_local_instructions": 1752905
   },
   {
     "scenario_key": "account.active.lower.covering_key_only.asc.limit3",
-    "avg_compile_local_instructions": 186781,
-    "avg_execute_local_instructions": 1421292,
-    "avg_local_instructions": 1608073
+    "avg_compile_local_instructions": 111990,
+    "avg_execute_local_instructions": 1585038,
+    "avg_local_instructions": 1697028
   },
   {
     "scenario_key": "account.active.lower.materialized_score.asc.limit3",
-    "avg_compile_local_instructions": 196171,
-    "avg_execute_local_instructions": 1448817,
-    "avg_local_instructions": 1644988
+    "avg_compile_local_instructions": 121703,
+    "avg_execute_local_instructions": 1623489,
+    "avg_local_instructions": 1745192
   },
   {
     "scenario_key": "account.active.lower.order_handle.asc.limit2.offset1",
-    "avg_compile_local_instructions": 199281,
-    "avg_execute_local_instructions": 1115755,
-    "avg_local_instructions": 1315036
+    "avg_compile_local_instructions": 124634,
+    "avg_execute_local_instructions": 1290002,
+    "avg_local_instructions": 1414636
   },
   {
     "scenario_key": "account.active.lower.order_handle.desc.limit3",
-    "avg_compile_local_instructions": 196271,
-    "avg_execute_local_instructions": 1448359,
-    "avg_local_instructions": 1644630
+    "avg_compile_local_instructions": 121813,
+    "avg_execute_local_instructions": 1625982,
+    "avg_local_instructions": 1747795
   },
   {
     "scenario_key": "account.active.lower.handle_prefix.limit3",
-    "avg_compile_local_instructions": 214777,
-    "avg_execute_local_instructions": 937891,
-    "avg_local_instructions": 1152668
+    "avg_compile_local_instructions": 141202,
+    "avg_execute_local_instructions": 1143794,
+    "avg_local_instructions": 1284996
   },
   {
     "scenario_key": "account.active.handle_prefix.limit3",
-    "avg_compile_local_instructions": 202349,
-    "avg_execute_local_instructions": 790261,
-    "avg_local_instructions": 992610
+    "avg_compile_local_instructions": 127819,
+    "avg_execute_local_instructions": 989754,
+    "avg_local_instructions": 1117573
   },
   {
     "scenario_key": "account.tier.in.limit3",
-    "avg_compile_local_instructions": 213993,
-    "avg_execute_local_instructions": 1443956,
-    "avg_local_instructions": 1657949
+    "avg_compile_local_instructions": 145466,
+    "avg_execute_local_instructions": 1670628,
+    "avg_local_instructions": 1816094
   },
   {
     "scenario_key": "account.tier.not_in.limit3",
-    "avg_compile_local_instructions": 203683,
-    "avg_execute_local_instructions": 931705,
-    "avg_local_instructions": 1135388
+    "avg_compile_local_instructions": 129116,
+    "avg_execute_local_instructions": 1146576,
+    "avg_local_instructions": 1275692
   },
   {
     "scenario_key": "account.tier_gold.order_handle.limit3",
-    "avg_compile_local_instructions": 200697,
-    "avg_execute_local_instructions": 941481,
-    "avg_local_instructions": 1142178
+    "avg_compile_local_instructions": 125483,
+    "avg_execute_local_instructions": 1136357,
+    "avg_local_instructions": 1261840
   },
   {
     "scenario_key": "account.tier_gold.lower.order_handle.limit3",
-    "avg_compile_local_instructions": 210612,
-    "avg_execute_local_instructions": 985757,
-    "avg_local_instructions": 1196369
+    "avg_compile_local_instructions": 137970,
+    "avg_execute_local_instructions": 1178782,
+    "avg_local_instructions": 1316752
   },
   {
     "scenario_key": "account.tier_gold.lower.handle_prefix.limit3",
-    "avg_compile_local_instructions": 230251,
-    "avg_execute_local_instructions": 1092858,
-    "avg_local_instructions": 1323109
+    "avg_compile_local_instructions": 157675,
+    "avg_execute_local_instructions": 1330065,
+    "avg_local_instructions": 1487740
   },
   {
     "scenario_key": "account.tier_gold.handle_prefix.limit3",
-    "avg_compile_local_instructions": 216900,
-    "avg_execute_local_instructions": 938922,
-    "avg_local_instructions": 1155822
+    "avg_compile_local_instructions": 145152,
+    "avg_execute_local_instructions": 1174839,
+    "avg_local_instructions": 1319991
   },
   {
     "scenario_key": "account.count.active_true",
-    "avg_compile_local_instructions": 154922,
-    "avg_execute_local_instructions": 649171,
-    "avg_local_instructions": 804093
+    "avg_compile_local_instructions": 62909,
+    "avg_execute_local_instructions": 790155,
+    "avg_local_instructions": 853064
   },
   {
     "scenario_key": "account.describe",
-    "avg_compile_local_instructions": 110951,
-    "avg_execute_local_instructions": 14587,
-    "avg_local_instructions": 125538
+    "avg_compile_local_instructions": 19305,
+    "avg_execute_local_instructions": 14584,
+    "avg_local_instructions": 33889
   },
   {
     "scenario_key": "account.show_indexes",
-    "avg_compile_local_instructions": 112833,
+    "avg_compile_local_instructions": 21312,
     "avg_execute_local_instructions": 27001,
-    "avg_local_instructions": 139834
+    "avg_local_instructions": 48313
   },
   {
     "scenario_key": "repeat.user.pk.order_only.asc.limit2.runs10",
-    "avg_compile_local_instructions": 46124,
-    "avg_execute_local_instructions": 418397,
-    "avg_local_instructions": 464521
+    "avg_compile_local_instructions": 19440,
+    "avg_execute_local_instructions": 422316,
+    "avg_local_instructions": 441756
   },
   {
     "scenario_key": "repeat.user.pk.order_only.asc.limit2.runs100",
-    "avg_compile_local_instructions": 40399,
-    "avg_execute_local_instructions": 418326,
-    "avg_local_instructions": 458725
+    "avg_compile_local_instructions": 12935,
+    "avg_execute_local_instructions": 413739,
+    "avg_local_instructions": 426674
   },
   {
     "scenario_key": "repeat.user.name.lower.order_only.asc.limit3.runs10",
-    "avg_compile_local_instructions": 48786,
-    "avg_execute_local_instructions": 710600,
-    "avg_local_instructions": 759386
+    "avg_compile_local_instructions": 22676,
+    "avg_execute_local_instructions": 674987,
+    "avg_local_instructions": 697664
   },
   {
     "scenario_key": "repeat.user.name.lower.order_only.asc.limit3.runs100",
-    "avg_compile_local_instructions": 41602,
-    "avg_execute_local_instructions": 710873,
-    "avg_local_instructions": 752476
+    "avg_compile_local_instructions": 14303,
+    "avg_execute_local_instructions": 661567,
+    "avg_local_instructions": 675870
   },
   {
     "scenario_key": "repeat.user.grouped.age_count.limit10.runs10",
-    "avg_compile_local_instructions": 48057,
-    "avg_execute_local_instructions": 819667,
-    "avg_local_instructions": 867725
+    "avg_compile_local_instructions": 23383,
+    "avg_execute_local_instructions": 805743,
+    "avg_local_instructions": 829126
   },
   {
     "scenario_key": "repeat.user.grouped.age_count.limit10.runs100",
-    "avg_compile_local_instructions": 41082,
-    "avg_execute_local_instructions": 819750,
-    "avg_local_instructions": 860832
+    "avg_compile_local_instructions": 14795,
+    "avg_execute_local_instructions": 796215,
+    "avg_local_instructions": 811011
   }
 ]

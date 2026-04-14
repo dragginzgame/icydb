@@ -128,6 +128,8 @@ pub use schema::{
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
+#[cfg(feature = "perf-attribution")]
+pub use session::QueryExecutionAttribution;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub use session::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]

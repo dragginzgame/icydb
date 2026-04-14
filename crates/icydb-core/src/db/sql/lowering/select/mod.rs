@@ -35,21 +35,8 @@ pub(in crate::db) use binding::canonicalize_sql_predicate_for_model;
 /// Entity-agnostic lowered SQL SELECT shape prepared for typed `Query<E>`
 /// binding.
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LoweredSelectQueryShape {
-    Scalar,
-    Grouped,
-}
-
-///
-/// LoweredSelectShape
-///
-/// Entity-agnostic lowered SQL SELECT shape prepared for typed `Query<E>`
-/// binding.
-///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
-    shape: LoweredSelectQueryShape,
     projection_selection: ProjectionSelection,
     grouped_projection_aggregates: Vec<SqlAggregateCall>,
     group_by_fields: Vec<String>,
@@ -59,14 +46,6 @@ pub(crate) struct LoweredSelectShape {
     order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
-}
-
-impl LoweredSelectShape {
-    // Resolve the lowered execution family once so downstream callers consume
-    // one propagated shape instead of re-deriving grouping from grouped fields.
-    pub(in crate::db) const fn shape(&self) -> LoweredSelectQueryShape {
-        self.shape
-    }
 }
 
 ///
@@ -104,14 +83,8 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     let projection_for_having = projection.clone();
 
     // Phase 1: resolve scalar/grouped projection shape.
-    let shape = if group_by.is_empty() {
-        LoweredSelectQueryShape::Scalar
-    } else {
-        LoweredSelectQueryShape::Grouped
-    };
-    let (projection_selection, grouped_projection_aggregates, normalized_distinct) = if shape
-        == LoweredSelectQueryShape::Grouped
-    {
+    let is_grouped = !group_by.is_empty();
+    let (projection_selection, grouped_projection_aggregates, normalized_distinct) = if is_grouped {
         let projection_selection = lower_grouped_projection_selection(
             projection.clone(),
             projection_aliases.as_slice(),
@@ -135,7 +108,6 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     )?;
 
     Ok(LoweredSelectShape {
-        shape,
         projection_selection,
         grouped_projection_aggregates,
         group_by_fields: group_by,
@@ -154,7 +126,6 @@ pub(in crate::db) fn apply_lowered_select_shape(
     lowered: LoweredSelectShape,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let LoweredSelectShape {
-        shape: _,
         projection_selection,
         grouped_projection_aggregates,
         group_by_fields,

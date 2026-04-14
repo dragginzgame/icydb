@@ -173,6 +173,22 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Execute one typed/fluent query while reporting the compile/execute
+    /// split at the shared query seam.
+    #[cfg(feature = "perf-attribution")]
+    #[doc(hidden)]
+    pub fn execute_query_result_with_attribution<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (result, attribution) = self.inner.execute_query_result_with_attribution(query)?;
+
+        Ok((Self::query_response_from_core(result), attribution))
+    }
+
     /// Execute one reduced SQL query against one concrete entity type.
     #[cfg(feature = "sql")]
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
