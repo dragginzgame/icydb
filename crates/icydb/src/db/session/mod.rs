@@ -135,13 +135,13 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub const fn debug(mut self) -> Self {
+    pub fn debug(mut self) -> Self {
         self.inner = self.inner.debug();
         self
     }
 
     #[must_use]
-    pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
+    pub fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
         self.inner = self.inner.metrics_sink(sink);
         self
     }
@@ -182,6 +182,25 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(crate::db::sql::sql_query_result_from_statement(
             self.inner.execute_sql_query::<E>(sql)?,
             E::MODEL.name().to_string(),
+        ))
+    }
+
+    /// Execute one reduced SQL query and report the top-level compile/execute
+    /// cost split at the SQL seam.
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[doc(hidden)]
+    pub fn execute_sql_query_with_attribution<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (result, attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
+
+        Ok((
+            crate::db::sql::sql_query_result_from_statement(result, E::MODEL.name().to_string()),
+            attribution,
         ))
     }
 

@@ -786,6 +786,94 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
 }
 
 #[test]
+fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let scalar = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("scalar SELECT should compile");
+    assert!(
+        matches!(
+            scalar,
+            crate::db::session::sql::CompiledSqlCommand::Select(_)
+        ),
+        "scalar SELECT should compile to lowered SELECT artifact",
+    );
+    let SqlStatementResult::Projection { row_count, .. } = session
+        .execute_compiled_sql::<SessionSqlEntity>(&scalar)
+        .expect("compiled scalar SELECT should execute")
+    else {
+        panic!("compiled scalar SELECT should emit projection rows");
+    };
+    assert_eq!(row_count, 1);
+
+    let grouped = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        )
+        .expect("grouped SELECT should compile");
+    assert!(
+        matches!(
+            grouped,
+            crate::db::session::sql::CompiledSqlCommand::Select(_)
+        ),
+        "grouped SELECT should stay on the lowered SELECT artifact family",
+    );
+    let SqlStatementResult::Grouped { row_count, .. } = session
+        .execute_compiled_sql::<SessionSqlEntity>(&grouped)
+        .expect("compiled grouped SELECT should execute")
+    else {
+        panic!("compiled grouped SELECT should emit grouped rows");
+    };
+    assert_eq!(row_count, 2);
+
+    let aggregate = session
+        .compile_sql_query::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect("global aggregate SELECT should compile");
+    assert!(
+        matches!(
+            aggregate,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "global aggregate SELECT should compile to dedicated aggregate artifact",
+    );
+    let SqlStatementResult::Projection { row_count, .. } = session
+        .execute_compiled_sql::<SessionSqlEntity>(&aggregate)
+        .expect("compiled aggregate SELECT should execute")
+    else {
+        panic!("compiled aggregate SELECT should emit projection rows");
+    };
+    assert_eq!(row_count, 1);
+
+    let explain = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("EXPLAIN SELECT should compile");
+    assert!(
+        matches!(
+            explain,
+            crate::db::session::sql::CompiledSqlCommand::Explain(_)
+        ),
+        "EXPLAIN SELECT should compile to lowered explain artifact",
+    );
+    let SqlStatementResult::Explain(rendered) = session
+        .execute_compiled_sql::<SessionSqlEntity>(&explain)
+        .expect("compiled EXPLAIN should execute")
+    else {
+        panic!("compiled EXPLAIN should emit explain text");
+    };
+    assert!(
+        !rendered.is_empty(),
+        "compiled EXPLAIN should render a non-empty explain payload",
+    );
+}
+
+#[test]
 fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
@@ -826,4 +914,288 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
     assert_eq!(columns, vec!["name".to_string()]);
     assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("INSERT should compile");
+    assert!(
+        matches!(
+            insert,
+            crate::db::session::sql::CompiledSqlCommand::Insert(_)
+        ),
+        "INSERT should compile to prepared INSERT artifact",
+    );
+    let SqlStatementResult::Count { row_count } = session
+        .execute_compiled_sql::<SessionSqlWriteEntity>(&insert)
+        .expect("compiled INSERT should execute")
+    else {
+        panic!("compiled INSERT should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let update = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        )
+        .expect("UPDATE should compile");
+    assert!(
+        matches!(
+            update,
+            crate::db::session::sql::CompiledSqlCommand::Update(_)
+        ),
+        "UPDATE should compile to prepared UPDATE artifact",
+    );
+    let SqlStatementResult::Count { row_count } = session
+        .execute_compiled_sql::<SessionSqlWriteEntity>(&update)
+        .expect("compiled UPDATE should execute")
+    else {
+        panic!("compiled UPDATE should emit count payload");
+    };
+    assert_eq!(row_count, 1);
+
+    let delete = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+        )
+        .expect("DELETE RETURNING should compile through update surface");
+    assert!(
+        matches!(
+            delete,
+            crate::db::session::sql::CompiledSqlCommand::Delete { .. }
+        ),
+        "DELETE RETURNING should compile to lowered DELETE artifact",
+    );
+    let SqlStatementResult::Projection { row_count, .. } = session
+        .execute_compiled_sql::<SessionSqlWriteEntity>(&delete)
+        .expect("compiled DELETE RETURNING should execute")
+    else {
+        panic!("compiled DELETE RETURNING should emit projection rows");
+    };
+    assert_eq!(row_count, 1);
+}
+
+#[test]
+fn sql_compile_cache_keeps_query_and_update_surfaces_separate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let insert_sql = "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)";
+    let insert = session
+        .compile_sql_update::<SessionSqlWriteEntity>(insert_sql)
+        .expect("update surface should compile INSERT into the session-local cache");
+    assert!(
+        matches!(
+            insert,
+            crate::db::session::sql::CompiledSqlCommand::Insert(_)
+        ),
+        "update surface should cache the INSERT artifact under the update lane only",
+    );
+
+    let err = session
+        .compile_sql_query::<SessionSqlWriteEntity>(insert_sql)
+        .expect_err("query surface must not reuse the cached update artifact");
+    assert!(
+        err.to_string()
+            .contains("execute_sql_query rejects INSERT; use execute_sql_update::<E>()"),
+        "query surface should preserve its own lane boundary after an update-surface cache fill",
+    );
+}
+
+#[test]
+fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new SQL session should start with an empty compiled-command cache",
+    );
+
+    let scalar = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("scalar SELECT should compile into the query-surface cache");
+    assert!(
+        matches!(
+            scalar,
+            crate::db::session::sql::CompiledSqlCommand::Select(_)
+        ),
+        "scalar SELECT should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "first query-surface compile should populate one cache entry",
+    );
+
+    let scalar_repeat = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("same scalar SELECT should compile from the existing cache entry");
+    assert!(
+        matches!(
+            scalar_repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select(_)
+        ),
+        "repeated scalar SELECT should still resolve to the same artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical query-surface compile must not grow the cache",
+    );
+
+    let explain = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+        )
+        .expect("EXPLAIN should compile into the query-surface cache");
+    assert!(
+        matches!(
+            explain,
+            crate::db::session::sql::CompiledSqlCommand::Explain(_)
+        ),
+        "EXPLAIN should use its dedicated compiled artifact family",
+    );
+
+    let describe = session
+        .compile_sql_query::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .expect("DESCRIBE should compile into the query-surface cache");
+    assert!(
+        matches!(
+            describe,
+            crate::db::session::sql::CompiledSqlCommand::DescribeEntity
+        ),
+        "DESCRIBE should cache its dedicated metadata artifact",
+    );
+
+    let show_indexes = session
+        .compile_sql_query::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
+        .expect("SHOW INDEXES should compile into the query-surface cache");
+    assert!(
+        matches!(
+            show_indexes,
+            crate::db::session::sql::CompiledSqlCommand::ShowIndexesEntity
+        ),
+        "SHOW INDEXES should cache its dedicated metadata artifact",
+    );
+
+    let show_columns = session
+        .compile_sql_query::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
+        .expect("SHOW COLUMNS should compile into the query-surface cache");
+    assert!(
+        matches!(
+            show_columns,
+            crate::db::session::sql::CompiledSqlCommand::ShowColumnsEntity
+        ),
+        "SHOW COLUMNS should cache its dedicated metadata artifact",
+    );
+
+    let show_entities = session
+        .compile_sql_query::<SessionSqlEntity>("SHOW ENTITIES")
+        .expect("SHOW ENTITIES should compile into the query-surface cache");
+    assert!(
+        matches!(
+            show_entities,
+            crate::db::session::sql::CompiledSqlCommand::ShowEntities
+        ),
+        "SHOW ENTITIES should cache its dedicated metadata artifact",
+    );
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        6,
+        "query-surface cache should retain distinct entries for SELECT, EXPLAIN, and metadata families",
+    );
+}
+
+#[test]
+fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new SQL session should start with an empty compiled-command cache",
+    );
+
+    let insert = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("INSERT should compile into the update-surface cache");
+    assert!(
+        matches!(
+            insert,
+            crate::db::session::sql::CompiledSqlCommand::Insert(_)
+        ),
+        "INSERT should cache the prepared INSERT artifact",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "first update-surface compile should populate one cache entry",
+    );
+
+    let insert_repeat = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        )
+        .expect("same INSERT should compile from the existing update-surface cache entry");
+    assert!(
+        matches!(
+            insert_repeat,
+            crate::db::session::sql::CompiledSqlCommand::Insert(_)
+        ),
+        "repeated INSERT should stay on the prepared INSERT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical update-surface compile must not grow the cache",
+    );
+
+    let update = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        )
+        .expect("UPDATE should compile into the update-surface cache");
+    assert!(
+        matches!(
+            update,
+            crate::db::session::sql::CompiledSqlCommand::Update(_)
+        ),
+        "UPDATE should cache the prepared UPDATE artifact",
+    );
+
+    let delete = session
+        .compile_sql_update::<SessionSqlWriteEntity>(
+            "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
+        )
+        .expect("DELETE RETURNING should compile into the update-surface cache");
+    assert!(
+        matches!(
+            delete,
+            crate::db::session::sql::CompiledSqlCommand::Delete { .. }
+        ),
+        "DELETE RETURNING should cache the lowered DELETE artifact",
+    );
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        3,
+        "update-surface cache should retain distinct entries for INSERT, UPDATE, and DELETE",
+    );
 }

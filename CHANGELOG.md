@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.80.x] 🧠 - 2026-04-14 - Compiled SQL Cache
+
+- `0.80.0` starts the compiled SQL cache line by splitting SQL work into an explicit compile step and execute step, so the engine now has one concrete semantic command artifact to reuse later without claiming any cache hits or repeated-query speedups yet.
+
+See detailed breakdown:
+[docs/changelog/0.80.md](docs/changelog/0.80.md)
+
+---
+
 ## [0.79.x] ⚖️ - 2026-04-13 - Predicate Expressions
 
+- `0.79.5` adds a dedicated SQL performance audit surface with its own canister, schema fixtures, and PocketIC harness, so recurring instruction checks can cover a broad stable matrix of SQL query shapes without reusing smoke or parity test fixtures for a second purpose.
 - `0.79.4` adds two more bounded predicate SQL ergonomics wins on the existing surface: plain-field `IS NOT TRUE` / `IS NOT FALSE`, plus field-bound `BETWEEN` / `NOT BETWEEN` so sibling-field range checks like `strength BETWEEN dexterity AND charisma` reuse the same compare-fields path instead of opening generic expression predicates.
 - `0.79.3` adds bounded prefix-only `ILIKE` and `NOT ILIKE` on the existing predicate SQL surface, so case-insensitive prefix filters can use familiar SQL spellings while still lowering to the same small casefolded starts-with path instead of opening broader pattern matching.
 - `0.79.2` adds a few small SQL ergonomics wins on the existing bounded predicate surface: prefix-only `NOT LIKE`, `<>` as an alias for `!=`, one trailing comma allowed in `IN (...)` / `NOT IN (...)`, and plain-field `IS TRUE` / `IS FALSE`, all reusing the current canonical predicate paths instead of opening broader expression support.

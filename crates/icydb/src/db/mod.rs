@@ -6,6 +6,9 @@ pub mod sql;
 
 // re-exports
 pub use icydb_core::db::Row;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[doc(hidden)]
+pub use icydb_core::db::SqlQueryExecutionAttribution;
 #[doc(hidden)]
 pub use icydb_core::db::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, EntityAuthority, PersistedRow,

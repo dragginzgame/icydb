@@ -519,7 +519,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 /// This keeps global aggregate EXPLAIN on the shared query/explain path until
 /// a typed boundary is strictly required.
 ///
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
     terminal: SqlGlobalAggregateTerminal,

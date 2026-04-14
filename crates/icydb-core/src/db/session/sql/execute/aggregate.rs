@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, QueryError,
+        DbSession, QueryError,
         executor::EntityAuthority,
         numeric::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
@@ -10,8 +10,7 @@ use crate::{
         session::sql::SqlStatementResult,
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-            SqlGlobalAggregateCommandCore, compile_sql_global_aggregate_command_core_from_prepared,
-            is_sql_global_aggregate_statement, prepare_sql_statement,
+            SqlGlobalAggregateCommandCore, is_sql_global_aggregate_statement,
         },
         sql::parser::SqlStatement,
     },
@@ -271,20 +270,5 @@ impl<C: CanisterKind> DbSession<C> {
             rows: vec![vec![value]],
             row_count: 1,
         })
-    }
-
-    // Compile one already-parsed SQL aggregate statement into the shared
-    // generic-free aggregate command used by unified statement/query surfaces.
-    pub(in crate::db::session::sql::execute) fn compile_sql_aggregate_command_core_for_authority(
-        statement: &SqlStatement,
-        authority: EntityAuthority,
-    ) -> Result<SqlGlobalAggregateCommandCore, QueryError> {
-        compile_sql_global_aggregate_command_core_from_prepared(
-            prepare_sql_statement(statement.clone(), authority.model().name())
-                .map_err(QueryError::from_sql_lowering_error)?,
-            authority.model(),
-            MissingRowPolicy::Ignore,
-        )
-        .map_err(QueryError::from_sql_lowering_error)
     }
 }

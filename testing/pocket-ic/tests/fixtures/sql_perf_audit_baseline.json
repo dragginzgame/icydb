@@ -1,68 +1,434 @@
 [
-  { "scenario_key": "user.pk.order_only.asc.limit2", "avg_local_instructions": 492117 },
-  { "scenario_key": "user.pk.order_only.desc.limit2", "avg_local_instructions": 490784 },
-  { "scenario_key": "user.pk.range.asc.limit2", "avg_local_instructions": 635442 },
-  { "scenario_key": "user.name.eq.order_id.limit1", "avg_local_instructions": 627452 },
-  { "scenario_key": "user.age.order_only.asc.limit3", "avg_local_instructions": 836636 },
-  { "scenario_key": "user.age.order_only.desc.limit3", "avg_local_instructions": 842914 },
-  { "scenario_key": "user.age.range.order.limit3", "avg_local_instructions": 1035153 },
-  { "scenario_key": "user.age.between.limit3", "avg_local_instructions": 1030085 },
-  { "scenario_key": "user.age.not_between.limit3", "avg_local_instructions": 952369 },
-  { "scenario_key": "user.scalar_arithmetic.age_minus_one.limit3", "avg_local_instructions": 840058 },
-  { "scenario_key": "user.scalar_round.age_div3.limit3", "avg_local_instructions": 919607 },
-  { "scenario_key": "user.name.order_only.asc.limit3", "avg_local_instructions": 757404 },
-  { "scenario_key": "user.name.covering_key_only.asc.limit3", "avg_local_instructions": 722186 },
-  { "scenario_key": "user.name.materialized_rank.asc.limit3", "avg_local_instructions": 753831 },
-  { "scenario_key": "user.name.order_only.desc.limit3", "avg_local_instructions": 743315 },
-  { "scenario_key": "user.name.range.limit3", "avg_local_instructions": 1750461 },
-  { "scenario_key": "user.name.like_prefix.limit3", "avg_local_instructions": 764696 },
-  { "scenario_key": "user.name.not_like_prefix.limit3", "avg_local_instructions": 744035 },
-  { "scenario_key": "user.name.lower.order_only.asc.limit3", "avg_local_instructions": 805730 },
-  { "scenario_key": "user.name.lower.covering_key_only.asc.limit3", "avg_local_instructions": 770221 },
-  { "scenario_key": "user.name.lower.materialized_rank.asc.limit3", "avg_local_instructions": 804619 },
-  { "scenario_key": "user.name.lower.order_only.desc.limit3", "avg_local_instructions": 787644 },
-  { "scenario_key": "user.name.lower.range.limit3", "avg_local_instructions": 1486208 },
-  { "scenario_key": "user.name.lower.like_prefix.limit3", "avg_local_instructions": 969795 },
-  { "scenario_key": "user.name.lower.not_like_prefix.limit3", "avg_local_instructions": 865745 },
-  { "scenario_key": "user.name.ilike_prefix.limit3", "avg_local_instructions": 936873 },
-  { "scenario_key": "user.name.not_ilike_prefix.limit3", "avg_local_instructions": 865567 },
-  { "scenario_key": "user.active.is_true.order_id.limit4", "avg_local_instructions": 773356 },
-  { "scenario_key": "user.active.is_not_true.order_id.limit4", "avg_local_instructions": 831436 },
-  { "scenario_key": "user.field_compare.age_gt_rank.limit3", "avg_local_instructions": 892839 },
-  { "scenario_key": "user.field_compare.age_eq_age_nat.limit3", "avg_local_instructions": 900479 },
-  { "scenario_key": "user.field_compare.age_eq_rank.limit3", "avg_local_instructions": 858403 },
-  { "scenario_key": "user.age.in.limit3", "avg_local_instructions": 1211114 },
-  { "scenario_key": "user.age.not_in.limit3", "avg_local_instructions": 866870 },
-  { "scenario_key": "user.field_between.rank_age_age.limit3", "avg_local_instructions": 1007782 },
-  { "scenario_key": "user.field_not_between.rank_age_age.limit3", "avg_local_instructions": 861841 },
-  { "scenario_key": "user.count.active_true", "avg_local_instructions": 717019 },
-  { "scenario_key": "user.grouped.age_count.limit10", "avg_local_instructions": 919380 },
-  { "scenario_key": "user.explain.lower.order.limit1", "avg_local_instructions": 276563 },
-  { "scenario_key": "user.explain_execution.lower.order.limit1", "avg_local_instructions": 522287 },
-  { "scenario_key": "user.explain_json.lower.order.limit1", "avg_local_instructions": 321100 },
-  { "scenario_key": "user.describe", "avg_local_instructions": 28371 },
-  { "scenario_key": "user.show_indexes", "avg_local_instructions": 37359 },
-  { "scenario_key": "user.show_columns", "avg_local_instructions": 43559 },
-  { "scenario_key": "user.show_tables", "avg_local_instructions": 15334 },
-  { "scenario_key": "account.active.order_handle.asc.limit3", "avg_local_instructions": 1491663 },
-  { "scenario_key": "account.active.order_handle.asc.limit2.offset1", "avg_local_instructions": 1157396 },
-  { "scenario_key": "account.active.order_handle.desc.limit3", "avg_local_instructions": 1498431 },
-  { "scenario_key": "account.active.ilike_br.limit3", "avg_local_instructions": 1038493 },
-  { "scenario_key": "account.active.not_ilike_br.limit3", "avg_local_instructions": 990817 },
-  { "scenario_key": "account.active.lower.order_handle.asc.limit3", "avg_local_instructions": 1568159 },
-  { "scenario_key": "account.active.lower.covering_key_only.asc.limit3", "avg_local_instructions": 1519900 },
-  { "scenario_key": "account.active.lower.materialized_score.asc.limit3", "avg_local_instructions": 1561286 },
-  { "scenario_key": "account.active.lower.order_handle.asc.limit2.offset1", "avg_local_instructions": 1225916 },
-  { "scenario_key": "account.active.lower.order_handle.desc.limit3", "avg_local_instructions": 1563843 },
-  { "scenario_key": "account.active.lower.handle_prefix.limit3", "avg_local_instructions": 1064936 },
-  { "scenario_key": "account.active.handle_prefix.limit3", "avg_local_instructions": 893173 },
-  { "scenario_key": "account.tier.in.limit3", "avg_local_instructions": 1563811 },
-  { "scenario_key": "account.tier.not_in.limit3", "avg_local_instructions": 1032677 },
-  { "scenario_key": "account.tier_gold.order_handle.limit3", "avg_local_instructions": 1047644 },
-  { "scenario_key": "account.tier_gold.lower.order_handle.limit3", "avg_local_instructions": 1093928 },
-  { "scenario_key": "account.tier_gold.lower.handle_prefix.limit3", "avg_local_instructions": 1216756 },
-  { "scenario_key": "account.tier_gold.handle_prefix.limit3", "avg_local_instructions": 1049586 },
-  { "scenario_key": "account.count.active_true", "avg_local_instructions": 706353 },
-  { "scenario_key": "account.describe", "avg_local_instructions": 29411 },
-  { "scenario_key": "account.show_indexes", "avg_local_instructions": 43171 }
+  {
+    "scenario_key": "user.pk.order_only.asc.limit2",
+    "avg_compile_local_instructions": 103429,
+    "avg_execute_local_instructions": 419085,
+    "avg_local_instructions": 522514
+  },
+  {
+    "scenario_key": "user.pk.order_only.desc.limit2",
+    "avg_compile_local_instructions": 103462,
+    "avg_execute_local_instructions": 417292,
+    "avg_local_instructions": 520754
+  },
+  {
+    "scenario_key": "user.pk.range.asc.limit2",
+    "avg_compile_local_instructions": 114582,
+    "avg_execute_local_instructions": 550602,
+    "avg_local_instructions": 665184
+  },
+  {
+    "scenario_key": "user.name.eq.order_id.limit1",
+    "avg_compile_local_instructions": 115918,
+    "avg_execute_local_instructions": 545764,
+    "avg_local_instructions": 661682
+  },
+  {
+    "scenario_key": "user.age.order_only.asc.limit3",
+    "avg_compile_local_instructions": 108883,
+    "avg_execute_local_instructions": 752435,
+    "avg_local_instructions": 861318
+  },
+  {
+    "scenario_key": "user.age.order_only.desc.limit3",
+    "avg_compile_local_instructions": 108988,
+    "avg_execute_local_instructions": 758748,
+    "avg_local_instructions": 867736
+  },
+  {
+    "scenario_key": "user.age.range.order.limit3",
+    "avg_compile_local_instructions": 135253,
+    "avg_execute_local_instructions": 925185,
+    "avg_local_instructions": 1060438
+  },
+  {
+    "scenario_key": "user.age.between.limit3",
+    "avg_compile_local_instructions": 133953,
+    "avg_execute_local_instructions": 918878,
+    "avg_local_instructions": 1052831
+  },
+  {
+    "scenario_key": "user.age.not_between.limit3",
+    "avg_compile_local_instructions": 130016,
+    "avg_execute_local_instructions": 858009,
+    "avg_local_instructions": 988025
+  },
+  {
+    "scenario_key": "user.scalar_arithmetic.age_minus_one.limit3",
+    "avg_compile_local_instructions": 110386,
+    "avg_execute_local_instructions": 760994,
+    "avg_local_instructions": 871380
+  },
+  {
+    "scenario_key": "user.scalar_round.age_div3.limit3",
+    "avg_compile_local_instructions": 125115,
+    "avg_execute_local_instructions": 815536,
+    "avg_local_instructions": 940651
+  },
+  {
+    "scenario_key": "user.name.order_only.asc.limit3",
+    "avg_compile_local_instructions": 109181,
+    "avg_execute_local_instructions": 674188,
+    "avg_local_instructions": 783369
+  },
+  {
+    "scenario_key": "user.name.covering_key_only.asc.limit3",
+    "avg_compile_local_instructions": 100031,
+    "avg_execute_local_instructions": 650593,
+    "avg_local_instructions": 750624
+  },
+  {
+    "scenario_key": "user.name.materialized_rank.asc.limit3",
+    "avg_compile_local_instructions": 109161,
+    "avg_execute_local_instructions": 672458,
+    "avg_local_instructions": 781619
+  },
+  {
+    "scenario_key": "user.name.order_only.desc.limit3",
+    "avg_compile_local_instructions": 109268,
+    "avg_execute_local_instructions": 660835,
+    "avg_local_instructions": 770103
+  },
+  {
+    "scenario_key": "user.name.range.limit3",
+    "avg_compile_local_instructions": 137191,
+    "avg_execute_local_instructions": 1646244,
+    "avg_local_instructions": 1783435
+  },
+  {
+    "scenario_key": "user.name.like_prefix.limit3",
+    "avg_compile_local_instructions": 124393,
+    "avg_execute_local_instructions": 671884,
+    "avg_local_instructions": 796277
+  },
+  {
+    "scenario_key": "user.name.not_like_prefix.limit3",
+    "avg_compile_local_instructions": 122210,
+    "avg_execute_local_instructions": 647453,
+    "avg_local_instructions": 769663
+  },
+  {
+    "scenario_key": "user.name.lower.order_only.asc.limit3",
+    "avg_compile_local_instructions": 120769,
+    "avg_execute_local_instructions": 709156,
+    "avg_local_instructions": 829925
+  },
+  {
+    "scenario_key": "user.name.lower.covering_key_only.asc.limit3",
+    "avg_compile_local_instructions": 110651,
+    "avg_execute_local_instructions": 688083,
+    "avg_local_instructions": 798734
+  },
+  {
+    "scenario_key": "user.name.lower.materialized_rank.asc.limit3",
+    "avg_compile_local_instructions": 120749,
+    "avg_execute_local_instructions": 708318,
+    "avg_local_instructions": 829067
+  },
+  {
+    "scenario_key": "user.name.lower.order_only.desc.limit3",
+    "avg_compile_local_instructions": 120814,
+    "avg_execute_local_instructions": 689984,
+    "avg_local_instructions": 810798
+  },
+  {
+    "scenario_key": "user.name.lower.range.limit3",
+    "avg_compile_local_instructions": 152463,
+    "avg_execute_local_instructions": 1360628,
+    "avg_local_instructions": 1513091
+  },
+  {
+    "scenario_key": "user.name.lower.like_prefix.limit3",
+    "avg_compile_local_instructions": 136767,
+    "avg_execute_local_instructions": 857005,
+    "avg_local_instructions": 993772
+  },
+  {
+    "scenario_key": "user.name.lower.not_like_prefix.limit3",
+    "avg_compile_local_instructions": 124967,
+    "avg_execute_local_instructions": 768623,
+    "avg_local_instructions": 893590
+  },
+  {
+    "scenario_key": "user.name.ilike_prefix.limit3",
+    "avg_compile_local_instructions": 117418,
+    "avg_execute_local_instructions": 845808,
+    "avg_local_instructions": 963226
+  },
+  {
+    "scenario_key": "user.name.not_ilike_prefix.limit3",
+    "avg_compile_local_instructions": 122501,
+    "avg_execute_local_instructions": 768329,
+    "avg_local_instructions": 890830
+  },
+  {
+    "scenario_key": "user.active.is_true.order_id.limit4",
+    "avg_compile_local_instructions": 116069,
+    "avg_execute_local_instructions": 678918,
+    "avg_local_instructions": 794987
+  },
+  {
+    "scenario_key": "user.active.is_not_true.order_id.limit4",
+    "avg_compile_local_instructions": 120987,
+    "avg_execute_local_instructions": 741902,
+    "avg_local_instructions": 862889
+  },
+  {
+    "scenario_key": "user.field_compare.age_gt_rank.limit3",
+    "avg_compile_local_instructions": 124157,
+    "avg_execute_local_instructions": 791612,
+    "avg_local_instructions": 915769
+  },
+  {
+    "scenario_key": "user.field_compare.age_eq_age_nat.limit3",
+    "avg_compile_local_instructions": 124350,
+    "avg_execute_local_instructions": 799276,
+    "avg_local_instructions": 923626
+  },
+  {
+    "scenario_key": "user.field_compare.age_eq_rank.limit3",
+    "avg_compile_local_instructions": 124142,
+    "avg_execute_local_instructions": 762823,
+    "avg_local_instructions": 886965
+  },
+  {
+    "scenario_key": "user.age.in.limit3",
+    "avg_compile_local_instructions": 130933,
+    "avg_execute_local_instructions": 1109707,
+    "avg_local_instructions": 1240640
+  },
+  {
+    "scenario_key": "user.age.not_in.limit3",
+    "avg_compile_local_instructions": 126728,
+    "avg_execute_local_instructions": 769236,
+    "avg_local_instructions": 895964
+  },
+  {
+    "scenario_key": "user.field_between.rank_age_age.limit3",
+    "avg_compile_local_instructions": 138095,
+    "avg_execute_local_instructions": 899612,
+    "avg_local_instructions": 1037707
+  },
+  {
+    "scenario_key": "user.field_not_between.rank_age_age.limit3",
+    "avg_compile_local_instructions": 134101,
+    "avg_execute_local_instructions": 750774,
+    "avg_local_instructions": 884875
+  },
+  {
+    "scenario_key": "user.count.active_true",
+    "avg_compile_local_instructions": 91854,
+    "avg_execute_local_instructions": 662185,
+    "avg_local_instructions": 754039
+  },
+  {
+    "scenario_key": "user.grouped.age_count.limit10",
+    "avg_compile_local_instructions": 117844,
+    "avg_execute_local_instructions": 818534,
+    "avg_local_instructions": 936378
+  },
+  {
+    "scenario_key": "user.explain.lower.order.limit1",
+    "avg_compile_local_instructions": 127231,
+    "avg_execute_local_instructions": 177852,
+    "avg_local_instructions": 305083
+  },
+  {
+    "scenario_key": "user.explain_execution.lower.order.limit1",
+    "avg_compile_local_instructions": 129640,
+    "avg_execute_local_instructions": 424905,
+    "avg_local_instructions": 554545
+  },
+  {
+    "scenario_key": "user.explain_json.lower.order.limit1",
+    "avg_compile_local_instructions": 129139,
+    "avg_execute_local_instructions": 225356,
+    "avg_local_instructions": 354495
+  },
+  {
+    "scenario_key": "user.describe",
+    "avg_compile_local_instructions": 47881,
+    "avg_execute_local_instructions": 13801,
+    "avg_local_instructions": 61682
+  },
+  {
+    "scenario_key": "user.show_indexes",
+    "avg_compile_local_instructions": 49704,
+    "avg_execute_local_instructions": 21402,
+    "avg_local_instructions": 71106
+  },
+  {
+    "scenario_key": "user.show_columns",
+    "avg_compile_local_instructions": 49689,
+    "avg_execute_local_instructions": 27081,
+    "avg_local_instructions": 76770
+  },
+  {
+    "scenario_key": "user.show_tables",
+    "avg_compile_local_instructions": 44022,
+    "avg_execute_local_instructions": 1572,
+    "avg_local_instructions": 45594
+  },
+  {
+    "scenario_key": "account.active.order_handle.asc.limit3",
+    "avg_compile_local_instructions": 185818,
+    "avg_execute_local_instructions": 1390878,
+    "avg_local_instructions": 1576696
+  },
+  {
+    "scenario_key": "account.active.order_handle.asc.limit2.offset1",
+    "avg_compile_local_instructions": 189102,
+    "avg_execute_local_instructions": 1060451,
+    "avg_local_instructions": 1249553
+  },
+  {
+    "scenario_key": "account.active.order_handle.desc.limit3",
+    "avg_compile_local_instructions": 185996,
+    "avg_execute_local_instructions": 1393564,
+    "avg_local_instructions": 1579560
+  },
+  {
+    "scenario_key": "account.active.ilike_br.limit3",
+    "avg_compile_local_instructions": 196296,
+    "avg_execute_local_instructions": 931856,
+    "avg_local_instructions": 1128152
+  },
+  {
+    "scenario_key": "account.active.not_ilike_br.limit3",
+    "avg_compile_local_instructions": 200025,
+    "avg_execute_local_instructions": 888774,
+    "avg_local_instructions": 1088799
+  },
+  {
+    "scenario_key": "account.active.lower.order_handle.asc.limit3",
+    "avg_compile_local_instructions": 196170,
+    "avg_execute_local_instructions": 1451051,
+    "avg_local_instructions": 1647221
+  },
+  {
+    "scenario_key": "account.active.lower.covering_key_only.asc.limit3",
+    "avg_compile_local_instructions": 186781,
+    "avg_execute_local_instructions": 1421292,
+    "avg_local_instructions": 1608073
+  },
+  {
+    "scenario_key": "account.active.lower.materialized_score.asc.limit3",
+    "avg_compile_local_instructions": 196171,
+    "avg_execute_local_instructions": 1448817,
+    "avg_local_instructions": 1644988
+  },
+  {
+    "scenario_key": "account.active.lower.order_handle.asc.limit2.offset1",
+    "avg_compile_local_instructions": 199281,
+    "avg_execute_local_instructions": 1115755,
+    "avg_local_instructions": 1315036
+  },
+  {
+    "scenario_key": "account.active.lower.order_handle.desc.limit3",
+    "avg_compile_local_instructions": 196271,
+    "avg_execute_local_instructions": 1448359,
+    "avg_local_instructions": 1644630
+  },
+  {
+    "scenario_key": "account.active.lower.handle_prefix.limit3",
+    "avg_compile_local_instructions": 214777,
+    "avg_execute_local_instructions": 937891,
+    "avg_local_instructions": 1152668
+  },
+  {
+    "scenario_key": "account.active.handle_prefix.limit3",
+    "avg_compile_local_instructions": 202349,
+    "avg_execute_local_instructions": 790261,
+    "avg_local_instructions": 992610
+  },
+  {
+    "scenario_key": "account.tier.in.limit3",
+    "avg_compile_local_instructions": 213993,
+    "avg_execute_local_instructions": 1443956,
+    "avg_local_instructions": 1657949
+  },
+  {
+    "scenario_key": "account.tier.not_in.limit3",
+    "avg_compile_local_instructions": 203683,
+    "avg_execute_local_instructions": 931705,
+    "avg_local_instructions": 1135388
+  },
+  {
+    "scenario_key": "account.tier_gold.order_handle.limit3",
+    "avg_compile_local_instructions": 200697,
+    "avg_execute_local_instructions": 941481,
+    "avg_local_instructions": 1142178
+  },
+  {
+    "scenario_key": "account.tier_gold.lower.order_handle.limit3",
+    "avg_compile_local_instructions": 210612,
+    "avg_execute_local_instructions": 985757,
+    "avg_local_instructions": 1196369
+  },
+  {
+    "scenario_key": "account.tier_gold.lower.handle_prefix.limit3",
+    "avg_compile_local_instructions": 230251,
+    "avg_execute_local_instructions": 1092858,
+    "avg_local_instructions": 1323109
+  },
+  {
+    "scenario_key": "account.tier_gold.handle_prefix.limit3",
+    "avg_compile_local_instructions": 216900,
+    "avg_execute_local_instructions": 938922,
+    "avg_local_instructions": 1155822
+  },
+  {
+    "scenario_key": "account.count.active_true",
+    "avg_compile_local_instructions": 154922,
+    "avg_execute_local_instructions": 649171,
+    "avg_local_instructions": 804093
+  },
+  {
+    "scenario_key": "account.describe",
+    "avg_compile_local_instructions": 110951,
+    "avg_execute_local_instructions": 14587,
+    "avg_local_instructions": 125538
+  },
+  {
+    "scenario_key": "account.show_indexes",
+    "avg_compile_local_instructions": 112833,
+    "avg_execute_local_instructions": 27001,
+    "avg_local_instructions": 139834
+  },
+  {
+    "scenario_key": "repeat.user.pk.order_only.asc.limit2.runs10",
+    "avg_compile_local_instructions": 46124,
+    "avg_execute_local_instructions": 418397,
+    "avg_local_instructions": 464521
+  },
+  {
+    "scenario_key": "repeat.user.pk.order_only.asc.limit2.runs100",
+    "avg_compile_local_instructions": 40399,
+    "avg_execute_local_instructions": 418326,
+    "avg_local_instructions": 458725
+  },
+  {
+    "scenario_key": "repeat.user.name.lower.order_only.asc.limit3.runs10",
+    "avg_compile_local_instructions": 48786,
+    "avg_execute_local_instructions": 710600,
+    "avg_local_instructions": 759386
+  },
+  {
+    "scenario_key": "repeat.user.name.lower.order_only.asc.limit3.runs100",
+    "avg_compile_local_instructions": 41602,
+    "avg_execute_local_instructions": 710873,
+    "avg_local_instructions": 752476
+  },
+  {
+    "scenario_key": "repeat.user.grouped.age_count.limit10.runs10",
+    "avg_compile_local_instructions": 48057,
+    "avg_execute_local_instructions": 819667,
+    "avg_local_instructions": 867725
+  },
+  {
+    "scenario_key": "repeat.user.grouped.age_count.limit10.runs100",
+    "avg_compile_local_instructions": 41082,
+    "avg_execute_local_instructions": 819750,
+    "avg_local_instructions": 860832
+  }
 ]

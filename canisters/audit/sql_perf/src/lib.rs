@@ -10,19 +10,90 @@ use candid::CandidType;
 use canic_cdk::query;
 use canic_cdk::update;
 #[cfg(feature = "sql")]
-use icydb::db::sql::SqlQueryResult;
-use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditUser};
+use icydb::{
+    db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
+    error::{ErrorKind, ErrorOrigin, QueryErrorKind},
+};
+use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditCanister, PerfAuditUser};
 
 icydb::start!();
 
 // SqlQueryPerfResult
 //
 // Dedicated audit envelope that preserves the SQL result payload while
-// attaching one canister-local instruction delta for the measured query call.
+// attaching one compile/execute instruction sample for the measured query call
+// or one average sample across a same-call loop.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
-    instructions: u64,
+    attribution: SqlQueryExecutionAttribution,
+}
+
+#[cfg(feature = "sql")]
+fn invalid_perf_loop_runs_error() -> icydb::Error {
+    icydb::Error::new(
+        ErrorKind::Query(QueryErrorKind::Validate),
+        ErrorOrigin::Query,
+        "sql perf loop requires runs > 0",
+    )
+}
+
+#[cfg(feature = "sql")]
+fn average_attribution(
+    total_compile_local_instructions: u64,
+    total_execute_local_instructions: u64,
+    total_local_instructions: u64,
+    runs: u32,
+) -> SqlQueryExecutionAttribution {
+    let divisor = u64::from(runs);
+
+    SqlQueryExecutionAttribution {
+        compile_local_instructions: total_compile_local_instructions / divisor,
+        execute_local_instructions: total_execute_local_instructions / divisor,
+        total_local_instructions: total_local_instructions / divisor,
+    }
+}
+
+#[cfg(feature = "sql")]
+fn query_entity_with_perf_loop<E>(sql: &str, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error>
+where
+    E: icydb::db::PersistedRow<Canister = PerfAuditCanister> + icydb::traits::EntityValue,
+{
+    if runs == 0 {
+        return Err(invalid_perf_loop_runs_error());
+    }
+
+    let session = db();
+    let mut first_result = None;
+    let mut total_compile_local_instructions = 0_u64;
+    let mut total_execute_local_instructions = 0_u64;
+    let mut total_local_instructions = 0_u64;
+
+    // Execute the same SQL through one session repeatedly so a real
+    // session-local compiled-command cache can move the compile side honestly.
+    for _ in 0..runs {
+        let (result, attribution) = session.execute_sql_query_with_attribution::<E>(sql)?;
+        if first_result.is_none() {
+            first_result = Some(result);
+        }
+
+        total_compile_local_instructions =
+            total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_execute_local_instructions =
+            total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
+        total_local_instructions =
+            total_local_instructions.saturating_add(attribution.total_local_instructions);
+    }
+
+    Ok(SqlQueryPerfResult {
+        result: first_result.expect("perf loop with runs > 0 should record one result"),
+        attribution: average_attribution(
+            total_compile_local_instructions,
+            total_execute_local_instructions,
+            total_local_instructions,
+            runs,
+        ),
+    })
 }
 
 /// Clear all dedicated perf fixture rows from this canister.
@@ -56,14 +127,21 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditUser>(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
-        instructions,
+        attribution,
     })
+}
+
+/// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
+/// query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
+    query_entity_with_perf_loop::<PerfAuditUser>(sql.as_str(), runs)
 }
 
 /// Execute one PerfAuditAccount-only SQL query.
@@ -78,14 +156,24 @@ fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<PerfAuditAccount>(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
 
     Ok(SqlQueryPerfResult {
         result,
-        instructions,
+        attribution,
     })
+}
+
+/// Execute the same PerfAuditAccount-only SQL query repeatedly inside one
+/// canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_account_loop_with_perf(
+    sql: String,
+    runs: u32,
+) -> Result<SqlQueryPerfResult, icydb::Error> {
+    query_entity_with_perf_loop::<PerfAuditAccount>(sql.as_str(), runs)
 }
 
 /// Build the deterministic user fixture batch used by the perf audit.

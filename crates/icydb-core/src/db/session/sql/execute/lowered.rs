@@ -5,12 +5,11 @@
 //! Boundary: keeps lowered-command execution bridges explicit and authority-aware.
 
 #[cfg(feature = "perf-attribution")]
-use crate::db::session::sql::{
-    SqlProjectionTextExecutorAttribution,
-    projection::{
-        attribute_sql_projection_text_rows_for_canister, projection_labels_from_projection_spec,
-    },
+use crate::db::session::sql::projection::{
+    SqlProjectionTextExecutorAttribution, attribute_sql_projection_text_rows_for_canister,
 };
+#[cfg(feature = "perf-attribution")]
+use crate::db::sql::lowering::{LoweredSqlCommand, LoweredSqlQuery};
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -52,7 +51,11 @@ pub struct LoweredSqlStatementExecutorAttribution {
 }
 
 #[cfg(feature = "perf-attribution")]
-const fn read_local_instruction_counter() -> u64 {
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
+)]
+fn read_local_instruction_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
         canic_cdk::api::performance_counter(1)

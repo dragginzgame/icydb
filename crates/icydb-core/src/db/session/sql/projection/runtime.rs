@@ -131,8 +131,9 @@ where
 
     // Phase 2: execute the scalar runtime and preserve one structural slot-row
     // page for later SQL-specific shaping.
+    let runtime_plan = plan.clone();
     let (scalar_runtime_local_instructions, page) = measure_structural_result(|| {
-        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan)
+        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, runtime_plan)
     });
     let page = page?;
 

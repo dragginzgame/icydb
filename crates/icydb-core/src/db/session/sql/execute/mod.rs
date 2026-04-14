@@ -16,19 +16,15 @@ use crate::{
         executor::EntityAuthority,
         query::{intent::StructuralQuery, plan::AccessPlannedQuery},
         session::sql::{
-            SqlStatementResult,
+            CompiledSqlCommand, SqlStatementResult,
             projection::{
                 SqlProjectionPayload, execute_sql_projection_rows_for_canister,
                 projection_labels_from_projection_spec,
             },
         },
-        sql::parser::SqlStatement,
     },
     traits::{CanisterKind, EntityValue},
 };
-
-#[cfg(feature = "perf-attribution")]
-pub use lowered::LoweredSqlStatementExecutorAttribution;
 
 impl<C: CanisterKind> DbSession<C> {
     // Build the shared structural SQL projection execution inputs once so
@@ -69,59 +65,84 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(SqlProjectionPayload::new(columns, rows, row_count))
     }
 
-    /// Execute one parsed reduced SQL statement into one unified SQL payload.
-    pub(in crate::db) fn execute_sql_statement_inner<E>(
+    /// Execute one compiled reduced SQL statement into one unified SQL payload.
+    pub(in crate::db) fn execute_compiled_sql<E>(
         &self,
-        sql_statement: &SqlStatement,
+        compiled: &CompiledSqlCommand,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match sql_statement {
-            SqlStatement::Select(_) | SqlStatement::Delete(_) => self
-                .execute_sql_query_route_for_authority(
-                    sql_statement,
-                    EntityAuthority::for_type::<E>(),
-                    "execute_sql_statement accepts SELECT or DELETE only",
-                    |session, select, authority, grouped_surface| {
-                        if grouped_surface {
-                            return session.execute_lowered_sql_grouped_statement_select_core(
-                                select, authority,
-                            );
-                        }
+        let authority = EntityAuthority::for_type::<E>();
 
-                        let payload =
-                            session.execute_lowered_sql_projection_core(select, authority)?;
-                        Ok(payload.into_statement_result())
-                    },
-                    |session, delete, _authority| {
-                        let SqlStatement::Delete(statement) = sql_statement else {
-                            return Err(QueryError::invariant(
-                                "DELETE SQL route must carry parsed DELETE statement",
-                            ));
-                        };
+        match compiled {
+            CompiledSqlCommand::Select(select) => {
+                if select.shape() == crate::db::sql::lowering::LoweredSelectQueryShape::Grouped {
+                    return self.execute_lowered_sql_grouped_statement_select_core(
+                        select.clone(),
+                        authority,
+                    );
+                }
 
-                        session.execute_sql_delete_statement::<E>(delete, statement)
-                    },
-                ),
-            SqlStatement::Insert(statement) => self.execute_sql_insert_statement::<E>(statement),
-            SqlStatement::Update(statement) => self.execute_sql_update_statement::<E>(statement),
-            SqlStatement::Explain(_) => self.execute_sql_explain_route_for_authority(
-                sql_statement,
-                EntityAuthority::for_type::<E>(),
+                let payload =
+                    self.execute_lowered_sql_projection_core(select.clone(), authority)?;
+
+                Ok(payload.into_statement_result())
+            }
+            CompiledSqlCommand::Delete { query, statement } => {
+                self.execute_sql_delete_statement::<E>(query.clone(), statement)
+            }
+            CompiledSqlCommand::GlobalAggregate {
+                command,
+                label_override,
+            } => self.execute_global_aggregate_statement_for_authority(
+                command.clone(),
+                authority,
+                label_override.clone(),
             ),
-            SqlStatement::Describe(_) => {
+            CompiledSqlCommand::Explain(lowered) => {
+                if let Some(explain) =
+                    self.explain_lowered_sql_execution_for_authority(lowered, authority)?
+                {
+                    return Ok(SqlStatementResult::Explain(explain));
+                }
+
+                self.explain_lowered_sql_for_authority(lowered, authority)
+                    .map(SqlStatementResult::Explain)
+            }
+            CompiledSqlCommand::Insert(statement) => {
+                self.execute_sql_insert_statement::<E>(statement)
+            }
+            CompiledSqlCommand::Update(statement) => {
+                self.execute_sql_update_statement::<E>(statement)
+            }
+            CompiledSqlCommand::DescribeEntity => {
                 Ok(SqlStatementResult::Describe(self.describe_entity::<E>()))
             }
-            SqlStatement::ShowIndexes(_) => {
+            CompiledSqlCommand::ShowIndexesEntity => {
                 Ok(SqlStatementResult::ShowIndexes(self.show_indexes::<E>()))
             }
-            SqlStatement::ShowColumns(_) => {
+            CompiledSqlCommand::ShowColumnsEntity => {
                 Ok(SqlStatementResult::ShowColumns(self.show_columns::<E>()))
             }
-            SqlStatement::ShowEntities(_) => {
+            CompiledSqlCommand::ShowEntities => {
                 Ok(SqlStatementResult::ShowEntities(self.show_entities()))
             }
         }
+    }
+
+    /// Compile and then execute one parsed reduced SQL statement into one
+    /// unified SQL payload for session-owned tests.
+    #[cfg(test)]
+    pub(in crate::db) fn execute_sql_statement_inner<E>(
+        &self,
+        sql_statement: &crate::db::sql::parser::SqlStatement,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let compiled = Self::compile_sql_statement_inner::<E>(sql_statement)?;
+
+        self.execute_compiled_sql::<E>(&compiled)
     }
 }

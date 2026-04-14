@@ -6,16 +6,19 @@ use std::{
 
 use candid::CandidType;
 use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
-use icydb::{Error, db::sql::SqlQueryResult};
+use icydb::{
+    Error,
+    db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
+};
 use icydb_testing_integration::build_canister;
 use serde::{Deserialize, Serialize};
 
 // Mirror the dedicated perf-audit query envelope so PocketIC can decode the
-// query result plus the canister-local instruction delta.
+// query result plus the compile/execute instruction split from the canister.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
-    instructions: u64,
+    attribution: SqlQueryExecutionAttribution,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,12 +43,17 @@ struct SqlPerfScenario {
     index_family: &'static str,
     query_family: &'static str,
     sql: &'static str,
-    repeat_count: usize,
+    sample_count: usize,
+    query_loop_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct SqlPerfBaselineRow {
     scenario_key: String,
+    #[serde(default)]
+    avg_compile_local_instructions: u64,
+    #[serde(default)]
+    avg_execute_local_instructions: u64,
     avg_local_instructions: u64,
 }
 
@@ -63,8 +71,12 @@ struct SqlPerfScenarioSample {
     index_family: String,
     query_family: String,
     sql: String,
-    repeat_count: usize,
+    query_loop_count: usize,
+    baseline_avg_compile_local_instructions: Option<u64>,
+    baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
+    avg_compile_local_instructions: u64,
+    avg_execute_local_instructions: u64,
     first_local_instructions: u64,
     min_local_instructions: u64,
     max_local_instructions: u64,
@@ -89,7 +101,27 @@ const fn scenario(
         index_family,
         query_family,
         sql,
-        repeat_count: 5,
+        sample_count: 5,
+        query_loop_count: 1,
+    }
+}
+
+const fn repeat_scenario(
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    index_family: &'static str,
+    query_family: &'static str,
+    sql: &'static str,
+    query_loop_count: usize,
+) -> SqlPerfScenario {
+    SqlPerfScenario {
+        scenario_key,
+        surface,
+        index_family,
+        query_family,
+        sql,
+        sample_count: 5,
+        query_loop_count,
     }
 }
 
@@ -125,9 +157,10 @@ fn query_surface_with_perf(
     fixture: &StandaloneCanisterFixture,
     surface: SqlPerfSurface,
     sql: &str,
+    query_loop_count: usize,
 ) -> Result<SqlQueryPerfResult, Error> {
     match surface {
-        SqlPerfSurface::User => fixture
+        SqlPerfSurface::User if query_loop_count == 1 => fixture
             .pic()
             .query_call(
                 fixture.canister_id(),
@@ -135,7 +168,19 @@ fn query_surface_with_perf(
                 (sql.to_string(),),
             )
             .expect("query_user_with_perf should decode"),
-        SqlPerfSurface::Account => fixture
+        SqlPerfSurface::User => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_user_loop_with_perf",
+                (
+                    sql.to_string(),
+                    u32::try_from(query_loop_count)
+                        .expect("query loop count should fit into canister argument"),
+                ),
+            )
+            .expect("query_user_loop_with_perf should decode"),
+        SqlPerfSurface::Account if query_loop_count == 1 => fixture
             .pic()
             .query_call(
                 fixture.canister_id(),
@@ -143,6 +188,18 @@ fn query_surface_with_perf(
                 (sql.to_string(),),
             )
             .expect("query_account_with_perf should decode"),
+        SqlPerfSurface::Account => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_account_loop_with_perf",
+                (
+                    sql.to_string(),
+                    u32::try_from(query_loop_count)
+                        .expect("query loop count should fit into canister argument"),
+                ),
+            )
+            .expect("query_account_loop_with_perf should decode"),
     }
 }
 
@@ -198,11 +255,14 @@ fn baseline_path() -> PathBuf {
         .join("sql_perf_audit_baseline.json")
 }
 
-fn load_baseline_rows() -> HashMap<String, u64> {
+fn load_baseline_rows() -> HashMap<String, SqlPerfBaselineRow> {
     let path = baseline_path();
     let Ok(raw) = fs::read_to_string(&path) else {
         return HashMap::new();
     };
+    if raw.trim().is_empty() {
+        return HashMap::new();
+    }
     let rows: Vec<SqlPerfBaselineRow> = serde_json::from_str(&raw).unwrap_or_else(|err| {
         panic!(
             "sql perf baseline should parse at '{}': {err}",
@@ -211,34 +271,79 @@ fn load_baseline_rows() -> HashMap<String, u64> {
     });
 
     rows.into_iter()
-        .map(|row| (row.scenario_key, row.avg_local_instructions))
+        .map(|row| (row.scenario_key.clone(), row))
         .collect()
+}
+
+fn baseline_rows_from_samples(samples: &[SqlPerfScenarioSample]) -> Vec<SqlPerfBaselineRow> {
+    samples
+        .iter()
+        .map(|sample| SqlPerfBaselineRow {
+            scenario_key: sample.scenario_key.clone(),
+            avg_compile_local_instructions: sample.avg_compile_local_instructions,
+            avg_execute_local_instructions: sample.avg_execute_local_instructions,
+            avg_local_instructions: sample.avg_local_instructions,
+        })
+        .collect()
+}
+
+fn maybe_write_blessed_baseline(samples: &[SqlPerfScenarioSample]) {
+    if std::env::var_os("SQL_PERF_AUDIT_BLESS").is_none() {
+        return;
+    }
+
+    let path = baseline_path();
+    let rows = baseline_rows_from_samples(samples);
+    let json = serde_json::to_string_pretty(&rows)
+        .expect("sql perf baseline rows should serialize to pretty JSON");
+    fs::write(&path, json).unwrap_or_else(|err| {
+        panic!(
+            "sql perf baseline should write to '{}': {err}",
+            path.display()
+        )
+    });
 }
 
 fn sample_perf_scenario(
     fixture: &StandaloneCanisterFixture,
-    baseline: &HashMap<String, u64>,
+    baseline: &HashMap<String, SqlPerfBaselineRow>,
     scenario: SqlPerfScenario,
 ) -> SqlPerfScenarioSample {
-    let mut instruction_samples = Vec::with_capacity(scenario.repeat_count);
-    let mut outcomes = Vec::with_capacity(scenario.repeat_count);
+    let mut compile_samples = Vec::with_capacity(scenario.sample_count);
+    let mut execute_samples = Vec::with_capacity(scenario.sample_count);
+    let mut instruction_samples = Vec::with_capacity(scenario.sample_count);
+    let mut outcomes = Vec::with_capacity(scenario.sample_count);
 
-    // Phase 1: repeat the same query against one stable loaded fixture so the
-    // measured variance stays attributable to the execution path itself.
-    for _ in 0..scenario.repeat_count {
-        let sample = query_surface_with_perf(fixture, scenario.surface, scenario.sql)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "perf scenario '{}' on '{}' should succeed: {err}",
-                    scenario.scenario_key,
-                    scenario.surface.label(),
-                )
-            });
-        instruction_samples.push(sample.instructions);
+    // Phase 1: sample the same scenario repeatedly against one stable fixture.
+    // Each sample can optionally run the SQL multiple times inside one
+    // canister call so the audit can measure a real session-local cache.
+    for _ in 0..scenario.sample_count {
+        let sample = query_surface_with_perf(
+            fixture,
+            scenario.surface,
+            scenario.sql,
+            scenario.query_loop_count,
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "perf scenario '{}' on '{}' should succeed: {err}",
+                scenario.scenario_key,
+                scenario.surface.label(),
+            )
+        });
+        compile_samples.push(sample.attribution.compile_local_instructions);
+        execute_samples.push(sample.attribution.execute_local_instructions);
+        instruction_samples.push(sample.attribution.total_local_instructions);
         outcomes.push(summarize_perf_outcome(&sample.result));
     }
 
     // Phase 2: collapse the raw repeats into one stable summary row.
+    let total_compile_local_instructions = compile_samples.iter().copied().sum::<u64>();
+    let avg_compile_local_instructions =
+        total_compile_local_instructions / u64::try_from(compile_samples.len()).unwrap_or(1);
+    let total_execute_local_instructions = execute_samples.iter().copied().sum::<u64>();
+    let avg_execute_local_instructions =
+        total_execute_local_instructions / u64::try_from(execute_samples.len()).unwrap_or(1);
     let first_local_instructions = instruction_samples[0];
     let min_local_instructions = instruction_samples.iter().copied().min().unwrap_or(0);
     let max_local_instructions = instruction_samples.iter().copied().max().unwrap_or(0);
@@ -247,7 +352,12 @@ fn sample_perf_scenario(
         total_local_instructions / u64::try_from(instruction_samples.len()).unwrap_or(1);
     let outcome = outcomes[0].clone();
     let outcome_stable = outcomes.iter().all(|candidate| candidate == &outcome);
-    let baseline_avg_local_instructions = baseline.get(scenario.scenario_key).copied();
+    let baseline_row = baseline.get(scenario.scenario_key);
+    let baseline_avg_compile_local_instructions =
+        baseline_row.map(|row| row.avg_compile_local_instructions);
+    let baseline_avg_execute_local_instructions =
+        baseline_row.map(|row| row.avg_execute_local_instructions);
+    let baseline_avg_local_instructions = baseline_row.map(|row| row.avg_local_instructions);
     let avg_local_instructions_delta = baseline_avg_local_instructions.map(|previous| {
         i64::try_from(avg_local_instructions).expect("instruction count should fit i64")
             - i64::try_from(previous).expect("instruction count should fit i64")
@@ -273,8 +383,12 @@ fn sample_perf_scenario(
         index_family: scenario.index_family.to_string(),
         query_family: scenario.query_family.to_string(),
         sql: scenario.sql.to_string(),
-        repeat_count: scenario.repeat_count,
+        query_loop_count: scenario.query_loop_count,
+        baseline_avg_compile_local_instructions,
+        baseline_avg_execute_local_instructions,
         baseline_avg_local_instructions,
+        avg_compile_local_instructions,
+        avg_execute_local_instructions,
         first_local_instructions,
         min_local_instructions,
         max_local_instructions,
@@ -818,6 +932,59 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
     ]
 }
 
+fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        repeat_scenario(
+            "repeat.user.pk.order_only.asc.limit2.runs10",
+            SqlPerfSurface::User,
+            "primary_key",
+            "repeat_baseline",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.pk.order_only.asc.limit2.runs100",
+            SqlPerfSurface::User,
+            "primary_key",
+            "repeat_baseline",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+            100,
+        ),
+        repeat_scenario(
+            "repeat.user.name.lower.order_only.asc.limit3.runs10",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "repeat_baseline",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.name.lower.order_only.asc.limit3.runs100",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "repeat_baseline",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            100,
+        ),
+        repeat_scenario(
+            "repeat.user.grouped.age_count.limit10.runs10",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "repeat_baseline",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.grouped.age_count.limit10.runs100",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "repeat_baseline",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            100,
+        ),
+    ]
+}
+
 fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
     let mut scenarios = Vec::new();
     scenarios.extend(user_primary_and_age_scenarios());
@@ -825,13 +992,16 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
     scenarios.extend(user_predicate_and_metadata_scenarios());
     scenarios.extend(account_order_scenarios());
     scenarios.extend(account_tier_and_metadata_scenarios());
+    scenarios.extend(repeated_query_scenarios());
 
     scenarios
 }
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
-    println!("| Scenario | Avg Instructions | Delta | Delta % | Query |");
-    println!("|---|---:|---:|---:|---|");
+    println!(
+        "| Scenario | Runs | Avg Compile | Avg Execute | Avg Instructions | Delta | Delta % | Query |"
+    );
+    println!("|---|---:|---:|---:|---:|---:|---:|---|");
 
     for sample in samples {
         let delta_text = sample
@@ -843,8 +1013,11 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
+            sample.query_loop_count,
+            sample.avg_compile_local_instructions,
+            sample.avg_execute_local_instructions,
             sample.avg_local_instructions,
             delta_text,
             delta_percent_text,
@@ -870,10 +1043,22 @@ fn sql_perf_audit_harness_reports_instruction_samples() {
         .map(|scenario| sample_perf_scenario(&fixture, &baseline, scenario))
         .collect::<Vec<_>>();
 
+    maybe_write_blessed_baseline(&samples);
+
     for sample in &samples {
         assert!(
             sample.first_local_instructions > 0,
             "scenario '{}' should report a positive first instruction delta",
+            sample.scenario_key,
+        );
+        assert!(
+            sample.avg_compile_local_instructions > 0,
+            "scenario '{}' should report a positive average compile instruction delta",
+            sample.scenario_key,
+        );
+        assert!(
+            sample.avg_execute_local_instructions > 0,
+            "scenario '{}' should report a positive average execute instruction delta",
             sample.scenario_key,
         );
         assert!(

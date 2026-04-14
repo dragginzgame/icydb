@@ -33,8 +33,12 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
+#[cfg(feature = "sql")]
+use std::cell::OnceCell;
 use std::thread::LocalKey;
 
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
 pub use sql::SqlStatementResult;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
@@ -50,6 +54,8 @@ pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
     metrics: Option<&'static dyn MetricsSink>,
+    #[cfg(feature = "sql")]
+    sql_compiled_command_cache: OnceCell<std::cell::RefCell<sql::SqlCompiledCommandCache>>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -60,6 +66,8 @@ impl<C: CanisterKind> DbSession<C> {
             db,
             debug: false,
             metrics: None,
+            #[cfg(feature = "sql")]
+            sql_compiled_command_cache: OnceCell::new(),
         }
     }
 

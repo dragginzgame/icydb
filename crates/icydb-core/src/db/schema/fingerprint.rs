@@ -16,6 +16,12 @@ use crate::{
 };
 use icydb_utils::Xxh3;
 use sha2::{Digest, Sha256};
+use std::{any::TypeId, cell::RefCell, collections::HashMap};
+
+thread_local! {
+    static ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE:
+        RefCell<HashMap<TypeId, CommitSchemaFingerprint>> = RefCell::new(HashMap::new());
+}
 
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 2;
 
@@ -27,8 +33,27 @@ const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
 
 /// Compute one deterministic schema/index fingerprint for an entity commit planner.
 #[must_use]
-pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind>() -> CommitSchemaFingerprint {
-    commit_schema_fingerprint_for_model(E::PATH, E::MODEL)
+pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind + 'static>()
+-> CommitSchemaFingerprint {
+    // Phase 1: check the per-entity memoized fingerprint so repeated SQL
+    // compile/cache lookups inside one canister lifetime do not keep rehashing
+    // the same schema contract.
+    let cache_key = TypeId::of::<E>();
+    let cached = ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE
+        .with(|cache| cache.borrow().get(&cache_key).copied());
+
+    if let Some(fingerprint) = cached {
+        return fingerprint;
+    }
+
+    // Phase 2: compute the deterministic schema contract fingerprint once,
+    // then retain it for future lookups of the same entity type.
+    let fingerprint = commit_schema_fingerprint_for_model(E::PATH, E::MODEL);
+    ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE.with(|cache| {
+        cache.borrow_mut().insert(cache_key, fingerprint);
+    });
+
+    fingerprint
 }
 
 /// Compute one deterministic schema/index fingerprint from resolved authority.
