@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.82.x] 🧭 - 2026-04-15 - Deterministic Compiled Query Reuse
+
+- `0.82.0` makes the shared lower query-plan cache use one explicit canonical structural cache key instead of a hidden manual hash walk, keeps SHA-256 on deterministic identity boundaries and `xxh3` on in-heap cache hashing, and records the remaining manual hashing cleanup targets for later follow-up instead of widening the cache model further.
+
+See detailed breakdown:
+[docs/changelog/0.82.md](docs/changelog/0.82.md)
+
+---
+
 ## [0.81.x] ↕️ - 2026-04-14 - Bounded Computed ORDER BY Aliases
 
 - `0.81.4` cleans up the shared lower query-plan cache so SQL and fluent now reuse one explicit canonical structural cache key instead of hiding that identity inside a manual hash walk, without widening the SQL surface again.
