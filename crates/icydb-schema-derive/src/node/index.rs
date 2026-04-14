@@ -20,11 +20,7 @@ use icydb_core::{
 
 #[derive(Debug, FromMeta)]
 pub struct Index {
-    #[darling(default, map = "split_idents")]
-    pub(crate) fields: Vec<Ident>,
-
-    #[darling(default)]
-    pub(crate) key_items: Option<LitStr>,
+    pub(crate) fields: LitStr,
 
     #[darling(default)]
     pub(crate) unique: bool,
@@ -37,13 +33,9 @@ pub struct Index {
 
 impl HasSchemaPart for Index {
     fn schema_part(&self) -> TokenStream {
-        let fields = quote_slice(&self.fields, to_str_lit);
-        let key_items = self
-            .validated_key_items()
-            .iter()
-            .map(IndexKeyItemSpec::schema_part)
-            .collect::<Vec<_>>();
-        let key_items = quote! { &[#(#key_items),*] };
+        let fields = self.validated_field_idents();
+        let fields = quote_slice(&fields, to_str_lit);
+        let key_items = self.schema_key_items_tokens();
         let unique = &self.unique;
         let predicate = self
             .predicate
@@ -59,7 +51,7 @@ impl HasSchemaPart for Index {
         quote! {
             ::icydb::schema::node::Index::new_with_key_items_and_predicate(
                 #fields,
-                Some(#key_items),
+                #key_items,
                 #unique,
                 #predicate,
             )
@@ -88,13 +80,9 @@ impl Index {
         store: &Path,
         ordinal: usize,
     ) -> (Vec<TokenStream>, TokenStream) {
-        let fields = quote_slice(&self.fields, to_str_lit);
-        let key_items = self
-            .validated_key_items()
-            .iter()
-            .map(IndexKeyItemSpec::runtime_part)
-            .collect::<Vec<_>>();
-        let key_items = quote! { &[#(#key_items),*] };
+        let fields = self.validated_field_idents();
+        let fields = quote_slice(&fields, to_str_lit);
+        let key_items = self.runtime_key_items_tokens();
         let unique = self.unique;
         let (predicate_support, predicate) = self
             .predicate_runtime_part(entity, ordinal)
@@ -111,7 +99,7 @@ impl Index {
                     #name,
                     #store,
                     #fields,
-                    Some(#key_items),
+                    #key_items,
                     #unique,
                     #predicate,
                 )
@@ -119,11 +107,8 @@ impl Index {
         )
     }
 
-    pub(crate) fn parsed_key_items(&self) -> Result<Option<Vec<IndexKeyItemSpec>>, DarlingError> {
-        self.key_items
-            .as_ref()
-            .map(parse_index_key_items)
-            .transpose()
+    pub(crate) fn parsed_key_items(&self) -> Result<Vec<IndexKeyItemSpec>, DarlingError> {
+        parse_index_key_items(&self.fields)
     }
 
     pub(crate) fn validated_key_item_terms(&self) -> Vec<String> {
@@ -139,14 +124,54 @@ impl Index {
 
     fn validated_key_items(&self) -> Vec<IndexKeyItemSpec> {
         self.parsed_key_items()
-            .expect("validated index key_items should parse")
-            .unwrap_or_else(|| {
-                self.fields
-                    .iter()
-                    .cloned()
-                    .map(IndexKeyItemSpec::Field)
-                    .collect()
+            .expect("validated index fields should parse")
+    }
+
+    pub(crate) fn validated_field_idents(&self) -> Vec<Ident> {
+        self.validated_key_items()
+            .iter()
+            .map(IndexKeyItemSpec::field_ident)
+            .fold(Vec::<Ident>::new(), |mut fields, field| {
+                if !fields.contains(field) {
+                    fields.push(field.clone());
+                }
+
+                fields
             })
+    }
+
+    fn has_expression_key_items(&self) -> bool {
+        self.validated_key_items()
+            .iter()
+            .any(|item| matches!(item, IndexKeyItemSpec::Expression(_)))
+    }
+
+    fn schema_key_items_tokens(&self) -> TokenStream {
+        if !self.has_expression_key_items() {
+            return quote! { None };
+        }
+
+        let key_items = self
+            .validated_key_items()
+            .iter()
+            .map(IndexKeyItemSpec::schema_part)
+            .collect::<Vec<_>>();
+
+        quote! { Some(&[#(#key_items),*]) }
+    }
+
+    fn runtime_key_items_tokens(&self) -> TokenStream {
+        if !self.has_expression_key_items() {
+            return quote! { None };
+        }
+
+        let key_items = self
+            .validated_key_items()
+            .iter()
+            .map(IndexKeyItemSpec::runtime_part)
+            .collect::<Vec<_>>();
+
+        quote! { Some(&[#(#key_items),*]) }
     }
 
     pub(crate) fn validated_generated_predicate(
@@ -340,7 +365,7 @@ fn parse_index_key_items(literal: &LitStr) -> Result<Vec<IndexKeyItemSpec>, Darl
     let raw_items = split_top_level_key_items(literal)?;
     if raw_items.is_empty() {
         return Err(
-            DarlingError::custom("index key_items must reference at least one key item")
+            DarlingError::custom("index fields must reference at least one key item")
                 .with_span(literal),
         );
     }
@@ -667,7 +692,7 @@ fn split_top_level_key_items(literal: &LitStr) -> Result<Vec<String>, DarlingErr
             ')' => {
                 if depth == 0 {
                     return Err(DarlingError::custom(format!(
-                        "index key_items '{raw}' has one unmatched closing ')'"
+                        "index fields '{raw}' has one unmatched closing ')'"
                     ))
                     .with_span(literal));
                 }
@@ -683,7 +708,7 @@ fn split_top_level_key_items(literal: &LitStr) -> Result<Vec<String>, DarlingErr
 
     if depth != 0 {
         return Err(DarlingError::custom(format!(
-            "index key_items '{raw}' has one unmatched opening '('"
+            "index fields '{raw}' has one unmatched opening '('"
         ))
         .with_span(literal));
     }
@@ -691,7 +716,7 @@ fn split_top_level_key_items(literal: &LitStr) -> Result<Vec<String>, DarlingErr
     items.push(raw[segment_start..].trim().to_string());
     if items.iter().any(String::is_empty) {
         return Err(DarlingError::custom(format!(
-            "index key_items '{raw}' contains an empty key item"
+            "index fields '{raw}' contains an empty key item"
         ))
         .with_span(literal));
     }
@@ -806,28 +831,25 @@ fn parse_index_field_ident(field: &str, literal: &LitStr) -> Result<Ident, Darli
 mod tests {
     use crate::node::index::{Index, IndexExpressionSpec, IndexKeyItemSpec};
     use proc_macro2::Span;
-    use quote::format_ident;
     use syn::LitStr;
 
     #[test]
     fn parsed_key_items_accept_supported_expression_and_field_mix() {
         let index = Index {
-            fields: vec![format_ident!("tenant_id"), format_ident!("email")],
-            key_items: Some(LitStr::new("tenant_id, LOWER(email)", Span::call_site())),
+            fields: LitStr::new("tenant_id, LOWER(email)", Span::call_site()),
             unique: true,
             predicate: None,
         };
 
         let key_items = index
             .parsed_key_items()
-            .expect("supported index key_items should parse")
-            .expect("test index should expose explicit key_items");
+            .expect("supported index fields should parse");
 
         assert_eq!(
             key_items,
             vec![
-                IndexKeyItemSpec::Field(format_ident!("tenant_id")),
-                IndexKeyItemSpec::Expression(IndexExpressionSpec::Lower(format_ident!("email"))),
+                IndexKeyItemSpec::Field(syn::parse_quote!(tenant_id)),
+                IndexKeyItemSpec::Expression(IndexExpressionSpec::Lower(syn::parse_quote!(email))),
             ],
         );
     }
@@ -835,8 +857,7 @@ mod tests {
     #[test]
     fn generated_name_uses_expression_key_item_canonical_text() {
         let index = Index {
-            fields: vec![format_ident!("email")],
-            key_items: Some(LitStr::new("LOWER(email)", Span::call_site())),
+            fields: LitStr::new("LOWER(email)", Span::call_site()),
             unique: false,
             predicate: None,
         };

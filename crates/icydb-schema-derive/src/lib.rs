@@ -22,7 +22,7 @@ use syn::{ItemStruct, Visibility, parse_macro_input};
 mod prelude {
     pub use crate::{
         r#gen::{Imp, Implementor},
-        helper::{quote_one, quote_option, quote_slice, split_idents, to_path, to_str_lit},
+        helper::{quote_one, quote_option, quote_slice, to_path, to_str_lit},
         node::*,
         trait_kind::{TraitBuilder, TraitKind},
         types::TraitStrategy,

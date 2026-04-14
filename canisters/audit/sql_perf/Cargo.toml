@@ -1,0 +1,26 @@
+[package]
+name = "canister_audit_sql_perf"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["sql"]
+sql = ["icydb/sql"]
+
+[dependencies]
+candid = { workspace = true }
+canic-cdk = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-sql-perf-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-audit-sql-perf-fixtures = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,848 @@
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
+
+use candid::CandidType;
+use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use icydb::{Error, db::sql::SqlQueryResult};
+use icydb_testing_integration::build_canister;
+use serde::{Deserialize, Serialize};
+
+// Mirror the dedicated perf-audit query envelope so PocketIC can decode the
+// query result plus the canister-local instruction delta.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct SqlQueryPerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SqlPerfSurface {
+    User,
+    Account,
+}
+
+impl SqlPerfSurface {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Account => "account",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SqlPerfScenario {
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    index_family: &'static str,
+    query_family: &'static str,
+    sql: &'static str,
+    repeat_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct SqlPerfBaselineRow {
+    scenario_key: String,
+    avg_local_instructions: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SqlPerfOutcome {
+    result_kind: &'static str,
+    entity: String,
+    row_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct SqlPerfScenarioSample {
+    scenario_key: String,
+    surface: String,
+    index_family: String,
+    query_family: String,
+    sql: String,
+    repeat_count: usize,
+    baseline_avg_local_instructions: Option<u64>,
+    first_local_instructions: u64,
+    min_local_instructions: u64,
+    max_local_instructions: u64,
+    total_local_instructions: u64,
+    avg_local_instructions: u64,
+    avg_local_instructions_delta: Option<i64>,
+    avg_local_instructions_delta_percent_bps: Option<i64>,
+    outcome_stable: bool,
+    outcome: SqlPerfOutcome,
+}
+
+const fn scenario(
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    index_family: &'static str,
+    query_family: &'static str,
+    sql: &'static str,
+) -> SqlPerfScenario {
+    SqlPerfScenario {
+        scenario_key,
+        surface,
+        index_family,
+        query_family,
+        sql,
+        repeat_count: 5,
+    }
+}
+
+fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
+    let wasm_path =
+        build_canister("sql_perf").expect("sql_perf canister should build for PocketIC tests");
+    let wasm = fs::read(&wasm_path)
+        .unwrap_or_else(|err| panic!("failed to read built sql_perf canister wasm: {err}"));
+
+    install_prebuilt_canister(
+        wasm,
+        candid::encode_args(()).expect("encode empty init args"),
+    )
+}
+
+fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
+    // Phase 1: clear any retained state from an earlier scenario batch.
+    let reset: Result<(), Error> = fixture
+        .pic()
+        .update_call(fixture.canister_id(), "fixtures_reset", ())
+        .expect("fixtures_reset should decode");
+    reset.expect("fixtures_reset should succeed");
+
+    // Phase 2: reload the deterministic perf fixture window before sampling.
+    let load: Result<(), Error> = fixture
+        .pic()
+        .update_call(fixture.canister_id(), "fixtures_load_default", ())
+        .expect("fixtures_load_default should decode");
+    load.expect("fixtures_load_default should succeed");
+}
+
+fn query_surface_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    surface: SqlPerfSurface,
+    sql: &str,
+) -> Result<SqlQueryPerfResult, Error> {
+    match surface {
+        SqlPerfSurface::User => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_user_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("query_user_with_perf should decode"),
+        SqlPerfSurface::Account => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_account_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("query_account_with_perf should decode"),
+    }
+}
+
+fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
+    match result {
+        SqlQueryResult::Count { entity, row_count } => SqlPerfOutcome {
+            result_kind: "count",
+            entity: entity.clone(),
+            row_count: usize::try_from(*row_count).unwrap_or(usize::MAX),
+        },
+        SqlQueryResult::Projection(rows) => SqlPerfOutcome {
+            result_kind: "projection",
+            entity: rows.entity.clone(),
+            row_count: usize::try_from(rows.row_count).unwrap_or(usize::MAX),
+        },
+        SqlQueryResult::Grouped(rows) => SqlPerfOutcome {
+            result_kind: "grouped",
+            entity: rows.entity.clone(),
+            row_count: usize::try_from(rows.row_count).unwrap_or(usize::MAX),
+        },
+        SqlQueryResult::Explain { entity, .. } => SqlPerfOutcome {
+            result_kind: "explain",
+            entity: entity.clone(),
+            row_count: 1,
+        },
+        SqlQueryResult::Describe(entity) => SqlPerfOutcome {
+            result_kind: "describe",
+            entity: entity.entity_name().to_string(),
+            row_count: entity.fields().len(),
+        },
+        SqlQueryResult::ShowIndexes { entity, indexes } => SqlPerfOutcome {
+            result_kind: "show_indexes",
+            entity: entity.clone(),
+            row_count: indexes.len(),
+        },
+        SqlQueryResult::ShowColumns { entity, columns } => SqlPerfOutcome {
+            result_kind: "show_columns",
+            entity: entity.clone(),
+            row_count: columns.len(),
+        },
+        SqlQueryResult::ShowEntities { entities } => SqlPerfOutcome {
+            result_kind: "show_entities",
+            entity: String::new(),
+            row_count: entities.len(),
+        },
+    }
+}
+
+fn baseline_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("sql_perf_audit_baseline.json")
+}
+
+fn load_baseline_rows() -> HashMap<String, u64> {
+    let path = baseline_path();
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return HashMap::new();
+    };
+    let rows: Vec<SqlPerfBaselineRow> = serde_json::from_str(&raw).unwrap_or_else(|err| {
+        panic!(
+            "sql perf baseline should parse at '{}': {err}",
+            path.display()
+        )
+    });
+
+    rows.into_iter()
+        .map(|row| (row.scenario_key, row.avg_local_instructions))
+        .collect()
+}
+
+fn sample_perf_scenario(
+    fixture: &StandaloneCanisterFixture,
+    baseline: &HashMap<String, u64>,
+    scenario: SqlPerfScenario,
+) -> SqlPerfScenarioSample {
+    let mut instruction_samples = Vec::with_capacity(scenario.repeat_count);
+    let mut outcomes = Vec::with_capacity(scenario.repeat_count);
+
+    // Phase 1: repeat the same query against one stable loaded fixture so the
+    // measured variance stays attributable to the execution path itself.
+    for _ in 0..scenario.repeat_count {
+        let sample = query_surface_with_perf(fixture, scenario.surface, scenario.sql)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "perf scenario '{}' on '{}' should succeed: {err}",
+                    scenario.scenario_key,
+                    scenario.surface.label(),
+                )
+            });
+        instruction_samples.push(sample.instructions);
+        outcomes.push(summarize_perf_outcome(&sample.result));
+    }
+
+    // Phase 2: collapse the raw repeats into one stable summary row.
+    let first_local_instructions = instruction_samples[0];
+    let min_local_instructions = instruction_samples.iter().copied().min().unwrap_or(0);
+    let max_local_instructions = instruction_samples.iter().copied().max().unwrap_or(0);
+    let total_local_instructions = instruction_samples.iter().copied().sum::<u64>();
+    let avg_local_instructions =
+        total_local_instructions / u64::try_from(instruction_samples.len()).unwrap_or(1);
+    let outcome = outcomes[0].clone();
+    let outcome_stable = outcomes.iter().all(|candidate| candidate == &outcome);
+    let baseline_avg_local_instructions = baseline.get(scenario.scenario_key).copied();
+    let avg_local_instructions_delta = baseline_avg_local_instructions.map(|previous| {
+        i64::try_from(avg_local_instructions).expect("instruction count should fit i64")
+            - i64::try_from(previous).expect("instruction count should fit i64")
+    });
+    let avg_local_instructions_delta_percent_bps =
+        baseline_avg_local_instructions.and_then(|previous| {
+            if previous == 0 {
+                return None;
+            }
+
+            let delta = i128::from(avg_local_instructions) - i128::from(previous);
+            let scaled = delta
+                .saturating_mul(10_000)
+                .checked_div(i128::from(previous))
+                .expect("previous should be non-zero");
+
+            Some(i64::try_from(scaled).expect("delta percent basis points should fit i64"))
+        });
+
+    SqlPerfScenarioSample {
+        scenario_key: scenario.scenario_key.to_string(),
+        surface: scenario.surface.label().to_string(),
+        index_family: scenario.index_family.to_string(),
+        query_family: scenario.query_family.to_string(),
+        sql: scenario.sql.to_string(),
+        repeat_count: scenario.repeat_count,
+        baseline_avg_local_instructions,
+        first_local_instructions,
+        min_local_instructions,
+        max_local_instructions,
+        total_local_instructions,
+        avg_local_instructions,
+        avg_local_instructions_delta,
+        avg_local_instructions_delta_percent_bps,
+        outcome_stable,
+        outcome,
+    }
+}
+
+fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "user.pk.order_only.asc.limit2",
+            SqlPerfSurface::User,
+            "primary_key",
+            "scalar_projection",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+        ),
+        scenario(
+            "user.pk.order_only.desc.limit2",
+            SqlPerfSurface::User,
+            "primary_key",
+            "scalar_projection",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id DESC LIMIT 2",
+        ),
+        scenario(
+            "user.pk.range.asc.limit2",
+            SqlPerfSurface::User,
+            "primary_key",
+            "primary_range",
+            "SELECT id, name FROM PerfAuditUser WHERE id >= 2 ORDER BY id ASC LIMIT 2",
+        ),
+        scenario(
+            "user.name.eq.order_id.limit1",
+            SqlPerfSurface::User,
+            "secondary_name_eq",
+            "scalar_projection",
+            "SELECT id, name FROM PerfAuditUser WHERE name = 'Alice' ORDER BY id ASC LIMIT 1",
+        ),
+        scenario(
+            "user.age.order_only.asc.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "scalar_projection",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.order_only.desc.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "scalar_projection",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 3",
+        ),
+        scenario(
+            "user.age.range.order.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "bounded_range",
+            "SELECT id, age FROM PerfAuditUser WHERE age >= 24 AND age < 32 ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.between.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "between_literal",
+            "SELECT id, age FROM PerfAuditUser WHERE age BETWEEN 24 AND 31 ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.not_between.limit3",
+            SqlPerfSurface::User,
+            "residual_not_between",
+            "not_between_literal",
+            "SELECT id, age FROM PerfAuditUser WHERE age NOT BETWEEN 24 AND 31 ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.scalar_arithmetic.age_minus_one.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "scalar_arithmetic",
+            "SELECT age - 1 FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.scalar_round.age_div3.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "scalar_round",
+            "SELECT ROUND(age / 3, 2) FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+    ]
+}
+
+fn user_name_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "user.name.order_only.asc.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "order_only",
+            "SELECT id, name FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.covering_key_only.asc.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "covering_order_only",
+            "SELECT id FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.materialized_rank.asc.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "materialized_order_only",
+            "SELECT id, rank FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.order_only.desc.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "order_only",
+            "SELECT id, name FROM PerfAuditUser ORDER BY name DESC, id DESC LIMIT 3",
+        ),
+        scenario(
+            "user.name.range.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "ordered_range",
+            "SELECT id, name FROM PerfAuditUser WHERE name >= 'A' AND name < 'd' ORDER BY name ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.like_prefix.limit3",
+            SqlPerfSurface::User,
+            "secondary_name",
+            "prefix_like",
+            "SELECT id, name FROM PerfAuditUser WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.not_like_prefix.limit3",
+            SqlPerfSurface::User,
+            "residual_not_like",
+            "negated_prefix_like",
+            "SELECT id, name FROM PerfAuditUser WHERE name NOT LIKE 'A%' ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.order_only.asc.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_order_only",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.covering_key_only.asc.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_covering_order_only",
+            "SELECT id FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.materialized_rank.asc.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_materialized_order_only",
+            "SELECT id, rank FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.order_only.desc.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_order_only",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) DESC, id DESC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.range.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_ordered_range",
+            "SELECT id, name FROM PerfAuditUser WHERE LOWER(name) >= 'a' AND LOWER(name) < 'c' ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.like_prefix.limit3",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "expression_casefold_prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE LOWER(name) LIKE 'a%' ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.lower.not_like_prefix.limit3",
+            SqlPerfSurface::User,
+            "residual_not_like_casefold",
+            "expression_negated_casefold_prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE LOWER(name) NOT LIKE 'a%' ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.ilike_prefix.limit3",
+            SqlPerfSurface::User,
+            "casefold_predicate_only",
+            "casefold_prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE name ILIKE 'a%' ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.name.not_ilike_prefix.limit3",
+            SqlPerfSurface::User,
+            "residual_negated_casefold",
+            "negated_casefold_prefix",
+            "SELECT id, name FROM PerfAuditUser WHERE name NOT ILIKE 'a%' ORDER BY id ASC LIMIT 3",
+        ),
+    ]
+}
+
+fn user_predicate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "user.active.is_true.order_id.limit4",
+            SqlPerfSurface::User,
+            "primary_key",
+            "bool_predicate",
+            "SELECT id, active FROM PerfAuditUser WHERE active IS TRUE ORDER BY id ASC LIMIT 4",
+        ),
+        scenario(
+            "user.active.is_not_true.order_id.limit4",
+            SqlPerfSurface::User,
+            "primary_key",
+            "bool_predicate",
+            "SELECT id, active FROM PerfAuditUser WHERE active IS NOT TRUE ORDER BY id ASC LIMIT 4",
+        ),
+        scenario(
+            "user.field_compare.age_gt_rank.limit3",
+            SqlPerfSurface::User,
+            "residual_field_compare",
+            "field_compare",
+            "SELECT id, name FROM PerfAuditUser WHERE age > rank ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.field_compare.age_eq_age_nat.limit3",
+            SqlPerfSurface::User,
+            "residual_mixed_field_compare",
+            "mixed_field_compare",
+            "SELECT id, name FROM PerfAuditUser WHERE age = age_nat ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.field_compare.age_eq_rank.limit3",
+            SqlPerfSurface::User,
+            "residual_field_compare",
+            "field_compare",
+            "SELECT id, name FROM PerfAuditUser WHERE age = rank ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.in.limit3",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "in_membership",
+            "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.age.not_in.limit3",
+            SqlPerfSurface::User,
+            "residual_not_in",
+            "not_in_membership",
+            "SELECT id, age FROM PerfAuditUser WHERE age NOT IN (24, 31, 43) ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.field_between.rank_age_age.limit3",
+            SqlPerfSurface::User,
+            "residual_field_between",
+            "field_between",
+            "SELECT id, name FROM PerfAuditUser WHERE rank BETWEEN age AND age ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.field_not_between.rank_age_age.limit3",
+            SqlPerfSurface::User,
+            "residual_field_between",
+            "field_not_between",
+            "SELECT id, name FROM PerfAuditUser WHERE rank NOT BETWEEN age AND age ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "user.count.active_true",
+            SqlPerfSurface::User,
+            "aggregate_count",
+            "count",
+            "SELECT COUNT(*) FROM PerfAuditUser WHERE active = true",
+        ),
+        scenario(
+            "user.grouped.age_count.limit10",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "grouped_count",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+        ),
+        scenario(
+            "user.explain.lower.order.limit1",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "explain",
+            "EXPLAIN SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+        scenario(
+            "user.explain_execution.lower.order.limit1",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "explain_execution",
+            "EXPLAIN EXECUTION SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+        scenario(
+            "user.explain_json.lower.order.limit1",
+            SqlPerfSurface::User,
+            "expression_lower_name",
+            "explain_json",
+            "EXPLAIN JSON SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+        scenario(
+            "user.describe",
+            SqlPerfSurface::User,
+            "metadata",
+            "describe",
+            "DESCRIBE PerfAuditUser",
+        ),
+        scenario(
+            "user.show_indexes",
+            SqlPerfSurface::User,
+            "metadata",
+            "show_indexes",
+            "SHOW INDEXES PerfAuditUser",
+        ),
+        scenario(
+            "user.show_columns",
+            SqlPerfSurface::User,
+            "metadata",
+            "show_columns",
+            "SHOW COLUMNS PerfAuditUser",
+        ),
+        scenario(
+            "user.show_tables",
+            SqlPerfSurface::User,
+            "metadata",
+            "show_tables",
+            "SHOW TABLES",
+        ),
+    ]
+}
+
+fn account_order_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "account.active.order_handle.asc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_handle_active_only",
+            "guarded_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.order_handle.asc.limit2.offset1",
+            SqlPerfSurface::Account,
+            "filtered_handle_active_only",
+            "guarded_order_offset",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+        ),
+        scenario(
+            "account.active.order_handle.desc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_handle_active_only",
+            "guarded_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle DESC, id DESC LIMIT 3",
+        ),
+        scenario(
+            "account.active.ilike_br.limit3",
+            SqlPerfSurface::Account,
+            "guarded_casefold_predicate_only",
+            "guarded_casefold_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle ILIKE 'br%' ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.not_ilike_br.limit3",
+            SqlPerfSurface::Account,
+            "guarded_casefold_residual",
+            "guarded_negated_casefold_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle NOT ILIKE 'br%' ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.lower.order_handle.asc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.lower.covering_key_only.asc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_covering_order_only",
+            "SELECT id FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.lower.materialized_score.asc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_materialized_order_only",
+            "SELECT id, score FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.lower.order_handle.asc.limit2.offset1",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_order_offset",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2 OFFSET 1",
+        ),
+        scenario(
+            "account.active.lower.order_handle.desc.limit3",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 3",
+        ),
+        scenario(
+            "account.active.lower.handle_prefix.limit3",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "guarded_expression_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.active.handle_prefix.limit3",
+            SqlPerfSurface::Account,
+            "filtered_handle_active_only",
+            "guarded_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+    ]
+}
+
+fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "account.tier.in.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_handle_active_only",
+            "in_membership",
+            "SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver') ORDER BY tier ASC, handle ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.tier.not_in.limit3",
+            SqlPerfSurface::Account,
+            "residual_not_in",
+            "not_in_membership",
+            "SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier NOT IN ('gold', 'silver') ORDER BY id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.tier_gold.order_handle.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_handle_active_only",
+            "guarded_prefix_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.tier_gold.lower.order_handle.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_lower_handle_active_only",
+            "guarded_expression_order_only",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.tier_gold.lower.handle_prefix.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_lower_handle_active_only",
+            "guarded_expression_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.tier_gold.handle_prefix.limit3",
+            SqlPerfSurface::Account,
+            "filtered_tier_handle_active_only",
+            "guarded_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "account.count.active_true",
+            SqlPerfSurface::Account,
+            "aggregate_count",
+            "count",
+            "SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true",
+        ),
+        scenario(
+            "account.describe",
+            SqlPerfSurface::Account,
+            "metadata",
+            "describe",
+            "DESCRIBE PerfAuditAccount",
+        ),
+        scenario(
+            "account.show_indexes",
+            SqlPerfSurface::Account,
+            "metadata",
+            "show_indexes",
+            "SHOW INDEXES PerfAuditAccount",
+        ),
+    ]
+}
+
+fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(user_primary_and_age_scenarios());
+    scenarios.extend(user_name_scenarios());
+    scenarios.extend(user_predicate_and_metadata_scenarios());
+    scenarios.extend(account_order_scenarios());
+    scenarios.extend(account_tier_and_metadata_scenarios());
+
+    scenarios
+}
+
+fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
+    println!("| Scenario | Avg Instructions | Delta | Delta % | Query |");
+    println!("|---|---:|---:|---:|---|");
+
+    for sample in samples {
+        let delta_text = sample
+            .avg_local_instructions_delta
+            .map_or_else(|| "N/A".to_string(), |delta| format!("{delta:+}"));
+        let delta_percent_text = sample.avg_local_instructions_delta_percent_bps.map_or_else(
+            || "N/A".to_string(),
+            |delta_bps| format!("{:+}.{:02}%", delta_bps / 100, delta_bps.abs() % 100),
+        );
+
+        println!(
+            "| {} | {} | {} | {} | `{}` |",
+            sample.scenario_key,
+            sample.avg_local_instructions,
+            delta_text,
+            delta_percent_text,
+            sample.sql,
+        );
+    }
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(samples)
+            .expect("perf harness samples should serialize to JSON")
+    );
+}
+
+#[test]
+fn sql_perf_audit_harness_reports_instruction_samples() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = load_baseline_rows();
+    reset_sql_perf_fixtures(&fixture);
+
+    let samples = sql_perf_scenarios()
+        .into_iter()
+        .map(|scenario| sample_perf_scenario(&fixture, &baseline, scenario))
+        .collect::<Vec<_>>();
+
+    for sample in &samples {
+        assert!(
+            sample.first_local_instructions > 0,
+            "scenario '{}' should report a positive first instruction delta",
+            sample.scenario_key,
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "scenario '{}' should report a positive min instruction delta",
+            sample.scenario_key,
+        );
+        assert!(
+            sample.outcome_stable,
+            "scenario '{}' should keep a stable summarized result across repeats",
+            sample.scenario_key,
+        );
+    }
+
+    print_perf_report(&samples);
+}

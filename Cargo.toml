@@ -3,6 +3,7 @@ members = [
     "canisters/audit/minimal",
     "canisters/audit/one_complex",
     "canisters/audit/one_simple",
+    "canisters/audit/sql_perf",
     "canisters/audit/ten_complex",
     "canisters/audit/ten_simple",
     "canisters/demo/rpg",
@@ -19,6 +20,7 @@ members = [
     "schema/audit/minimal",
     "schema/audit/one_complex",
     "schema/audit/one_simple",
+    "schema/audit/sql_perf",
     "schema/audit/ten_complex",
     "schema/audit/ten_simple",
     "schema/demo/rpg",
@@ -66,6 +68,7 @@ icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.79.4" 
 icydb-testing-audit-minimal-fixtures = { path = "schema/audit/minimal" }
 icydb-testing-audit-one-complex-fixtures = { path = "schema/audit/one_complex" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
+icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-complex-fixtures = { path = "schema/audit/ten_complex" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }

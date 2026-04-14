@@ -96,7 +96,6 @@ impl Entity {
         for index in &self.indexes {
             Self::validate_index_shape(index, def_ident)?;
             self.validate_index_fields(index)?;
-            Self::validate_index_key_items(index)?;
             Self::validate_index_name(index, entity_name, def_ident)?;
             self.validate_index_predicate(index)?;
             canonical_index_terms.push(index.validated_key_item_terms());
@@ -107,16 +106,17 @@ impl Entity {
 
     // Validate index cardinality limits before deeper field or expression checks.
     fn validate_index_shape(index: &Index, def_ident: &Ident) -> Result<(), DarlingError> {
-        if index.fields.is_empty() {
+        let key_items = index.parsed_key_items()?;
+        if key_items.is_empty() {
             return Err(
                 DarlingError::custom("index must reference at least one field")
                     .with_index_or_def_span(index, def_ident),
             );
         }
-        if index.fields.len() > MAX_INDEX_FIELDS {
+        if key_items.len() > MAX_INDEX_FIELDS {
             return Err(DarlingError::custom(format!(
-                "index has {} fields; maximum is {}",
-                index.fields.len(),
+                "index has {} key items; maximum is {}",
+                key_items.len(),
                 MAX_INDEX_FIELDS
             ))
             .with_index_or_def_span(index, def_ident));
@@ -128,26 +128,26 @@ impl Entity {
     // Validate declared field references against entity fields and indexability rules.
     fn validate_index_fields(&self, index: &Index) -> Result<(), DarlingError> {
         let mut seen = HashSet::new();
-        for field in &index.fields {
+        for field in index.validated_field_idents() {
             let field_name = field.to_string();
             if !seen.insert(field_name.clone()) {
                 return Err(DarlingError::custom(format!(
                     "index contains duplicate field '{field_name}'"
                 ))
-                .with_span(field));
+                .with_span(&index.fields));
             }
 
-            let Some(entity_field) = self.fields.get(field) else {
+            let Some(entity_field) = self.fields.get(&field) else {
                 return Err(
                     DarlingError::custom(format!("index field '{field_name}' not found"))
-                        .with_span(field),
+                        .with_span(&index.fields),
                 );
             };
             if entity_field.value.cardinality() == Cardinality::Many {
                 return Err(DarlingError::custom(
                     "cannot add an index field with many cardinality",
                 )
-                .with_span(field));
+                .with_span(&index.fields));
             }
         }
 
@@ -157,54 +157,6 @@ impl Entity {
     // Validate any filtered-index predicate against the generated field surface.
     fn validate_index_predicate(&self, index: &Index) -> Result<(), DarlingError> {
         let _ = index.validated_generated_predicate(self)?;
-
-        Ok(())
-    }
-
-    // Validate optional expression key_items and keep them aligned with declared fields.
-    fn validate_index_key_items(index: &Index) -> Result<(), DarlingError> {
-        let Some(key_items) = index.parsed_key_items()? else {
-            return Ok(());
-        };
-
-        if key_items.len() > MAX_INDEX_FIELDS {
-            let span = index
-                .key_items
-                .as_ref()
-                .expect("parsed key_items imply source literal");
-            return Err(DarlingError::custom(format!(
-                "index has {} key items; maximum is {}",
-                key_items.len(),
-                MAX_INDEX_FIELDS
-            ))
-            .with_span(span));
-        }
-
-        let declared_fields = index
-            .fields
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        let referenced_fields = key_items
-            .iter()
-            .map(|item| item.field_ident().to_string())
-            .fold(Vec::<String>::new(), |mut fields, field| {
-                if !fields.contains(&field) {
-                    fields.push(field);
-                }
-
-                fields
-            });
-        if referenced_fields != declared_fields {
-            let span = index
-                .key_items
-                .as_ref()
-                .expect("parsed key_items imply source literal");
-            return Err(DarlingError::custom(format!(
-                "index key_items fields {referenced_fields:?} must match declared fields {declared_fields:?} in first-reference order"
-            ))
-            .with_span(span));
-        }
 
         Ok(())
     }
@@ -277,11 +229,8 @@ trait DarlingErrorExt {
 
 impl DarlingErrorExt for DarlingError {
     fn with_index_or_def_span(self, index: &Index, def_ident: &Ident) -> Self {
-        if let Some(first_field) = index.fields.first() {
-            self.with_span(first_field)
-        } else {
-            self.with_span(def_ident)
-        }
+        let _ = def_ident;
+        self.with_span(&index.fields)
     }
 }
 
@@ -680,8 +629,7 @@ mod tests {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id")],
             vec![Index {
-                fields: vec![format_ident!("missing_field")],
-                key_items: None,
+                fields: LitStr::new("missing_field", Span::call_site()),
                 unique: false,
                 predicate: None,
             }],
@@ -701,8 +649,7 @@ mod tests {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id"), many_scalar_field("tags")],
             vec![Index {
-                fields: vec![format_ident!("tags")],
-                key_items: None,
+                fields: LitStr::new("tags", Span::call_site()),
                 unique: false,
                 predicate: None,
             }],
@@ -718,23 +665,20 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_key_items_field_mismatch() {
+    fn validate_rejects_expression_index_field_not_found() {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id"), scalar_field("email")],
             vec![Index {
-                fields: vec![format_ident!("email")],
-                key_items: Some(LitStr::new("LOWER(name)", Span::call_site())),
+                fields: LitStr::new("LOWER(name)", Span::call_site()),
                 unique: false,
                 predicate: None,
             }],
         );
         let err = entity
             .validate()
-            .expect_err("mismatched key_items field set should fail entity validation");
+            .expect_err("missing expression index field should fail entity validation");
         assert!(
-            err.to_string().contains(
-                "index key_items fields [\"name\"] must match declared fields [\"email\"]"
-            ),
+            err.to_string().contains("index field 'name' not found"),
             "unexpected validation error: {err}",
         );
     }

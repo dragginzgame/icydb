@@ -14,6 +14,8 @@ const MINIMAL_CANISTER_NAME: &str = "minimal";
 const MINIMAL_CANISTER_PACKAGE: &str = "canister_audit_minimal";
 const ONE_SIMPLE_CANISTER_NAME: &str = "one_simple";
 const ONE_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_one_simple";
+const SQL_PERF_CANISTER_NAME: &str = "sql_perf";
+const SQL_PERF_CANISTER_PACKAGE: &str = "canister_audit_sql_perf";
 const ONE_COMPLEX_CANISTER_NAME: &str = "one_complex";
 const ONE_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_one_complex";
 const TEN_SIMPLE_CANISTER_NAME: &str = "ten_simple";
@@ -49,11 +51,12 @@ fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String
         TEST_SQL_CANISTER_NAME => Ok(TEST_SQL_CANISTER_PACKAGE),
         MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
         ONE_SIMPLE_CANISTER_NAME => Ok(ONE_SIMPLE_CANISTER_PACKAGE),
+        SQL_PERF_CANISTER_NAME => Ok(SQL_PERF_CANISTER_PACKAGE),
         ONE_COMPLEX_CANISTER_NAME => Ok(ONE_COMPLEX_CANISTER_PACKAGE),
         TEN_SIMPLE_CANISTER_NAME => Ok(TEN_SIMPLE_CANISTER_PACKAGE),
         TEN_COMPLEX_CANISTER_NAME => Ok(TEN_COMPLEX_CANISTER_PACKAGE),
         _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{TEST_SQL_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
+            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{TEST_SQL_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{SQL_PERF_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
         )),
     }
 }

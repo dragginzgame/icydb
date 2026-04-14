@@ -1,0 +1,14 @@
+[package]
+name = "icydb-testing-audit-sql-perf-fixtures"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+description = "Dedicated SQL perf audit schema fixture crate"
+
+[dependencies]
+candid = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+
+[lints]
+workspace = true

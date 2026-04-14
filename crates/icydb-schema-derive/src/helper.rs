@@ -1,6 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
-use syn::Ident;
+use quote::{ToTokens, quote};
 
 /// ----------------------
 /// Quoting helpers
@@ -58,14 +57,4 @@ pub fn to_str_lit<T: ToTokens>(t: &T) -> TokenStream {
 /// Resolve a `Path` implementor to its associated `PATH` constant.
 pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
     quote! { <#t as ::icydb::traits::Path>::PATH }
-}
-
-/// Split a comma-separated list into idents for Darling parsing.
-#[must_use]
-pub fn split_idents(s: String) -> Vec<Ident> {
-    s.split(',')
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .map(|item| format_ident!("{item}"))
-        .collect()
 }
