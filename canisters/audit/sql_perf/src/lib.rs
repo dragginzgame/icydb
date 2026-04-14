@@ -64,6 +64,7 @@ fn invalid_perf_loop_runs_error() -> icydb::Error {
 }
 
 #[cfg(feature = "sql")]
+#[expect(clippy::too_many_arguments)]
 fn average_attribution(
     total_compile_local_instructions: u64,
     total_planner_local_instructions: u64,
