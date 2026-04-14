@@ -33,7 +33,7 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
-use std::{cell::OnceCell, collections::HashMap, thread::LocalKey};
+use std::{cell::OnceCell, thread::LocalKey};
 
 #[cfg(feature = "perf-attribution")]
 pub use query::QueryExecutionAttribution;
@@ -55,8 +55,6 @@ pub struct DbSession<C: CanisterKind> {
     debug: bool,
     metrics: Option<&'static dyn MetricsSink>,
     query_plan_cache: OnceCell<std::cell::RefCell<query::QueryPlanCache>>,
-    query_plan_visibility_cache:
-        OnceCell<std::cell::RefCell<HashMap<&'static str, query::QueryPlanVisibility>>>,
     #[cfg(feature = "sql")]
     sql_compiled_command_cache: OnceCell<std::cell::RefCell<sql::SqlCompiledCommandCache>>,
     #[cfg(feature = "sql")]
@@ -72,7 +70,6 @@ impl<C: CanisterKind> DbSession<C> {
             debug: false,
             metrics: None,
             query_plan_cache: OnceCell::new(),
-            query_plan_visibility_cache: OnceCell::new(),
             #[cfg(feature = "sql")]
             sql_compiled_command_cache: OnceCell::new(),
             #[cfg(feature = "sql")]

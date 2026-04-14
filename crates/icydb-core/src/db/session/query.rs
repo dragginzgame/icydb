@@ -98,13 +98,6 @@ impl<C: CanisterKind> DbSession<C> {
             .get_or_init(|| std::cell::RefCell::new(QueryPlanCache::new()))
     }
 
-    fn query_plan_visibility_cache(
-        &self,
-    ) -> &std::cell::RefCell<HashMap<&'static str, QueryPlanVisibility>> {
-        self.query_plan_visibility_cache
-            .get_or_init(|| std::cell::RefCell::new(HashMap::new()))
-    }
-
     const fn visible_indexes_for_model(
         model: &'static EntityModel,
         visibility: QueryPlanVisibility,
@@ -124,15 +117,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         store_path: &'static str,
     ) -> Result<QueryPlanVisibility, QueryError> {
-        if let Some(visibility) = self
-            .query_plan_visibility_cache()
-            .borrow()
-            .get(store_path)
-            .copied()
-        {
-            return Ok(visibility);
-        }
-
         let store = self
             .db
             .recovered_store(store_path)
@@ -142,9 +126,6 @@ impl<C: CanisterKind> DbSession<C> {
         } else {
             QueryPlanVisibility::StoreNotReady
         };
-        self.query_plan_visibility_cache()
-            .borrow_mut()
-            .insert(store_path, visibility);
 
         Ok(visibility)
     }
