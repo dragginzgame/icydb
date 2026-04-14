@@ -5,12 +5,13 @@
 
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-    SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
-    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlArithmeticProjectionOperand, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+    SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -151,7 +152,7 @@ fn parse_select_statement_with_scalar_add_projection_item() {
                 SqlArithmeticProjectionCall {
                     field: "age".to_string(),
                     op: SqlArithmeticProjectionOp::Add,
-                    literal: Value::Int(1),
+                    rhs: SqlArithmeticProjectionOperand::Literal(Value::Int(1)),
                 },
             )]),
             projection_aliases: vec![None],
@@ -199,7 +200,7 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
                     SqlArithmeticProjectionCall {
                         field: "age".to_string(),
                         op,
-                        literal,
+                        rhs: SqlArithmeticProjectionOperand::Literal(literal),
                     },
                 )]),
                 projection_aliases: vec![None],
@@ -214,6 +215,34 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
             "{context} should lower to one bounded arithmetic projection item",
         );
     }
+}
+
+#[test]
+fn parse_select_statement_with_scalar_field_to_field_projection_item() {
+    let statement = parse_sql("SELECT dexterity + charisma AS total FROM users")
+        .expect("field-to-field arithmetic projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
+                SqlArithmeticProjectionCall {
+                    field: "dexterity".to_string(),
+                    op: SqlArithmeticProjectionOp::Add,
+                    rhs: SqlArithmeticProjectionOperand::Field("charisma".to_string()),
+                },
+            )]),
+            projection_aliases: vec![Some("total".to_string())],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
 }
 
 #[test]
@@ -306,7 +335,7 @@ fn parse_select_statement_with_round_projection_items() {
                 input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
                     field: "age".to_string(),
                     op: SqlArithmeticProjectionOp::Div,
-                    literal: Value::Int(3),
+                    rhs: SqlArithmeticProjectionOperand::Literal(Value::Int(3)),
                 }),
                 scale: Value::Int(2),
             }),

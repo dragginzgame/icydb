@@ -73,15 +73,29 @@ pub(crate) enum SqlArithmeticProjectionOp {
 /// SqlArithmeticProjectionCall
 ///
 /// Parsed bounded scalar arithmetic projection item.
-/// Reduced SQL keeps this to one field plus one literal so projection support
-/// does not reopen generic expression parsing.
+/// Reduced SQL keeps this to one field plus one bounded right-hand operand so
+/// scalar projection support can admit sibling-field arithmetic without
+/// reopening generic expression parsing.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlArithmeticProjectionCall {
     pub(crate) field: String,
     pub(crate) op: SqlArithmeticProjectionOp,
-    pub(crate) literal: Value,
+    pub(crate) rhs: SqlArithmeticProjectionOperand,
+}
+
+///
+/// SqlArithmeticProjectionOperand
+///
+/// Bounded right-hand operand admitted in scalar arithmetic projection
+/// position.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlArithmeticProjectionOperand {
+    Field(String),
+    Literal(Value),
 }
 
 ///

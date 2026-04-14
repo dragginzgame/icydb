@@ -8,8 +8,9 @@ use crate::{
         reduced_sql::{Keyword, TokenKind},
         sql::parser::{
             Parser, SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall,
-            SqlArithmeticProjectionOp, SqlProjection, SqlRoundProjectionCall,
-            SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction, SqlTextFunctionCall,
+            SqlArithmeticProjectionOp, SqlArithmeticProjectionOperand, SqlProjection,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
+            SqlTextFunctionCall,
         },
     },
     value::Value,
@@ -283,9 +284,13 @@ impl Parser {
         field: String,
         op: SqlArithmeticProjectionOp,
     ) -> Result<SqlArithmeticProjectionCall, crate::db::reduced_sql::SqlParseError> {
-        let literal = self.parse_literal()?;
+        let rhs = if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            SqlArithmeticProjectionOperand::Field(self.expect_identifier()?)
+        } else {
+            SqlArithmeticProjectionOperand::Literal(self.parse_literal()?)
+        };
 
-        Ok(SqlArithmeticProjectionCall { field, op, literal })
+        Ok(SqlArithmeticProjectionCall { field, op, rhs })
     }
 
     fn parse_round_projection_call(

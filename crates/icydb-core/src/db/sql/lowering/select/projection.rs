@@ -7,9 +7,9 @@ use crate::{
             plan::expr::{Alias, Expr, FieldId, Function, ProjectionField, ProjectionSelection},
         },
         sql::parser::{
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
-            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlArithmeticProjectionOperand,
+            SqlProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+            SqlTextFunction, SqlTextFunctionCall,
         },
     },
     value::Value,
@@ -411,27 +411,58 @@ fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLower
 fn lower_arithmetic_projection_expr(
     call: &SqlArithmeticProjectionCall,
 ) -> Result<Expr, SqlLoweringError> {
+    // Keep arithmetic projection bounded to `field op (literal | field)` while
+    // still lowering onto the same canonical binary expression seam used by
+    // projection planning and evaluation.
+    let right = match &call.rhs {
+        SqlArithmeticProjectionOperand::Field(field) => Expr::Field(FieldId::new(field.clone())),
+        SqlArithmeticProjectionOperand::Literal(literal) => {
+            return match call.op {
+                SqlArithmeticProjectionOp::Add => {
+                    NumericProjectionExpr::add_value(call.field.clone(), literal.clone())
+                        .map(|projection| projection.expr().clone())
+                        .map_err(SqlLoweringError::from)
+                }
+                SqlArithmeticProjectionOp::Sub => {
+                    NumericProjectionExpr::sub_value(call.field.clone(), literal.clone())
+                        .map(|projection| projection.expr().clone())
+                        .map_err(SqlLoweringError::from)
+                }
+                SqlArithmeticProjectionOp::Mul => {
+                    NumericProjectionExpr::mul_value(call.field.clone(), literal.clone())
+                        .map(|projection| projection.expr().clone())
+                        .map_err(SqlLoweringError::from)
+                }
+                SqlArithmeticProjectionOp::Div => {
+                    NumericProjectionExpr::div_value(call.field.clone(), literal.clone())
+                        .map(|projection| projection.expr().clone())
+                        .map_err(SqlLoweringError::from)
+                }
+            };
+        }
+    };
+
     match call.op {
-        SqlArithmeticProjectionOp::Add => {
-            NumericProjectionExpr::add_value(call.field.clone(), call.literal.clone())
-                .map(|projection| projection.expr().clone())
-                .map_err(SqlLoweringError::from)
-        }
-        SqlArithmeticProjectionOp::Sub => {
-            NumericProjectionExpr::sub_value(call.field.clone(), call.literal.clone())
-                .map(|projection| projection.expr().clone())
-                .map_err(SqlLoweringError::from)
-        }
-        SqlArithmeticProjectionOp::Mul => {
-            NumericProjectionExpr::mul_value(call.field.clone(), call.literal.clone())
-                .map(|projection| projection.expr().clone())
-                .map_err(SqlLoweringError::from)
-        }
-        SqlArithmeticProjectionOp::Div => {
-            NumericProjectionExpr::div_value(call.field.clone(), call.literal.clone())
-                .map(|projection| projection.expr().clone())
-                .map_err(SqlLoweringError::from)
-        }
+        SqlArithmeticProjectionOp::Add => Ok(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            right: Box::new(right),
+        }),
+        SqlArithmeticProjectionOp::Sub => Ok(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Sub,
+            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            right: Box::new(right),
+        }),
+        SqlArithmeticProjectionOp::Mul => Ok(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Mul,
+            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            right: Box::new(right),
+        }),
+        SqlArithmeticProjectionOp::Div => Ok(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Div,
+            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            right: Box::new(right),
+        }),
     }
 }
 

@@ -145,6 +145,29 @@ fn execute_sql_projection_scalar_addition_matches_fluent_numeric_projection() {
 }
 
 #[test]
+fn execute_sql_projection_scalar_field_to_field_addition_returns_computed_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_projection_window_fixture(&session);
+
+    assert_projection_columns_and_rows(
+        &session,
+        "SELECT age + age AS total FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+        &["total"],
+        vec![
+            vec![Value::Decimal(
+                crate::types::Decimal::from_u128(20).expect("20 decimal"),
+            )],
+            vec![Value::Decimal(
+                crate::types::Decimal::from_u128(40).expect("40 decimal"),
+            )],
+        ],
+        "scalar field-to-field arithmetic projection rows",
+    );
+}
+
+#[test]
 fn execute_sql_projection_scalar_sub_mul_div_match_fluent_numeric_projection() {
     reset_session_sql_store();
     let session = sql_session();

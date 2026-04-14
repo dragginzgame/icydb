@@ -11,9 +11,10 @@ use crate::db::{
             rewrite_field_identifiers,
         },
         parser::{
-            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingSymbol,
-            SqlOrderTerm, SqlProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
-            SqlSelectItem, SqlSelectStatement, SqlTextFunction, SqlTextFunctionCall,
+            SqlAggregateCall, SqlArithmeticProjectionCall, SqlArithmeticProjectionOperand,
+            SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection, SqlRoundProjectionCall,
+            SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
+            SqlTextFunctionCall,
         },
     },
 };
@@ -135,15 +136,23 @@ fn normalize_projection_identifiers(
                         literal2,
                         literal3,
                     }),
-                    SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
-                        field,
-                        op,
-                        literal,
-                    }) => SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
-                        field: normalize_identifier(field, entity_scope),
-                        op,
-                        literal,
-                    }),
+                    SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall { field, op, rhs }) => {
+                        SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
+                            field: normalize_identifier(field, entity_scope),
+                            op,
+                            rhs: match rhs {
+                                SqlArithmeticProjectionOperand::Field(field) => {
+                                    SqlArithmeticProjectionOperand::Field(normalize_identifier(
+                                        field,
+                                        entity_scope,
+                                    ))
+                                }
+                                SqlArithmeticProjectionOperand::Literal(literal) => {
+                                    SqlArithmeticProjectionOperand::Literal(literal)
+                                }
+                            },
+                        })
+                    }
                     SqlSelectItem::Round(SqlRoundProjectionCall { input, scale }) => {
                         SqlSelectItem::Round(SqlRoundProjectionCall {
                             input: match input {
@@ -154,12 +163,21 @@ fn normalize_projection_identifiers(
                                     ))
                                 }
                                 SqlRoundProjectionInput::Arithmetic(
-                                    SqlArithmeticProjectionCall { field, op, literal },
+                                    SqlArithmeticProjectionCall { field, op, rhs },
                                 ) => SqlRoundProjectionInput::Arithmetic(
                                     SqlArithmeticProjectionCall {
                                         field: normalize_identifier(field, entity_scope),
                                         op,
-                                        literal,
+                                        rhs: match rhs {
+                                            SqlArithmeticProjectionOperand::Field(field) => {
+                                                SqlArithmeticProjectionOperand::Field(
+                                                    normalize_identifier(field, entity_scope),
+                                                )
+                                            }
+                                            SqlArithmeticProjectionOperand::Literal(literal) => {
+                                                SqlArithmeticProjectionOperand::Literal(literal)
+                                            }
+                                        },
                                     },
                                 ),
                             },

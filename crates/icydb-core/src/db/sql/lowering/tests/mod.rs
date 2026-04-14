@@ -710,6 +710,47 @@ fn compile_sql_command_select_scalar_add_projection_lowers_to_binary_expr() {
 }
 
 #[test]
+fn compile_sql_command_select_scalar_field_to_field_projection_lowers_to_binary_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age + age AS total FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("field-to-field arithmetic projection should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .expect("field-to-field arithmetic plan should build")
+        .projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+
+    assert_eq!(fields.len(), 1);
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr:
+                Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left,
+                    right,
+                },
+            alias: Some(alias),
+        } => {
+            assert_eq!(alias.as_str(), "total");
+            assert!(matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+            assert!(matches!(right.as_ref(), Expr::Field(field) if field.as_str() == "age"));
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!(
+                "field-to-field arithmetic projection should lower to one add expression: {other:?}"
+            )
+        }
+    }
+}
+
+#[test]
 fn compile_sql_command_select_scalar_sub_mul_div_projection_lowers_to_binary_expr() {
     for (sql, expected_op, expected_literal, context) in [
         (

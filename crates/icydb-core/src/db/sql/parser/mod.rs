@@ -22,12 +22,12 @@ use crate::{
 pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-    SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlRoundProjectionCall,
-    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall, SqlUpdateStatement,
+    SqlArithmeticProjectionOperand, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+    SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.
