@@ -37,6 +37,12 @@ impl SqlPerfSurface {
 }
 
 #[derive(Clone, Copy, Debug)]
+enum SqlPerfSampleMode {
+    QueryOnly,
+    WarmThenQuery,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct SqlPerfScenario {
     scenario_key: &'static str,
     surface: SqlPerfSurface,
@@ -45,6 +51,8 @@ struct SqlPerfScenario {
     sql: &'static str,
     sample_count: usize,
     query_loop_count: usize,
+    sample_mode: SqlPerfSampleMode,
+    isolated_fixture: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -109,6 +117,8 @@ const fn scenario(
         sql,
         sample_count: 5,
         query_loop_count: 1,
+        sample_mode: SqlPerfSampleMode::QueryOnly,
+        isolated_fixture: false,
     }
 }
 
@@ -128,6 +138,29 @@ const fn repeat_scenario(
         sql,
         sample_count: 5,
         query_loop_count,
+        sample_mode: SqlPerfSampleMode::QueryOnly,
+        isolated_fixture: false,
+    }
+}
+
+const fn parity_scenario(
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    index_family: &'static str,
+    query_family: &'static str,
+    sql: &'static str,
+    sample_mode: SqlPerfSampleMode,
+) -> SqlPerfScenario {
+    SqlPerfScenario {
+        scenario_key,
+        surface,
+        index_family,
+        query_family,
+        sql,
+        sample_count: 1,
+        query_loop_count: 1,
+        sample_mode,
+        isolated_fixture: true,
     }
 }
 
@@ -483,12 +516,39 @@ fn sample_perf_scenario(
     // Each sample can optionally run the SQL multiple times inside one
     // canister call so the audit can measure a real session-local cache.
     for _ in 0..scenario.sample_count {
-        let sample = query_surface_with_perf(
-            fixture,
-            scenario.surface,
-            scenario.sql,
-            scenario.query_loop_count,
-        )
+        let isolated_fixture;
+        let active_fixture = if scenario.isolated_fixture {
+            isolated_fixture = install_sql_perf_canister_fixture();
+            reset_sql_perf_fixtures(&isolated_fixture);
+
+            &isolated_fixture
+        } else {
+            fixture
+        };
+        let sample = match scenario.sample_mode {
+            SqlPerfSampleMode::QueryOnly => query_surface_with_perf(
+                active_fixture,
+                scenario.surface,
+                scenario.sql,
+                scenario.query_loop_count,
+            ),
+            SqlPerfSampleMode::WarmThenQuery => {
+                warm_query_surface_with_perf(active_fixture, scenario.surface, scenario.sql)
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "warm perf scenario '{}' on '{}' should succeed: {err}",
+                            scenario.scenario_key,
+                            scenario.surface.label(),
+                        )
+                    });
+                query_surface_with_perf(
+                    active_fixture,
+                    scenario.surface,
+                    scenario.sql,
+                    scenario.query_loop_count,
+                )
+            }
+        }
         .unwrap_or_else(|err| {
             panic!(
                 "perf scenario '{}' on '{}' should succeed: {err}",
@@ -538,6 +598,22 @@ fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
             "secondary_age_id",
             "scalar_projection",
             "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        parity_scenario(
+            "user.age.order_only.asc.limit2.cold_query",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "parity_cold_query",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 2",
+            SqlPerfSampleMode::QueryOnly,
+        ),
+        parity_scenario(
+            "user.age.order_only.asc.limit2.warm_after_update",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "parity_warm_after_update",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 2",
+            SqlPerfSampleMode::WarmThenQuery,
         ),
         scenario(
             "user.age.order_only.desc.limit3",

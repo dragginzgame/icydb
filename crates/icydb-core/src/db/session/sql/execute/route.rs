@@ -66,7 +66,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok(CompiledSqlCommand::GlobalAggregate {
                     command,
-                    label_override: Self::sql_query_aggregate_label_override(statement),
+                    label_overrides: Self::sql_query_aggregate_label_overrides(statement),
                 })
             }
             SqlStatement::Select(_) => {

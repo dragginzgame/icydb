@@ -176,8 +176,8 @@ impl<C: CanisterKind> DbSession<C> {
         let model = command.query().model();
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let strategy = command
-            .prepared_scalar_strategy_with_model(model)
+        let strategies = command
+            .prepared_scalar_strategies_with_model(model)
             .map_err(QueryError::from_sql_lowering_error)?;
 
         match mode {
@@ -195,25 +195,31 @@ impl<C: CanisterKind> DbSession<C> {
                     .query()
                     .build_plan_with_visible_indexes(&visible_indexes)?;
                 authority.finalize_static_planning_shape(&mut plan);
-                let query_explain = plan.explain_with_model(model);
-                let execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
-                    &plan,
-                    AggregateRouteShape::new_from_fields(
+                let mut rendered = Vec::with_capacity(strategies.len());
+
+                for strategy in strategies {
+                    let query_explain = plan.explain_with_model(model);
+                    let execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
+                        &plan,
+                        AggregateRouteShape::new_from_fields(
+                            strategy.aggregate_kind(),
+                            strategy.projected_field(),
+                            model.fields(),
+                            model.primary_key().name(),
+                        ),
                         strategy.aggregate_kind(),
                         strategy.projected_field(),
-                        model.fields(),
-                        model.primary_key().name(),
-                    ),
-                    strategy.aggregate_kind(),
-                    strategy.projected_field(),
-                );
-                let terminal_plan = ExplainAggregateTerminalPlan::new(
-                    query_explain,
-                    strategy.aggregate_kind(),
-                    execution,
-                );
+                    );
+                    let terminal_plan = ExplainAggregateTerminalPlan::new(
+                        query_explain,
+                        strategy.aggregate_kind(),
+                        execution,
+                    );
 
-                Ok(terminal_plan.execution_node_descriptor().render_text_tree())
+                    rendered.push(terminal_plan.execution_node_descriptor().render_text_tree());
+                }
+
+                Ok(rendered.join("\n\n"))
             }
             SqlExplainMode::Json => Ok(command
                 .query()

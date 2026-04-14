@@ -99,6 +99,9 @@ fn average_attribution(
 #[cfg(feature = "sql")]
 fn average_fluent_attribution(
     total_compile_local_instructions: u64,
+    total_runtime_local_instructions: u64,
+    total_finalize_local_instructions: u64,
+    total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
     total_shared_query_plan_cache_hits: u64,
@@ -109,6 +112,9 @@ fn average_fluent_attribution(
 
     QueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
+        runtime_local_instructions: total_runtime_local_instructions / divisor,
+        finalize_local_instructions: total_finalize_local_instructions / divisor,
+        response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
         shared_query_plan_cache_hits: total_shared_query_plan_cache_hits,
@@ -228,6 +234,17 @@ fn run_user_fluent_scenario_once(
                 .order_by("age")
                 .order_by("id")
                 .limit(3);
+            let (result, attribution) =
+                session.execute_query_result_with_attribution(query.query())?;
+
+            Ok((summarize_fluent_outcome(&result), attribution))
+        }
+        "user.age.order_only.asc.limit2.parity" => {
+            let query = session
+                .load::<PerfAuditUser>()
+                .order_by("age")
+                .order_by("id")
+                .limit(2);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -367,6 +384,9 @@ fn query_fluent_scenario_loop(
     let session = db();
     let mut first_outcome = None;
     let mut total_compile_local_instructions = 0_u64;
+    let mut total_runtime_local_instructions = 0_u64;
+    let mut total_finalize_local_instructions = 0_u64;
+    let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
     let mut total_shared_query_plan_cache_hits = 0_u64;
@@ -391,6 +411,12 @@ fn query_fluent_scenario_loop(
 
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_runtime_local_instructions =
+            total_runtime_local_instructions.saturating_add(attribution.runtime_local_instructions);
+        total_finalize_local_instructions = total_finalize_local_instructions
+            .saturating_add(attribution.finalize_local_instructions);
+        total_response_decode_local_instructions = total_response_decode_local_instructions
+            .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
             total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
         total_local_instructions =
@@ -405,6 +431,9 @@ fn query_fluent_scenario_loop(
         outcome: first_outcome.expect("perf loop with runs > 0 should record one fluent outcome"),
         attribution: average_fluent_attribution(
             total_compile_local_instructions,
+            total_runtime_local_instructions,
+            total_finalize_local_instructions,
+            total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,
             total_shared_query_plan_cache_hits,

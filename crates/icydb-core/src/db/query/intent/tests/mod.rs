@@ -3,6 +3,7 @@
 //! Does not own: shared fixtures and helper contracts for the topical suites.
 //! Boundary: wires the owner `tests/` suite and imports shared support.
 
+mod cache_key;
 mod explain;
 mod filter_expr;
 mod grouped;

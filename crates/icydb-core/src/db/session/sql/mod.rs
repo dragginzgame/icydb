@@ -17,6 +17,11 @@ use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
 
 type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
+// Bump these when SQL cache-key meaning changes in a way that must force
+// existing in-heap entries to miss instead of aliasing old semantics.
+const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
+const SQL_SELECT_PLAN_CACHE_METHOD_VERSION: u8 = 1;
+
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
     db::{
@@ -237,6 +242,7 @@ enum SqlCompiledCommandSurface {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledCommandCacheKey {
+    cache_method_version: u8,
     surface: SqlCompiledCommandSurface,
     entity_path: &'static str,
     schema_fingerprint: CommitSchemaFingerprint,
@@ -245,6 +251,7 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlSelectPlanCacheKey {
+    cache_method_version: u8,
     compiled: SqlCompiledCommandCacheKey,
     visibility: crate::db::session::query::QueryPlanVisibility,
 }
@@ -305,6 +312,7 @@ impl SqlCompiledCommandCacheKey {
         E: PersistedRow + EntityValue,
     {
         Self {
+            cache_method_version: SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION,
             surface,
             entity_path: E::PATH,
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
@@ -324,6 +332,70 @@ impl SqlSelectPlanCacheKey {
         visibility: crate::db::session::query::QueryPlanVisibility,
     ) -> Self {
         Self {
+            cache_method_version: SQL_SELECT_PLAN_CACHE_METHOD_VERSION,
+            compiled,
+            visibility,
+        }
+    }
+}
+
+#[cfg(test)]
+impl SqlCompiledCommandCacheKey {
+    pub(in crate::db) fn query_for_entity_with_method_version<E>(
+        sql: &str,
+        cache_method_version: u8,
+    ) -> Self
+    where
+        E: PersistedRow + EntityValue,
+    {
+        Self::for_entity_with_method_version::<E>(
+            SqlCompiledCommandSurface::Query,
+            sql,
+            cache_method_version,
+        )
+    }
+
+    pub(in crate::db) fn update_for_entity_with_method_version<E>(
+        sql: &str,
+        cache_method_version: u8,
+    ) -> Self
+    where
+        E: PersistedRow + EntityValue,
+    {
+        Self::for_entity_with_method_version::<E>(
+            SqlCompiledCommandSurface::Update,
+            sql,
+            cache_method_version,
+        )
+    }
+
+    fn for_entity_with_method_version<E>(
+        surface: SqlCompiledCommandSurface,
+        sql: &str,
+        cache_method_version: u8,
+    ) -> Self
+    where
+        E: PersistedRow + EntityValue,
+    {
+        Self {
+            cache_method_version,
+            surface,
+            entity_path: E::PATH,
+            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            sql: sql.to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SqlSelectPlanCacheKey {
+    pub(in crate::db) const fn from_compiled_key_with_method_version(
+        compiled: SqlCompiledCommandCacheKey,
+        visibility: crate::db::session::query::QueryPlanVisibility,
+        cache_method_version: u8,
+    ) -> Self {
+        Self {
+            cache_method_version,
             compiled,
             visibility,
         }
@@ -360,7 +432,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     },
     GlobalAggregate {
         command: SqlGlobalAggregateCommandCore,
-        label_override: Option<String>,
+        label_overrides: Vec<Option<String>>,
     },
     Explain(LoweredSqlCommand),
     Insert(SqlInsertStatement),

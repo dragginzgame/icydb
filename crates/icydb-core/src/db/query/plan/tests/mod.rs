@@ -5,9 +5,11 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 mod access;
+mod continuation;
 mod covering;
 mod error_mapping;
 mod group;
+mod group_having;
 mod planner;
 mod pushdown;
 mod semantics;

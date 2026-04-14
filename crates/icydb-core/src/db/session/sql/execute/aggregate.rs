@@ -24,12 +24,14 @@ fn parsed_requires_dedicated_sql_aggregate_lane(statement: &SqlStatement) -> boo
 
 // Keep the dedicated SQL aggregate lane on parser-owned outward labels
 // without reopening alias semantics in lowering or runtime strategy state.
-fn sql_aggregate_statement_label_override(statement: &SqlStatement) -> Option<String> {
+fn sql_aggregate_statement_label_overrides(statement: &SqlStatement) -> Vec<Option<String>> {
     let SqlStatement::Select(select) = statement else {
-        return None;
+        return Vec::new();
     };
 
-    select.projection_alias(0).map(str::to_string)
+    (0..select.projection_aliases.len())
+        .map(|index| select.projection_alias(index).map(str::to_string))
+        .collect()
 }
 
 fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
@@ -158,10 +160,10 @@ impl<C: CanisterKind> DbSession<C> {
         parsed_requires_dedicated_sql_aggregate_lane(statement)
     }
 
-    pub(in crate::db::session::sql::execute) fn sql_query_aggregate_label_override(
+    pub(in crate::db::session::sql::execute) fn sql_query_aggregate_label_overrides(
         statement: &SqlStatement,
-    ) -> Option<String> {
-        sql_aggregate_statement_label_override(statement)
+    ) -> Vec<Option<String>> {
+        sql_aggregate_statement_label_overrides(statement)
     }
 
     // Build the canonical SQL aggregate label projected by the prepared
@@ -226,48 +228,63 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: SqlGlobalAggregateCommandCore,
         authority: EntityAuthority,
-        label_override: Option<String>,
+        label_overrides: Vec<Option<String>>,
     ) -> Result<SqlStatementResult, QueryError> {
         let model = authority.model();
-        let strategy = command
-            .prepared_scalar_strategy_with_model(model)
+        let strategies = command
+            .prepared_scalar_strategies_with_model(model)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let label = label_override.unwrap_or_else(|| Self::sql_scalar_aggregate_label(&strategy));
-        let value = match strategy.runtime_descriptor() {
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                let (payload, _) = self.execute_structural_sql_projection(
-                    command
-                        .query()
-                        .clone()
-                        .select_fields([authority.primary_key_name()]),
-                    authority,
-                    None,
-                )?;
-                let (_, _, _, row_count) = payload.into_parts();
+        let mut columns = Vec::with_capacity(strategies.len());
+        let mut fixed_scales = Vec::with_capacity(strategies.len());
+        let mut row = Vec::with_capacity(strategies.len());
 
-                Value::Uint(u64::from(row_count))
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountField
-            | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
-            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-                let Some(field) = strategy.projected_field() else {
-                    return Err(QueryError::invariant(
-                        "field-target SQL aggregate strategy requires projected field label",
-                    ));
-                };
-                let values = self.execute_structural_sql_aggregate_field_projection(
-                    command.query().clone().select_fields([field]),
-                    authority,
-                )?;
+        for (index, strategy) in strategies.iter().enumerate() {
+            columns.push(
+                label_overrides
+                    .get(index)
+                    .and_then(|label| label.clone())
+                    .unwrap_or_else(|| Self::sql_scalar_aggregate_label(strategy)),
+            );
+            fixed_scales.push(None);
 
-                reduce_structural_sql_aggregate_field_values(values, &strategy)?
-            }
-        };
+            let value = match strategy.runtime_descriptor() {
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                    let (payload, _) = self.execute_structural_sql_projection(
+                        command
+                            .query()
+                            .clone()
+                            .select_fields([authority.primary_key_name()]),
+                        authority,
+                        None,
+                    )?;
+                    let (_, _, _, row_count) = payload.into_parts();
+
+                    Value::Uint(u64::from(row_count))
+                }
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+                | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+                | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                    let Some(field) = strategy.projected_field() else {
+                        return Err(QueryError::invariant(
+                            "field-target SQL aggregate strategy requires projected field label",
+                        ));
+                    };
+                    let values = self.execute_structural_sql_aggregate_field_projection(
+                        command.query().clone().select_fields([field]),
+                        authority,
+                    )?;
+
+                    reduce_structural_sql_aggregate_field_values(values, strategy)?
+                }
+            };
+
+            row.push(value);
+        }
 
         Ok(SqlStatementResult::Projection {
-            columns: vec![label],
-            fixed_scales: vec![None],
-            rows: vec![vec![value]],
+            columns,
+            fixed_scales,
+            rows: vec![row],
             row_count: 1,
         })
     }

@@ -4,6 +4,8 @@
 //! Does not own: query intent construction or executor runtime semantics.
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
+#[cfg(feature = "perf-attribution")]
+use crate::db::executor::ScalarExecutePhaseAttribution;
 use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
@@ -42,6 +44,10 @@ use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
 
 type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
+// Bump this when the shared lower query-plan cache key meaning changes in a
+// way that must force old in-heap entries to miss instead of aliasing.
+const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 1;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) enum QueryPlanVisibility {
     StoreNotReady,
@@ -50,6 +56,7 @@ pub(in crate::db) enum QueryPlanVisibility {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct QueryPlanCacheKey {
+    cache_method_version: u8,
     entity_path: &'static str,
     schema_fingerprint: CommitSchemaFingerprint,
     visibility: QueryPlanVisibility,
@@ -125,6 +132,9 @@ impl QueryPlanCacheAttribution {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct QueryExecutionAttribution {
     pub compile_local_instructions: u64,
+    pub runtime_local_instructions: u64,
+    pub finalize_local_instructions: u64,
+    pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
     pub shared_query_plan_cache_hits: u64,
@@ -158,6 +168,14 @@ fn measure_query_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(feature = "perf-attribution")]
+    const fn empty_scalar_execute_phase_attribution() -> ScalarExecutePhaseAttribution {
+        ScalarExecutePhaseAttribution {
+            runtime_local_instructions: 0,
+            finalize_local_instructions: 0,
+        }
+    }
+
     fn query_plan_cache_scope_id(&self) -> usize {
         self.db.cache_scope_id()
     }
@@ -217,12 +235,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
     ) -> Result<(QueryPlanCacheEntry, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let cache_key = QueryPlanCacheKey {
-            entity_path: authority.entity_path(),
-            schema_fingerprint,
-            visibility,
-            structural_query: query.structural_cache_key(),
-        };
+        let cache_key =
+            QueryPlanCacheKey::for_authority(authority, schema_fingerprint, visibility, query);
 
         {
             let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
@@ -242,6 +256,23 @@ impl<C: CanisterKind> DbSession<C> {
         });
 
         Ok((entry, QueryPlanCacheAttribution::miss()))
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn query_plan_cache_key_for_tests(
+        authority: crate::db::executor::EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        cache_method_version: u8,
+    ) -> QueryPlanCacheKey {
+        QueryPlanCacheKey::for_authority_with_method_version(
+            authority,
+            schema_fingerprint,
+            visibility,
+            query,
+            cache_method_version,
+        )
     }
 
     pub(in crate::db) fn cached_structural_plan_for_authority(
@@ -549,16 +580,47 @@ impl<C: CanisterKind> DbSession<C> {
                             })
                             .transpose()?;
 
-                        Ok::<LoadQueryResult<E>, QueryError>(LoadQueryResult::Grouped(
-                            PagedGroupedExecutionWithTrace::new(page.rows, next_cursor, trace),
-                        ))
+                        Ok::<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>(
+                            (
+                                LoadQueryResult::Grouped(PagedGroupedExecutionWithTrace::new(
+                                    page.rows,
+                                    next_cursor,
+                                    trace,
+                                )),
+                                Self::empty_scalar_execute_phase_attribution(),
+                                0,
+                            ),
+                        )
                     })?
             } else {
-                self.execute_query_dyn(query.mode(), plan)
-                    .map(LoadQueryResult::Rows)
+                match query.mode() {
+                    QueryMode::Load(_) => {
+                        let (rows, phase_attribution, response_decode_local_instructions) = self
+                            .load_executor::<E>()
+                            .execute_with_phase_attribution(plan)
+                            .map_err(QueryError::execute)?;
+
+                        Ok::<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>(
+                            (
+                                LoadQueryResult::Rows(rows),
+                                phase_attribution,
+                                response_decode_local_instructions,
+                            ),
+                        )
+                    }
+                    QueryMode::Delete(_) => {
+                        let result = self.execute_query_dyn(query.mode(), plan)?;
+
+                        Ok((
+                            LoadQueryResult::Rows(result),
+                            Self::empty_scalar_execute_phase_attribution(),
+                            0,
+                        ))
+                    }
+                }
             }
         });
-        let result = result?;
+        let (result, execute_phase_attribution, response_decode_local_instructions) = result?;
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
 
@@ -566,6 +628,9 @@ impl<C: CanisterKind> DbSession<C> {
             result,
             QueryExecutionAttribution {
                 compile_local_instructions,
+                runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
+                finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
+                response_decode_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,
                 shared_query_plan_cache_hits: cache_attribution.hits,
@@ -815,5 +880,38 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_grouped_paged_with_cursor_traced(plan, cursor)
         })
         .map_err(QueryError::execute)
+    }
+}
+
+impl QueryPlanCacheKey {
+    fn for_authority(
+        authority: crate::db::executor::EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+    ) -> Self {
+        Self::for_authority_with_method_version(
+            authority,
+            schema_fingerprint,
+            visibility,
+            query,
+            SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
+        )
+    }
+
+    fn for_authority_with_method_version(
+        authority: crate::db::executor::EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        cache_method_version: u8,
+    ) -> Self {
+        Self {
+            cache_method_version,
+            entity_path: authority.entity_path(),
+            schema_fingerprint,
+            visibility,
+            structural_query: query.structural_cache_key(),
+        }
     }
 }

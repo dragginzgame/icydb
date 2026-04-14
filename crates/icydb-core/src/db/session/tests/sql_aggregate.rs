@@ -414,16 +414,24 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_columns, context) in [
+    for (sql, expected_columns, expected_rows, context) in [
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
             vec!["COUNT(*)".to_string()],
+            vec![vec![Value::Uint(0)]],
             "plain global aggregate statement payload",
         ),
         (
             "SELECT COUNT(*) AS total_rows FROM SessionSqlEntity",
             vec!["total_rows".to_string()],
+            vec![vec![Value::Uint(0)]],
             "aliased global aggregate statement payload",
+        ),
+        (
+            "SELECT MIN(age) AS youngest, MAX(age) AS oldest FROM SessionSqlEntity",
+            vec!["youngest".to_string(), "oldest".to_string()],
+            vec![vec![Value::Null, Value::Null]],
+            "multi-terminal aliased global aggregate statement payload",
         ),
     ] {
         let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
@@ -444,9 +452,8 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             "{context} should preserve aggregate projection labels",
         );
         assert_eq!(
-            rows,
-            vec![vec![Value::Uint(0)]],
-            "{context} should preserve empty-store scalar aggregate value",
+            rows, expected_rows,
+            "{context} should preserve empty-store aggregate values",
         );
         assert_eq!(
             row_count, 1,
@@ -506,6 +513,39 @@ fn global_aggregate_matrix_queries_match_expected_values() {
     for (sql, expected_value) in cases {
         assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected_value, sql);
     }
+}
+
+#[test]
+fn global_aggregate_multi_terminal_query_returns_expected_projection_row() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("multi-aggregate-a", 10),
+            ("multi-aggregate-b", 20),
+            ("multi-aggregate-c", 30),
+        ],
+    );
+
+    assert_eq!(
+        statement_projection_columns::<SessionSqlEntity>(
+            &session,
+            "SELECT MIN(age) AS youngest, MAX(age) AS oldest FROM SessionSqlEntity",
+        )
+        .expect("multi-terminal global aggregate columns should load"),
+        vec!["youngest".to_string(), "oldest".to_string()],
+        "multi-terminal global aggregate SQL should preserve both aggregate labels",
+    );
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
+        )
+        .expect("multi-terminal global aggregate row should load"),
+        vec![vec![Value::Uint(10), Value::Uint(30)]],
+        "multi-terminal global aggregate SQL should emit one row with both reduced values",
+    );
 }
 
 #[test]
@@ -599,5 +639,19 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     assert_eq!(
         qualified, unqualified,
         "qualified identifiers should normalize to the same global aggregate EXPLAIN JSON output",
+    );
+
+    let multi_execution = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
+    )
+    .expect("multi-terminal global aggregate EXPLAIN EXECUTION should succeed");
+    assert!(
+        multi_execution.contains("AggregateMin execution_mode="),
+        "multi-terminal global aggregate EXPLAIN EXECUTION should render the MIN terminal route",
+    );
+    assert!(
+        multi_execution.contains("AggregateMax execution_mode="),
+        "multi-terminal global aggregate EXPLAIN EXECUTION should render the MAX terminal route",
     );
 }

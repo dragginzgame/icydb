@@ -60,24 +60,56 @@ fn assert_explain_load_shape_case<E>(
     );
 }
 
-fn assert_explain_json_index_range_case(
+fn assert_explain_index_range_case(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
     tokens: &[&str],
     context: &str,
+    require_json_object: bool,
 ) {
     let explain = statement_explain_sql::<IndexedSessionSqlEntity>(session, sql)
         .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
 
-    assert!(
-        explain.starts_with('{') && explain.ends_with('}'),
-        "{context} should be one JSON object payload",
-    );
+    if require_json_object {
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+    }
     assert_explain_contains_tokens(explain.as_str(), tokens, context);
     assert!(
-        !explain.contains("\"type\":\"FullScan\""),
+        !explain.contains(if require_json_object {
+            "\"type\":\"FullScan\""
+        } else {
+            "access=FullScan"
+        }),
         "{context} must not fall back to full scan: {explain}",
     );
+}
+
+// Execute one table of EXPLAIN SQL surfaces and assert each surface keeps the
+// expected token contract, optionally requiring one JSON object payload.
+fn assert_explain_token_matrix<E>(
+    session: &DbSession<SessionSqlCanister>,
+    cases: &[(&str, Vec<&str>)],
+    context: &str,
+    require_json_object: bool,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + crate::traits::EntityValue,
+{
+    for (sql, tokens) in cases {
+        let explain = statement_explain_sql::<E>(session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+        if require_json_object {
+            assert!(
+                explain.starts_with('{') && explain.ends_with('}'),
+                "{context} should be one JSON object payload: {sql}",
+            );
+        }
+
+        assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+    }
 }
 
 #[test]
@@ -113,11 +145,12 @@ fn explain_sql_plan_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN plan query and assert stable output tokens.
-    for (sql, tokens) in cases {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
-            .expect("EXPLAIN plan matrix query should succeed");
-        assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
-    }
+    assert_explain_token_matrix::<SessionSqlEntity>(
+        &session,
+        cases.as_slice(),
+        "EXPLAIN plan matrix query",
+        false,
+    );
 }
 
 #[test]
@@ -149,11 +182,12 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN EXECUTION query and assert stable output tokens.
-    for (sql, tokens) in cases {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
-            .expect("EXPLAIN EXECUTION matrix query should succeed");
-        assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
-    }
+    assert_explain_token_matrix::<SessionSqlEntity>(
+        &session,
+        cases.as_slice(),
+        "EXPLAIN EXECUTION matrix query",
+        false,
+    );
 }
 
 #[test]
@@ -189,15 +223,12 @@ fn explain_sql_json_matrix_queries_include_expected_tokens() {
     ];
 
     // Phase 2: execute each EXPLAIN JSON query and assert stable output tokens.
-    for (sql, tokens) in cases {
-        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
-            .expect("EXPLAIN JSON matrix query should succeed");
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "explain JSON matrix output should be one JSON object payload: {sql}",
-        );
-        assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
-    }
+    assert_explain_token_matrix::<SessionSqlEntity>(
+        &session,
+        cases.as_slice(),
+        "EXPLAIN JSON matrix query",
+        true,
+    );
 }
 
 #[test]
@@ -314,17 +345,12 @@ fn explain_sql_delete_direct_text_range_matrix_preserves_index_range_route() {
             "direct LOWER(field) ordered text-range delete EXPLAIN",
         ),
     ] {
-        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert_explain_contains_tokens(
-            explain.as_str(),
+        assert_explain_index_range_case(
+            &session,
+            sql,
             tokens,
             &format!("{context} should preserve the shared expression index-range route"),
-        );
-        assert!(
-            !explain.contains("access=FullScan"),
-            "{context} must not fall back to full scan: {explain}",
+            false,
         );
     }
 }
@@ -334,36 +360,34 @@ fn explain_json_sql_direct_text_range_matrix_preserves_index_range_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    for (sql, context) in [
+    for (sql, tokens, context) in [
         (
             "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
-            "direct UPPER(field) ordered text-range JSON EXPLAIN",
-        ),
-        (
-            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
-            "direct LOWER(field) ordered text-range JSON EXPLAIN",
-        ),
-    ] {
-        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
             &[
                 "\"mode\":{\"type\":\"Load\"",
                 "\"access\":{\"type\":\"IndexRange\"",
                 "\"predicate\":\"And([Compare",
                 "id: TextCasefold",
-            ],
+            ][..],
+            "direct UPPER(field) ordered text-range JSON EXPLAIN",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ][..],
+            "direct LOWER(field) ordered text-range JSON EXPLAIN",
+        ),
+    ] {
+        assert_explain_index_range_case(
+            &session,
+            sql,
+            tokens,
             &format!("{context} should preserve the shared expression index-range route"),
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
+            true,
         );
     }
 }
@@ -399,7 +423,7 @@ fn explain_json_sql_direct_equivalent_prefix_matrix_preserves_index_range_route(
             "direct LOWER(field) ordered text-range JSON explain route",
         ),
     ] {
-        assert_explain_json_index_range_case(
+        assert_explain_index_range_case(
             &session,
             sql,
             &[
@@ -407,6 +431,7 @@ fn explain_json_sql_direct_equivalent_prefix_matrix_preserves_index_range_route(
                 "\"access\":{\"type\":\"IndexRange\"",
             ],
             context,
+            true,
         );
     }
 }
@@ -416,36 +441,34 @@ fn explain_json_sql_delete_direct_text_range_matrix_preserves_index_range_route(
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    for (sql, context) in [
+    for (sql, tokens, context) in [
         (
             "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
-            "direct UPPER(field) ordered text-range JSON delete EXPLAIN",
-        ),
-        (
-            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
-            "direct LOWER(field) ordered text-range JSON delete EXPLAIN",
-        ),
-    ] {
-        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
-            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
-
-        assert!(
-            explain.starts_with('{') && explain.ends_with('}'),
-            "{context} should be one JSON object payload",
-        );
-        assert_explain_contains_tokens(
-            explain.as_str(),
             &[
                 "\"mode\":{\"type\":\"Delete\"",
                 "\"access\":{\"type\":\"IndexRange\"",
                 "\"predicate\":\"And([Compare",
                 "id: TextCasefold",
-            ],
+            ][..],
+            "direct UPPER(field) ordered text-range JSON delete EXPLAIN",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ][..],
+            "direct LOWER(field) ordered text-range JSON delete EXPLAIN",
+        ),
+    ] {
+        assert_explain_index_range_case(
+            &session,
+            sql,
+            tokens,
             &format!("{context} should preserve the shared expression index-range route"),
-        );
-        assert!(
-            !explain.contains("\"type\":\"FullScan\""),
-            "{context} must not fall back to full scan: {explain}",
+            true,
         );
     }
 }
@@ -481,7 +504,7 @@ fn explain_json_sql_delete_direct_equivalent_prefix_matrix_preserves_index_range
             "direct LOWER(field) ordered text-range JSON delete explain route",
         ),
     ] {
-        assert_explain_json_index_range_case(
+        assert_explain_index_range_case(
             &session,
             sql,
             &[
@@ -489,6 +512,7 @@ fn explain_json_sql_delete_direct_equivalent_prefix_matrix_preserves_index_range
                 "\"access\":{\"type\":\"IndexRange\"",
             ],
             context,
+            true,
         );
     }
 }

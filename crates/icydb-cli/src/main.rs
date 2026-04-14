@@ -340,8 +340,12 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
     let result_value = value
         .get("result")
         .ok_or_else(|| "perf result missing result payload".to_string())?;
-    let result = serde_json::from_value::<SqlQueryResult>(result_value.clone())
-        .map_err(|err| err.to_string())?;
+    let mut result_value = result_value.clone();
+
+    normalize_grouped_next_cursor_json(&mut result_value);
+
+    let result =
+        serde_json::from_value::<SqlQueryResult>(result_value).map_err(|err| err.to_string())?;
 
     Ok((
         result,
@@ -352,6 +356,26 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
             compiler: parse_perf_u64(value, "compiler_instructions")?,
         },
     ))
+}
+
+fn normalize_grouped_next_cursor_json(value: &mut Value) {
+    let Some(grouped) = value.get_mut("Grouped") else {
+        return;
+    };
+    let Some(grouped_object) = grouped.as_object_mut() else {
+        return;
+    };
+    let Some(next_cursor) = grouped_object.get_mut("next_cursor") else {
+        return;
+    };
+
+    match next_cursor {
+        Value::Array(values) if values.is_empty() => *next_cursor = Value::Null,
+        Value::Array(values) if values.len() == 1 => {
+            *next_cursor = values.pop().unwrap_or(Value::Null);
+        }
+        _ => {}
+    }
 }
 
 fn parse_perf_u64(value: &Value, field: &str) -> Result<u64, String> {
@@ -383,5 +407,59 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
         Value::Array(items) => items.iter().find_map(find_result_payload),
         Value::Object(map) => map.values().find_map(find_result_payload),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_grouped_next_cursor_json, parse_perf_result};
+    use serde_json::json;
+
+    #[test]
+    fn parse_perf_result_accepts_candid_option_none_for_grouped_next_cursor() {
+        let value = json!({
+            "result": {
+                "Grouped": {
+                    "entity": "Character",
+                    "columns": ["class_name", "COUNT(*)"],
+                    "rows": [["Bard", "5"]],
+                    "row_count": 1,
+                    "next_cursor": []
+                }
+            },
+            "instructions": "1",
+            "planner_instructions": "1",
+            "executor_instructions": "1",
+            "compiler_instructions": "1"
+        });
+
+        let (result, _) = parse_perf_result(&value).expect("grouped perf result should decode");
+        let grouped = match result {
+            icydb::db::sql::SqlQueryResult::Grouped(grouped) => grouped,
+            other => panic!("expected grouped result, got {other:?}"),
+        };
+
+        assert_eq!(grouped.next_cursor, None);
+    }
+
+    #[test]
+    fn normalize_grouped_next_cursor_json_converts_candid_some_to_plain_string() {
+        let mut value = json!({
+            "Grouped": {
+                "entity": "Character",
+                "columns": ["class_name", "COUNT(*)"],
+                "rows": [["Bard", "5"]],
+                "row_count": 1,
+                "next_cursor": ["cursor-token"]
+            }
+        });
+
+        normalize_grouped_next_cursor_json(&mut value);
+
+        assert_eq!(
+            value["Grouped"]["next_cursor"],
+            json!("cursor-token"),
+            "grouped next_cursor should normalize from candid option encoding",
+        );
     }
 }

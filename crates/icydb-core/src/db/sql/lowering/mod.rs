@@ -177,7 +177,7 @@ pub(crate) enum SqlLoweringError {
     },
 
     #[error(
-        "unsupported SQL SELECT projection; supported forms are SELECT *, field lists, or grouped aggregate shapes"
+        "unsupported SQL SELECT projection; supported forms are SELECT *, field lists, global aggregate terminal lists, or grouped aggregate shapes"
     )]
     UnsupportedSelectProjection,
 

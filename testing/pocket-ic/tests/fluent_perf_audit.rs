@@ -42,6 +42,12 @@ impl FluentPerfSurface {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum FluentPerfSampleMode {
+    QueryOnly,
+    WarmThenQuery,
+}
+
 // Scenario metadata separates the stable baseline/report key from the actual
 // canister dispatcher key so repeat rows can share one underlying query shape.
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +59,8 @@ struct FluentPerfScenario {
     query_label: &'static str,
     sample_count: usize,
     query_loop_count: usize,
+    sample_mode: FluentPerfSampleMode,
+    isolated_fixture: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -60,6 +68,12 @@ struct FluentPerfBaselineRow {
     scenario_key: String,
     #[serde(default)]
     avg_compile_local_instructions: u64,
+    #[serde(default)]
+    avg_runtime_local_instructions: u64,
+    #[serde(default)]
+    avg_finalize_local_instructions: u64,
+    #[serde(default)]
+    avg_response_decode_local_instructions: u64,
     #[serde(default)]
     avg_execute_local_instructions: u64,
     avg_local_instructions: u64,
@@ -73,9 +87,15 @@ struct FluentPerfScenarioSample {
     query_label: String,
     query_loop_count: usize,
     baseline_avg_compile_local_instructions: Option<u64>,
+    baseline_avg_runtime_local_instructions: Option<u64>,
+    baseline_avg_finalize_local_instructions: Option<u64>,
+    baseline_avg_response_decode_local_instructions: Option<u64>,
     baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
+    avg_runtime_local_instructions: u64,
+    avg_finalize_local_instructions: u64,
+    avg_response_decode_local_instructions: u64,
     avg_execute_local_instructions: u64,
     avg_shared_query_plan_cache_hits: u64,
     avg_shared_query_plan_cache_misses: u64,
@@ -100,6 +120,8 @@ const fn same_key_scenario(
         query_label,
         sample_count: 5,
         query_loop_count: 1,
+        sample_mode: FluentPerfSampleMode::QueryOnly,
+        isolated_fixture: false,
     }
 }
 
@@ -119,6 +141,29 @@ const fn repeat_scenario(
         query_label,
         sample_count: 5,
         query_loop_count,
+        sample_mode: FluentPerfSampleMode::QueryOnly,
+        isolated_fixture: false,
+    }
+}
+
+const fn parity_scenario(
+    scenario_key: &'static str,
+    canister_scenario_key: &'static str,
+    surface: FluentPerfSurface,
+    query_family: &'static str,
+    query_label: &'static str,
+    sample_mode: FluentPerfSampleMode,
+) -> FluentPerfScenario {
+    FluentPerfScenario {
+        scenario_key,
+        canister_scenario_key,
+        surface,
+        query_family,
+        query_label,
+        sample_count: 1,
+        query_loop_count: 1,
+        sample_mode,
+        isolated_fixture: true,
     }
 }
 
@@ -265,6 +310,9 @@ fn maybe_write_blessed_baseline(samples: &[FluentPerfScenarioSample]) {
         .map(|sample| FluentPerfBaselineRow {
             scenario_key: sample.scenario_key.clone(),
             avg_compile_local_instructions: sample.avg_compile_local_instructions,
+            avg_runtime_local_instructions: sample.avg_runtime_local_instructions,
+            avg_finalize_local_instructions: sample.avg_finalize_local_instructions,
+            avg_response_decode_local_instructions: sample.avg_response_decode_local_instructions,
             avg_execute_local_instructions: sample.avg_execute_local_instructions,
             avg_local_instructions: sample.avg_local_instructions,
         })
@@ -279,12 +327,16 @@ fn maybe_write_blessed_baseline(samples: &[FluentPerfScenarioSample]) {
     });
 }
 
+#[expect(clippy::too_many_lines)]
 fn sample_perf_scenario(
     fixture: &StandaloneCanisterFixture,
     baseline: &HashMap<String, FluentPerfBaselineRow>,
     scenario: FluentPerfScenario,
 ) -> FluentPerfScenarioSample {
     let mut compile_samples = Vec::with_capacity(scenario.sample_count);
+    let mut runtime_samples = Vec::with_capacity(scenario.sample_count);
+    let mut finalize_samples = Vec::with_capacity(scenario.sample_count);
+    let mut response_decode_samples = Vec::with_capacity(scenario.sample_count);
     let mut execute_samples = Vec::with_capacity(scenario.sample_count);
     let mut shared_query_plan_cache_hit_samples = Vec::with_capacity(scenario.sample_count);
     let mut shared_query_plan_cache_miss_samples = Vec::with_capacity(scenario.sample_count);
@@ -292,12 +344,43 @@ fn sample_perf_scenario(
     let mut outcomes = Vec::with_capacity(scenario.sample_count);
 
     for _ in 0..scenario.sample_count {
-        let sample = query_fluent_surface_with_perf(
-            fixture,
-            scenario.surface,
-            scenario.canister_scenario_key,
-            scenario.query_loop_count,
-        )
+        let isolated_fixture;
+        let active_fixture = if scenario.isolated_fixture {
+            isolated_fixture = install_sql_perf_canister_fixture();
+            reset_sql_perf_fixtures(&isolated_fixture);
+
+            &isolated_fixture
+        } else {
+            fixture
+        };
+        let sample = match scenario.sample_mode {
+            FluentPerfSampleMode::QueryOnly => query_fluent_surface_with_perf(
+                active_fixture,
+                scenario.surface,
+                scenario.canister_scenario_key,
+                scenario.query_loop_count,
+            ),
+            FluentPerfSampleMode::WarmThenQuery => {
+                warm_fluent_surface_with_perf(
+                    active_fixture,
+                    scenario.surface,
+                    scenario.canister_scenario_key,
+                )
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "warm fluent perf scenario '{}' on '{}' should succeed: {err}",
+                        scenario.scenario_key,
+                        scenario.surface.label(),
+                    )
+                });
+                query_fluent_surface_with_perf(
+                    active_fixture,
+                    scenario.surface,
+                    scenario.canister_scenario_key,
+                    scenario.query_loop_count,
+                )
+            }
+        }
         .unwrap_or_else(|err| {
             panic!(
                 "fluent perf scenario '{}' on '{}' should succeed: {err}",
@@ -306,6 +389,9 @@ fn sample_perf_scenario(
             )
         });
         compile_samples.push(sample.attribution.compile_local_instructions);
+        runtime_samples.push(sample.attribution.runtime_local_instructions);
+        finalize_samples.push(sample.attribution.finalize_local_instructions);
+        response_decode_samples.push(sample.attribution.response_decode_local_instructions);
         execute_samples.push(sample.attribution.execute_local_instructions);
         shared_query_plan_cache_hit_samples.push(sample.attribution.shared_query_plan_cache_hits);
         shared_query_plan_cache_miss_samples
@@ -320,6 +406,9 @@ fn sample_perf_scenario(
         .expect("scenario should sample once");
     let outcome_stable = outcomes.iter().all(|outcome| *outcome == first_outcome);
     let avg_compile_local_instructions = average_u64(&compile_samples);
+    let avg_runtime_local_instructions = average_u64(&runtime_samples);
+    let avg_finalize_local_instructions = average_u64(&finalize_samples);
+    let avg_response_decode_local_instructions = average_u64(&response_decode_samples);
     let avg_execute_local_instructions = average_u64(&execute_samples);
     let avg_shared_query_plan_cache_hits = average_u64(&shared_query_plan_cache_hit_samples);
     let avg_shared_query_plan_cache_misses = average_u64(&shared_query_plan_cache_miss_samples);
@@ -351,10 +440,19 @@ fn sample_perf_scenario(
         query_loop_count: scenario.query_loop_count,
         baseline_avg_compile_local_instructions: baseline_row
             .map(|row| row.avg_compile_local_instructions),
+        baseline_avg_runtime_local_instructions: baseline_row
+            .map(|row| row.avg_runtime_local_instructions),
+        baseline_avg_finalize_local_instructions: baseline_row
+            .map(|row| row.avg_finalize_local_instructions),
+        baseline_avg_response_decode_local_instructions: baseline_row
+            .map(|row| row.avg_response_decode_local_instructions),
         baseline_avg_execute_local_instructions: baseline_row
             .map(|row| row.avg_execute_local_instructions),
         baseline_avg_local_instructions: baseline_row.map(|row| row.avg_local_instructions),
         avg_compile_local_instructions,
+        avg_runtime_local_instructions,
+        avg_finalize_local_instructions,
+        avg_response_decode_local_instructions,
         avg_execute_local_instructions,
         avg_shared_query_plan_cache_hits,
         avg_shared_query_plan_cache_misses,
@@ -379,6 +477,22 @@ fn user_fluent_scenarios() -> Vec<FluentPerfScenario> {
             FluentPerfSurface::User,
             "ordered_scalar",
             r#"db().load::<PerfAuditUser>().order_by("age").order_by("id").limit(3)"#,
+        ),
+        parity_scenario(
+            "user.age.order_only.asc.limit2.cold_query",
+            "user.age.order_only.asc.limit2.parity",
+            FluentPerfSurface::User,
+            "parity_cold_query",
+            r#"db().load::<PerfAuditUser>().order_by("age").order_by("id").limit(2)"#,
+            FluentPerfSampleMode::QueryOnly,
+        ),
+        parity_scenario(
+            "user.age.order_only.asc.limit2.warm_after_update",
+            "user.age.order_only.asc.limit2.parity",
+            FluentPerfSurface::User,
+            "parity_warm_after_update",
+            r#"db().load::<PerfAuditUser>().order_by("age").order_by("id").limit(2)"#,
+            FluentPerfSampleMode::WarmThenQuery,
         ),
         same_key_scenario(
             "user.active_true.order_age.limit3",
@@ -488,11 +602,14 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
 
     for sample in &samples {
         println!(
-            "{} | {} | runs={} | compile={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
+            "{} | {} | runs={} | compile={} | runtime={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
             sample.scenario_key,
             sample.query_label,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
+            sample.avg_runtime_local_instructions,
+            sample.avg_finalize_local_instructions,
+            sample.avg_response_decode_local_instructions,
             sample.avg_execute_local_instructions,
             sample.avg_shared_query_plan_cache_hits,
             sample.avg_shared_query_plan_cache_misses,

@@ -289,13 +289,13 @@ impl<C: CanisterKind> DbSession<C> {
             }
             CompiledSqlCommand::GlobalAggregate {
                 command,
-                label_override,
+                label_overrides,
             } => {
                 let (execute_local_instructions, result) = measure_execute_phase(|| {
                     self.execute_global_aggregate_statement_for_authority(
                         command.clone(),
                         authority,
-                        label_override.clone(),
+                        label_overrides.clone(),
                     )
                 });
                 let result = result?;
@@ -443,12 +443,12 @@ impl<C: CanisterKind> DbSession<C> {
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::GlobalAggregate {
                 command,
-                label_override,
+                label_overrides,
             } => self
                 .execute_global_aggregate_statement_for_authority(
                     command.clone(),
                     authority,
-                    label_override.clone(),
+                    label_overrides.clone(),
                 )
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::Explain(lowered) => {

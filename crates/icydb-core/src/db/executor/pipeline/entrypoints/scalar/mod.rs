@@ -17,9 +17,10 @@ use crate::{
             ExecutionPreparation, ExecutionTrace, ExecutorPlanError, LoadCursorInput,
             PreparedLoadPlan, ScalarContinuationContext, StoreResolver, TraversalRuntime,
             pipeline::contracts::{
-                CursorPage, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionOutputOptions,
-                ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
-                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
+                CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
+                ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
+                MaterializedExecutionPayload, PreparedExecutionProjection,
+                ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -61,6 +62,49 @@ type ScalarPathExecution = (
 );
 
 ///
+/// ScalarExecutePhaseAttribution
+///
+/// ScalarExecutePhaseAttribution records the internal scalar-load execute split
+/// after a prepared plan has already crossed the session compile boundary.
+/// It isolates the monomorphic runtime materialization spine from the final
+/// structural page assembly step so perf tooling can see whether the remaining
+/// floor lives in runtime traversal or page finalization.
+///
+
+#[cfg(feature = "perf-attribution")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct ScalarExecutePhaseAttribution {
+    pub(in crate::db) runtime_local_instructions: u64,
+    pub(in crate::db) finalize_local_instructions: u64,
+}
+
+#[cfg(feature = "perf-attribution")]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
+)]
+fn read_scalar_local_instruction_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+#[cfg(feature = "perf-attribution")]
+fn measure_scalar_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
+    let start = read_scalar_local_instruction_counter();
+    let result = run();
+    let delta = read_scalar_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
+
+///
 /// PreparedScalarRouteRuntime
 ///
 /// PreparedScalarRouteRuntime is the generic-free scalar runtime bundle emitted
@@ -81,6 +125,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
     resolved_continuation: ScalarContinuationContext,
     unpaged_rows_mode: bool,
+    cursor_emission: CursorEmissionMode,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
     debug: bool,
 }
@@ -188,6 +233,7 @@ fn execute_prepared_scalar_path_execution(
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        cursor_emission,
         projection_runtime_mode,
         debug,
     } = prepared;
@@ -232,7 +278,7 @@ fn execute_prepared_scalar_path_execution(
         &execution_preparation,
         projection_runtime_mode,
         prepared_projection,
-        ExecutionOutputOptions::new(projection_runtime_mode.emit_cursor()),
+        ExecutionOutputOptions::new(cursor_emission.enabled()),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
@@ -283,6 +329,48 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
     ))
 }
 
+/// Execute one prepared scalar runtime bundle while reporting the internal
+/// runtime/finalize split for perf-only attribution surfaces.
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_attribution(
+    prepared: PreparedScalarRouteRuntime,
+) -> Result<
+    (
+        StructuralCursorPage,
+        Option<ExecutionTrace>,
+        ScalarExecutePhaseAttribution,
+    ),
+    InternalError,
+> {
+    let entity_path = prepared.authority.entity_path();
+
+    // Phase 1: run the monomorphic scalar runtime spine.
+    let (runtime_local_instructions, execution) =
+        measure_scalar_execute_phase(|| execute_prepared_scalar_path_execution(prepared));
+    let execution = execution?;
+
+    // Phase 2: finalize the structural page and observability payload.
+    let (finalize_local_instructions, finalized) = measure_scalar_execute_phase(|| {
+        Ok::<(StructuralCursorPage, Option<ExecutionTrace>), InternalError>(
+            finalize_scalar_structural_path_execution(
+                entity_path,
+                "shared scalar route runtime must finalize one structural cursor page",
+                execution,
+            ),
+        )
+    });
+    let (page, trace) = finalized?;
+
+    Ok((
+        page,
+        trace,
+        ScalarExecutePhaseAttribution {
+            runtime_local_instructions,
+            finalize_local_instructions,
+        },
+    ))
+}
+
 // Prepare one scalar runtime bundle once per canister instead of once per
 // entity type. This keeps the scalar route-preparation spine shared across all
 // entities that live inside the same canister.
@@ -318,6 +406,7 @@ where
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
+        CursorEmissionMode::Emit,
         route_plan.load_terminal_fast_path(),
     );
 
@@ -334,6 +423,7 @@ where
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        cursor_emission: CursorEmissionMode::Emit,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug,
     })
@@ -367,6 +457,7 @@ where
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
+        CursorEmissionMode::Suppress,
         route_plan.load_terminal_fast_path(),
     );
 
@@ -385,6 +476,7 @@ where
             continuation_signature,
         ),
         unpaged_rows_mode: true,
+        cursor_emission: CursorEmissionMode::Suppress,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug,
     })
@@ -408,6 +500,28 @@ where
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
+}
+
+/// Execute one unpaged scalar rows path once per canister while reporting the
+/// internal runtime/finalize split for perf-only fluent attribution.
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db::executor) fn execute_prepared_scalar_rows_for_canister_with_phase_attribution<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+) -> Result<(StructuralCursorPage, ScalarExecutePhaseAttribution), InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: build one dedicated initial scalar runtime bundle for the
+    // query-only canister rows surface.
+    let prepared = prepare_initial_scalar_route_runtime_for_canister(db, debug, plan)?;
+
+    // Phase 2: execute the shared scalar runtime and return the structural page.
+    let (page, _, phase_attribution) =
+        execute_prepared_scalar_route_runtime_with_phase_attribution(prepared)?;
+
+    Ok((page, phase_attribution))
 }
 
 /// Execute one retained-slot initial scalar rows path directly from one
@@ -451,6 +565,7 @@ where
         &plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::RetainSlotRows,
+        CursorEmissionMode::Suppress,
         route_plan.load_terminal_fast_path(),
     );
 
@@ -469,6 +584,7 @@ where
             continuation_contract.continuation_signature(),
         ),
         unpaged_rows_mode: true,
+        cursor_emission: CursorEmissionMode::Suppress,
         projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
         debug,
     };
@@ -518,6 +634,7 @@ where
         &logical_plan,
         execution_preparation.compiled_predicate(),
         ScalarProjectionRuntimeMode::SharedValidation,
+        CursorEmissionMode::Suppress,
         route_plan.load_terminal_fast_path(),
     );
 
@@ -534,6 +651,7 @@ where
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode: false,
+        cursor_emission: CursorEmissionMode::Suppress,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug: executor.debug,
     };

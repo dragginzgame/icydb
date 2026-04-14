@@ -74,15 +74,23 @@ impl PreparedExecutionProjection {
         plan: &AccessPlannedQuery,
         compiled_predicate: Option<&PredicateProgram>,
         projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
         load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     ) -> Self {
+        // Identity projections do not need the shared slot-row validation
+        // pass. Skip that lane entirely so plain entity-row loads can stay on
+        // data-row materialization unless some other runtime phase still needs
+        // retained slots.
+        let projection_validation_enabled = projection_materialization.validate_projection()
+            && !plan.projection_is_model_identity();
         let retained_slot_layout = compile_retained_slot_layout(
             plan.projected_slot_mask().len(),
             plan,
             compiled_predicate,
             projection_materialization,
+            projection_validation_enabled,
+            cursor_emission,
         );
-        let projection_validation_enabled = projection_materialization.validate_projection();
         let prepared_shape = (projection_validation_enabled
             || projection_materialization.retain_slot_rows())
         .then(|| prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan));
@@ -263,13 +271,6 @@ impl ProjectionMaterializationMode {
     #[must_use]
     pub(in crate::db::executor) const fn retain_slot_rows(self) -> bool {
         matches!(self, Self::RetainSlotRows)
-    }
-
-    /// Return whether this execution attempt should assemble one outward
-    /// continuation cursor from the materialized structural page.
-    #[must_use]
-    pub(in crate::db::executor) const fn emit_cursor(self) -> bool {
-        matches!(self, Self::SharedValidation)
     }
 }
 
@@ -663,14 +664,14 @@ fn compile_retained_slot_layout(
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_materialization: ProjectionMaterializationMode,
+    projection_validation_enabled: bool,
+    cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
     let mut required_slots = vec![false; field_count];
 
     // Phase 1: projection validation and retained-slot materialization both
     // need one stable slot set for later structural slot reads.
-    if projection_materialization.validate_projection()
-        || projection_materialization.retain_slot_rows()
-    {
+    if projection_validation_enabled || projection_materialization.retain_slot_rows() {
         for &slot in plan.projection_referenced_slots() {
             required_slots[slot] = true;
         }
@@ -689,8 +690,8 @@ fn compile_retained_slot_layout(
     if plan.scalar_plan().order.as_ref().is_some()
         && let Some(order_slots) = plan.order_referenced_slots()
     {
-        let route_needs_order_slots = !access_order_satisfied_by_route_contract(plan)
-            || projection_materialization.emit_cursor();
+        let route_needs_order_slots =
+            !access_order_satisfied_by_route_contract(plan) || cursor_emission.enabled();
 
         if route_needs_order_slots {
             for &slot in order_slots {

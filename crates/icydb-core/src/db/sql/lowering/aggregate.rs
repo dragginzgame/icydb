@@ -455,7 +455,7 @@ impl PreparedSqlScalarAggregateStrategy {
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) query: LoweredBaseQueryShape,
-    pub(in crate::db::sql::lowering) terminal: SqlGlobalAggregateTerminal,
+    pub(in crate::db::sql::lowering) terminals: Vec<SqlGlobalAggregateTerminal>,
 }
 
 ///
@@ -486,7 +486,7 @@ enum LoweredSqlAggregateShape {
 #[derive(Debug)]
 pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
-    terminal: TypedSqlGlobalAggregateTerminal,
+    terminals: Vec<TypedSqlGlobalAggregateTerminal>,
 }
 
 #[cfg(test)]
@@ -497,17 +497,26 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
         &self.query
     }
 
-    /// Borrow the lowered aggregate terminal.
-    #[cfg(test)]
+    /// Borrow the lowered aggregate terminals.
     #[must_use]
-    pub(crate) const fn terminal(&self) -> &TypedSqlGlobalAggregateTerminal {
-        &self.terminal
+    pub(crate) fn terminals(&self) -> &[TypedSqlGlobalAggregateTerminal] {
+        self.terminals.as_slice()
     }
 
-    /// Prepare one typed SQL scalar aggregate strategy from the typed command boundary.
+    /// Borrow the first lowered aggregate terminal for single-terminal callers.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn terminal(&self) -> &TypedSqlGlobalAggregateTerminal {
+        self.terminals
+            .first()
+            .expect("global aggregate command must contain at least one terminal")
+    }
+
+    /// Prepare the first typed SQL scalar aggregate strategy for legacy single-terminal callers.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn prepared_scalar_strategy(&self) -> PreparedSqlScalarAggregateStrategy {
-        PreparedSqlScalarAggregateStrategy::from_typed_terminal(&self.terminal)
+        PreparedSqlScalarAggregateStrategy::from_typed_terminal(self.terminal())
     }
 }
 
@@ -522,7 +531,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 #[derive(Clone, Debug)]
 pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
-    terminal: SqlGlobalAggregateTerminal,
+    terminals: Vec<SqlGlobalAggregateTerminal>,
 }
 
 impl SqlGlobalAggregateCommandCore {
@@ -532,12 +541,19 @@ impl SqlGlobalAggregateCommandCore {
         &self.query
     }
 
-    /// Prepare one structural SQL scalar aggregate strategy using one concrete model.
-    pub(in crate::db) fn prepared_scalar_strategy_with_model(
+    /// Prepare structural SQL scalar aggregate strategies using one concrete model.
+    pub(in crate::db) fn prepared_scalar_strategies_with_model(
         &self,
         model: &'static EntityModel,
-    ) -> Result<PreparedSqlScalarAggregateStrategy, SqlLoweringError> {
-        PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_model(model, &self.terminal)
+    ) -> Result<Vec<PreparedSqlScalarAggregateStrategy>, SqlLoweringError> {
+        self.terminals
+            .iter()
+            .map(|terminal| {
+                PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_model(
+                    model, terminal,
+                )
+            })
+            .collect()
     }
 }
 
@@ -558,7 +574,7 @@ fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
         return false;
     }
 
-    lower_global_aggregate_terminal(statement.projection.clone()).is_ok()
+    lower_global_aggregate_terminals(statement.projection.clone()).is_ok()
 }
 
 /// Bind one lowered global aggregate EXPLAIN shape onto the structural query
@@ -664,6 +680,16 @@ fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
     }
 }
 
+#[cfg(test)]
+fn bind_lowered_sql_global_aggregate_terminals<E: EntityKind>(
+    terminals: Vec<SqlGlobalAggregateTerminal>,
+) -> Result<Vec<TypedSqlGlobalAggregateTerminal>, SqlLoweringError> {
+    terminals
+        .into_iter()
+        .map(bind_lowered_sql_global_aggregate_terminal::<E>)
+        .collect()
+}
+
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
     statement: SqlSelectStatement,
 ) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
@@ -690,7 +716,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
-    let terminal = lower_global_aggregate_terminal(projection)?;
+    let terminals = lower_global_aggregate_terminals(projection)?;
 
     Ok(LoweredSqlGlobalAggregateCommand {
         query: LoweredBaseQueryShape {
@@ -699,7 +725,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
             limit,
             offset,
         },
-        terminal,
+        terminals,
     })
 }
 
@@ -708,14 +734,14 @@ pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command<E:
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-    let terminal = bind_lowered_sql_global_aggregate_terminal::<E>(lowered.terminal)?;
+    let terminals = bind_lowered_sql_global_aggregate_terminals::<E>(lowered.terminals)?;
 
     Ok(SqlGlobalAggregateCommand {
         query: Query::from_inner(crate::db::sql::lowering::apply_lowered_base_query_shape(
             StructuralQuery::new(E::MODEL, consistency),
             lowered.query,
         )),
-        terminal,
+        terminals,
     })
 }
 
@@ -729,21 +755,14 @@ fn bind_lowered_sql_global_aggregate_command_structural(
             StructuralQuery::new(model, consistency),
             lowered.query,
         ),
-        terminal: lowered.terminal,
+        terminals: lowered.terminals,
     }
 }
 
 fn lower_global_aggregate_terminal(
-    projection: SqlProjection,
+    item: SqlSelectItem,
 ) -> Result<SqlGlobalAggregateTerminal, SqlLoweringError> {
-    let SqlProjection::Items(items) = projection else {
-        return Err(SqlLoweringError::unsupported_select_projection());
-    };
-    if items.len() != 1 {
-        return Err(SqlLoweringError::unsupported_select_projection());
-    }
-
-    let Some(SqlSelectItem::Aggregate(aggregate)) = items.into_iter().next() else {
+    let SqlSelectItem::Aggregate(aggregate) = item else {
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
@@ -777,6 +796,22 @@ fn lower_global_aggregate_terminal(
             ..
         } => Err(SqlLoweringError::unsupported_select_projection()),
     }
+}
+
+fn lower_global_aggregate_terminals(
+    projection: SqlProjection,
+) -> Result<Vec<SqlGlobalAggregateTerminal>, SqlLoweringError> {
+    let SqlProjection::Items(items) = projection else {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    };
+    if items.is_empty() {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    }
+
+    items
+        .into_iter()
+        .map(lower_global_aggregate_terminal)
+        .collect()
 }
 
 fn lower_sql_aggregate_shape(

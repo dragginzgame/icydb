@@ -1,6 +1,8 @@
 //! Module: db::access::tests
 //! Covers source-tree hygiene and regression checks for the access subsystem.
 
+mod canonical;
+
 use std::{
     collections::BTreeSet,
     fs,

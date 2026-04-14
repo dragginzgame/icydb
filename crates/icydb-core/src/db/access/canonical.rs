@@ -473,24 +473,13 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::{MissingRowPolicy, query::plan::AccessPlannedQuery},
-        model::index::IndexModel,
-        types::Ulid,
-    };
+    use crate::{model::index::IndexModel, types::Ulid};
 
     const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
     const TEST_INDEX: IndexModel = IndexModel::generated(
         "canonical::group_rank",
         "canonical::store",
         &TEST_INDEX_FIELDS,
-        false,
-    );
-    const TEST_INDEX_FIELDS_ALT: [&str; 2] = ["group", "score"];
-    const TEST_INDEX_SAME_NAME_ALT_FIELDS: IndexModel = IndexModel::generated(
-        "canonical::group_rank",
-        "canonical::store",
-        &TEST_INDEX_FIELDS_ALT,
         false,
     );
 
@@ -542,54 +531,6 @@ mod tests {
             canonical_cmp_access_path_value(&excluded, &included),
             Ordering::Greater
         );
-    }
-
-    #[test]
-    fn canonical_and_fingerprint_align_for_index_range_bound_discriminants() {
-        let included = index_range_path(
-            Bound::Included(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
-        );
-        let excluded = index_range_path(
-            Bound::Excluded(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
-        );
-
-        assert_ne!(
-            canonical_cmp_access_path_value(&included, &excluded),
-            Ordering::Equal
-        );
-
-        let included_plan: AccessPlannedQuery =
-            AccessPlannedQuery::new(included, MissingRowPolicy::Ignore);
-        let excluded_plan: AccessPlannedQuery =
-            AccessPlannedQuery::new(excluded, MissingRowPolicy::Ignore);
-        assert_ne!(included_plan.fingerprint(), excluded_plan.fingerprint());
-    }
-
-    #[test]
-    fn canonical_and_fingerprint_align_for_index_field_identity() {
-        let path_a = AccessPath::index_range(
-            TEST_INDEX,
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
-        );
-        let path_b = AccessPath::index_range(
-            TEST_INDEX_SAME_NAME_ALT_FIELDS,
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
-        );
-
-        assert_ne!(
-            canonical_cmp_access_path_value(&path_a, &path_b),
-            Ordering::Equal
-        );
-
-        let plan_a: AccessPlannedQuery = AccessPlannedQuery::new(path_a, MissingRowPolicy::Ignore);
-        let plan_b: AccessPlannedQuery = AccessPlannedQuery::new(path_b, MissingRowPolicy::Ignore);
-        assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 
     #[test]

@@ -2196,6 +2196,35 @@ fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
 }
 
 #[test]
+fn compile_sql_global_aggregate_command_multiple_terminals_lower() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT MIN(age), MAX(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("multiple global aggregate terminals should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "multi-terminal global aggregate SQL should preserve both aggregate terminals",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::MinField(field) if field.field() == "age"
+        ),
+        "the first lowered terminal should preserve MIN(age)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::MaxField(field) if field.field() == "age"
+        ),
+        "the second lowered terminal should preserve MAX(age)",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_terminal() {
     let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
         "SELECT SUM(SqlLowerEntity.age) FROM SqlLowerEntity",
@@ -2587,7 +2616,7 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
 fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
     for sql in [
         "SELECT age FROM SqlLowerEntity",
-        "SELECT COUNT(*), SUM(age) FROM SqlLowerEntity",
+        "SELECT COUNT(*), age FROM SqlLowerEntity",
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
     ] {
         let err =
@@ -2603,4 +2632,18 @@ fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
             "unsupported global aggregate SQL shape should remain lowering-gated: {sql}",
         );
     }
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_rejection_message_names_global_aggregate_list_support() {
+    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT MIN(age), name FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("mixed global aggregate and scalar projection should remain fail-closed");
+
+    assert!(
+        err.to_string().contains("global aggregate terminal lists"),
+        "mixed aggregate rejection should name the admitted global aggregate list shape: {err}",
+    );
 }

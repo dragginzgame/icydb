@@ -1,5 +1,14 @@
 use super::*;
-use crate::db::sql::lowering::{SqlCommand, compile_sql_command};
+use crate::db::{
+    executor::EntityAuthority,
+    schema::commit_schema_fingerprint_for_entity,
+    session::{
+        query::QueryPlanVisibility,
+        sql::{SqlCompiledCommandCacheKey, SqlSelectPlanCacheKey},
+    },
+    sql::lowering::{SqlCommand, compile_sql_command},
+};
+use std::collections::HashSet;
 
 // Assert that one representative SQL surface stays fail-closed for a matrix of
 // statement lanes that belong to some other surface.
@@ -1230,6 +1239,114 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
         session.query_plan_cache_len(),
         1,
         "equivalent fluent execution should reuse the shared structural query-plan entry",
+    );
+}
+
+#[test]
+fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .order_by("age")
+        .order_by("id")
+        .limit(1);
+    let schema_fingerprint = commit_schema_fingerprint_for_entity::<SessionSqlEntity>();
+    let authority = EntityAuthority::for_type::<SessionSqlEntity>();
+    let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
+        authority,
+        schema_fingerprint,
+        QueryPlanVisibility::StoreReady,
+        query.query().structural(),
+        1,
+    );
+    let new_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
+        authority,
+        schema_fingerprint,
+        QueryPlanVisibility::StoreReady,
+        query.query().structural(),
+        2,
+    );
+    let mut cache = HashSet::new();
+    cache.insert(old_key.clone());
+
+    assert_ne!(
+        old_key, new_key,
+        "shared lower-plan cache identity must include one explicit method version",
+    );
+    assert!(
+        !cache.contains(&new_key),
+        "shared lower-plan cache version mismatch must fail closed instead of reusing an older entry",
+    );
+}
+
+#[test]
+fn sql_cache_key_version_mismatch_fails_closed() {
+    let compiled_v1 =
+        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+            1,
+        );
+    let compiled_v2 =
+        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+            2,
+        );
+    let select_plan_v1 = SqlSelectPlanCacheKey::from_compiled_key_with_method_version(
+        compiled_v1.clone(),
+        QueryPlanVisibility::StoreReady,
+        1,
+    );
+    let select_plan_v2 = SqlSelectPlanCacheKey::from_compiled_key_with_method_version(
+        compiled_v1.clone(),
+        QueryPlanVisibility::StoreReady,
+        2,
+    );
+    let mut compiled_cache = HashSet::new();
+    let mut select_plan_cache = HashSet::new();
+    compiled_cache.insert(compiled_v1.clone());
+    select_plan_cache.insert(select_plan_v1.clone());
+
+    assert_ne!(
+        compiled_v1, compiled_v2,
+        "compiled SQL cache identity must include one explicit method version",
+    );
+    assert!(
+        !compiled_cache.contains(&compiled_v2),
+        "compiled SQL cache version mismatch must fail closed instead of reusing an older entry",
+    );
+    assert_ne!(
+        select_plan_v1, select_plan_v2,
+        "SQL select-plan cache identity must include one explicit method version",
+    );
+    assert!(
+        !select_plan_cache.contains(&select_plan_v2),
+        "SQL select-plan cache version mismatch must fail closed instead of reusing an older entry",
+    );
+}
+
+#[test]
+fn sql_cache_key_version_keeps_query_and_update_surfaces_separate() {
+    let query_key =
+        SqlCompiledCommandCacheKey::query_for_entity_with_method_version::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+            1,
+        );
+    let update_key =
+        SqlCompiledCommandCacheKey::update_for_entity_with_method_version::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
+            1,
+        );
+    let mut cache = HashSet::new();
+    cache.insert(query_key.clone());
+
+    assert_ne!(
+        query_key, update_key,
+        "cache method versioning must not collapse query and update surface identity",
+    );
+    assert!(
+        !cache.contains(&update_key),
+        "query/update surface mismatch must fail closed even when the cache method version matches",
     );
 }
 

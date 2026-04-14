@@ -61,6 +61,8 @@ pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
 };
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db) use pipeline::ScalarExecutePhaseAttribution;
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
