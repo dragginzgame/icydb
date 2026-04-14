@@ -97,7 +97,7 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
 /// outer executor boundary.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PreparedExecutionPlanCore {
     plan: AccessPlannedQuery,
     continuation: Option<PlannedContinuationContract>,
@@ -105,6 +105,52 @@ struct PreparedExecutionPlanCore {
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
     index_range_spec_invalid: bool,
+}
+
+///
+/// SharedPreparedExecutionPlan
+///
+/// SharedPreparedExecutionPlan is the generic-free prepared executor shell
+/// cached below the SQL/fluent frontend split.
+/// It preserves one canonical prepared execution contract without retaining
+/// runtime cursor state or executor scratch buffers.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct SharedPreparedExecutionPlan {
+    authority: EntityAuthority,
+    core: PreparedExecutionPlanCore,
+}
+
+impl SharedPreparedExecutionPlan {
+    #[must_use]
+    pub(in crate::db) fn from_plan(
+        authority: EntityAuthority,
+        mut plan: AccessPlannedQuery,
+    ) -> Self {
+        authority.finalize_static_planning_shape(&mut plan);
+        authority.finalize_planner_route_profile(&mut plan);
+
+        Self {
+            authority,
+            core: build_prepared_execution_plan_core(authority, plan),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn typed_clone<E: EntityKind>(&self) -> PreparedExecutionPlan<E> {
+        assert!(
+            self.authority.entity_path() == E::PATH,
+            "shared prepared plan entity mismatch: cached for '{}', requested '{}'",
+            self.authority.entity_path(),
+            E::PATH,
+        );
+
+        PreparedExecutionPlan {
+            core: self.core.clone(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl PreparedExecutionPlanCore {

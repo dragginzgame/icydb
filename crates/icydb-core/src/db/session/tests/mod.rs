@@ -1286,6 +1286,9 @@ crate::test_entity_schema! {
 fn reset_session_sql_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered(&SESSION_SQL_DB).expect("write-side recovery should succeed");
+    let session = sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
     SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
     SESSION_SQL_INDEX_STORE.with(|store| {
         let mut store = store.borrow_mut();
@@ -1301,6 +1304,9 @@ fn sql_session() -> DbSession<SessionSqlCanister> {
 fn reset_indexed_session_sql_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered(&INDEXED_SESSION_SQL_DB).expect("write-side recovery should succeed");
+    let session = indexed_sql_session();
+    session.clear_query_plan_cache_for_tests();
+    session.clear_sql_caches_for_tests();
     INDEXED_SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
     INDEXED_SESSION_SQL_INDEX_STORE.with(|store| {
         let mut store = store.borrow_mut();

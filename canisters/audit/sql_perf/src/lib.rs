@@ -66,16 +66,32 @@ fn invalid_perf_loop_runs_error() -> icydb::Error {
 #[cfg(feature = "sql")]
 fn average_attribution(
     total_compile_local_instructions: u64,
+    total_planner_local_instructions: u64,
+    total_executor_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
+    total_sql_compiled_command_cache_hits: u64,
+    total_sql_compiled_command_cache_misses: u64,
+    total_sql_select_plan_cache_hits: u64,
+    total_sql_select_plan_cache_misses: u64,
+    total_shared_query_plan_cache_hits: u64,
+    total_shared_query_plan_cache_misses: u64,
     runs: u32,
 ) -> SqlQueryExecutionAttribution {
     let divisor = u64::from(runs);
 
     SqlQueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
+        planner_local_instructions: total_planner_local_instructions / divisor,
+        executor_local_instructions: total_executor_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
+        sql_compiled_command_cache_hits: total_sql_compiled_command_cache_hits,
+        sql_compiled_command_cache_misses: total_sql_compiled_command_cache_misses,
+        sql_select_plan_cache_hits: total_sql_select_plan_cache_hits,
+        sql_select_plan_cache_misses: total_sql_select_plan_cache_misses,
+        shared_query_plan_cache_hits: total_shared_query_plan_cache_hits,
+        shared_query_plan_cache_misses: total_shared_query_plan_cache_misses,
     }
 }
 
@@ -84,6 +100,8 @@ fn average_fluent_attribution(
     total_compile_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
+    total_shared_query_plan_cache_hits: u64,
+    total_shared_query_plan_cache_misses: u64,
     runs: u32,
 ) -> QueryExecutionAttribution {
     let divisor = u64::from(runs);
@@ -92,6 +110,8 @@ fn average_fluent_attribution(
         compile_local_instructions: total_compile_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
+        shared_query_plan_cache_hits: total_shared_query_plan_cache_hits,
+        shared_query_plan_cache_misses: total_shared_query_plan_cache_misses,
     }
 }
 
@@ -107,8 +127,16 @@ where
     let session = db();
     let mut first_result = None;
     let mut total_compile_local_instructions = 0_u64;
+    let mut total_planner_local_instructions = 0_u64;
+    let mut total_executor_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
+    let mut total_sql_compiled_command_cache_hits = 0_u64;
+    let mut total_sql_compiled_command_cache_misses = 0_u64;
+    let mut total_sql_select_plan_cache_hits = 0_u64;
+    let mut total_sql_select_plan_cache_misses = 0_u64;
+    let mut total_shared_query_plan_cache_hits = 0_u64;
+    let mut total_shared_query_plan_cache_misses = 0_u64;
 
     // Execute the same SQL through one session repeatedly so a real
     // session-local compiled-command cache can move the compile side honestly.
@@ -120,18 +148,42 @@ where
 
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_planner_local_instructions =
+            total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
+        total_executor_local_instructions = total_executor_local_instructions
+            .saturating_add(attribution.executor_local_instructions);
         total_execute_local_instructions =
             total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
         total_local_instructions =
             total_local_instructions.saturating_add(attribution.total_local_instructions);
+        total_sql_compiled_command_cache_hits = total_sql_compiled_command_cache_hits
+            .saturating_add(attribution.sql_compiled_command_cache_hits);
+        total_sql_compiled_command_cache_misses = total_sql_compiled_command_cache_misses
+            .saturating_add(attribution.sql_compiled_command_cache_misses);
+        total_sql_select_plan_cache_hits =
+            total_sql_select_plan_cache_hits.saturating_add(attribution.sql_select_plan_cache_hits);
+        total_sql_select_plan_cache_misses = total_sql_select_plan_cache_misses
+            .saturating_add(attribution.sql_select_plan_cache_misses);
+        total_shared_query_plan_cache_hits = total_shared_query_plan_cache_hits
+            .saturating_add(attribution.shared_query_plan_cache_hits);
+        total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
+            .saturating_add(attribution.shared_query_plan_cache_misses);
     }
 
     Ok(SqlQueryPerfResult {
         result: first_result.expect("perf loop with runs > 0 should record one result"),
         attribution: average_attribution(
             total_compile_local_instructions,
+            total_planner_local_instructions,
+            total_executor_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,
+            total_sql_compiled_command_cache_hits,
+            total_sql_compiled_command_cache_misses,
+            total_sql_select_plan_cache_hits,
+            total_sql_select_plan_cache_misses,
+            total_shared_query_plan_cache_hits,
+            total_shared_query_plan_cache_misses,
             runs,
         ),
     })
@@ -316,6 +368,8 @@ fn query_fluent_scenario_loop(
     let mut total_compile_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
+    let mut total_shared_query_plan_cache_hits = 0_u64;
+    let mut total_shared_query_plan_cache_misses = 0_u64;
 
     for _ in 0..runs {
         let (outcome, attribution) = match surface {
@@ -340,6 +394,10 @@ fn query_fluent_scenario_loop(
             total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
         total_local_instructions =
             total_local_instructions.saturating_add(attribution.total_local_instructions);
+        total_shared_query_plan_cache_hits = total_shared_query_plan_cache_hits
+            .saturating_add(attribution.shared_query_plan_cache_hits);
+        total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
+            .saturating_add(attribution.shared_query_plan_cache_misses);
     }
 
     Ok(FluentQueryPerfResult {
@@ -348,6 +406,8 @@ fn query_fluent_scenario_loop(
             total_compile_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,
+            total_shared_query_plan_cache_hits,
+            total_shared_query_plan_cache_misses,
             runs,
         ),
     })
@@ -393,6 +453,20 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
     })
 }
 
+/// Execute one PerfAuditUser-only SQL query through the update surface so the
+/// canister can persist any warmed in-heap query caches for later query calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditUser>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
 /// query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]
@@ -422,6 +496,21 @@ fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Err
     })
 }
 
+/// Execute one PerfAuditAccount-only SQL query through the update surface so
+/// the canister can persist any warmed in-heap query caches for later query
+/// calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditAccount>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
 /// Execute the same PerfAuditAccount-only SQL query repeatedly inside one
 /// canister query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]
@@ -441,6 +530,14 @@ fn query_user_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult
     query_fluent_scenario_loop("user", scenario.as_str(), 1)
 }
 
+/// Execute one dedicated PerfAuditUser fluent perf scenario through the update
+/// surface so the shared lower query cache can persist for later query calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_user_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("user", scenario.as_str(), 1)
+}
+
 /// Execute one dedicated PerfAuditUser fluent perf scenario repeatedly inside
 /// one canister query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]
@@ -457,6 +554,15 @@ fn query_user_fluent_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_account_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
+    query_fluent_scenario_loop("account", scenario.as_str(), 1)
+}
+
+/// Execute one dedicated PerfAuditAccount fluent perf scenario through the
+/// update surface so the shared lower query cache can persist for later query
+/// calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_account_fluent_with_perf(scenario: String) -> Result<FluentQueryPerfResult, icydb::Error> {
     query_fluent_scenario_loop("account", scenario.as_str(), 1)
 }
 

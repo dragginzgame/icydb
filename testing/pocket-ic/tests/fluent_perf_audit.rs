@@ -77,6 +77,8 @@ struct FluentPerfScenarioSample {
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
     avg_execute_local_instructions: u64,
+    avg_shared_query_plan_cache_hits: u64,
+    avg_shared_query_plan_cache_misses: u64,
     avg_local_instructions: u64,
     avg_local_instructions_delta: Option<i64>,
     avg_local_instructions_delta_percent_bps: Option<i64>,
@@ -200,6 +202,31 @@ fn query_fluent_surface_with_perf(
     }
 }
 
+fn warm_fluent_surface_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    surface: FluentPerfSurface,
+    scenario_key: &str,
+) -> Result<FluentQueryPerfResult, Error> {
+    match surface {
+        FluentPerfSurface::User => fixture
+            .pic()
+            .update_call(
+                fixture.canister_id(),
+                "warm_user_fluent_with_perf",
+                (scenario_key.to_string(),),
+            )
+            .expect("warm_user_fluent_with_perf should decode"),
+        FluentPerfSurface::Account => fixture
+            .pic()
+            .update_call(
+                fixture.canister_id(),
+                "warm_account_fluent_with_perf",
+                (scenario_key.to_string(),),
+            )
+            .expect("warm_account_fluent_with_perf should decode"),
+    }
+}
+
 fn baseline_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -259,6 +286,8 @@ fn sample_perf_scenario(
 ) -> FluentPerfScenarioSample {
     let mut compile_samples = Vec::with_capacity(scenario.sample_count);
     let mut execute_samples = Vec::with_capacity(scenario.sample_count);
+    let mut shared_query_plan_cache_hit_samples = Vec::with_capacity(scenario.sample_count);
+    let mut shared_query_plan_cache_miss_samples = Vec::with_capacity(scenario.sample_count);
     let mut total_samples = Vec::with_capacity(scenario.sample_count);
     let mut outcomes = Vec::with_capacity(scenario.sample_count);
 
@@ -278,6 +307,9 @@ fn sample_perf_scenario(
         });
         compile_samples.push(sample.attribution.compile_local_instructions);
         execute_samples.push(sample.attribution.execute_local_instructions);
+        shared_query_plan_cache_hit_samples.push(sample.attribution.shared_query_plan_cache_hits);
+        shared_query_plan_cache_miss_samples
+            .push(sample.attribution.shared_query_plan_cache_misses);
         total_samples.push(sample.attribution.total_local_instructions);
         outcomes.push(sample.outcome);
     }
@@ -289,6 +321,8 @@ fn sample_perf_scenario(
     let outcome_stable = outcomes.iter().all(|outcome| *outcome == first_outcome);
     let avg_compile_local_instructions = average_u64(&compile_samples);
     let avg_execute_local_instructions = average_u64(&execute_samples);
+    let avg_shared_query_plan_cache_hits = average_u64(&shared_query_plan_cache_hit_samples);
+    let avg_shared_query_plan_cache_misses = average_u64(&shared_query_plan_cache_miss_samples);
     let avg_local_instructions = average_u64(&total_samples);
     let baseline_row = baseline.get(scenario.scenario_key);
     let avg_local_instructions_delta = baseline_row.map(|row| {
@@ -322,6 +356,8 @@ fn sample_perf_scenario(
         baseline_avg_local_instructions: baseline_row.map(|row| row.avg_local_instructions),
         avg_compile_local_instructions,
         avg_execute_local_instructions,
+        avg_shared_query_plan_cache_hits,
+        avg_shared_query_plan_cache_misses,
         avg_local_instructions,
         avg_local_instructions_delta,
         avg_local_instructions_delta_percent_bps,
@@ -452,12 +488,14 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
 
     for sample in &samples {
         println!(
-            "{} | {} | runs={} | compile={} | execute={} | total={} | delta={:?} | delta_bps={:?}",
+            "{} | {} | runs={} | compile={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
             sample.scenario_key,
             sample.query_label,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
             sample.avg_execute_local_instructions,
+            sample.avg_shared_query_plan_cache_hits,
+            sample.avg_shared_query_plan_cache_misses,
             sample.avg_local_instructions,
             sample.avg_local_instructions_delta,
             sample.avg_local_instructions_delta_percent_bps,
@@ -473,4 +511,32 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
     }
 
     maybe_write_blessed_baseline(&samples);
+}
+
+#[test]
+fn fluent_perf_update_warm_persists_query_cache_across_calls() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let scenario = "user.age.order_only.asc.limit3";
+    let warm = warm_fluent_surface_with_perf(&fixture, FluentPerfSurface::User, scenario)
+        .expect("update warm fluent query should succeed");
+    assert!(
+        warm.attribution
+            .shared_query_plan_cache_hits
+            .saturating_add(warm.attribution.shared_query_plan_cache_misses)
+            > 0,
+        "the update warm call should exercise the shared lower query-plan cache before the later query call",
+    );
+
+    let query = query_fluent_surface_with_perf(&fixture, FluentPerfSurface::User, scenario, 1)
+        .expect("query call should succeed after update warm");
+    assert_eq!(
+        query.attribution.shared_query_plan_cache_hits, 1,
+        "the later query call should reuse the shared lower query-plan cache warmed by the update call",
+    );
+    assert_eq!(
+        query.attribution.shared_query_plan_cache_misses, 0,
+        "the later query call should not rebuild the warmed shared lower query plan",
+    );
 }

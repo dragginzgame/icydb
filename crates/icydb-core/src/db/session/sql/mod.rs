@@ -25,6 +25,7 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::commit_schema_fingerprint_for_entity,
+        session::query::QueryPlanCacheAttribution,
         session::sql::projection::projection_labels_from_projection_spec,
         sql::lowering::{LoweredBaseQueryShape, LoweredSqlCommand, SqlGlobalAggregateCommandCore},
         sql::parser::{SqlStatement, parse_sql},
@@ -88,8 +89,128 @@ pub enum SqlStatementResult {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryExecutionAttribution {
     pub compile_local_instructions: u64,
+    pub planner_local_instructions: u64,
+    pub executor_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
+    pub sql_compiled_command_cache_hits: u64,
+    pub sql_compiled_command_cache_misses: u64,
+    pub sql_select_plan_cache_hits: u64,
+    pub sql_select_plan_cache_misses: u64,
+    pub shared_query_plan_cache_hits: u64,
+    pub shared_query_plan_cache_misses: u64,
+}
+
+// SqlExecutePhaseAttribution keeps the execute side split into select-plan
+// work versus narrower runtime execution so shell tooling can show both.
+#[cfg(feature = "perf-attribution")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SqlExecutePhaseAttribution {
+    pub planner_local_instructions: u64,
+    pub executor_local_instructions: u64,
+}
+
+#[cfg(feature = "perf-attribution")]
+impl SqlExecutePhaseAttribution {
+    #[must_use]
+    pub(in crate::db) const fn from_execute_total(execute_local_instructions: u64) -> Self {
+        Self {
+            planner_local_instructions: 0,
+            executor_local_instructions: execute_local_instructions,
+        }
+    }
+}
+
+// SqlCacheAttribution keeps the SQL-specific upper cache layers separate from
+// the shared lower query-plan cache so perf audits can tell which boundary
+// actually produced reuse on one query path.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct SqlCacheAttribution {
+    pub sql_compiled_command_cache_hits: u64,
+    pub sql_compiled_command_cache_misses: u64,
+    pub sql_select_plan_cache_hits: u64,
+    pub sql_select_plan_cache_misses: u64,
+    pub shared_query_plan_cache_hits: u64,
+    pub shared_query_plan_cache_misses: u64,
+}
+
+impl SqlCacheAttribution {
+    #[must_use]
+    const fn none() -> Self {
+        Self {
+            sql_compiled_command_cache_hits: 0,
+            sql_compiled_command_cache_misses: 0,
+            sql_select_plan_cache_hits: 0,
+            sql_select_plan_cache_misses: 0,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 0,
+        }
+    }
+
+    #[must_use]
+    const fn sql_compiled_command_cache_hit() -> Self {
+        Self {
+            sql_compiled_command_cache_hits: 1,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
+    const fn sql_compiled_command_cache_miss() -> Self {
+        Self {
+            sql_compiled_command_cache_misses: 1,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
+    const fn sql_select_plan_cache_hit() -> Self {
+        Self {
+            sql_select_plan_cache_hits: 1,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
+    const fn sql_select_plan_cache_miss() -> Self {
+        Self {
+            sql_select_plan_cache_misses: 1,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
+    const fn from_shared_query_plan_cache(attribution: QueryPlanCacheAttribution) -> Self {
+        Self {
+            shared_query_plan_cache_hits: attribution.hits,
+            shared_query_plan_cache_misses: attribution.misses,
+            ..Self::none()
+        }
+    }
+
+    #[must_use]
+    const fn merge(self, other: Self) -> Self {
+        Self {
+            sql_compiled_command_cache_hits: self
+                .sql_compiled_command_cache_hits
+                .saturating_add(other.sql_compiled_command_cache_hits),
+            sql_compiled_command_cache_misses: self
+                .sql_compiled_command_cache_misses
+                .saturating_add(other.sql_compiled_command_cache_misses),
+            sql_select_plan_cache_hits: self
+                .sql_select_plan_cache_hits
+                .saturating_add(other.sql_select_plan_cache_hits),
+            sql_select_plan_cache_misses: self
+                .sql_select_plan_cache_misses
+                .saturating_add(other.sql_select_plan_cache_misses),
+            shared_query_plan_cache_hits: self
+                .shared_query_plan_cache_hits
+                .saturating_add(other.shared_query_plan_cache_hits),
+            shared_query_plan_cache_misses: self
+                .shared_query_plan_cache_misses
+                .saturating_add(other.shared_query_plan_cache_misses),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -177,11 +298,6 @@ impl SqlCompiledCommandCacheKey {
     }
 
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &'static str {
-        self.entity_path
-    }
-
-    #[must_use]
     pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
         self.schema_fingerprint
     }
@@ -202,6 +318,16 @@ impl SqlSelectPlanCacheKey {
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
 pub(in crate::db) type SqlSelectPlanCache = HashMap<SqlSelectPlanCacheKey, SqlSelectPlanCacheEntry>;
+
+thread_local! {
+    // Keep SQL-facing caches in canister-lifetime heap state keyed by the
+    // store registry identity so update calls can warm query-facing SQL reuse
+    // without leaking entries across unrelated registries in tests.
+    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
+        RefCell::new(HashMap::new());
+    static SQL_SELECT_PLAN_CACHES: RefCell<HashMap<usize, SqlSelectPlanCache>> =
+        RefCell::new(HashMap::new());
+}
 
 // Keep the compile artifact session-owned and generic-free so the SQL surface
 // can separate semantic compilation from execution without coupling the seam to
@@ -262,28 +388,49 @@ fn measure_sql_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Lazily allocate one session-local compiled SQL cache so cold sessions do
-    // not pay any map setup cost until SQL compilation is actually used.
-    fn sql_compiled_command_cache(&self) -> &RefCell<SqlCompiledCommandCache> {
-        self.sql_compiled_command_cache
-            .get_or_init(|| RefCell::new(SqlCompiledCommandCache::new()))
+    fn sql_cache_scope_id(&self) -> usize {
+        self.db.cache_scope_id()
     }
 
-    // Lazily allocate one session-local SELECT plan cache so repeat query
-    // execution can reuse planner output once store visibility is known.
-    fn sql_select_plan_cache(&self) -> &RefCell<SqlSelectPlanCache> {
-        self.sql_select_plan_cache
-            .get_or_init(|| RefCell::new(SqlSelectPlanCache::new()))
+    fn with_sql_compiled_command_cache<R>(
+        &self,
+        f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,
+    ) -> R {
+        let scope_id = self.sql_cache_scope_id();
+
+        SQL_COMPILED_COMMAND_CACHES.with(|caches| {
+            let mut caches = caches.borrow_mut();
+            let cache = caches.entry(scope_id).or_default();
+
+            f(cache)
+        })
+    }
+
+    fn with_sql_select_plan_cache<R>(&self, f: impl FnOnce(&mut SqlSelectPlanCache) -> R) -> R {
+        let scope_id = self.sql_cache_scope_id();
+
+        SQL_SELECT_PLAN_CACHES.with(|caches| {
+            let mut caches = caches.borrow_mut();
+            let cache = caches.entry(scope_id).or_default();
+
+            f(cache)
+        })
     }
 
     #[cfg(test)]
     pub(in crate::db) fn sql_compiled_command_cache_len(&self) -> usize {
-        self.sql_compiled_command_cache().borrow().len()
+        self.with_sql_compiled_command_cache(|cache| cache.len())
     }
 
     #[cfg(test)]
     pub(in crate::db) fn sql_select_plan_cache_len(&self) -> usize {
-        self.sql_select_plan_cache().borrow().len()
+        self.with_sql_select_plan_cache(|cache| cache.len())
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
+        self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
+        self.with_sql_select_plan_cache(SqlSelectPlanCache::clear);
     }
 
     fn planned_sql_select_with_visibility(
@@ -291,15 +438,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         authority: EntityAuthority,
         compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
-    ) -> Result<SqlSelectPlanCacheEntry, QueryError> {
+    ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let fallback_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
             authority.model().path,
             authority.model(),
-        );
-        let cache_entity_path = compiled_cache_key.map_or_else(
-            || authority.model().path,
-            SqlCompiledCommandCacheKey::entity_path,
         );
         let cache_schema_fingerprint = compiled_cache_key.map_or(
             fallback_schema_fingerprint,
@@ -307,43 +450,47 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         let Some(compiled_cache_key) = compiled_cache_key else {
-            let plan = self.cached_structural_plan_for_authority(
-                cache_entity_path,
+            let (entry, cache_attribution) = self.cached_query_plan_entry_for_authority(
+                authority,
                 cache_schema_fingerprint,
-                authority.store_path(),
-                authority.model(),
                 query,
             )?;
-            let columns =
-                projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
+            let columns = projection_labels_from_projection_spec(
+                &entry.logical_plan().projection_spec(authority.model()),
+            );
 
-            return Ok(SqlSelectPlanCacheEntry::new(plan, columns));
+            return Ok((
+                SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns),
+                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+            ));
         };
 
         let plan_cache_key =
             SqlSelectPlanCacheKey::from_compiled_key(compiled_cache_key.clone(), visibility);
         {
-            let cache = self.sql_select_plan_cache().borrow();
-            if let Some(plan) = cache.get(&plan_cache_key) {
-                return Ok(plan.clone());
+            let cached =
+                self.with_sql_select_plan_cache(|cache| cache.get(&plan_cache_key).cloned());
+            if let Some(plan) = cached {
+                return Ok((plan, SqlCacheAttribution::sql_select_plan_cache_hit()));
             }
         }
 
-        let plan = self.cached_structural_plan_for_authority(
-            cache_entity_path,
-            cache_schema_fingerprint,
-            authority.store_path(),
-            authority.model(),
-            query,
-        )?;
-        let columns =
-            projection_labels_from_projection_spec(&plan.projection_spec(authority.model()));
-        let entry = SqlSelectPlanCacheEntry::new(plan, columns);
-        self.sql_select_plan_cache()
-            .borrow_mut()
-            .insert(plan_cache_key, entry.clone());
+        let (entry, cache_attribution) =
+            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
+        let columns = projection_labels_from_projection_spec(
+            &entry.logical_plan().projection_spec(authority.model()),
+        );
+        let entry = SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns);
+        self.with_sql_select_plan_cache(|cache| {
+            cache.insert(plan_cache_key, entry.clone());
+        });
 
-        Ok(entry)
+        Ok((
+            entry,
+            SqlCacheAttribution::sql_select_plan_cache_miss().merge(
+                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+            ),
+        ))
     }
 
     // Resolve planner-visible indexes and build one execution-ready
@@ -435,14 +582,17 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: measure the compile side of the new seam, including parse,
         // surface validation, and semantic command construction.
         let (compile_local_instructions, compiled) =
-            measure_sql_stage(|| self.compile_sql_query::<E>(sql));
-        let compiled = compiled?;
+            measure_sql_stage(|| self.compile_sql_query_with_cache_attribution::<E>(sql));
+        let (compiled, compile_cache_attribution) = compiled?;
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
-        let (execute_local_instructions, result) =
-            measure_sql_stage(|| self.execute_compiled_sql::<E>(&compiled));
-        let result = result?;
+        let (result, execute_cache_attribution, execute_phase_attribution) =
+            self.execute_compiled_sql_with_phase_attribution::<E>(&compiled)?;
+        let execute_local_instructions = execute_phase_attribution
+            .planner_local_instructions
+            .saturating_add(execute_phase_attribution.executor_local_instructions);
+        let cache_attribution = compile_cache_attribution.merge(execute_cache_attribution);
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
 
@@ -450,8 +600,17 @@ impl<C: CanisterKind> DbSession<C> {
             result,
             SqlQueryExecutionAttribution {
                 compile_local_instructions,
+                planner_local_instructions: execute_phase_attribution.planner_local_instructions,
+                executor_local_instructions: execute_phase_attribution.executor_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,
+                sql_compiled_command_cache_hits: cache_attribution.sql_compiled_command_cache_hits,
+                sql_compiled_command_cache_misses: cache_attribution
+                    .sql_compiled_command_cache_misses,
+                sql_select_plan_cache_hits: cache_attribution.sql_select_plan_cache_hits,
+                sql_select_plan_cache_misses: cache_attribution.sql_select_plan_cache_misses,
+                shared_query_plan_cache_hits: cache_attribution.shared_query_plan_cache_hits,
+                shared_query_plan_cache_misses: cache_attribution.shared_query_plan_cache_misses,
             },
         ))
     }
@@ -511,6 +670,17 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        self.compile_sql_query_with_cache_attribution::<E>(sql)
+            .map(|(compiled, _)| compiled)
+    }
+
+    fn compile_sql_query_with_cache_attribution<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         self.compile_sql_statement_with_cache::<E>(
             SqlCompiledCommandCacheKey::query_for_entity::<E>(sql),
             sql,
@@ -524,6 +694,17 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<CompiledSqlCommand, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.compile_sql_update_with_cache_attribution::<E>(sql)
+            .map(|(compiled, _)| compiled)
+    }
+
+    fn compile_sql_update_with_cache_attribution<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -541,14 +722,18 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: SqlCompiledCommandCacheKey,
         sql: &str,
         ensure_surface_supported: fn(&SqlStatement) -> Result<(), QueryError>,
-    ) -> Result<CompiledSqlCommand, QueryError>
+    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         {
-            let cache = self.sql_compiled_command_cache().borrow();
-            if let Some(compiled) = cache.get(&cache_key) {
-                return Ok(compiled.clone());
+            let cached =
+                self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
+            if let Some(compiled) = cached {
+                return Ok((
+                    compiled,
+                    SqlCacheAttribution::sql_compiled_command_cache_hit(),
+                ));
             }
         }
 
@@ -562,11 +747,14 @@ impl<C: CanisterKind> DbSession<C> {
             *compiled_cache_key = Some(cache_key.clone());
         }
 
-        self.sql_compiled_command_cache()
-            .borrow_mut()
-            .insert(cache_key, compiled.clone());
+        self.with_sql_compiled_command_cache(|cache| {
+            cache.insert(cache_key, compiled.clone());
+        });
 
-        Ok(compiled)
+        Ok((
+            compiled,
+            SqlCacheAttribution::sql_compiled_command_cache_miss(),
+        ))
     }
 
     // Compile one already-parsed SQL statement into the session-owned semantic

@@ -8,8 +8,10 @@ use candid::CandidType;
 #[cfg(feature = "sql")]
 use canic_cdk::query;
 use canic_cdk::update;
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", not(feature = "perf-attribution")))]
 use icydb::db::sql::SqlQueryResult;
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+use icydb::db::{SqlQueryExecutionAttribution, sql::SqlQueryResult};
 use icydb_testing_test_sql_fixtures::sql::SqlTestUser;
 
 icydb::start!();
@@ -17,11 +19,27 @@ icydb::start!();
 // SqlQueryPerfResult
 //
 // Lightweight dev-shell envelope that preserves the normal SQL result payload
-// while attaching one canister-local instruction delta for the query call.
+// while attaching the current SQL compile/execute attribution split.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     instructions: u64,
+    planner_instructions: u64,
+    executor_instructions: u64,
+    compiler_instructions: u64,
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+impl SqlQueryPerfResult {
+    fn from_attribution(result: SqlQueryResult, attribution: SqlQueryExecutionAttribution) -> Self {
+        Self {
+            result,
+            instructions: attribution.total_local_instructions,
+            planner_instructions: attribution.planner_local_instructions,
+            executor_instructions: attribution.executor_local_instructions,
+            compiler_instructions: attribution.compile_local_instructions,
+        }
+    }
 }
 
 /// Clear all lightweight SQL smoke-test fixture rows from this canister.
@@ -73,18 +91,14 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 }
 
 /// Execute one SqlTestUser-only reduced SQL query and return one dev-shell
-/// instruction delta alongside the normal SQL result payload.
-#[cfg(feature = "sql")]
+/// compile/execute attribution split alongside the normal SQL result payload.
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
 #[query]
 fn query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
-    let result = db().execute_sql_query::<SqlTestUser>(sql.as_str())?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<SqlTestUser>(sql.as_str())?;
 
-    Ok(SqlQueryPerfResult {
-        result,
-        instructions,
-    })
+    Ok(SqlQueryPerfResult::from_attribution(result, attribution))
 }
 
 /// Execute one SqlTestUser-only reduced SQL mutation against the smoke canister.

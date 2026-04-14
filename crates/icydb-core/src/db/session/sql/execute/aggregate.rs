@@ -202,9 +202,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
-        let (_, rows, _) = self
-            .execute_structural_sql_projection(query, authority, None)?
-            .into_parts();
+        let (payload, _) = self.execute_structural_sql_projection(query, authority, None)?;
+        let (_, rows, _) = payload.into_parts();
         let mut projected = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -236,16 +235,15 @@ impl<C: CanisterKind> DbSession<C> {
         let label = label_override.unwrap_or_else(|| Self::sql_scalar_aggregate_label(&strategy));
         let value = match strategy.runtime_descriptor() {
             PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                let (_, _, row_count) = self
-                    .execute_structural_sql_projection(
-                        command
-                            .query()
-                            .clone()
-                            .select_fields([authority.primary_key_name()]),
-                        authority,
-                        None,
-                    )?
-                    .into_parts();
+                let (payload, _) = self.execute_structural_sql_projection(
+                    command
+                        .query()
+                        .clone()
+                        .select_fields([authority.primary_key_name()]),
+                    authority,
+                    None,
+                )?;
+                let (_, _, row_count) = payload.into_parts();
 
                 Value::Uint(u64::from(row_count))
             }

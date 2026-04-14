@@ -77,6 +77,12 @@ struct SqlPerfScenarioSample {
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
     avg_execute_local_instructions: u64,
+    avg_sql_compiled_command_cache_hits: u64,
+    avg_sql_compiled_command_cache_misses: u64,
+    avg_sql_select_plan_cache_hits: u64,
+    avg_sql_select_plan_cache_misses: u64,
+    avg_shared_query_plan_cache_hits: u64,
+    avg_shared_query_plan_cache_misses: u64,
     first_local_instructions: u64,
     min_local_instructions: u64,
     max_local_instructions: u64,
@@ -203,6 +209,31 @@ fn query_surface_with_perf(
     }
 }
 
+fn warm_query_surface_with_perf(
+    fixture: &StandaloneCanisterFixture,
+    surface: SqlPerfSurface,
+    sql: &str,
+) -> Result<SqlQueryPerfResult, Error> {
+    match surface {
+        SqlPerfSurface::User => fixture
+            .pic()
+            .update_call(
+                fixture.canister_id(),
+                "warm_user_query_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("warm_user_query_with_perf should decode"),
+        SqlPerfSurface::Account => fixture
+            .pic()
+            .update_call(
+                fixture.canister_id(),
+                "warm_account_query_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("warm_account_query_with_perf should decode"),
+    }
+}
+
 fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
     match result {
         SqlQueryResult::Count { entity, row_count } => SqlPerfOutcome {
@@ -304,15 +335,149 @@ fn maybe_write_blessed_baseline(samples: &[SqlPerfScenarioSample]) {
     });
 }
 
+fn average_u64(samples: &[u64]) -> u64 {
+    samples.iter().copied().sum::<u64>() / u64::try_from(samples.len()).unwrap_or(1)
+}
+
+fn delta_percent_bps(current: u64, previous: u64) -> Option<i64> {
+    if previous == 0 {
+        return None;
+    }
+
+    let delta = i128::from(current) - i128::from(previous);
+    let scaled = delta
+        .saturating_mul(10_000)
+        .checked_div(i128::from(previous))
+        .expect("previous should be non-zero");
+
+    Some(i64::try_from(scaled).expect("delta percent basis points should fit i64"))
+}
+
+// SqlPerfRawSamples keeps one scenario's repeated raw counters together so the
+// report builder can collapse them without passing a long list of slices.
+struct SqlPerfRawSamples {
+    compile_samples: Vec<u64>,
+    execute_samples: Vec<u64>,
+    sql_compiled_command_cache_hit_samples: Vec<u64>,
+    sql_compiled_command_cache_miss_samples: Vec<u64>,
+    sql_select_plan_cache_hit_samples: Vec<u64>,
+    sql_select_plan_cache_miss_samples: Vec<u64>,
+    shared_query_plan_cache_hit_samples: Vec<u64>,
+    shared_query_plan_cache_miss_samples: Vec<u64>,
+    instruction_samples: Vec<u64>,
+    outcomes: Vec<SqlPerfOutcome>,
+}
+
+impl SqlPerfRawSamples {
+    fn with_capacity(sample_count: usize) -> Self {
+        Self {
+            compile_samples: Vec::with_capacity(sample_count),
+            execute_samples: Vec::with_capacity(sample_count),
+            sql_compiled_command_cache_hit_samples: Vec::with_capacity(sample_count),
+            sql_compiled_command_cache_miss_samples: Vec::with_capacity(sample_count),
+            sql_select_plan_cache_hit_samples: Vec::with_capacity(sample_count),
+            sql_select_plan_cache_miss_samples: Vec::with_capacity(sample_count),
+            shared_query_plan_cache_hit_samples: Vec::with_capacity(sample_count),
+            shared_query_plan_cache_miss_samples: Vec::with_capacity(sample_count),
+            instruction_samples: Vec::with_capacity(sample_count),
+            outcomes: Vec::with_capacity(sample_count),
+        }
+    }
+
+    fn record(&mut self, sample: SqlQueryPerfResult) {
+        self.compile_samples
+            .push(sample.attribution.compile_local_instructions);
+        self.execute_samples
+            .push(sample.attribution.execute_local_instructions);
+        self.sql_compiled_command_cache_hit_samples
+            .push(sample.attribution.sql_compiled_command_cache_hits);
+        self.sql_compiled_command_cache_miss_samples
+            .push(sample.attribution.sql_compiled_command_cache_misses);
+        self.sql_select_plan_cache_hit_samples
+            .push(sample.attribution.sql_select_plan_cache_hits);
+        self.sql_select_plan_cache_miss_samples
+            .push(sample.attribution.sql_select_plan_cache_misses);
+        self.shared_query_plan_cache_hit_samples
+            .push(sample.attribution.shared_query_plan_cache_hits);
+        self.shared_query_plan_cache_miss_samples
+            .push(sample.attribution.shared_query_plan_cache_misses);
+        self.instruction_samples
+            .push(sample.attribution.total_local_instructions);
+        self.outcomes.push(summarize_perf_outcome(&sample.result));
+    }
+}
+
+fn build_sql_perf_scenario_sample(
+    baseline: &HashMap<String, SqlPerfBaselineRow>,
+    scenario: SqlPerfScenario,
+    raw: &SqlPerfRawSamples,
+) -> SqlPerfScenarioSample {
+    let avg_compile_local_instructions = average_u64(&raw.compile_samples);
+    let avg_execute_local_instructions = average_u64(&raw.execute_samples);
+    let avg_sql_compiled_command_cache_hits =
+        average_u64(&raw.sql_compiled_command_cache_hit_samples);
+    let avg_sql_compiled_command_cache_misses =
+        average_u64(&raw.sql_compiled_command_cache_miss_samples);
+    let avg_sql_select_plan_cache_hits = average_u64(&raw.sql_select_plan_cache_hit_samples);
+    let avg_sql_select_plan_cache_misses = average_u64(&raw.sql_select_plan_cache_miss_samples);
+    let avg_shared_query_plan_cache_hits = average_u64(&raw.shared_query_plan_cache_hit_samples);
+    let avg_shared_query_plan_cache_misses = average_u64(&raw.shared_query_plan_cache_miss_samples);
+    let first_local_instructions = raw.instruction_samples[0];
+    let min_local_instructions = raw.instruction_samples.iter().copied().min().unwrap_or(0);
+    let max_local_instructions = raw.instruction_samples.iter().copied().max().unwrap_or(0);
+    let total_local_instructions = raw.instruction_samples.iter().copied().sum::<u64>();
+    let avg_local_instructions = average_u64(&raw.instruction_samples);
+    let outcome = raw.outcomes[0].clone();
+    let outcome_stable = raw.outcomes.iter().all(|candidate| candidate == &outcome);
+    let baseline_row = baseline.get(scenario.scenario_key);
+    let baseline_avg_compile_local_instructions =
+        baseline_row.map(|row| row.avg_compile_local_instructions);
+    let baseline_avg_execute_local_instructions =
+        baseline_row.map(|row| row.avg_execute_local_instructions);
+    let baseline_avg_local_instructions = baseline_row.map(|row| row.avg_local_instructions);
+    let avg_local_instructions_delta = baseline_avg_local_instructions.map(|previous| {
+        i64::try_from(avg_local_instructions).expect("instruction count should fit i64")
+            - i64::try_from(previous).expect("instruction count should fit i64")
+    });
+    let avg_local_instructions_delta_percent_bps = baseline_avg_local_instructions
+        .and_then(|previous| delta_percent_bps(avg_local_instructions, previous));
+
+    SqlPerfScenarioSample {
+        scenario_key: scenario.scenario_key.to_string(),
+        surface: scenario.surface.label().to_string(),
+        index_family: scenario.index_family.to_string(),
+        query_family: scenario.query_family.to_string(),
+        sql: scenario.sql.to_string(),
+        query_loop_count: scenario.query_loop_count,
+        baseline_avg_compile_local_instructions,
+        baseline_avg_execute_local_instructions,
+        baseline_avg_local_instructions,
+        avg_compile_local_instructions,
+        avg_execute_local_instructions,
+        avg_sql_compiled_command_cache_hits,
+        avg_sql_compiled_command_cache_misses,
+        avg_sql_select_plan_cache_hits,
+        avg_sql_select_plan_cache_misses,
+        avg_shared_query_plan_cache_hits,
+        avg_shared_query_plan_cache_misses,
+        first_local_instructions,
+        min_local_instructions,
+        max_local_instructions,
+        total_local_instructions,
+        avg_local_instructions,
+        avg_local_instructions_delta,
+        avg_local_instructions_delta_percent_bps,
+        outcome_stable,
+        outcome,
+    }
+}
+
 fn sample_perf_scenario(
     fixture: &StandaloneCanisterFixture,
     baseline: &HashMap<String, SqlPerfBaselineRow>,
     scenario: SqlPerfScenario,
 ) -> SqlPerfScenarioSample {
-    let mut compile_samples = Vec::with_capacity(scenario.sample_count);
-    let mut execute_samples = Vec::with_capacity(scenario.sample_count);
-    let mut instruction_samples = Vec::with_capacity(scenario.sample_count);
-    let mut outcomes = Vec::with_capacity(scenario.sample_count);
+    let mut raw = SqlPerfRawSamples::with_capacity(scenario.sample_count);
 
     // Phase 1: sample the same scenario repeatedly against one stable fixture.
     // Each sample can optionally run the SQL multiple times inside one
@@ -331,74 +496,10 @@ fn sample_perf_scenario(
                 scenario.surface.label(),
             )
         });
-        compile_samples.push(sample.attribution.compile_local_instructions);
-        execute_samples.push(sample.attribution.execute_local_instructions);
-        instruction_samples.push(sample.attribution.total_local_instructions);
-        outcomes.push(summarize_perf_outcome(&sample.result));
+        raw.record(sample);
     }
 
-    // Phase 2: collapse the raw repeats into one stable summary row.
-    let total_compile_local_instructions = compile_samples.iter().copied().sum::<u64>();
-    let avg_compile_local_instructions =
-        total_compile_local_instructions / u64::try_from(compile_samples.len()).unwrap_or(1);
-    let total_execute_local_instructions = execute_samples.iter().copied().sum::<u64>();
-    let avg_execute_local_instructions =
-        total_execute_local_instructions / u64::try_from(execute_samples.len()).unwrap_or(1);
-    let first_local_instructions = instruction_samples[0];
-    let min_local_instructions = instruction_samples.iter().copied().min().unwrap_or(0);
-    let max_local_instructions = instruction_samples.iter().copied().max().unwrap_or(0);
-    let total_local_instructions = instruction_samples.iter().copied().sum::<u64>();
-    let avg_local_instructions =
-        total_local_instructions / u64::try_from(instruction_samples.len()).unwrap_or(1);
-    let outcome = outcomes[0].clone();
-    let outcome_stable = outcomes.iter().all(|candidate| candidate == &outcome);
-    let baseline_row = baseline.get(scenario.scenario_key);
-    let baseline_avg_compile_local_instructions =
-        baseline_row.map(|row| row.avg_compile_local_instructions);
-    let baseline_avg_execute_local_instructions =
-        baseline_row.map(|row| row.avg_execute_local_instructions);
-    let baseline_avg_local_instructions = baseline_row.map(|row| row.avg_local_instructions);
-    let avg_local_instructions_delta = baseline_avg_local_instructions.map(|previous| {
-        i64::try_from(avg_local_instructions).expect("instruction count should fit i64")
-            - i64::try_from(previous).expect("instruction count should fit i64")
-    });
-    let avg_local_instructions_delta_percent_bps =
-        baseline_avg_local_instructions.and_then(|previous| {
-            if previous == 0 {
-                return None;
-            }
-
-            let delta = i128::from(avg_local_instructions) - i128::from(previous);
-            let scaled = delta
-                .saturating_mul(10_000)
-                .checked_div(i128::from(previous))
-                .expect("previous should be non-zero");
-
-            Some(i64::try_from(scaled).expect("delta percent basis points should fit i64"))
-        });
-
-    SqlPerfScenarioSample {
-        scenario_key: scenario.scenario_key.to_string(),
-        surface: scenario.surface.label().to_string(),
-        index_family: scenario.index_family.to_string(),
-        query_family: scenario.query_family.to_string(),
-        sql: scenario.sql.to_string(),
-        query_loop_count: scenario.query_loop_count,
-        baseline_avg_compile_local_instructions,
-        baseline_avg_execute_local_instructions,
-        baseline_avg_local_instructions,
-        avg_compile_local_instructions,
-        avg_execute_local_instructions,
-        first_local_instructions,
-        min_local_instructions,
-        max_local_instructions,
-        total_local_instructions,
-        avg_local_instructions,
-        avg_local_instructions_delta,
-        avg_local_instructions_delta_percent_bps,
-        outcome_stable,
-        outcome,
-    }
+    build_sql_perf_scenario_sample(baseline, scenario, &raw)
 }
 
 fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
@@ -999,9 +1100,9 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | SQL Compile Hits | SQL Compile Misses | SQL Select Hits | SQL Select Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
-    println!("|---|---:|---:|---:|---:|---:|---:|---|");
+    println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
 
     for sample in samples {
         let delta_text = sample
@@ -1013,11 +1114,17 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
             sample.avg_execute_local_instructions,
+            sample.avg_sql_compiled_command_cache_hits,
+            sample.avg_sql_compiled_command_cache_misses,
+            sample.avg_sql_select_plan_cache_hits,
+            sample.avg_sql_select_plan_cache_misses,
+            sample.avg_shared_query_plan_cache_hits,
+            sample.avg_shared_query_plan_cache_misses,
             sample.avg_local_instructions,
             delta_text,
             delta_percent_text,
@@ -1074,4 +1181,41 @@ fn sql_perf_audit_harness_reports_instruction_samples() {
     }
 
     print_perf_report(&samples);
+}
+
+#[test]
+fn sql_perf_update_warm_persists_query_cache_across_calls() {
+    let fixture = install_sql_perf_canister_fixture();
+    reset_sql_perf_fixtures(&fixture);
+
+    let sql = "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2";
+    let warm = warm_query_surface_with_perf(&fixture, SqlPerfSurface::User, sql)
+        .expect("update warm SQL query should succeed");
+    assert_eq!(
+        warm.attribution.sql_compiled_command_cache_misses, 1,
+        "the update warm call should populate the SQL compiled-command cache on its cold pass",
+    );
+    assert_eq!(
+        warm.attribution.sql_select_plan_cache_misses, 1,
+        "the update warm call should populate the SQL select-plan cache on its cold pass",
+    );
+
+    let query = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
+        .expect("query call should succeed after update warm");
+    assert_eq!(
+        query.attribution.sql_compiled_command_cache_hits, 1,
+        "the later query call should reuse the compiled SQL artifact warmed by the update call",
+    );
+    assert_eq!(
+        query.attribution.sql_compiled_command_cache_misses, 0,
+        "the later query call should not recompile the warmed SQL artifact",
+    );
+    assert_eq!(
+        query.attribution.sql_select_plan_cache_hits, 1,
+        "the later query call should reuse the SQL select plan warmed by the update call",
+    );
+    assert_eq!(
+        query.attribution.sql_select_plan_cache_misses, 0,
+        "the later query call should not rebuild the warmed SQL select plan",
+    );
 }

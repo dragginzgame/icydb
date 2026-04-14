@@ -16,7 +16,7 @@ use crate::{
         executor::{EntityAuthority, pipeline::execute_initial_grouped_rows_for_canister},
         query::intent::StructuralQuery,
         session::sql::{
-            SqlCompiledCommandCacheKey, SqlStatementResult,
+            SqlCacheAttribution, SqlCompiledCommandCacheKey, SqlStatementResult,
             projection::{SqlProjectionPayload, grouped_sql_statement_result},
         },
         sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
@@ -115,7 +115,9 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
         self.execute_lowered_sql_select_with(select, authority, |session, query, authority| {
-            session.execute_structural_sql_projection(query, authority, None)
+            session
+                .execute_structural_sql_projection(query, authority, None)
+                .map(|(payload, _)| payload)
         })
     }
 
@@ -199,8 +201,8 @@ impl<C: CanisterKind> DbSession<C> {
         structural: StructuralQuery,
         authority: EntityAuthority,
         compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
-    ) -> Result<SqlStatementResult, QueryError> {
-        let entry =
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
         let (plan, columns) = entry.into_parts();
         let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
@@ -219,10 +221,9 @@ impl<C: CanisterKind> DbSession<C> {
                 })
             })
             .transpose()?;
-        Ok(grouped_sql_statement_result(
-            columns,
-            page.rows,
-            next_cursor,
+        Ok((
+            grouped_sql_statement_result(columns, page.rows, next_cursor),
+            cache_attribution,
         ))
     }
 }

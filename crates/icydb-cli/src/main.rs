@@ -40,6 +40,21 @@ struct ShellConfig {
     sql: Option<String>,
 }
 
+///
+/// ShellPerfAttribution
+///
+/// ShellPerfAttribution carries the hard-cut dev-shell perf footer payload.
+/// The shell keeps this formatting-only shape local so the canister payload can
+/// evolve independently from the rendered footer string.
+///
+
+struct ShellPerfAttribution {
+    total_instructions: u64,
+    planner_instructions: u64,
+    executor_instructions: u64,
+    compiler_instructions: u64,
+}
+
 impl ShellConfig {
     fn parse(args: Vec<String>) -> Self {
         let mut canister = env::var("SQLQ_CANISTER").unwrap_or_else(|_| "demo_rpg".to_string());
@@ -172,13 +187,7 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<Option<String>, String> 
 
 fn execute_sql(canister: &str, sql: &str) -> Result<String, String> {
     let escaped_sql = candid_escape_string(sql);
-
-    // Phase 1: prefer the perf-aware query surface when it exists on the
-    // deployed canister, but keep one clean fallback for older deployments.
-    let raw_json = match dfx_query(canister, "query_with_perf", escaped_sql.as_str()) {
-        Ok(raw_json) => raw_json,
-        Err(_) => dfx_query(canister, "query", escaped_sql.as_str())?,
-    };
+    let raw_json = dfx_query(canister, "query_with_perf", escaped_sql.as_str())?;
 
     // Phase 2: decode the dfx JSON envelope and render through the canonical
     // SQL facade, with shell-only footer/cell tweaks layered on top.
@@ -230,13 +239,9 @@ fn render_shell_text_from_dfx_json(input: &str) -> Result<String, String> {
         .ok_or_else(|| "find Ok/Err result payload in dfx json envelope".to_string())?;
 
     if let Some(ok) = payload.get("Ok") {
-        if let Some((result, instructions)) = parse_perf_result(ok) {
-            return Ok(render_shell_text(result, Some(instructions)));
-        }
+        let (result, attribution) = parse_perf_result(ok)?;
 
-        let result: SqlQueryResult =
-            serde_json::from_value(ok.clone()).map_err(|err| err.to_string())?;
-        return Ok(render_shell_text(result, None));
+        return Ok(render_shell_text(result, Some(attribution)));
     }
 
     let err: Error = serde_json::from_value(
@@ -250,29 +255,35 @@ fn render_shell_text_from_dfx_json(input: &str) -> Result<String, String> {
     Ok(format!("ERROR: {err}"))
 }
 
-fn render_shell_text(result: SqlQueryResult, instructions: Option<u64>) -> String {
+fn render_shell_text(result: SqlQueryResult, attribution: Option<ShellPerfAttribution>) -> String {
     match result {
-        SqlQueryResult::Projection(rows) => render_projection_shell_text(rows, instructions),
-        SqlQueryResult::Grouped(rows) => render_grouped_shell_text(rows, instructions),
+        SqlQueryResult::Projection(rows) => render_projection_shell_text(rows, attribution),
+        SqlQueryResult::Grouped(rows) => render_grouped_shell_text(rows, attribution),
         other => other.render_text(),
     }
 }
 
-fn render_projection_shell_text(mut rows: SqlQueryRowsOutput, instructions: Option<u64>) -> String {
+fn render_projection_shell_text(
+    mut rows: SqlQueryRowsOutput,
+    attribution: Option<ShellPerfAttribution>,
+) -> String {
     uppercase_null_cells(rows.rows.as_mut_slice());
 
     let mut lines =
         icydb::db::sql::render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows());
-    append_perf_suffix(lines.as_mut_slice(), instructions);
+    append_perf_suffix(lines.as_mut_slice(), attribution.as_ref());
 
     lines.join("\n")
 }
 
-fn render_grouped_shell_text(mut rows: SqlGroupedRowsOutput, instructions: Option<u64>) -> String {
+fn render_grouped_shell_text(
+    mut rows: SqlGroupedRowsOutput,
+    attribution: Option<ShellPerfAttribution>,
+) -> String {
     uppercase_null_cells(rows.rows.as_mut_slice());
 
     let mut lines = render_grouped_lines(&rows);
-    append_perf_suffix(lines.as_mut_slice(), instructions);
+    append_perf_suffix(lines.as_mut_slice(), attribution.as_ref());
 
     lines.join("\n")
 }
@@ -287,48 +298,76 @@ fn uppercase_null_cells(rows: &mut [Vec<String>]) {
     }
 }
 
-fn append_perf_suffix(lines: &mut [String], instructions: Option<u64>) {
+fn append_perf_suffix(lines: &mut [String], attribution: Option<&ShellPerfAttribution>) {
     let Some(last) = lines.last_mut() else {
         return;
     };
-    let Some(instructions) = instructions else {
+    let Some(attribution) = attribution else {
         return;
     };
 
-    *last = format!("{last} ({})", format_instructions(instructions));
+    *last = format!(
+        "{last} ({}, {} comp, {} plan, {} exec)",
+        format_instructions(attribution.total_instructions),
+        format_instructions(attribution.compiler_instructions),
+        format_instructions(attribution.planner_instructions),
+        format_instructions(attribution.executor_instructions),
+    );
 }
 
 fn format_instructions(instructions: u64) -> String {
     if instructions >= 1_000_000 {
-        return format_scaled_instructions(instructions, 1_000_000, "M");
+        return format_scaled_instructions(instructions, 1_000_000, "Mi");
     }
 
     if instructions >= 1_000 {
-        return format_scaled_instructions(instructions, 1_000, "K");
+        return format_scaled_instructions(instructions, 1_000, "Ki");
     }
 
-    format!("{instructions} instructions")
+    format!("{instructions}i")
 }
 
 fn format_scaled_instructions(instructions: u64, scale: u64, suffix: &str) -> String {
-    let scaled_hundredths =
-        ((u128::from(instructions) * 100) + (u128::from(scale) / 2)) / u128::from(scale);
-    let whole = scaled_hundredths / 100;
-    let fractional = scaled_hundredths % 100;
+    let scaled_tenths =
+        ((u128::from(instructions) * 10) + (u128::from(scale) / 2)) / u128::from(scale);
+    let whole = scaled_tenths / 10;
+    let fractional = scaled_tenths % 10;
 
-    format!("{whole}.{fractional:02}{suffix} instructions")
+    format!("{whole}.{fractional}{suffix}")
 }
 
-fn parse_perf_result(value: &Value) -> Option<(SqlQueryResult, u64)> {
-    let result_value = value.get("result")?;
-    let instructions = match value.get("instructions")? {
-        Value::Number(number) => number.as_u64()?,
-        Value::String(text) => text.parse().ok()?,
-        _ => return None,
-    };
-    let result = serde_json::from_value::<SqlQueryResult>(result_value.clone()).ok()?;
+fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribution), String> {
+    let result_value = value
+        .get("result")
+        .ok_or_else(|| "perf result missing result payload".to_string())?;
+    let result = serde_json::from_value::<SqlQueryResult>(result_value.clone())
+        .map_err(|err| err.to_string())?;
 
-    Some((result, instructions))
+    Ok((
+        result,
+        ShellPerfAttribution {
+            total_instructions: parse_perf_u64(value, "instructions")?,
+            planner_instructions: parse_perf_u64(value, "planner_instructions")?,
+            executor_instructions: parse_perf_u64(value, "executor_instructions")?,
+            compiler_instructions: parse_perf_u64(value, "compiler_instructions")?,
+        },
+    ))
+}
+
+fn parse_perf_u64(value: &Value, field: &str) -> Result<u64, String> {
+    let field_value = value
+        .get(field)
+        .ok_or_else(|| format!("perf result missing {field}"))?;
+
+    match field_value {
+        Value::Number(number) => number
+            .as_u64()
+            .ok_or_else(|| format!("perf field {field} is not a u64")),
+        Value::String(text) => text
+            .parse()
+            .map_err(|_| format!("perf field {field} is not a u64")),
+        _ => Err(format!("perf field {field} has unsupported type")),
+    }
 }
 
 fn find_result_payload(value: &Value) -> Option<&Value> {

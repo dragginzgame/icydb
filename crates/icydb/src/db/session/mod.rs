@@ -135,7 +135,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub fn debug(mut self) -> Self {
+    pub const fn debug(mut self) -> Self {
         self.inner = self.inner.debug();
         self
     }

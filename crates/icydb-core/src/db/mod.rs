@@ -220,6 +220,17 @@ impl<C: CanisterKind> Db<C> {
         self.store.with(|reg| f(reg))
     }
 
+    /// Resolve one stable in-process cache scope identifier for this store registry.
+    ///
+    /// Session-level SQL and structural query caches use this scope to share
+    /// reusable artifacts across fresh `DbSession` values that point at the
+    /// same generated canister store wiring without leaking entries across
+    /// unrelated registries in tests or multi-canister host processes.
+    #[must_use]
+    pub(in crate::db) fn cache_scope_id(&self) -> usize {
+        std::ptr::from_ref::<LocalKey<StoreRegistry>>(self.store) as usize
+    }
+
     /// Build one named-store resolver for executor/runtime helpers.
     #[must_use]
     pub(in crate::db) fn store_resolver(&self) -> executor::StoreResolver<'_> {

@@ -72,6 +72,7 @@ pub(in crate::db::executor) use planning::continuation::{
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub use planning::route::RouteExecutionMode;
 pub use prepared_execution_plan::ExecutionFamily;
+pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedExecutionPlan};
 pub(in crate::db::executor) use prepared_execution_plan::{
     PreparedAggregatePlan, PreparedLoadPlan, classify_bytes_by_projection_mode,
