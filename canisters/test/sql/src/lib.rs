@@ -31,7 +31,10 @@ struct SqlQueryPerfResult {
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 impl SqlQueryPerfResult {
-    fn from_attribution(result: SqlQueryResult, attribution: SqlQueryExecutionAttribution) -> Self {
+    const fn from_attribution(
+        result: SqlQueryResult,
+        attribution: SqlQueryExecutionAttribution,
+    ) -> Self {
         Self {
             result,
             instructions: attribution.total_local_instructions,
