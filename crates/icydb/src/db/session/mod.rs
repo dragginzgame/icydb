@@ -130,7 +130,7 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 // contract so shell-facing totals remain exhaustive across compile, planner,
 // executor, and decode.
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
-fn finalize_public_sql_query_attribution(
+const fn finalize_public_sql_query_attribution(
     mut attribution: crate::db::SqlQueryExecutionAttribution,
     response_decode_local_instructions: u64,
 ) -> crate::db::SqlQueryExecutionAttribution {
