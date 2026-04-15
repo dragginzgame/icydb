@@ -123,7 +123,7 @@ where
     let (prepare_projection_local_instructions, prepared_projection) =
         measure_structural_result(|| {
             Ok::<PreparedProjectionShape, InternalError>(prepare_projection_shape_from_plan(
-                row_layout.field_count(),
+                authority.model(),
                 &plan,
             ))
         });
@@ -182,7 +182,7 @@ where
     C: CanisterKind,
 {
     let row_layout = authority.row_layout();
-    let prepared_projection = prepare_projection_shape_from_plan(row_layout.field_count(), &plan);
+    let prepared_projection = prepare_projection_shape_from_plan(authority.model(), &plan);
 
     // Execute the canonical scalar runtime and then shape the resulting
     // structural page into projected SQL values.
@@ -383,7 +383,7 @@ fn shape_slot_rows_from_projection_structural<T>(
     rows: Vec<RetainedSlotRow>,
     emit_value: &mut impl FnMut(Value) -> T,
 ) -> Result<Vec<Vec<T>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.direct_projection_field_slots() {
+    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
         return shape_slot_rows_from_direct_field_slots(rows, field_slots, emit_value);
     }
 
@@ -462,6 +462,17 @@ fn project_data_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: &[DataRow],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
+        let mut emit_value = std::convert::identity;
+
+        return shape_data_rows_from_direct_field_slots(
+            rows,
+            row_layout,
+            field_slots,
+            &mut emit_value,
+        );
+    }
+
     let compiled_fields = prepared_projection.scalar_projection_exprs();
     #[cfg(any(test, feature = "perf-attribution"))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
@@ -478,6 +489,36 @@ fn project_data_rows_from_projection_structural(
         projected_slot_mask,
         &mut emit_value,
     )
+}
+
+#[cfg(feature = "sql")]
+// Shape one raw data-row page through direct field-slot copies only.
+fn shape_data_rows_from_direct_field_slots<T>(
+    rows: &[DataRow],
+    row_layout: RowLayout,
+    field_slots: &[(String, usize)],
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: open each structural row once, then decode only the declared
+    // direct field slots into the final output representation.
+    for (data_key, raw_row) in rows {
+        let row_fields = row_layout.open_raw_row(raw_row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        let mut shaped = Vec::with_capacity(field_slots.len());
+        for (_field_name, slot) in field_slots {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_sql_projection_data_rows_slot_access(true);
+
+            let value = row_fields.required_value_by_contract(*slot)?;
+            shaped.push(emit_value(value));
+        }
+        shaped_rows.push(shaped);
+    }
+
+    Ok(shaped_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -706,6 +747,7 @@ mod tests {
         db::{
             executor::{
                 PreparedProjectionPlan, StructuralCursorPage,
+                projection_eval_data_row_for_materialize_tests,
                 projection_eval_row_layout_for_materialize_tests,
             },
             query::plan::expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
@@ -722,6 +764,27 @@ mod tests {
             PreparedProjectionPlan::Scalar(Vec::new()),
             false,
             Some(vec![("rank".to_string(), 1)]),
+            Some(vec![("rank".to_string(), 1)]),
+            vec![false, true, false, false],
+        )
+    }
+
+    fn repeated_direct_rank_projection_shape() -> PreparedProjectionShape {
+        PreparedProjectionShape::from_test_parts(
+            ProjectionSpec::from_fields_for_test(vec![
+                ProjectionField::Scalar {
+                    expr: Expr::Field(FieldId::new("rank")),
+                    alias: None,
+                },
+                ProjectionField::Scalar {
+                    expr: Expr::Field(FieldId::new("rank")),
+                    alias: None,
+                },
+            ]),
+            PreparedProjectionPlan::Scalar(Vec::new()),
+            false,
+            None,
+            Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
             vec![false, true, false, false],
         )
     }
@@ -757,6 +820,75 @@ mod tests {
         assert_eq!(
             metrics.full_row_decode_materializations, 0,
             "slot-row projection should not trigger eager full-row decode",
+        );
+    }
+
+    #[test]
+    fn sql_projection_materialization_prefers_direct_data_row_field_copies() {
+        let row_layout = projection_eval_row_layout_for_materialize_tests();
+        let page = StructuralCursorPage::new(
+            vec![projection_eval_data_row_for_materialize_tests(41, 19, true)],
+            None,
+        );
+        let prepared_projection = direct_rank_projection_shape();
+
+        let (payload, metrics) = with_sql_projection_materialization_metrics(|| {
+            project_structural_sql_projection_page(row_layout, &prepared_projection, page)
+        });
+        let payload = payload.expect("data-row SQL projection materialization should succeed");
+
+        assert_eq!(payload, vec![vec![Value::Int(19)]]);
+
+        assert_eq!(
+            metrics.data_rows_path_hits, 1,
+            "data-row projection should stay on the raw-row path",
+        );
+        assert_eq!(
+            metrics.data_rows_scalar_fallback_hits, 0,
+            "direct data-row field copies should avoid the scalar fallback path",
+        );
+        assert_eq!(
+            metrics.data_rows_projected_slot_accesses, 1,
+            "direct data-row field copies should decode only the declared projected slot",
+        );
+        assert_eq!(
+            metrics.data_rows_non_projected_slot_accesses, 0,
+            "direct data-row field copies should avoid unrelated slot reads",
+        );
+    }
+
+    #[test]
+    fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repeated_fields() {
+        let row_layout = projection_eval_row_layout_for_materialize_tests();
+        let page = StructuralCursorPage::new(
+            vec![projection_eval_data_row_for_materialize_tests(41, 19, true)],
+            None,
+        );
+        let prepared_projection = repeated_direct_rank_projection_shape();
+
+        let (payload, metrics) = with_sql_projection_materialization_metrics(|| {
+            project_structural_sql_projection_page(row_layout, &prepared_projection, page)
+        });
+        let payload =
+            payload.expect("repeated data-row SQL projection materialization should succeed");
+
+        assert_eq!(payload, vec![vec![Value::Int(19), Value::Int(19)]]);
+
+        assert_eq!(
+            metrics.data_rows_path_hits, 1,
+            "repeated data-row projection should stay on the raw-row path",
+        );
+        assert_eq!(
+            metrics.data_rows_scalar_fallback_hits, 0,
+            "repeated direct data-row fields should avoid the scalar fallback path",
+        );
+        assert_eq!(
+            metrics.data_rows_projected_slot_accesses, 2,
+            "repeated direct data-row fields should read only the repeated projected slot",
+        );
+        assert_eq!(
+            metrics.data_rows_non_projected_slot_accesses, 0,
+            "repeated direct data-row fields should avoid unrelated slot reads",
         );
     }
 }

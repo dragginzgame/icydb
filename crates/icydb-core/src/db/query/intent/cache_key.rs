@@ -49,8 +49,13 @@ enum QueryModeCacheKey {
     Delete { limit: Option<u32>, offset: u32 },
 }
 
-// Predicate identity stays anchored to the predicate subsystem's canonical
-// structural hash so the shared cache does not grow its own predicate walker.
+///
+/// PredicateCacheKey
+///
+/// Predicate identity stays anchored to the predicate subsystem's canonical
+/// structural hash so the shared cache does not grow its own predicate walker.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum PredicateCacheKey {
     Canonical([u8; 32]),
@@ -88,6 +93,14 @@ enum AccessPathCacheKey {
     FullScan,
 }
 
+///
+/// IndexRangeCacheKey
+///
+/// Canonical identity for one normalized index-range access path.
+/// This exists so the shared query cache can distinguish different index slots,
+/// prefix bindings, and resume bounds after fluent key access is lowered.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct IndexRangeCacheKey {
     index: String,
@@ -97,6 +110,10 @@ struct IndexRangeCacheKey {
     upper: RangeBoundCacheKey,
 }
 
+///
+/// RangeBoundCacheKey
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum RangeBoundCacheKey {
     Unbounded,
@@ -104,10 +121,26 @@ enum RangeBoundCacheKey {
     Excluded(ValueCacheKey),
 }
 
+///
+/// OrderCacheKey
+///
+/// Canonical ordering segment for the structural query cache key.
+/// The cache stores ordering separately so planner reuse only happens when the
+/// normalized sort contract matches field-for-field.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct OrderCacheKey {
     fields: Vec<OrderFieldCacheKey>,
 }
+
+///
+/// OrderFieldCacheKey
+///
+/// Canonical representation of one `ORDER BY` field inside `OrderCacheKey`.
+/// This wrapper keeps the field name and normalized direction explicit so cache
+/// hits do not accidentally cross different sort layouts.
+///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct OrderFieldCacheKey {
@@ -156,12 +189,28 @@ enum BinaryOpCacheKey {
     Eq,
 }
 
+///
+/// AggregateExprCacheKey
+///
+/// Canonical aggregate-expression identity for projected aggregate results.
+/// It records only the semantic pieces that affect planner reuse: aggregate
+/// kind, optional target field, and whether the aggregate is distinct.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct AggregateExprCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
     distinct: bool,
 }
+
+///
+/// GroupingCacheKey
+///
+/// Canonical identity for the grouped-query portion of a structural cache key.
+/// This captures grouping fields, aggregate slots, `HAVING` clauses, and the
+/// configured grouping limits so grouped plans only reuse compatible shapes.
+///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupingCacheKey {
@@ -172,11 +221,27 @@ struct GroupingCacheKey {
     max_group_bytes: u64,
 }
 
+///
+/// GroupFieldCacheKey
+///
+/// Canonical reference to one grouped field inside `GroupingCacheKey`.
+/// The index is preserved alongside the field name because later grouped
+/// projections and `HAVING` symbols refer back to aggregate/group slot order.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupFieldCacheKey {
     index: usize,
     field: String,
 }
+
+///
+/// GroupAggregateCacheKey
+///
+/// Canonical identity for one aggregate slot inside grouped intent.
+/// Grouped planning uses this wrapper to preserve aggregate order and semantics
+/// without re-embedding full aggregate expressions into the parent key.
+///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupAggregateCacheKey {
@@ -185,10 +250,26 @@ struct GroupAggregateCacheKey {
     distinct: bool,
 }
 
+///
+/// GroupHavingCacheKey
+///
+/// Canonical `HAVING` clause collection for grouped-query cache identity.
+/// This exists so grouped plan reuse remains sensitive to post-aggregation
+/// filtering while keeping that concern isolated from the main grouping shape.
+///
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupHavingCacheKey {
     clauses: Vec<GroupHavingClauseCacheKey>,
 }
+
+///
+/// GroupHavingClauseCacheKey
+///
+/// Canonical identity for one normalized `HAVING` predicate clause.
+/// It ties together the referenced grouped symbol, comparison operator, and
+/// comparison value so grouped cache hits only occur for equivalent filters.
+///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupHavingClauseCacheKey {
@@ -202,6 +283,14 @@ enum GroupHavingSymbolCacheKey {
     GroupField(GroupFieldCacheKey),
     AggregateIndex(usize),
 }
+
+///
+/// CompareOpCacheKey
+///
+/// Compact comparison-operator encoding for normalized predicate clauses.
+/// The cache key stores the operator as a stable tag because both `HAVING`
+/// clauses and other structural comparisons need hashable semantic equality.
+///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct CompareOpCacheKey(u8);

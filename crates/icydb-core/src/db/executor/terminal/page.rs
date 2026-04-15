@@ -17,7 +17,10 @@ use crate::{
             pipeline::contracts::{
                 CursorEmissionMode, MaterializedExecutionPayload, PageCursor, StructuralCursorPage,
             },
-            projection::{PreparedSlotProjectionValidation, validate_prepared_projection_row},
+            projection::{
+                PreparedSlotProjectionValidation, ProjectionValidationRow,
+                validate_prepared_projection_row,
+            },
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
@@ -295,6 +298,12 @@ impl RetainedSlotRow {
     }
 }
 
+impl ProjectionValidationRow for RetainedSlotRow {
+    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value> {
+        self.slot_ref(slot)
+    }
+}
+
 ///
 /// KernelRow
 ///
@@ -421,6 +430,12 @@ impl KernelRow {
         };
 
         Ok((data_row, slots))
+    }
+}
+
+impl ProjectionValidationRow for KernelRow {
+    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value> {
+        self.slot_ref(slot)
     }
 }
 
@@ -915,9 +930,7 @@ fn validate_prepared_projection_rows(
         )
     })?;
     for row in rows {
-        validate_prepared_projection_row(prepared_projection_validation, &mut |slot| {
-            row.slot_ref(slot)
-        })?;
+        validate_prepared_projection_row(prepared_projection_validation, row)?;
     }
 
     Ok(())

@@ -456,7 +456,12 @@ where
         authority,
         &logical_plan,
         execution_preparation.compiled_predicate(),
-        ScalarProjectionRuntimeMode::SharedValidation,
+        // This surface only materializes canonical data rows for the outer
+        // canister/entity boundary. It does not consume shared projection
+        // validation or retained-slot output, so keep projection
+        // materialization disabled and let retained-slot layout exist only
+        // when later executor phases still need predicate/order support.
+        ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
         route_plan.load_terminal_fast_path(),
     );
@@ -477,7 +482,7 @@ where
         ),
         unpaged_rows_mode: true,
         cursor_emission: CursorEmissionMode::Suppress,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::None,
         debug,
     })
 }
@@ -633,7 +638,12 @@ where
         authority,
         &logical_plan,
         execution_preparation.compiled_predicate(),
-        ScalarProjectionRuntimeMode::SharedValidation,
+        // Shared materialized scalar boundaries emit canonical data rows for
+        // downstream bytes/ranking/materialized consumers. Those consumers do
+        // not need executor-owned projection validation or retained-slot row
+        // output, so disable projection materialization here and keep any
+        // remaining retained-slot layout strictly about predicate/order needs.
+        ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
         route_plan.load_terminal_fast_path(),
     );
@@ -652,7 +662,7 @@ where
         resolved_continuation,
         unpaged_rows_mode: false,
         cursor_emission: CursorEmissionMode::Suppress,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::None,
         debug: executor.debug,
     };
     let (page, _) = finalize_scalar_structural_path_execution(

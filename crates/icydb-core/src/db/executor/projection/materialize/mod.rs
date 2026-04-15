@@ -16,6 +16,7 @@ use crate::{
         expr::{ProjectionSpec, projection_field_direct_field_name},
     },
     error::InternalError,
+    model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 use std::borrow::Cow;
@@ -57,7 +58,8 @@ pub(in crate::db) struct PreparedProjectionShape {
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
-    direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
     #[cfg(any(test, feature = "perf-attribution"))]
     projected_slot_mask: Vec<bool>,
 }
@@ -86,8 +88,17 @@ impl PreparedProjectionShape {
     }
 
     #[must_use]
-    pub(in crate::db) fn direct_projection_field_slots(&self) -> Option<&[(String, usize)]> {
-        self.direct_projection_field_slots.as_deref()
+    pub(in crate::db) fn retained_slot_direct_projection_field_slots(
+        &self,
+    ) -> Option<&[(String, usize)]> {
+        self.retained_slot_direct_projection_field_slots.as_deref()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn data_row_direct_projection_field_slots(
+        &self,
+    ) -> Option<&[(String, usize)]> {
+        self.data_row_direct_projection_field_slots.as_deref()
     }
 
     #[cfg(any(test, feature = "perf-attribution"))]
@@ -103,14 +114,16 @@ impl PreparedProjectionShape {
         projection: ProjectionSpec,
         prepared: PreparedProjectionPlan,
         projection_is_model_identity: bool,
-        direct_projection_field_slots: Option<Vec<(String, usize)>>,
+        retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+        data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
         projected_slot_mask: Vec<bool>,
     ) -> Self {
         Self {
             projection,
             prepared,
             projection_is_model_identity,
-            direct_projection_field_slots,
+            retained_slot_direct_projection_field_slots,
+            data_row_direct_projection_field_slots,
             projected_slot_mask,
         }
     }
@@ -128,10 +141,28 @@ impl PreparedProjectionShape {
 
 pub(in crate::db::executor) type PreparedSlotProjectionValidation = PreparedProjectionShape;
 
+///
+/// ProjectionValidationRow
+///
+/// ProjectionValidationRow is the deliberately narrow row-read contract for
+/// shared projection validation only.
+/// This abstraction exists to keep retained-slot layout and row payload choice
+/// as executor-local representation decisions rather than semantic
+/// requirements of the validator itself.
+/// It is intentionally not a generic executor row API for predicates,
+/// ordering, projection materialization, or SQL rendering.
+///
+
+pub(in crate::db::executor) trait ProjectionValidationRow {
+    /// Borrow one slot value for projection-expression validation.
+    #[must_use]
+    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value>;
+}
+
 /// Build one executor-owned prepared projection shape from planner-frozen metadata.
 #[must_use]
 pub(in crate::db) fn prepare_projection_shape_from_plan(
-    field_count: usize,
+    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
     let projection = plan.frozen_projection_spec().clone();
@@ -142,21 +173,25 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
             )
             .to_vec(),
     );
-    let direct_projection_field_slots = direct_projection_field_slots_from_projection(
-        &projection,
-        plan.frozen_direct_projection_slots(),
-    );
+    let retained_slot_direct_projection_field_slots =
+        retained_slot_direct_projection_field_slots_from_projection(
+            &projection,
+            plan.frozen_direct_projection_slots(),
+        );
+    let data_row_direct_projection_field_slots =
+        data_row_direct_projection_field_slots_from_projection(model, &projection);
     #[cfg(any(test, feature = "perf-attribution"))]
     let projected_slot_mask =
-        projected_slot_mask_from_slots(field_count, plan.projected_slot_mask());
+        projected_slot_mask_from_slots(model.fields().len(), plan.projected_slot_mask());
     #[cfg(not(any(test, feature = "perf-attribution")))]
-    let _ = field_count;
+    let _ = model;
 
     PreparedProjectionShape {
         projection,
         prepared,
         projection_is_model_identity: plan.projection_is_model_identity(),
-        direct_projection_field_slots,
+        retained_slot_direct_projection_field_slots,
+        data_row_direct_projection_field_slots,
         #[cfg(any(test, feature = "perf-attribution"))]
         projected_slot_mask,
     }
@@ -164,9 +199,9 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
 
 /// Validate projection expressions against one row-domain that can expose
 /// borrowed slot values by field slot.
-pub(in crate::db::executor) fn validate_prepared_projection_row<'a>(
+pub(in crate::db::executor) fn validate_prepared_projection_row(
     prepared_validation: &PreparedSlotProjectionValidation,
-    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+    row: &impl ProjectionValidationRow,
 ) -> Result<(), InternalError> {
     if prepared_validation.projection_is_model_identity() {
         return Ok(());
@@ -174,14 +209,15 @@ pub(in crate::db::executor) fn validate_prepared_projection_row<'a>(
 
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared_validation.prepared();
     for compiled in compiled_fields {
-        let _ = eval_scalar_projection_expr_with_value_ref_reader(compiled, read_slot)
+        let mut read_slot = |slot| row.projection_validation_slot_value(slot);
+        let _ = eval_scalar_projection_expr_with_value_ref_reader(compiled, &mut read_slot)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
     }
 
     Ok(())
 }
 
-fn direct_projection_field_slots_from_projection(
+fn retained_slot_direct_projection_field_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
 ) -> Option<Vec<(String, usize)>> {
@@ -193,6 +229,24 @@ fn direct_projection_field_slots_from_projection(
         .zip(direct_projection_slots.iter().copied())
     {
         let field_name = projection_field_direct_field_name(field)?;
+        field_slots.push((field_name.to_string(), slot));
+    }
+
+    Some(field_slots)
+}
+
+fn data_row_direct_projection_field_slots_from_projection(
+    model: &EntityModel,
+    projection: &ProjectionSpec,
+) -> Option<Vec<(String, usize)>> {
+    let mut field_slots = Vec::with_capacity(projection.len());
+
+    // Phase 1: preserve canonical output order exactly as declared, but allow
+    // duplicate source slots because raw-row decoding can borrow the same slot
+    // repeatedly without the retained-slot `take()` constraint.
+    for field in projection.fields() {
+        let field_name = projection_field_direct_field_name(field)?;
+        let slot = resolve_field_slot(model, field_name)?;
         field_slots.push((field_name.to_string(), slot));
     }
 

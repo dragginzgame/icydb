@@ -251,7 +251,7 @@ fn apply_cursorless_row_collector_post_access(
         for row in rows {
             crate::db::executor::projection::validate_prepared_projection_row(
                 prepared_projection_validation,
-                &mut |slot| row.slot_ref(slot),
+                row,
             )?;
         }
     }

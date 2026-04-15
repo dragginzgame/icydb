@@ -162,12 +162,12 @@ Expansion remains within single-entity algebra.
 
 Potential additions:
 
-- Richer aggregate library (SUM, AVG, statistical aggregates).
+- Statistical aggregate expansion beyond the current baseline aggregate set.
 - COUNT DISTINCT variants (bounded memory only).
-- Expression support for projection and grouping.
+- Further expression widening for grouped paths and boolean/computed forms.
 - Extended predicate operators.
 - Storage and cardinality metrics exposure.
-- Operational CLI over stable engine surface.
+- Broader operational CLI coverage over the stable engine surface.
 
 All expansion must preserve:
 
@@ -191,7 +191,8 @@ If implemented:
 
 ## Operational Surface
 
-A first-class CLI may provide:
+The first-class CLI now exists. Long-term growth here is command completeness
+over the stable engine surface, for example:
 
 ```bash
 icydb schema create

@@ -20,7 +20,7 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalSlotReader, RawRow, SlotReader, StructuralSlotReader,
+            CanonicalSlotReader, DataKey, DataRow, RawRow, SlotReader, StructuralSlotReader,
             encode_persisted_scalar_slot_payload,
         },
         executor::terminal::RowLayout,
@@ -116,6 +116,20 @@ fn row(
 #[cfg(feature = "sql")]
 pub(in crate::db) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
     RowLayout::from_model(ProjectionEvalEntity::MODEL)
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db) fn projection_eval_data_row_for_materialize_tests(
+    id: u128,
+    rank: i64,
+    flag: bool,
+) -> DataRow {
+    let (entity_id, entity) = row(id, rank, flag);
+    let data_key = DataKey::try_new::<ProjectionEvalEntity>(entity_id.key())
+        .expect("projection eval test key should encode");
+    let raw_row = RawRow::from_entity(&entity).expect("projection eval test row should encode");
+
+    (data_key, raw_row)
 }
 
 /// Evaluate one projection expression against one grouped output row view.

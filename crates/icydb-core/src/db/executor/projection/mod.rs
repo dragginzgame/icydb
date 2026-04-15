@@ -26,7 +26,9 @@ pub(in crate::db) use materialize::{
     visit_prepared_projection_values_with_required_value_reader_cow,
 };
 pub(in crate::db::executor) use materialize::{
-    PreparedSlotProjectionValidation, validate_prepared_projection_row,
+    PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,
 };
+#[cfg(test)]
+pub(in crate::db) use tests::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]
 pub(in crate::db) use tests::projection_eval_row_layout_for_materialize_tests;

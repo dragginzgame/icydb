@@ -77,17 +77,31 @@ impl PreparedExecutionProjection {
         cursor_emission: CursorEmissionMode,
         load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     ) -> Self {
-        let projection_validation_enabled = projection_materialization.validate_projection();
+        let retain_slot_rows = projection_materialization.retain_slot_rows();
+
+        // Phase 1: projection validation is only meaningful when the frozen
+        // projection is not already model identity. Identity projections would
+        // immediately no-op inside the validator, so skip building projection
+        // validation state and projection-driven retained slots for that case.
+        let projection_validation_enabled = projection_materialization.validate_projection()
+            && !plan.projection_is_model_identity();
+
+        // Phase 2: build prepared projection state only when one later lane
+        // will actually consume it for retained-slot output or non-identity
+        // shared validation.
+        let prepared_shape = (projection_validation_enabled || retain_slot_rows)
+            .then(|| prepare_projection_shape_from_plan(authority.model(), plan));
+
+        // Phase 3: compile the retained-slot layout only from the effective
+        // execution needs, not from the broader pre-optimization mode enum.
         let retained_slot_layout = compile_retained_slot_layout(
             plan.projected_slot_mask().len(),
             plan,
             compiled_predicate,
-            projection_materialization,
+            projection_validation_enabled,
+            retain_slot_rows,
             cursor_emission,
         );
-        let prepared_shape = (projection_validation_enabled
-            || projection_materialization.retain_slot_rows())
-        .then(|| prepare_projection_shape_from_plan(authority.row_layout().field_count(), plan));
 
         let _ = compiled_predicate;
         let _ = load_terminal_fast_path;
@@ -113,6 +127,11 @@ impl PreparedExecutionProjection {
         self.projection_validation_enabled
             .then_some(())
             .and(self.prepared_shape.as_ref())
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn projection_validation_enabled(&self) -> bool {
+        self.projection_validation_enabled
     }
 }
 
@@ -248,6 +267,7 @@ impl CursorEmissionMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum ProjectionMaterializationMode {
+    None,
     SharedValidation,
     RetainSlotRows,
 }
@@ -607,7 +627,7 @@ impl<'a> ExecutionInputs<'a> {
     /// projection-validation pass before surface-owned materialization.
     #[must_use]
     pub(in crate::db::executor) const fn validate_projection(&self) -> bool {
-        self.projection_materialization.validate_projection()
+        self.prepared_projection.projection_validation_enabled()
     }
 
     /// Return whether this execution attempt should retain decoded slot rows
@@ -657,16 +677,15 @@ fn compile_retained_slot_layout(
     field_count: usize,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
-    projection_materialization: ProjectionMaterializationMode,
+    projection_validation_enabled: bool,
+    retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
     let mut required_slots = vec![false; field_count];
 
     // Phase 1: projection validation and retained-slot materialization both
     // need one stable slot set for later structural slot reads.
-    if projection_materialization.validate_projection()
-        || projection_materialization.retain_slot_rows()
-    {
+    if projection_validation_enabled || retain_slot_rows {
         for &slot in plan.projection_referenced_slots() {
             required_slots[slot] = true;
         }
@@ -701,7 +720,7 @@ fn compile_retained_slot_layout(
         .filter_map(|(slot, required)| required.then_some(slot))
         .collect::<Vec<_>>();
 
-    if required_slots.is_empty() && !projection_materialization.retain_slot_rows() {
+    if required_slots.is_empty() && !retain_slot_rows {
         return None;
     }
 

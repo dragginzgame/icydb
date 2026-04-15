@@ -82,6 +82,7 @@ pub(in crate::db::executor) use prepared_execution_plan::{
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;
 #[cfg(test)]
+pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 pub(in crate::db) use runtime_context::{
