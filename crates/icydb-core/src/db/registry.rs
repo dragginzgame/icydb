@@ -83,9 +83,9 @@ impl StoreHandle {
     pub fn with_data<R>(&self, f: impl FnOnce(&DataStore) -> R) -> R {
         #[cfg(feature = "perf-attribution")]
         {
-            return crate::db::physical_access::measure_physical_access_operation(|| {
+            crate::db::physical_access::measure_physical_access_operation(|| {
                 self.data.with_borrow(f)
-            });
+            })
         }
 
         #[cfg(not(feature = "perf-attribution"))]
@@ -103,9 +103,9 @@ impl StoreHandle {
     pub fn with_index<R>(&self, f: impl FnOnce(&IndexStore) -> R) -> R {
         #[cfg(feature = "perf-attribution")]
         {
-            return crate::db::physical_access::measure_physical_access_operation(|| {
+            crate::db::physical_access::measure_physical_access_operation(|| {
                 self.index.with_borrow(f)
-            });
+            })
         }
 
         #[cfg(not(feature = "perf-attribution"))]

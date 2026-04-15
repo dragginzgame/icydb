@@ -118,6 +118,7 @@ pub struct SqlQueryExecutionAttribution {
 // work, physical store/index access, and narrower runtime execution so shell
 // tooling can show all three.
 #[cfg(feature = "perf-attribution")]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
