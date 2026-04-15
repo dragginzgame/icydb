@@ -50,7 +50,8 @@ pub(in crate::db::executor) use covering::{
 };
 pub(in crate::db) use covering::{
     covering_projection_scan_direction, decode_covering_projection_component,
-    reorder_covering_projection_pairs, resolve_covering_projection_components_from_lowered_specs,
+    decode_covering_projection_pairs, reorder_covering_projection_pairs,
+    resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};

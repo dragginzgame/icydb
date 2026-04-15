@@ -245,7 +245,7 @@ fn decode_covering_projection_components(
 
 // Decode one covering projection stream under the existing-row contract and
 // let the caller map the decoded value vector into its terminal payload.
-pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
+pub(in crate::db) fn decode_covering_projection_pairs<T, F>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,

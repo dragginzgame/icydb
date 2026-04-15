@@ -293,6 +293,7 @@ fn grouped_cursor_rejects_descending_direction_at_plan_time() {
     assert!(matches!(
         err,
         CursorPlanError::InvalidContinuationCursorPayload { reason }
-            if reason.contains("direction must be ascending")
+            if reason
+                == "grouped continuation cursor direction does not match executable plan direction"
     ));
 }

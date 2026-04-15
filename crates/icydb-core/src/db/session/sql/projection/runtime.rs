@@ -19,6 +19,7 @@ use crate::{
         executor::{
             EntityAuthority, StructuralCursorPage, StructuralCursorPagePayload,
             covering_projection_scan_direction, decode_covering_projection_component,
+            decode_covering_projection_pairs,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
             projection::{
                 PreparedProjectionShape, ProjectionEvalError, ScalarProjectionExpr,
@@ -31,8 +32,9 @@ use crate::{
             terminal::{RetainedSlotRow, RowLayout},
         },
         query::plan::{
-            CoveringProjectionOrder, CoveringReadField, CoveringReadFieldSource, PageSpec,
-            covering_hybrid_projection_plan_from_fields,
+            CoveringExistingRowMode, CoveringProjectionOrder, CoveringReadField,
+            CoveringReadFieldSource, PageSpec, covering_hybrid_projection_plan_from_fields,
+            covering_read_execution_plan_from_fields,
         },
     },
     value::Value,
@@ -190,6 +192,15 @@ where
     C: CanisterKind,
 {
     if let Some(projected) =
+        try_execute_covering_sql_projection_rows_for_canister(db, authority, &plan)?
+    {
+        let projected = finalize_sql_projection_rows(&plan, projected)?;
+        let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+
+        return Ok(SqlProjectionRows::new(projected, row_count));
+    }
+
+    if let Some(projected) =
         try_execute_hybrid_covering_sql_projection_rows_for_canister(db, authority, &plan)?
     {
         let projected = finalize_sql_projection_rows(&plan, projected)?;
@@ -213,6 +224,96 @@ where
 }
 
 #[cfg(feature = "sql")]
+fn try_execute_covering_sql_projection_rows_for_canister<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<Option<Vec<Vec<Value>>>, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: admit only planner-proven pure covering routes that need no
+    // row-backed fields in SQL projection materialization.
+    let Some(covering) = covering_read_execution_plan_from_fields(
+        authority.model().fields(),
+        plan,
+        authority.primary_key_name(),
+        true,
+    ) else {
+        return Ok(None);
+    };
+    if covering
+        .fields
+        .iter()
+        .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
+    {
+        return Ok(None);
+    }
+
+    let component_indices = covering_projection_component_indices(covering.fields.as_slice());
+    let store = db.recovered_store(authority.store_path())?;
+    let index_prefix_specs = lower_index_prefix_specs(authority.entity_tag(), &plan.access)?;
+    let index_range_specs = lower_index_range_specs(authority.entity_tag(), &plan.access)?;
+
+    // Phase 2: scan the covering component payloads under the same planner
+    // order contract the executor already exposes in EXPLAIN EXECUTION.
+    let scan_direction = covering_projection_scan_direction(covering.order_contract);
+    let scan_limit = pure_covering_scan_limit(
+        covering.order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+    );
+    let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
+        authority.entity_tag(),
+        index_prefix_specs.as_slice(),
+        index_range_specs.as_slice(),
+        scan_direction,
+        scan_limit,
+        component_indices.as_slice(),
+        |index| db.recovered_store(index.store()),
+    )?;
+
+    // Phase 3: reuse the executor-owned covering decode contract so planner-
+    // proven routes avoid row-store reads entirely while row-check-required
+    // routes still preserve missing-row consistency rules.
+    let Some(decoded_rows) = decode_covering_projection_pairs(
+        raw_pairs,
+        store,
+        plan.scalar_plan().consistency,
+        covering.existing_row_mode,
+        Ok::<Vec<Value>, InternalError>,
+    )?
+    else {
+        return Ok(None);
+    };
+    let mut projected_rows: Vec<(DataKey, Vec<Value>)> = decoded_rows
+        .into_iter()
+        .map(|(data_key, decoded_values)| {
+            let decoded_components =
+                covering_decoded_component_map(component_indices.as_slice(), decoded_values)?;
+            let projected_row =
+                project_covering_row(&data_key, covering.fields.as_slice(), &decoded_components)?;
+
+            Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    reorder_covering_projection_pairs(covering.order_contract, projected_rows.as_mut_slice());
+    if !plan.scalar_plan().distinct
+        && let Some(page) = plan.scalar_plan().page.as_ref()
+    {
+        apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+    }
+
+    Ok(Some(
+        projected_rows
+            .into_iter()
+            .map(|(_data_key, row)| row)
+            .collect(),
+    ))
+}
+
+#[cfg(feature = "sql")]
 fn try_execute_hybrid_covering_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
@@ -231,7 +332,7 @@ where
         return Ok(None);
     };
 
-    let component_indices = hybrid_projection_component_indices(hybrid.fields.as_slice());
+    let component_indices = covering_projection_component_indices(hybrid.fields.as_slice());
     let row_field_slots = hybrid_projection_row_field_slots(hybrid.fields.as_slice());
     let store = db.recovered_store(authority.store_path())?;
     let index_prefix_specs = lower_index_prefix_specs(authority.entity_tag(), &plan.access)?;
@@ -302,7 +403,7 @@ where
 }
 
 #[cfg(feature = "sql")]
-fn hybrid_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
+fn covering_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
     let mut component_indices = Vec::new();
 
     for field in fields {
@@ -317,6 +418,37 @@ fn hybrid_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usiz
     }
 
     component_indices
+}
+
+#[cfg(feature = "sql")]
+fn pure_covering_scan_limit(
+    order_contract: CoveringProjectionOrder,
+    existing_row_mode: CoveringExistingRowMode,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> usize {
+    if distinct {
+        return usize::MAX;
+    }
+    if existing_row_mode != CoveringExistingRowMode::ProvenByPlanner {
+        return usize::MAX;
+    }
+
+    let Some(page) = page else {
+        return usize::MAX;
+    };
+    if !matches!(order_contract, CoveringProjectionOrder::IndexOrder(_)) {
+        return usize::MAX;
+    }
+    let Some(limit) = page.limit else {
+        return usize::MAX;
+    };
+
+    page.offset
+        .saturating_add(limit)
+        .max(1)
+        .try_into()
+        .unwrap_or(usize::MAX)
 }
 
 #[cfg(feature = "sql")]
@@ -344,6 +476,24 @@ fn hybrid_covering_scan_limit(
         .max(1)
         .try_into()
         .unwrap_or(usize::MAX)
+}
+
+#[cfg(feature = "sql")]
+fn covering_decoded_component_map(
+    component_indices: &[usize],
+    decoded_values: Vec<Value>,
+) -> Result<BTreeMap<usize, Value>, InternalError> {
+    if component_indices.len() != decoded_values.len() {
+        return Err(InternalError::query_executor_invariant(
+            "covering SQL projection component decode arity mismatch",
+        ));
+    }
+
+    Ok(component_indices
+        .iter()
+        .copied()
+        .zip(decoded_values)
+        .collect())
 }
 
 #[cfg(feature = "sql")]
@@ -381,6 +531,38 @@ fn decode_hybrid_covering_components(
     }
 
     Ok(decoded)
+}
+
+#[cfg(feature = "sql")]
+fn project_covering_row(
+    data_key: &crate::db::data::DataKey,
+    fields: &[CoveringReadField],
+    decoded_components: &BTreeMap<usize, Value>,
+) -> Result<Vec<Value>, InternalError> {
+    let mut projected = Vec::with_capacity(fields.len());
+
+    for field in fields {
+        let value = match &field.source {
+            CoveringReadFieldSource::IndexComponent { component_index } => decoded_components
+                .get(component_index)
+                .cloned()
+                .ok_or_else(|| {
+                    InternalError::query_executor_invariant(
+                        "covering SQL projection missing decoded covering component",
+                    )
+                })?,
+            CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
+            CoveringReadFieldSource::Constant(value) => value.clone(),
+            CoveringReadFieldSource::RowField => {
+                return Err(InternalError::query_executor_invariant(
+                    "pure covering SQL projection unexpectedly reached row-backed field source",
+                ));
+            }
+        };
+        projected.push(value);
+    }
+
+    Ok(projected)
 }
 
 #[cfg(feature = "sql")]

@@ -250,6 +250,40 @@ fn execute_sql_projection_expression_order_pk_plus_row_field_uses_sparse_sql_pat
     );
 }
 
+#[cfg(feature = "perf-attribution")]
+#[test]
+fn execute_sql_projection_expression_order_key_only_covering_query_avoids_store_gets() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the `LOWER(name),
+    // id` index order stays observable instead of collapsing onto primary-key
+    // order by accident.
+    seed_expression_order_fixture(
+        &session,
+        &[
+            (9_263_u128, "sam", 10),
+            (9_264, "Alex", 20),
+            (9_261, "bob", 30),
+            (9_262, "zoe", 40),
+        ],
+    );
+
+    // Phase 2: require the SQL projection lane to keep the planner-proven
+    // covering read route fully row-store-free for one key-only expression
+    // order query.
+    let (_result, attribution) = session
+        .execute_sql_query_with_attribution::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression-order key-only covering query should execute");
+
+    assert_eq!(
+        attribution.store_get_calls, 0,
+        "expression-order key-only covering queries should avoid row-store get() calls",
+    );
+}
+
 #[test]
 fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     reset_indexed_session_sql_store();
