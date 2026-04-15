@@ -41,38 +41,17 @@ pub(in crate::db) struct PredicateProgram {
 ///
 /// CompiledPredicate
 ///
-/// Execution-mode-specific predicate program selected once at lowering time.
-/// Scalar programs never route through generic `Value` fallback during
+/// Execution mode selected once at lowering time for the canonical executable
+/// predicate tree.
+/// Scalar mode never routes through generic `Value` fallback during
 /// structural slot evaluation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CompiledPredicate {
-    Scalar(ScalarPredicateProgram),
-    Generic(GenericPredicateProgram),
+    Scalar,
+    Generic,
 }
-
-///
-/// GenericPredicateProgram
-///
-/// Marker for the executable-predicate generic executor path.
-/// The canonical executable tree remains the source of truth for generic
-/// evaluation and for downstream consumers that still inspect the predicate
-/// execution boundary.
-///
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct GenericPredicateProgram;
-
-///
-/// ScalarPredicateProgram
-///
-/// Marker that scalar-only execution is valid for the canonical executable
-/// predicate tree.
-///
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct ScalarPredicateProgram;
 
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
@@ -82,10 +61,11 @@ impl PredicateProgram {
         predicate: &PredicateExecutionModel,
     ) -> Self {
         let executable = compile_predicate_program(model, predicate);
-        let compiled = compile_scalar_predicate_program(model, &executable).map_or(
-            CompiledPredicate::Generic(GenericPredicateProgram),
-            CompiledPredicate::Scalar,
-        );
+        let compiled = if compile_scalar_predicate_program(model, &executable) {
+            CompiledPredicate::Scalar
+        } else {
+            CompiledPredicate::Generic
+        };
 
         Self {
             executable,
@@ -123,10 +103,8 @@ impl PredicateProgram {
         slots: &dyn CanonicalSlotReader,
     ) -> Result<bool, crate::error::InternalError> {
         match &self.compiled {
-            CompiledPredicate::Scalar(program) => {
-                eval_scalar_predicate_program(*program, &self.executable, slots)
-            }
-            CompiledPredicate::Generic(_) => eval_with_structural_slots(&self.executable, slots),
+            CompiledPredicate::Scalar => eval_scalar_executable_predicate(&self.executable, slots),
+            CompiledPredicate::Generic => eval_with_structural_slots(&self.executable, slots),
         }
     }
 
@@ -144,7 +122,7 @@ impl PredicateProgram {
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn uses_scalar_program(&self) -> bool {
-        matches!(self.compiled, CompiledPredicate::Scalar(_))
+        matches!(self.compiled, CompiledPredicate::Scalar)
     }
 }
 
@@ -226,14 +204,9 @@ fn compile_predicate_program(
 
 // Admit scalar fast-path execution only when the canonical executable tree
 // stays entirely on the scalar slot seam.
-fn compile_scalar_predicate_program(
-    model: &EntityModel,
-    predicate: &ExecutablePredicate,
-) -> Option<ScalarPredicateProgram> {
-    (classify_predicate_capabilities(predicate, PredicateCapabilityContext::runtime(model))
-        .scalar()
-        == ScalarPredicateCapability::ScalarSafe)
-        .then_some(ScalarPredicateProgram)
+fn compile_scalar_predicate_program(model: &EntityModel, predicate: &ExecutablePredicate) -> bool {
+    classify_predicate_capabilities(predicate, PredicateCapabilityContext::runtime(model)).scalar()
+        == ScalarPredicateCapability::ScalarSafe
 }
 
 // Mark every slot referenced by the canonical executable predicate tree.
@@ -555,15 +528,6 @@ where
         eval_compare_values(left, cmp.op, right, &cmp.coercion)
     })
     .unwrap_or(false)
-}
-
-// Evaluate one scalar-only compiled predicate program without generic fallback.
-fn eval_scalar_predicate_program(
-    _program: ScalarPredicateProgram,
-    predicate: &ExecutablePredicate,
-    slots: &dyn CanonicalSlotReader,
-) -> Result<bool, crate::error::InternalError> {
-    eval_scalar_executable_predicate(predicate, slots)
 }
 
 // Evaluate one executable predicate tree through scalar-only slot reads.
