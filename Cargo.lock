@@ -204,9 +204,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c46e34be8ec70c1e8393a883721bbf9ff280dddfcdc6f6a4a1331b0816ebd8"
+checksum = "a501ef1a6f80f2946a6f89dbe8d0aea17c4b710248454c0c0f673d3aa5bf3465"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -220,13 +220,14 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fe75c7b5941c50e6585b4941bca429c94a6552184b10ca151d68b7397c240a4"
+checksum = "9b52e965a3fb71fc92ef9d5e6370b9962c741e01149e81bb427df931e26d09c7"
 dependencies = [
  "base32",
  "candid",
  "crc32fast",
+ "derive_more",
  "ic-cdk",
  "ic-cdk-management-canister",
  "ic-cdk-timers",
@@ -238,15 +239,16 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c4e360ea131d850d681cfcda18782c80e99ed6fc4f2ce5bdb05bc9d6cd233e"
+checksum = "ee7699d2f30565cdb5fdac2a83d21653da7cdeeb1c9276b41880cdebccdc18e7"
 dependencies = [
  "async-trait",
  "candid",
  "canic-cdk",
  "canic-memory",
  "ctor",
+ "derive_more",
  "k256",
  "proc-macro2",
  "quote",
@@ -260,9 +262,9 @@ dependencies = [
 
 [[package]]
 name = "canic-dsl-macros"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7eff3e1b7fcf0e293dcc816c467d3692869aa0f57a0ecff4d611ddd10ebdb66d"
+checksum = "99106944bc7008c4eb855677ae90a763738c9c89c8eab4be3fe74fe908703d30"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -271,9 +273,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b87b8950decbc1ff9a8d60ed73e1d97cbc14ba0ea282bfe4eb3c7e8b5d438734"
+checksum = "929c3c792345c20057592b81301ac90640806abda85662fc7726bb2e55fa9a20"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -285,12 +287,13 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.27.6"
+version = "0.26.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad33e16ddd9f6d5c431fc47e04d7d89539268dff07652cdf004a5959975a4656"
+checksum = "35c358778ec0e4ebdaa398cd133469788e933107d4e12e7de59b25928e3849f0"
 dependencies = [
  "candid",
  "canic",
+ "derive_more",
  "pocket-ic",
  "serde",
 ]
@@ -412,6 +415,15 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "convert_case"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "convert_case"
@@ -583,10 +595,12 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
 dependencies = [
+ "convert_case 0.10.0",
  "proc-macro2",
  "quote",
  "rustc_version",
  "syn 2.0.117",
+ "unicode-xid",
 ]
 
 [[package]]
@@ -1523,7 +1537,7 @@ dependencies = [
 name = "icydb-utils"
 version = "0.82.5"
 dependencies = [
- "convert_case",
+ "convert_case 0.11.0",
  "rand_chacha 0.10.0",
  "thiserror 2.0.18",
  "xxhash-rust",

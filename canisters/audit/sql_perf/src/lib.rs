@@ -104,6 +104,9 @@ fn average_fluent_attribution(
     total_compile_local_instructions: u64,
     total_runtime_local_instructions: u64,
     total_finalize_local_instructions: u64,
+    total_direct_data_row_scan_local_instructions: u64,
+    total_direct_data_row_order_window_local_instructions: u64,
+    total_direct_data_row_page_window_local_instructions: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
@@ -117,6 +120,12 @@ fn average_fluent_attribution(
         compile_local_instructions: total_compile_local_instructions / divisor,
         runtime_local_instructions: total_runtime_local_instructions / divisor,
         finalize_local_instructions: total_finalize_local_instructions / divisor,
+        direct_data_row_scan_local_instructions: total_direct_data_row_scan_local_instructions
+            / divisor,
+        direct_data_row_order_window_local_instructions:
+            total_direct_data_row_order_window_local_instructions / divisor,
+        direct_data_row_page_window_local_instructions:
+            total_direct_data_row_page_window_local_instructions / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
@@ -393,6 +402,9 @@ fn query_fluent_scenario_loop(
     let mut total_compile_local_instructions = 0_u64;
     let mut total_runtime_local_instructions = 0_u64;
     let mut total_finalize_local_instructions = 0_u64;
+    let mut total_direct_data_row_scan_local_instructions = 0_u64;
+    let mut total_direct_data_row_order_window_local_instructions = 0_u64;
+    let mut total_direct_data_row_page_window_local_instructions = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
@@ -422,6 +434,15 @@ fn query_fluent_scenario_loop(
             total_runtime_local_instructions.saturating_add(attribution.runtime_local_instructions);
         total_finalize_local_instructions = total_finalize_local_instructions
             .saturating_add(attribution.finalize_local_instructions);
+        total_direct_data_row_scan_local_instructions =
+            total_direct_data_row_scan_local_instructions
+                .saturating_add(attribution.direct_data_row_scan_local_instructions);
+        total_direct_data_row_order_window_local_instructions =
+            total_direct_data_row_order_window_local_instructions
+                .saturating_add(attribution.direct_data_row_order_window_local_instructions);
+        total_direct_data_row_page_window_local_instructions =
+            total_direct_data_row_page_window_local_instructions
+                .saturating_add(attribution.direct_data_row_page_window_local_instructions);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
@@ -440,6 +461,9 @@ fn query_fluent_scenario_loop(
             total_compile_local_instructions,
             total_runtime_local_instructions,
             total_finalize_local_instructions,
+            total_direct_data_row_scan_local_instructions,
+            total_direct_data_row_order_window_local_instructions,
+            total_direct_data_row_page_window_local_instructions,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,

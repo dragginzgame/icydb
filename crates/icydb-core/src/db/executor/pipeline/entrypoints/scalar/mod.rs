@@ -46,6 +46,8 @@ use crate::{
 };
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
+#[cfg(feature = "perf-attribution")]
+use crate::db::executor::terminal::with_direct_data_row_phase_attribution;
 
 type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
 
@@ -72,10 +74,14 @@ type ScalarPathExecution = (
 ///
 
 #[cfg(feature = "perf-attribution")]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) runtime_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
+    pub(in crate::db) direct_data_row_scan_local_instructions: u64,
+    pub(in crate::db) direct_data_row_order_window_local_instructions: u64,
+    pub(in crate::db) direct_data_row_page_window_local_instructions: u64,
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -345,8 +351,10 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
     let entity_path = prepared.authority.entity_path();
 
     // Phase 1: run the monomorphic scalar runtime spine.
-    let (runtime_local_instructions, execution) =
-        measure_scalar_execute_phase(|| execute_prepared_scalar_path_execution(prepared));
+    let ((runtime_local_instructions, execution), direct_data_row_phase_attribution) =
+        with_direct_data_row_phase_attribution(|| {
+            measure_scalar_execute_phase(|| execute_prepared_scalar_path_execution(prepared))
+        });
     let execution = execution?;
 
     // Phase 2: finalize the structural page and observability payload.
@@ -367,6 +375,12 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
         ScalarExecutePhaseAttribution {
             runtime_local_instructions,
             finalize_local_instructions,
+            direct_data_row_scan_local_instructions: direct_data_row_phase_attribution
+                .scan_local_instructions,
+            direct_data_row_order_window_local_instructions: direct_data_row_phase_attribution
+                .order_window_local_instructions,
+            direct_data_row_page_window_local_instructions: direct_data_row_phase_attribution
+                .page_window_local_instructions,
         },
     ))
 }

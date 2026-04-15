@@ -133,6 +133,56 @@ mod tests {
     ))]
     pub struct StructuredNestedProfileHarness {}
 
+    ///
+    /// StructuredLayerHarness
+    ///
+    /// Minimal related-entity anchor used to prove relation-backed `Ulid`
+    /// fields inside nested records keep the primitive key shape at the
+    /// persisted-row boundary.
+    ///
+
+    #[entity(
+        store = "TestStore",
+        pk(field = "id"),
+        fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    )]
+    pub struct StructuredLayerHarness {}
+
+    ///
+    /// StructuredPartHarness
+    ///
+    /// Second related-entity anchor paired with `StructuredLayerHarness` so
+    /// the nested record can mirror the `SelectedPart` relation shape from the
+    /// application boundary.
+    ///
+
+    #[entity(
+        store = "TestStore",
+        pk(field = "id"),
+        fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    )]
+    pub struct StructuredPartHarness {}
+
+    ///
+    /// StructuredSelectedPartHarness
+    ///
+    /// This record mirrors one nested relation payload stored inside a parent
+    /// entity so macro tests can lock the `Value::Ulid` round-trip contract for
+    /// relation-backed record fields.
+    ///
+
+    #[record(fields(
+        field(
+            ident = "layer_id",
+            value(item(prim = "Ulid", rel = "StructuredLayerHarness"))
+        ),
+        field(
+            ident = "part_id",
+            value(item(prim = "Ulid", rel = "StructuredPartHarness"))
+        )
+    ))]
+    pub struct StructuredSelectedPartHarness {}
+
     #[entity(
         store = "TestStore",
         pk(field = "id"),
@@ -169,6 +219,27 @@ mod tests {
     )]
     pub struct StructuredPersistenceMatrixEntityHarness {}
 
+    ///
+    /// StructuredSelectedPartEntityHarness
+    ///
+    /// Stores a repeated nested-record payload whose fields carry relation
+    /// metadata while still persisting as primitive `Ulid` values. This is the
+    /// closest framework-level match to `GenerationOutput.selected_parts`.
+    ///
+
+    #[entity(
+        store = "TestStore",
+        pk(field = "id"),
+        fields(
+            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "selected_parts",
+                value(many, item(is = "StructuredSelectedPartHarness"))
+            )
+        )
+    )]
+    pub struct StructuredSelectedPartEntityHarness {}
+
     #[entity(
         store = "TestStore",
         pk(field = "id"),
@@ -199,6 +270,10 @@ mod tests {
             name: name.to_string(),
             address: address_with(city, zip),
         }
+    }
+
+    fn selected_part_with(layer_id: Ulid, part_id: Ulid) -> StructuredSelectedPartHarness {
+        StructuredSelectedPartHarness { layer_id, part_id }
     }
 
     fn profile_value(profile: &StructuredProfileHarness) -> Value {
@@ -237,6 +312,20 @@ mod tests {
             ),
         ])
         .expect("nested profile map should be canonical")
+    }
+
+    fn selected_part_value(part: &StructuredSelectedPartHarness) -> Value {
+        Value::from_map(vec![
+            (
+                Value::Text("layer_id".to_string()),
+                Value::Ulid(part.layer_id),
+            ),
+            (
+                Value::Text("part_id".to_string()),
+                Value::Ulid(part.part_id),
+            ),
+        ])
+        .expect("selected part map should be canonical")
     }
 
     fn capture_entity_slots<E>(entity: &E) -> Vec<Option<Vec<u8>>>
@@ -461,6 +550,47 @@ mod tests {
             Some(Value::List(
                 entity.profile_history.iter().map(profile_value).collect(),
             )),
+        );
+    }
+
+    #[test]
+    fn relation_backed_ulid_record_many_roundtrips_through_generated_persisted_row() {
+        let entity = StructuredSelectedPartEntityHarness {
+            id: Ulid::from_parts(720, 1),
+            selected_parts: vec![
+                selected_part_with(Ulid::from_parts(721, 1), Ulid::from_parts(721, 2)),
+                selected_part_with(Ulid::from_parts(722, 1), Ulid::from_parts(722, 2)),
+            ],
+            ..Default::default()
+        };
+
+        let slots = roundtrip_entity_through_captured_slots(&entity);
+
+        assert_eq!(
+            decode_persisted_slot_payload::<Value>(
+                required_slot_payload(&slots, 1),
+                "selected_parts",
+            )
+            .expect("decode selected-part list payload"),
+            Value::List(
+                entity
+                    .selected_parts
+                    .iter()
+                    .map(selected_part_value)
+                    .collect(),
+            ),
+        );
+    }
+
+    #[test]
+    fn relation_backed_ulid_record_field_value_roundtrips_as_value_ulids() {
+        let selected = selected_part_with(Ulid::from_parts(730, 1), Ulid::from_parts(730, 2));
+        let value = FieldValue::to_value(&selected);
+
+        assert_eq!(value, selected_part_value(&selected));
+        assert_eq!(
+            StructuredSelectedPartHarness::from_value(&value),
+            Some(selected),
         );
     }
 

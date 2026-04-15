@@ -134,6 +134,9 @@ pub struct QueryExecutionAttribution {
     pub compile_local_instructions: u64,
     pub runtime_local_instructions: u64,
     pub finalize_local_instructions: u64,
+    pub direct_data_row_scan_local_instructions: u64,
+    pub direct_data_row_order_window_local_instructions: u64,
+    pub direct_data_row_page_window_local_instructions: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
@@ -173,6 +176,9 @@ impl<C: CanisterKind> DbSession<C> {
         ScalarExecutePhaseAttribution {
             runtime_local_instructions: 0,
             finalize_local_instructions: 0,
+            direct_data_row_scan_local_instructions: 0,
+            direct_data_row_order_window_local_instructions: 0,
+            direct_data_row_page_window_local_instructions: 0,
         }
     }
 
@@ -630,6 +636,12 @@ impl<C: CanisterKind> DbSession<C> {
                 compile_local_instructions,
                 runtime_local_instructions: execute_phase_attribution.runtime_local_instructions,
                 finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
+                direct_data_row_scan_local_instructions: execute_phase_attribution
+                    .direct_data_row_scan_local_instructions,
+                direct_data_row_order_window_local_instructions: execute_phase_attribution
+                    .direct_data_row_order_window_local_instructions,
+                direct_data_row_page_window_local_instructions: execute_phase_attribution
+                    .direct_data_row_page_window_local_instructions,
                 response_decode_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,

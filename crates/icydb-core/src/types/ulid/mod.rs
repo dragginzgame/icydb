@@ -50,7 +50,7 @@ pub enum UlidDecodeError {
 // Ulid
 //
 
-#[derive(Clone, Copy, Debug, Deref, DerefMut, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Deref, DerefMut, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Ulid(WrappedUlid);
 
@@ -130,6 +130,12 @@ impl Ulid {
 impl fmt::Display for Ulid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl fmt::Debug for Ulid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.to_string(), f)
     }
 }
 

@@ -30,3 +30,15 @@ fn ulid_bytes_roundtrip() {
     let decoded = Ulid::from_bytes(bytes);
     assert_eq!(ulid, decoded);
 }
+
+#[test]
+fn ulid_debug_renders_canonical_string() {
+    let ulid = Ulid::from_str("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+        .expect("fixture ULID should parse successfully");
+    let debug = format!("{ulid:?}");
+
+    assert_eq!(
+        debug, "\"01ARZ3NDEKTSV4RRFFQ69G5FAV\"",
+        "ULID debug should render the canonical string form",
+    );
+}

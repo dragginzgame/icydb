@@ -23,6 +23,7 @@ use crate::{
                 validate_prepared_projection_row,
             },
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
+            window::compute_page_keep_count,
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::{AccessPlannedQuery, ResolvedOrder},
@@ -31,6 +32,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+#[cfg(feature = "perf-attribution")]
+use std::cell::Cell;
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use std::cell::RefCell;
 use std::{borrow::Cow, sync::Arc};
@@ -148,10 +151,41 @@ pub struct ScalarMaterializationLaneMetrics {
     pub kernel_slots_only_path_hits: u64,
 }
 
+///
+/// DirectDataRowPhaseAttribution
+///
+/// DirectDataRowPhaseAttribution isolates the direct raw-row scalar lane into
+/// the three remaining runtime subphases that still matter for warmed fluent
+/// perf work: row scan/decode, optional in-memory order shaping, and the final
+/// page window.
+/// Non-direct executor lanes leave these counters at zero so the attribution
+/// surface stays lane-local instead of pretending to describe every runtime.
+///
+
+#[cfg(feature = "perf-attribution")]
+#[expect(clippy::struct_field_names)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
+    pub(in crate::db::executor) scan_local_instructions: u64,
+    pub(in crate::db::executor) order_window_local_instructions: u64,
+    pub(in crate::db::executor) page_window_local_instructions: u64,
+}
+
 #[cfg(any(test, feature = "structural-read-metrics"))]
 std::thread_local! {
     static SCALAR_MATERIALIZATION_LANE_METRICS: RefCell<Option<ScalarMaterializationLaneMetrics>> = const {
         RefCell::new(None)
+    };
+}
+
+#[cfg(feature = "perf-attribution")]
+std::thread_local! {
+    static DIRECT_DATA_ROW_PHASE_ATTRIBUTION: Cell<DirectDataRowPhaseAttribution> = const {
+        Cell::new(DirectDataRowPhaseAttribution {
+            scan_local_instructions: 0,
+            order_window_local_instructions: 0,
+            page_window_local_instructions: 0,
+        })
     };
 }
 
@@ -235,6 +269,103 @@ pub fn with_scalar_materialization_lane_metrics<T>(
         .with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
 
     (result, metrics)
+}
+
+#[cfg(feature = "perf-attribution")]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
+)]
+fn read_direct_data_row_local_instruction_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+#[cfg(feature = "perf-attribution")]
+fn measure_direct_data_row_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
+    let start = read_direct_data_row_local_instruction_counter();
+    let result = run();
+    let delta = read_direct_data_row_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_scan_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            scan_local_instructions: current.scan_local_instructions.saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_order_window_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            order_window_local_instructions: current
+                .order_window_local_instructions
+                .saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_page_window_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            page_window_local_instructions: current
+                .page_window_local_instructions
+                .saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db::executor) fn with_direct_data_row_phase_attribution<T>(
+    f: impl FnOnce() -> T,
+) -> (T, DirectDataRowPhaseAttribution) {
+    let previous = DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let previous = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution::default());
+
+        previous
+    });
+
+    let result = f();
+    let captured = DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let captured = attribution.get();
+        attribution.set(previous);
+
+        captured
+    });
+
+    (result, captured)
 }
 
 ///
@@ -1031,16 +1162,48 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
         #[cfg(any(test, feature = "structural-read-metrics"))]
         record_direct_data_row_path_hit();
+        let row_keep_cap = direct_data_row_keep_cap(plan);
 
-        let (mut data_rows, rows_scanned) =
-            execute_scalar_data_row_read_loop(key_stream, scan_budget_hint, |key_stream| {
-                scan_data_rows_direct(key_stream, consistency, row_runtime)
-            })?;
+        #[cfg(feature = "perf-attribution")]
+        let (scan_local_instructions, scan_result) = measure_direct_data_row_phase(|| {
+            execute_scalar_data_row_read_loop(
+                key_stream,
+                scan_budget_hint,
+                row_keep_cap,
+                |key_stream, row_keep_cap| {
+                    scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
+                },
+            )
+        });
+        #[cfg(not(feature = "perf-attribution"))]
+        let scan_result = execute_scalar_data_row_read_loop(
+            key_stream,
+            scan_budget_hint,
+            row_keep_cap,
+            |key_stream, row_keep_cap| {
+                scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
+            },
+        );
+        let (mut data_rows, rows_scanned) = scan_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_scan_local_instructions(scan_local_instructions);
         // Keep scalar load accounting aligned with the shared kernel path:
         // `post_access_rows` means rows that survived filtering/cursor checks
         // before the final offset/limit window is applied.
         let post_access_rows = data_rows.len();
+        #[cfg(feature = "perf-attribution")]
+        let (page_window_local_instructions, page_window_result) =
+            measure_direct_data_row_phase(|| {
+                apply_data_row_page_window(plan, &mut data_rows);
+
+                Ok::<(), InternalError>(())
+            });
+        #[cfg(not(feature = "perf-attribution"))]
         apply_data_row_page_window(plan, &mut data_rows);
+        #[cfg(feature = "perf-attribution")]
+        page_window_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
             MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
@@ -1077,22 +1240,62 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
         #[cfg(any(test, feature = "structural-read-metrics"))]
         record_direct_filtered_data_row_path_hit();
+        let row_keep_cap = direct_data_row_keep_cap(plan);
 
-        let (mut data_rows, rows_scanned) =
-            execute_scalar_data_row_read_loop(key_stream, scan_budget_hint, |key_stream| {
+        #[cfg(feature = "perf-attribution")]
+        let (scan_local_instructions, scan_result) = measure_direct_data_row_phase(|| {
+            execute_scalar_data_row_read_loop(
+                key_stream,
+                scan_budget_hint,
+                row_keep_cap,
+                |key_stream, row_keep_cap| {
+                    scan_data_rows_direct_with_predicate(
+                        key_stream,
+                        consistency,
+                        row_keep_cap,
+                        row_runtime,
+                        predicate_program,
+                        retained_slot_layout,
+                    )
+                },
+            )
+        });
+        #[cfg(not(feature = "perf-attribution"))]
+        let scan_result = execute_scalar_data_row_read_loop(
+            key_stream,
+            scan_budget_hint,
+            row_keep_cap,
+            |key_stream, row_keep_cap| {
                 scan_data_rows_direct_with_predicate(
                     key_stream,
                     consistency,
+                    row_keep_cap,
                     row_runtime,
                     predicate_program,
                     retained_slot_layout,
                 )
-            })?;
+            },
+        );
+        let (mut data_rows, rows_scanned) = scan_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_scan_local_instructions(scan_local_instructions);
         // Keep scalar load accounting aligned with the shared kernel path:
         // `post_access_rows` means rows that survived filtering/cursor checks
         // before the final offset/limit window is applied.
         let post_access_rows = data_rows.len();
+        #[cfg(feature = "perf-attribution")]
+        let (page_window_local_instructions, page_window_result) =
+            measure_direct_data_row_phase(|| {
+                apply_data_row_page_window(plan, &mut data_rows);
+
+                Ok::<(), InternalError>(())
+            });
+        #[cfg(not(feature = "perf-attribution"))]
         apply_data_row_page_window(plan, &mut data_rows);
+        #[cfg(feature = "perf-attribution")]
+        page_window_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
             MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
@@ -1131,12 +1334,53 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         }
 
         let resolved_order = resolved_order_required(plan)?;
-        let (mut data_rows, rows_scanned) = execute_scalar_data_row_read_loop(
+        #[cfg(feature = "perf-attribution")]
+        let (scan_local_instructions, scan_result) = measure_direct_data_row_phase(|| {
+            execute_scalar_data_row_read_loop(
+                key_stream,
+                scan_budget_hint,
+                None,
+                |key_stream, row_keep_cap| match residual_predicate_scan_mode {
+                    ResidualPredicateScanMode::Absent => {
+                        scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
+                    }
+                    ResidualPredicateScanMode::AppliedDuringScan => {
+                        let predicate_program = predicate_slots.ok_or_else(|| {
+                            InternalError::query_executor_invariant(
+                                "scan-time residual filtering requires one compiled predicate program",
+                            )
+                        })?;
+                        let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
+                            InternalError::query_executor_invariant(
+                                "scan-time residual filtering requires one retained-slot layout",
+                            )
+                        })?;
+
+                        scan_data_rows_direct_with_predicate(
+                            key_stream,
+                            consistency,
+                            row_keep_cap,
+                            row_runtime,
+                            predicate_program,
+                            retained_slot_layout,
+                        )
+                    }
+                    ResidualPredicateScanMode::DeferredPostAccess => {
+                        Err(InternalError::query_executor_invariant(
+                            "materialized-order direct data-row path cannot defer residual filtering",
+                        ))
+                    }
+                },
+            )
+        });
+        #[cfg(not(feature = "perf-attribution"))]
+        let scan_result = execute_scalar_data_row_read_loop(
             key_stream,
             scan_budget_hint,
-            |key_stream| match residual_predicate_scan_mode {
+            None,
+            |key_stream, row_keep_cap| match residual_predicate_scan_mode {
                 ResidualPredicateScanMode::Absent => {
-                    scan_data_rows_direct(key_stream, consistency, row_runtime)
+                    scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
                 }
                 ResidualPredicateScanMode::AppliedDuringScan => {
                     let predicate_program = predicate_slots.ok_or_else(|| {
@@ -1153,6 +1397,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
                     scan_data_rows_direct_with_predicate(
                         key_stream,
                         consistency,
+                        row_keep_cap,
                         row_runtime,
                         predicate_program,
                         retained_slot_layout,
@@ -1164,19 +1409,49 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
                     ))
                 }
             },
-        )?;
+        );
+        let (mut data_rows, rows_scanned) = scan_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_scan_local_instructions(scan_local_instructions);
 
         if data_rows.len() > 1 {
+            #[cfg(feature = "perf-attribution")]
+            let (order_window_local_instructions, order_window_result) =
+                measure_direct_data_row_phase(|| {
+                    apply_structural_order_window_to_data_rows(
+                        &mut data_rows,
+                        row_runtime.row_layout(),
+                        resolved_order,
+                        ExecutionKernel::bounded_order_keep_count(plan, None),
+                    )
+                });
+            #[cfg(not(feature = "perf-attribution"))]
             apply_structural_order_window_to_data_rows(
                 &mut data_rows,
                 row_runtime.row_layout(),
                 resolved_order,
                 ExecutionKernel::bounded_order_keep_count(plan, None),
             )?;
+            #[cfg(feature = "perf-attribution")]
+            order_window_result?;
+            #[cfg(feature = "perf-attribution")]
+            record_direct_data_row_order_window_local_instructions(order_window_local_instructions);
         }
 
         let post_access_rows = data_rows.len();
+        #[cfg(feature = "perf-attribution")]
+        let (page_window_local_instructions, page_window_result) =
+            measure_direct_data_row_phase(|| {
+                apply_data_row_page_window(plan, &mut data_rows);
+
+                Ok::<(), InternalError>(())
+            });
+        #[cfg(not(feature = "perf-attribution"))]
         apply_data_row_page_window(plan, &mut data_rows);
+        #[cfg(feature = "perf-attribution")]
+        page_window_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
             MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
@@ -1824,17 +2099,25 @@ fn execute_scalar_page_read_loop(
 fn execute_scalar_data_row_read_loop(
     key_stream: &mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
-    mut scan_rows: impl FnMut(&mut dyn OrderedKeyStream) -> Result<(Vec<DataRow>, usize), InternalError>,
+    row_keep_cap: Option<usize>,
+    mut scan_rows: impl FnMut(
+        &mut dyn OrderedKeyStream,
+        Option<usize>,
+    ) -> Result<(Vec<DataRow>, usize), InternalError>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
+    if row_keep_cap == Some(0) {
+        return Ok((Vec::new(), 0));
+    }
+
     if let Some(scan_budget) = scan_budget_hint
         && !key_stream_budget_is_redundant(key_stream, scan_budget)
     {
         let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
 
-        return scan_rows(&mut budgeted);
+        return scan_rows(&mut budgeted, row_keep_cap);
     }
 
-    scan_rows(key_stream)
+    scan_rows(key_stream, row_keep_cap)
 }
 
 // Scan one ordered key stream into kernel rows through one caller-selected
@@ -1884,10 +2167,14 @@ fn predicate_matches_retained_values(
 fn scan_data_rows_direct(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
+    row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
-    let staged_capacity = exact_output_key_count_hint(key_stream, None).unwrap_or(0);
+    let staged_capacity = exact_output_key_count_hint(key_stream, None).map_or_else(
+        || row_keep_cap.unwrap_or(0),
+        |hint| row_keep_cap.map_or(hint, |cap| usize::min(hint, cap)),
+    );
     let mut data_rows = Vec::with_capacity(staged_capacity);
 
     while let Some(key) = key_stream.next_key()? {
@@ -1896,6 +2183,9 @@ fn scan_data_rows_direct(
             continue;
         };
         data_rows.push(data_row);
+        if row_keep_cap.is_some_and(|cap| data_rows.len() >= cap) {
+            break;
+        }
     }
 
     Ok((data_rows, rows_scanned))
@@ -1906,12 +2196,16 @@ fn scan_data_rows_direct(
 fn scan_data_rows_direct_with_predicate(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
+    row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     predicate_program: &PredicateProgram,
     retained_slot_layout: &RetainedSlotLayout,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
-    let staged_capacity = exact_output_key_count_hint(key_stream, None).unwrap_or(0);
+    let staged_capacity = exact_output_key_count_hint(key_stream, None).map_or_else(
+        || row_keep_cap.unwrap_or(0),
+        |hint| row_keep_cap.map_or(hint, |cap| usize::min(hint, cap)),
+    );
     let mut data_rows = Vec::with_capacity(staged_capacity);
 
     while let Some(key) = key_stream.next_key()? {
@@ -1926,6 +2220,9 @@ fn scan_data_rows_direct_with_predicate(
             continue;
         };
         data_rows.push(data_row);
+        if row_keep_cap.is_some_and(|cap| data_rows.len() >= cap) {
+            break;
+        }
     }
 
     Ok((data_rows, rows_scanned))
@@ -2053,6 +2350,16 @@ fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut Vec<DataRow>
     }
 
     rows.truncate(kept);
+}
+
+// Return the maximum number of route-ordered direct data rows worth staging
+// before the final cursorless page window runs. These lanes never need one
+// continuation lookahead row, so `offset + limit` is the real working set.
+fn direct_data_row_keep_cap(plan: &AccessPlannedQuery) -> Option<usize> {
+    let page = plan.scalar_plan().page.as_ref()?;
+    let limit = page.limit?;
+
+    Some(compute_page_keep_count(page.offset, limit))
 }
 
 // Compact kernel rows in place under one keep predicate so row filtering stays

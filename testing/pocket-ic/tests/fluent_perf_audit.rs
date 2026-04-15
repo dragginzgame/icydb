@@ -73,6 +73,12 @@ struct FluentPerfBaselineRow {
     #[serde(default)]
     avg_finalize_local_instructions: u64,
     #[serde(default)]
+    avg_direct_data_row_scan_local_instructions: u64,
+    #[serde(default)]
+    avg_direct_data_row_order_window_local_instructions: u64,
+    #[serde(default)]
+    avg_direct_data_row_page_window_local_instructions: u64,
+    #[serde(default)]
     avg_response_decode_local_instructions: u64,
     #[serde(default)]
     avg_execute_local_instructions: u64,
@@ -89,12 +95,18 @@ struct FluentPerfScenarioSample {
     baseline_avg_compile_local_instructions: Option<u64>,
     baseline_avg_runtime_local_instructions: Option<u64>,
     baseline_avg_finalize_local_instructions: Option<u64>,
+    baseline_avg_direct_data_row_scan_local_instructions: Option<u64>,
+    baseline_avg_direct_data_row_order_window_local_instructions: Option<u64>,
+    baseline_avg_direct_data_row_page_window_local_instructions: Option<u64>,
     baseline_avg_response_decode_local_instructions: Option<u64>,
     baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
     avg_runtime_local_instructions: u64,
     avg_finalize_local_instructions: u64,
+    avg_direct_data_row_scan_local_instructions: u64,
+    avg_direct_data_row_order_window_local_instructions: u64,
+    avg_direct_data_row_page_window_local_instructions: u64,
     avg_response_decode_local_instructions: u64,
     avg_execute_local_instructions: u64,
     avg_shared_query_plan_cache_hits: u64,
@@ -312,6 +324,12 @@ fn maybe_write_blessed_baseline(samples: &[FluentPerfScenarioSample]) {
             avg_compile_local_instructions: sample.avg_compile_local_instructions,
             avg_runtime_local_instructions: sample.avg_runtime_local_instructions,
             avg_finalize_local_instructions: sample.avg_finalize_local_instructions,
+            avg_direct_data_row_scan_local_instructions: sample
+                .avg_direct_data_row_scan_local_instructions,
+            avg_direct_data_row_order_window_local_instructions: sample
+                .avg_direct_data_row_order_window_local_instructions,
+            avg_direct_data_row_page_window_local_instructions: sample
+                .avg_direct_data_row_page_window_local_instructions,
             avg_response_decode_local_instructions: sample.avg_response_decode_local_instructions,
             avg_execute_local_instructions: sample.avg_execute_local_instructions,
             avg_local_instructions: sample.avg_local_instructions,
@@ -336,6 +354,9 @@ fn sample_perf_scenario(
     let mut compile_samples = Vec::with_capacity(scenario.sample_count);
     let mut runtime_samples = Vec::with_capacity(scenario.sample_count);
     let mut finalize_samples = Vec::with_capacity(scenario.sample_count);
+    let mut direct_data_row_scan_samples = Vec::with_capacity(scenario.sample_count);
+    let mut direct_data_row_order_window_samples = Vec::with_capacity(scenario.sample_count);
+    let mut direct_data_row_page_window_samples = Vec::with_capacity(scenario.sample_count);
     let mut response_decode_samples = Vec::with_capacity(scenario.sample_count);
     let mut execute_samples = Vec::with_capacity(scenario.sample_count);
     let mut shared_query_plan_cache_hit_samples = Vec::with_capacity(scenario.sample_count);
@@ -391,6 +412,18 @@ fn sample_perf_scenario(
         compile_samples.push(sample.attribution.compile_local_instructions);
         runtime_samples.push(sample.attribution.runtime_local_instructions);
         finalize_samples.push(sample.attribution.finalize_local_instructions);
+        direct_data_row_scan_samples
+            .push(sample.attribution.direct_data_row_scan_local_instructions);
+        direct_data_row_order_window_samples.push(
+            sample
+                .attribution
+                .direct_data_row_order_window_local_instructions,
+        );
+        direct_data_row_page_window_samples.push(
+            sample
+                .attribution
+                .direct_data_row_page_window_local_instructions,
+        );
         response_decode_samples.push(sample.attribution.response_decode_local_instructions);
         execute_samples.push(sample.attribution.execute_local_instructions);
         shared_query_plan_cache_hit_samples.push(sample.attribution.shared_query_plan_cache_hits);
@@ -408,6 +441,11 @@ fn sample_perf_scenario(
     let avg_compile_local_instructions = average_u64(&compile_samples);
     let avg_runtime_local_instructions = average_u64(&runtime_samples);
     let avg_finalize_local_instructions = average_u64(&finalize_samples);
+    let avg_direct_data_row_scan_local_instructions = average_u64(&direct_data_row_scan_samples);
+    let avg_direct_data_row_order_window_local_instructions =
+        average_u64(&direct_data_row_order_window_samples);
+    let avg_direct_data_row_page_window_local_instructions =
+        average_u64(&direct_data_row_page_window_samples);
     let avg_response_decode_local_instructions = average_u64(&response_decode_samples);
     let avg_execute_local_instructions = average_u64(&execute_samples);
     let avg_shared_query_plan_cache_hits = average_u64(&shared_query_plan_cache_hit_samples);
@@ -444,6 +482,12 @@ fn sample_perf_scenario(
             .map(|row| row.avg_runtime_local_instructions),
         baseline_avg_finalize_local_instructions: baseline_row
             .map(|row| row.avg_finalize_local_instructions),
+        baseline_avg_direct_data_row_scan_local_instructions: baseline_row
+            .map(|row| row.avg_direct_data_row_scan_local_instructions),
+        baseline_avg_direct_data_row_order_window_local_instructions: baseline_row
+            .map(|row| row.avg_direct_data_row_order_window_local_instructions),
+        baseline_avg_direct_data_row_page_window_local_instructions: baseline_row
+            .map(|row| row.avg_direct_data_row_page_window_local_instructions),
         baseline_avg_response_decode_local_instructions: baseline_row
             .map(|row| row.avg_response_decode_local_instructions),
         baseline_avg_execute_local_instructions: baseline_row
@@ -452,6 +496,9 @@ fn sample_perf_scenario(
         avg_compile_local_instructions,
         avg_runtime_local_instructions,
         avg_finalize_local_instructions,
+        avg_direct_data_row_scan_local_instructions,
+        avg_direct_data_row_order_window_local_instructions,
+        avg_direct_data_row_page_window_local_instructions,
         avg_response_decode_local_instructions,
         avg_execute_local_instructions,
         avg_shared_query_plan_cache_hits,
@@ -602,12 +649,15 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
 
     for sample in &samples {
         println!(
-            "{} | {} | runs={} | compile={} | runtime={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
+            "{} | {} | runs={} | compile={} | runtime={} | direct_scan={} | direct_order={} | direct_page={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
             sample.scenario_key,
             sample.query_label,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
             sample.avg_runtime_local_instructions,
+            sample.avg_direct_data_row_scan_local_instructions,
+            sample.avg_direct_data_row_order_window_local_instructions,
+            sample.avg_direct_data_row_page_window_local_instructions,
             sample.avg_finalize_local_instructions,
             sample.avg_response_decode_local_instructions,
             sample.avg_execute_local_instructions,
