@@ -232,6 +232,17 @@ fn try_execute_covering_sql_projection_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
+    // Phase 0: this SQL-side shortcut only owns index-backed covering scans.
+    // Planner-proven full-scan / primary-key covering routes still flow
+    // through the structural executor path, which already knows how to shape
+    // those rows without pretending there are covering index components.
+    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
+        return Ok(None);
+    }
+    if plan.has_residual_predicate() {
+        return Ok(None);
+    }
+
     // Phase 1: admit only planner-proven pure covering routes that need no
     // row-backed fields in SQL projection materialization.
     let Some(covering) = covering_read_execution_plan_from_fields(
@@ -322,6 +333,13 @@ fn try_execute_hybrid_covering_sql_projection_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
+    // Phase 0: hybrid SQL projection mixes index-backed covering components
+    // with sparse row-backed field reads, so it only applies to genuine
+    // secondary-index access paths.
+    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
+        return Ok(None);
+    }
+
     // Phase 1: admit only the planner-owned direct projection shapes that mix
     // covering-backed fields with row-backed sparse reads over one index path.
     let Some(hybrid) = covering_hybrid_projection_plan_from_fields(
