@@ -42,7 +42,10 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 // TestCanister
 
@@ -262,7 +265,7 @@ crate::test_entity_schema! {
 /// during typed writes instead of treating them as predicate literals.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 struct SaveSelectedPart {
     layer_id: Ulid,
     part_id: Ulid,
@@ -402,6 +405,133 @@ fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntit
         data_store.get(&data_key).map(|row| {
             row.try_decode::<StructuredSelectionEntity>()
                 .expect("structured selection row decode should succeed")
+        })
+    })
+}
+
+///
+/// SaveSelectedPartSet
+///
+/// SaveSelectedPartSet mirrors one generated set wrapper type so executor
+/// tests can prove non-empty `Set<Record>` writes persist and reload through
+/// the same typed save boundary as application entities.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct SaveSelectedPartSet(BTreeSet<SaveSelectedPart>);
+
+impl FieldValue for SaveSelectedPartSet {
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
+    }
+
+    fn to_value(&self) -> Value {
+        Value::List(self.0.iter().map(FieldValue::to_value).collect())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+
+        let mut out = BTreeSet::new();
+        for value in values {
+            if !out.insert(SaveSelectedPart::from_value(value)?) {
+                return None;
+            }
+        }
+
+        Some(Self(out))
+    }
+}
+
+///
+/// StructuredSelectionSetEntity
+///
+/// StructuredSelectionSetEntity keeps one set-valued structured field on the
+/// executor test surface so save coverage now includes `Set<Record>` as well
+/// as `List<Record>` and `Map<..., Record>`.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, FieldProjection, PartialEq, Serialize)]
+struct StructuredSelectionSetEntity {
+    id: Ulid,
+    selected_parts: SaveSelectedPartSet,
+}
+
+const STRUCTURED_SELECTION_SET_ENTITY_TAG: EntityTag = EntityTag::new(0x1036);
+
+static STRUCTURED_SELECTION_SET_KIND: FieldKind = FieldKind::Set(&STRUCTURED_SELECTED_PART_KIND);
+
+crate::test_entity_schema! {
+    ident = StructuredSelectionSetEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "StructuredSelectionSetEntity",
+    entity_tag = STRUCTURED_SELECTION_SET_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "selected_parts",
+            STRUCTURED_SELECTION_SET_KIND,
+            FieldStorageDecode::Value
+        ),
+    ],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+impl crate::db::PersistedRow for StructuredSelectionSetEntity {
+    fn materialize_from_slots(
+        slots: &mut dyn crate::db::SlotReader,
+    ) -> Result<Self, crate::error::InternalError> {
+        Ok(Self {
+            id: match slots.get_bytes(0) {
+                Some(bytes) => decode_persisted_scalar_slot_payload::<Ulid>(bytes, "id")?,
+                None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
+            },
+            selected_parts: match slots.get_bytes(1) {
+                Some(bytes) => crate::db::decode_persisted_custom_slot_payload::<
+                    SaveSelectedPartSet,
+                >(bytes, "selected_parts")?,
+                None => {
+                    return Err(crate::error::InternalError::missing_persisted_slot(
+                        "selected_parts",
+                    ));
+                }
+            },
+        })
+    }
+
+    fn write_slots(
+        &self,
+        out: &mut dyn crate::db::SlotWriter,
+    ) -> Result<(), crate::error::InternalError> {
+        let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
+        out.write_slot(0, Some(id_payload.as_slice()))?;
+
+        let selected_parts_payload = crate::db::encode_persisted_custom_slot_payload(
+            &self.selected_parts,
+            "selected_parts",
+        )?;
+        out.write_slot(1, Some(selected_parts_payload.as_slice()))?;
+
+        Ok(())
+    }
+}
+
+fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionSetEntity> {
+    let data_key = DataKey::try_new::<StructuredSelectionSetEntity>(id)
+        .expect("structured selection set data key should build")
+        .to_raw()
+        .expect("structured selection set data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<StructuredSelectionSetEntity>()
+                .expect("structured selection set row decode should succeed")
         })
     })
 }
@@ -960,6 +1090,42 @@ fn save_accepts_non_empty_queryable_collection_of_structured_values() {
         load_structured_selection_entity(entity.id),
         Some(entity),
         "structured collection save should persist the typed after-image",
+    );
+}
+
+#[test]
+fn save_accepts_set_with_structured_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let entity = StructuredSelectionSetEntity {
+        id: Ulid::from_u128(75),
+        selected_parts: SaveSelectedPartSet(
+            [
+                SaveSelectedPart {
+                    layer_id: Ulid::from_u128(751),
+                    part_id: Ulid::from_u128(752),
+                },
+                SaveSelectedPart {
+                    layer_id: Ulid::from_u128(753),
+                    part_id: Ulid::from_u128(754),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        ),
+    };
+
+    let save = SaveExecutor::<StructuredSelectionSetEntity>::new(DB, false);
+    let saved = save
+        .insert(entity.clone())
+        .expect("structured set save should succeed");
+
+    assert_eq!(saved, entity);
+    assert_eq!(
+        load_structured_selection_set_entity(entity.id),
+        Some(entity),
+        "structured set save should persist the typed after-image",
     );
 }
 
