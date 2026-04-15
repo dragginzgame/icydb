@@ -9,7 +9,7 @@ use crate::{
     db::{
         EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{MutationResult, QueryResponse},
+        response::QueryResponse,
     },
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
@@ -153,20 +153,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind,
     {
         QueryResponse::from_core(inner)
-    }
-
-    const fn mutation_entity<E>(entity: E) -> MutationResult<E>
-    where
-        E: EntityKind,
-    {
-        MutationResult::from_entity(entity)
-    }
-
-    fn mutation_entities<E>(inner: icydb_core::db::WriteBatchResponse<E>) -> MutationResult<E>
-    where
-        E: EntityKind,
-    {
-        MutationResult::from_core_batch(inner)
     }
 
     // ------------------------------------------------------------------
@@ -468,11 +454,11 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level write helpers (semantic)
     // ------------------------------------------------------------------
 
-    pub fn insert<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
+    pub fn insert<E>(&self, entity: E) -> Result<E, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entity(self.inner.insert(entity)?))
+        Ok(self.inner.insert(entity)?)
     }
 
     /// Insert one full entity and return every persisted field.
@@ -512,12 +498,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Create one authored typed input.
-    pub fn create<I>(&self, input: I) -> Result<MutationResult<I::Entity>, Error>
+    pub fn create<I>(&self, input: I) -> Result<I::Entity, Error>
     where
         I: crate::traits::EntityCreateInput,
         I::Entity: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entity(self.inner.create(input)?))
+        Ok(self.inner.create(input)?)
     }
 
     /// Create one authored typed input and return every persisted field.
@@ -570,13 +556,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn insert_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.insert_many_atomic(entities)?,
-        ))
+        Ok(self.inner.insert_many_atomic(entities)?.entities())
     }
 
     /// Insert a batch with explicitly non-atomic semantics.
@@ -585,20 +569,18 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn insert_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.insert_many_non_atomic(entities)?,
-        ))
+        Ok(self.inner.insert_many_non_atomic(entities)?.entities())
     }
 
-    pub fn replace<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
+    pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entity(self.inner.replace(entity)?))
+        Ok(self.inner.replace(entity)?)
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -609,13 +591,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn replace_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.replace_many_atomic(entities)?,
-        ))
+        Ok(self.inner.replace_many_atomic(entities)?.entities())
     }
 
     /// Replace a batch with explicitly non-atomic semantics.
@@ -624,20 +604,18 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn replace_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.replace_many_non_atomic(entities)?,
-        ))
+        Ok(self.inner.replace_many_non_atomic(entities)?.entities())
     }
 
-    pub fn update<E>(&self, entity: E) -> Result<MutationResult<E>, Error>
+    pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entity(self.inner.update(entity)?))
+        Ok(self.inner.update(entity)?)
     }
 
     /// Update one full entity and return every persisted field.
@@ -695,15 +673,13 @@ impl<C: CanisterKind> DbSession<C> {
         key: E::Key,
         patch: UpdatePatch,
         mode: MutationMode,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<E, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entity(self.inner.mutate_structural::<E>(
-            key,
-            patch.inner,
-            mode.into_core(),
-        )?))
+        Ok(self
+            .inner
+            .mutate_structural::<E>(key, patch.inner, mode.into_core())?)
     }
 
     /// Update a single-entity-type batch atomically in one commit window.
@@ -714,13 +690,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn update_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.update_many_atomic(entities)?,
-        ))
+        Ok(self.inner.update_many_atomic(entities)?.entities())
     }
 
     /// Update a batch with explicitly non-atomic semantics.
@@ -729,13 +703,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn update_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<MutationResult<E>, Error>
+    ) -> Result<Vec<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Ok(Self::mutation_entities(
-            self.inner.update_many_non_atomic(entities)?,
-        ))
+        Ok(self.inner.update_many_non_atomic(entities)?.entities())
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        DbSession, MutationResult, PersistedRow,
+        DbSession, PersistedRow,
         query::{
             CompiledQuery, ExplainPlan, PlannedQuery, Query, QueryTracePlan,
             expr::{FilterExpr, SortExpr},
@@ -121,12 +121,12 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
         }
     }
 
-    /// Execute this delete under the shared mutation result contract.
-    pub fn execute(&self) -> Result<MutationResult<E>, Error>
+    /// Execute this delete and return the affected-row count.
+    pub fn execute(&self) -> Result<u32, Error>
     where
         E: EntityValue,
     {
-        Ok(MutationResult::from_count(self.inner.execute()?))
+        Ok(self.inner.execute()?)
     }
 
     /// Return true when no rows were affected.
@@ -134,7 +134,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.is_empty())
+        Ok(self.execute()? == 0)
     }
 
     /// Return the affected-row count.
@@ -142,7 +142,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.count())
+        Ok(self.execute()?)
     }
 
     /// Require exactly one affected row.
