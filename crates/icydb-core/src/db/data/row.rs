@@ -27,6 +27,31 @@ use thiserror::Error as ThisError;
 pub(crate) type DataRow = (DataKey, RawRow);
 
 ///
+/// SelectiveRowRead
+///
+/// SelectiveRowRead preserves the storage-boundary distinction between a
+/// missing persisted row and one present row whose selective decode produced a
+/// caller-owned sparse payload.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SelectiveRowRead<T> {
+    MissingRow,
+    Present(T),
+}
+
+impl<T> SelectiveRowRead<T> {
+    /// Convert one selective read result into an optional present payload.
+    #[must_use]
+    pub(in crate::db) fn into_present(self) -> Option<T> {
+        match self {
+            Self::MissingRow => None,
+            Self::Present(value) => Some(value),
+        }
+    }
+}
+
+///
 /// CanonicalRow
 ///
 /// Write-capability wrapper for canonical persisted row bytes.

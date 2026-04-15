@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use crate::{
     db::{
         contracts::canonical_value_compare,
+        direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
@@ -190,11 +191,13 @@ struct GroupedCountState {
 struct BoundedGroupedCountCandidate {
     group_key: GroupKey,
     count: u32,
+    direction: Direction,
 }
 
 impl Ord for BoundedGroupedCountCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
-        canonical_value_compare(
+        compare_grouped_boundary_values(
+            self.direction,
             self.group_key.canonical_value(),
             other.group_key.canonical_value(),
         )
@@ -916,6 +919,9 @@ fn finalize_grouped_count_page(
             .projection_rows_input
             .saturating_add(u64::try_from(page_rows.len()).unwrap_or(u64::MAX));
     });
+    let next_cursor_boundary = has_more
+        .then(|| page_rows.last().map(|row| row.group_key().to_vec()))
+        .flatten();
     let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
         route.projection_is_identity(),
@@ -932,9 +938,9 @@ fn finalize_grouped_count_page(
         update_grouped_count_fold_metrics(|metrics| {
             metrics.next_cursor_emitted = metrics.next_cursor_emitted.saturating_add(1);
         });
-        page_rows
-            .last()
-            .map(|row| route.grouped_next_cursor(row.group_key().to_vec()))
+        next_cursor_boundary
+            .as_ref()
+            .map(|last_group_key| route.grouped_next_cursor(last_group_key.clone()))
             .transpose()?
     } else {
         None
@@ -982,6 +988,7 @@ fn select_bounded_grouped_count_candidates(
     Ok(retain_smallest_grouped_count_candidates(
         qualifying,
         selection_bound,
+        route.direction(),
     ))
 }
 
@@ -990,6 +997,7 @@ fn select_bounded_grouped_count_candidates(
 fn retain_smallest_grouped_count_candidates(
     grouped_counts: Vec<(GroupKey, u32)>,
     selection_bound: usize,
+    direction: Direction,
 ) -> Vec<(GroupKey, u32)> {
     let mut retained = BinaryHeap::<BoundedGroupedCountCandidate>::new();
 
@@ -1001,19 +1009,20 @@ fn retain_smallest_grouped_count_candidates(
             metrics.bounded_selection_candidates_seen =
                 metrics.bounded_selection_candidates_seen.saturating_add(1);
         });
-        let candidate = BoundedGroupedCountCandidate { group_key, count };
+        let candidate = BoundedGroupedCountCandidate {
+            group_key,
+            count,
+            direction,
+        };
         if retained.len() < selection_bound {
             retained.push(candidate);
             continue;
         }
 
-        if retained.peek().is_some_and(|largest_retained| {
-            canonical_value_compare(
-                candidate.group_key.canonical_value(),
-                largest_retained.group_key.canonical_value(),
-            )
-            .is_lt()
-        }) {
+        if retained
+            .peek()
+            .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+        {
             retained.pop();
             retained.push(candidate);
             update_grouped_count_fold_metrics(|metrics| {
@@ -1024,8 +1033,8 @@ fn retain_smallest_grouped_count_candidates(
         }
     }
 
-    // Phase 2: restore ascending canonical grouped-key order across the
-    // retained window only, which is enough for downstream page finalization.
+    // Phase 2: restore grouped-key order across the retained window only,
+    // respecting the active grouped execution direction.
     let mut out = retained
         .into_vec()
         .into_iter()
@@ -1037,7 +1046,11 @@ fn retain_smallest_grouped_count_candidates(
             .saturating_add(u64::try_from(out.len()).unwrap_or(u64::MAX));
     });
     out.sort_by(|(left_key, _), (right_key, _)| {
-        canonical_value_compare(left_key.canonical_value(), right_key.canonical_value())
+        compare_grouped_boundary_values(
+            direction,
+            left_key.canonical_value(),
+            right_key.canonical_value(),
+        )
     });
 
     out
@@ -1068,7 +1081,11 @@ fn select_unbounded_grouped_count_candidates(
             .saturating_add(u64::try_from(out.len()).unwrap_or(u64::MAX));
     });
     out.sort_by(|(left_key, _), (right_key, _)| {
-        canonical_value_compare(left_key.canonical_value(), right_key.canonical_value())
+        compare_grouped_boundary_values(
+            route.direction(),
+            left_key.canonical_value(),
+            right_key.canonical_value(),
+        )
     });
 
     Ok(out)
@@ -1100,7 +1117,11 @@ fn grouped_count_row_matches_window(
         return Ok(false);
     }
     if let Some(resume_boundary) = resume_boundary
-        && !canonical_value_compare(group_key.canonical_value(), resume_boundary).is_gt()
+        && !grouped_resume_boundary_allows_candidate(
+            route.direction(),
+            group_key.canonical_value(),
+            resume_boundary,
+        )
     {
         update_grouped_count_fold_metrics(|metrics| {
             metrics.resume_boundary_rows_rejected =
@@ -1110,6 +1131,24 @@ fn grouped_count_row_matches_window(
     }
 
     Ok(true)
+}
+
+// Compare grouped boundary values in the active grouped execution direction.
+fn compare_grouped_boundary_values(direction: Direction, left: &Value, right: &Value) -> Ordering {
+    match direction {
+        Direction::Asc => canonical_value_compare(left, right),
+        Direction::Desc => canonical_value_compare(right, left),
+    }
+}
+
+// Return true when one candidate remains beyond the grouped continuation
+// boundary in the active grouped execution direction.
+fn grouped_resume_boundary_allows_candidate(
+    direction: Direction,
+    candidate_key: &Value,
+    resume_boundary: &Value,
+) -> bool {
+    compare_grouped_boundary_values(direction, candidate_key, resume_boundary).is_gt()
 }
 
 ///
@@ -1253,7 +1292,8 @@ mod tests {
             ),
         ];
 
-        let selected = retain_smallest_grouped_count_candidates(rows, 3);
+        let selected =
+            retain_smallest_grouped_count_candidates(rows, 3, crate::db::direction::Direction::Asc);
 
         assert_eq!(
             selected

@@ -3,8 +3,9 @@
 //! that flow into structural execution.
 
 use crate::{
-    db::query::plan::expr::ast::{Alias, Expr, FieldId},
+    db::query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId, parse_supported_order_expr},
     model::entity::{EntityModel, resolve_field_slot},
+    value::Value,
 };
 
 ///
@@ -175,4 +176,66 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
                 && expr_references_only_fields(right.as_ref(), allowed)
         }
     }
+}
+
+/// Return true when one canonical `ORDER BY` term preserves the same
+/// lexicographic order as one grouped key field.
+///
+/// This intentionally stays narrower than the full supported computed-order
+/// family. Grouped pagination and continuation still resume on canonical group
+/// keys, so grouped `ORDER BY` can only admit expressions that are proven to
+/// preserve the underlying grouped-key order contract rather than merely
+/// reference grouped fields.
+#[must_use]
+pub(crate) fn order_term_preserves_group_field_order(
+    term: &str,
+    expected_group_field: &str,
+) -> bool {
+    parse_supported_order_expr(term)
+        .is_some_and(|expr| order_expr_preserves_group_field_order(&expr, expected_group_field))
+}
+
+// Keep grouped-order proof intentionally syntactic and fail closed. The
+// current grouped runtime orders and resumes on canonical group keys, so only
+// one exact grouped field or one additive constant offset over that field may
+// reuse the same ordered-group contract.
+fn order_expr_preserves_group_field_order(expr: &Expr, expected_group_field: &str) -> bool {
+    match expr {
+        Expr::Field(field) => field.as_str() == expected_group_field,
+        Expr::Binary { op, left, right }
+            if matches!(op, BinaryOp::Add | BinaryOp::Sub)
+                && matches!(
+                    left.as_ref(),
+                    Expr::Field(field) if field.as_str() == expected_group_field
+                )
+                && is_numeric_order_offset_literal(right.as_ref()) =>
+        {
+            true
+        }
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
+            false
+        }
+        #[cfg(test)]
+        Expr::Alias { .. } | Expr::Unary { .. } => false,
+    }
+}
+
+// Additive constant offsets preserve both ascending and descending order for
+// the underlying grouped key while avoiding the tie/collapse behavior of the
+// broader computed-order family.
+const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Literal(
+            Value::Int(_)
+                | Value::Int128(_)
+                | Value::IntBig(_)
+                | Value::Uint(_)
+                | Value::Uint128(_)
+                | Value::UintBig(_)
+                | Value::Decimal(_)
+                | Value::Float32(_)
+                | Value::Float64(_)
+        )
+    )
 }

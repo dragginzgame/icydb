@@ -1745,14 +1745,20 @@ fn compile_sql_command_select_grouped_top_level_distinct_normalizes_to_grouped_q
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_projection_expression_widening_in_current_slice() {
-    let err = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age, TRIM(name), COUNT(*) FROM SqlLowerEntity GROUP BY age",
+fn compile_sql_command_allows_grouped_text_projection_over_grouped_field() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT name, TRIM(name), COUNT(*) FROM SqlLowerEntity GROUP BY name",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("grouped projection expression widening should remain fail-closed");
+    .expect("grouped text projection over grouped field should lower");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped text projection over grouped field should stay on the admitted grouped plan lane",
+    );
 }
 
 #[test]
@@ -1770,23 +1776,97 @@ fn compile_sql_command_grouped_projection_unknown_field_stays_specific() {
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_arithmetic_projection_in_current_slice() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_allows_grouped_arithmetic_projection_over_grouped_field() {
+    let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, age + 1, COUNT(*) FROM SqlLowerEntity GROUP BY age",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("grouped arithmetic projection should remain fail-closed");
+    .expect("grouped arithmetic projection over grouped field should lower");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped arithmetic projection over grouped field should stay on the admitted grouped plan lane",
+    );
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_round_projection_in_current_slice() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_allows_grouped_round_projection_over_grouped_field() {
+    let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, ROUND(age / 3, 2), COUNT(*) FROM SqlLowerEntity GROUP BY age",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("grouped ROUND projection should remain fail-closed");
+    .expect("grouped ROUND projection over grouped field should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped ROUND projection over grouped field should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_allows_grouped_additive_order_over_grouped_field() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + 1 ASC LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped additive ORDER BY over grouped field should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped additive ORDER BY over grouped field should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + age ASC LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped non-preserving computed ORDER BY should still lower structurally");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    let err = query.plan().expect_err(
+        "grouped ORDER BY expressions that do not preserve grouped-key order should remain fail-closed",
+    );
+
+    assert!(matches!(
+        err,
+        crate::db::query::intent::QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                            )
+                    )
+            )
+    ));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_non_group_field_projection() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, name, COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped non-group field projection should stay fail-closed");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
 }

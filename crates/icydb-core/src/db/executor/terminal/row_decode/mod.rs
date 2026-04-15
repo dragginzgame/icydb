@@ -65,6 +65,12 @@ impl RowLayout {
         self.primary_key_slot
     }
 
+    /// Borrow the frozen structural row contract carried by this layout.
+    #[must_use]
+    pub(in crate::db) const fn contract(self) -> StructuralRowContract {
+        self.contract
+    }
+
     /// Open one raw row through the authority-owned structural decode contract.
     pub(in crate::db) fn open_raw_row(
         self,

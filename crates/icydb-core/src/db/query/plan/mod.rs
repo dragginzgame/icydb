@@ -41,11 +41,11 @@ pub(in crate::db) use continuation::{
 };
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringProjectionContext, CoveringProjectionOrder,
-    CoveringReadExecutionPlan, CoveringReadFieldSource,
-    constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
-    covering_index_projection_context, covering_read_execution_plan_from_fields,
-    covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
-    index_covering_existing_rows_terminal_eligible,
+    CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource,
+    constant_covering_projection_value_from_access, covering_hybrid_projection_plan_from_fields,
+    covering_index_adjacent_distinct_eligible, covering_index_projection_context,
+    covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
+    covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
 #[cfg(test)]
 pub(in crate::db) use group::GroupedAggregateProjectionSpec;

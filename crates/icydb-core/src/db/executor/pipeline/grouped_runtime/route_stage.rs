@@ -73,6 +73,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         continuation_signature,
         continuation_boundary_arity,
         grouped_pagination_window,
+        direction,
     );
     let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
     let index_range_specs = plan.index_range_specs()?.to_vec();

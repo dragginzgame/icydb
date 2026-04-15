@@ -9,6 +9,7 @@ use crate::{
     db::{
         GroupedRow,
         contracts::canonical_value_compare,
+        direction::Direction,
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::{
@@ -42,11 +43,13 @@ use crate::{
 struct GroupedPageCandidate {
     group_key: GroupKey,
     aggregate_values: Vec<Value>,
+    direction: Direction,
 }
 
 impl Ord for GroupedPageCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
-        canonical_value_compare(
+        compare_grouped_boundary_values(
+            self.direction,
             self.group_key.canonical_value(),
             other.group_key.canonical_value(),
         )
@@ -63,12 +66,14 @@ impl GroupedPageCandidate {
     // Finalize one single-aggregate grouped state bundle into one candidate row.
     fn from_single(
         finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
+        direction: Direction,
     ) -> Self {
         let (group_key, aggregate_value) = finalized_group.finalize_single();
 
         Self {
             group_key,
             aggregate_values: vec![aggregate_value],
+            direction,
         }
     }
 
@@ -76,12 +81,14 @@ impl GroupedPageCandidate {
     fn from_many(
         finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
         aggregate_count: usize,
+        direction: Direction,
     ) -> Self {
         let (group_key, aggregate_values) = finalized_group.finalize(aggregate_count);
 
         Self {
             group_key,
             aggregate_values,
+            direction,
         }
     }
 
@@ -116,7 +123,11 @@ impl GroupedPageCandidate {
             return Ok(false);
         }
         if let Some(resume_boundary) = resume_boundary
-            && !canonical_value_compare(self.group_key.canonical_value(), resume_boundary).is_gt()
+            && !grouped_resume_boundary_allows_candidate(
+                self.direction,
+                self.group_key.canonical_value(),
+                resume_boundary,
+            )
         {
             return Ok(false);
         }
@@ -185,6 +196,7 @@ pub(super) fn finalize_grouped_page(
     let resume_boundary = route.grouped_resume_boundary();
     let (page_rows, next_cursor_boundary) = if let Some(selection_bound) = selection_bound {
         finalize_bounded_grouped_page_rows(
+            route.direction(),
             grouped_having,
             grouped_bundle,
             group_fields,
@@ -195,6 +207,7 @@ pub(super) fn finalize_grouped_page(
         )?
     } else {
         finalize_unbounded_grouped_page_rows(
+            route.direction(),
             grouped_having,
             grouped_bundle,
             group_fields,
@@ -216,6 +229,7 @@ pub(super) fn finalize_grouped_page(
 fn into_grouped_page_candidates(
     grouped_bundle: GroupedAggregateBundle,
     sorted: bool,
+    direction: Direction,
 ) -> Vec<GroupedPageCandidate> {
     if grouped_bundle.has_single_aggregate() {
         let groups = if sorted {
@@ -226,7 +240,7 @@ fn into_grouped_page_candidates(
 
         return groups
             .into_iter()
-            .map(GroupedPageCandidate::from_single)
+            .map(|finalized_group| GroupedPageCandidate::from_single(finalized_group, direction))
             .collect();
     }
 
@@ -239,13 +253,21 @@ fn into_grouped_page_candidates(
 
     groups
         .into_iter()
-        .map(|finalized_group| GroupedPageCandidate::from_many(finalized_group, aggregate_count))
+        .map(|finalized_group| {
+            GroupedPageCandidate::from_many(finalized_group, aggregate_count, direction)
+        })
         .collect()
 }
 
 // Apply grouped candidate selection, filtering, offset, and limit over one
 // bounded grouped page window without sorting every finalized group first.
+//
+// This helper intentionally carries the full bounded grouped page-finalize
+// contract in one place so direction-aware selection, HAVING filtering,
+// continuation boundaries, and optional projection shaping stay synchronized.
+#[expect(clippy::too_many_arguments)]
 fn finalize_bounded_grouped_page_rows(
+    direction: Direction,
     grouped_having: Option<&GroupHavingSpec>,
     grouped_bundle: GroupedAggregateBundle,
     group_fields: &[crate::db::query::plan::FieldSlot],
@@ -255,7 +277,7 @@ fn finalize_bounded_grouped_page_rows(
     compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
     let selected_candidates = retain_smallest_grouped_page_candidates(
-        into_grouped_page_candidates(grouped_bundle, false).into_iter(),
+        into_grouped_page_candidates(grouped_bundle, false, direction).into_iter(),
         grouped_having,
         group_fields,
         resume_boundary,
@@ -274,6 +296,7 @@ fn finalize_bounded_grouped_page_rows(
 // Apply grouped filtering, offset, and limit over the common grouped shape
 // when no bounded grouped page window is active.
 fn finalize_unbounded_grouped_page_rows(
+    direction: Direction,
     grouped_having: Option<&GroupHavingSpec>,
     grouped_bundle: GroupedAggregateBundle,
     group_fields: &[crate::db::query::plan::FieldSlot],
@@ -282,7 +305,7 @@ fn finalize_unbounded_grouped_page_rows(
     compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
     finalize_grouped_page_rows_from_candidates(
-        into_grouped_page_candidates(grouped_bundle, true).into_iter(),
+        into_grouped_page_candidates(grouped_bundle, true, direction).into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
         |candidate| candidate.matches_window(grouped_having, group_fields, resume_boundary),
@@ -324,12 +347,30 @@ where
         }
     }
 
-    // Phase 2: restore ascending canonical grouped-key order across the
-    // retained bounded window only.
+    // Phase 2: restore grouped-key order across the retained bounded window
+    // only, respecting the active grouped execution direction.
     let mut out = retained.into_vec();
     out.sort();
 
     Ok(out)
+}
+
+// Compare grouped boundary values in the active grouped execution direction.
+fn compare_grouped_boundary_values(direction: Direction, left: &Value, right: &Value) -> Ordering {
+    match direction {
+        Direction::Asc => canonical_value_compare(left, right),
+        Direction::Desc => canonical_value_compare(right, left),
+    }
+}
+
+// Return true when one candidate remains beyond the grouped continuation
+// boundary in the active grouped execution direction.
+fn grouped_resume_boundary_allows_candidate(
+    direction: Direction,
+    candidate_key: &Value,
+    resume_boundary: &Value,
+) -> bool {
+    compare_grouped_boundary_values(direction, candidate_key, resume_boundary).is_gt()
 }
 
 // Apply grouped filtering, offset/limit, and final row shaping over one
@@ -496,6 +537,7 @@ mod tests {
             group_key: GroupKey::from_group_values(vec![Value::Uint(21)])
                 .expect("candidate group key"),
             aggregate_values: vec![Value::Uint(2), Value::Uint(90)],
+            direction: crate::db::direction::Direction::Asc,
         }];
 
         let (rows, next_cursor_boundary) = finalize_grouped_page_rows_from_candidates(

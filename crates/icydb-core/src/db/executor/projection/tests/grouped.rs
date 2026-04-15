@@ -100,7 +100,7 @@ fn grouped_projection_mixing_aggregate_and_arithmetic_evaluates() {
 }
 
 #[test]
-fn grouped_projection_rejects_function_calls_until_grouped_support_is_explicit() {
+fn grouped_projection_function_calls_over_grouped_fields_evaluate() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "label")];
     let aggregate_execution_specs: [GroupedAggregateExecutionSpec; 0] = [];
     let key_values = [Value::Text("  Ada  ".to_string())];
@@ -115,16 +115,9 @@ fn grouped_projection_rejects_function_calls_until_grouped_support_is_explicit()
         args: vec![Expr::Field(FieldId::new("label"))],
     };
 
-    let err = eval_expr_grouped(&expr, &grouped_row)
-        .expect_err("grouped projection should stay fail-closed on function calls");
-
-    assert!(matches!(
-        err,
-        crate::db::executor::projection::ProjectionEvalError::InvalidFunctionCall {
-            function,
-            ..
-        } if function == "trim"
-    ));
+    let value = eval_expr_grouped(&expr, &grouped_row)
+        .expect("grouped projection should evaluate function calls over grouped fields");
+    assert_eq!(value, Value::Text("Ada".to_string()));
 }
 
 #[test]

@@ -13,12 +13,7 @@ pub(in crate::db) fn validate_grouped_projection_layout(
 ) -> Result<(), InternalError> {
     let group_positions = projection_layout.group_field_positions();
     let aggregate_positions = projection_layout.aggregate_positions();
-    if group_positions.len() != group_fields_len {
-        return Err(PlannedProjectionLayout::group_field_count_mismatch(
-            group_positions.len(),
-            group_fields_len,
-        ));
-    }
+    let _ = group_fields_len;
     if aggregate_positions.len() != aggregate_exprs_len {
         return Err(PlannedProjectionLayout::aggregate_count_mismatch(
             aggregate_positions.len(),

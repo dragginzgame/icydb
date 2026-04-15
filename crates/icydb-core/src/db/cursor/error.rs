@@ -118,10 +118,10 @@ impl CursorPlanError {
         )
     }
 
-    /// Construct one grouped-cursor direction payload error.
-    pub(in crate::db) fn grouped_continuation_cursor_direction_ascending_required() -> Self {
+    /// Construct one grouped-cursor direction mismatch payload error.
+    pub(in crate::db) fn grouped_continuation_cursor_direction_mismatch() -> Self {
         Self::invalid_continuation_cursor_payload(
-            "grouped continuation cursor direction must be ascending",
+            "grouped continuation cursor direction does not match executable plan direction",
         )
     }
 

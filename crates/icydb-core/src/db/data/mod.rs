@@ -36,7 +36,7 @@ pub use persisted_row::{
     encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
 };
-pub(in crate::db) use row::CanonicalRow;
+pub(in crate::db) use row::{CanonicalRow, SelectiveRowRead};
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{

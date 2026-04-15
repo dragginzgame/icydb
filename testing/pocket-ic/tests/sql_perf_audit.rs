@@ -85,6 +85,7 @@ struct SqlPerfScenarioSample {
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
     avg_execute_local_instructions: u64,
+    avg_store_get_calls: u64,
     avg_sql_compiled_command_cache_hits: u64,
     avg_sql_compiled_command_cache_misses: u64,
     avg_sql_select_plan_cache_hits: u64,
@@ -391,6 +392,7 @@ fn delta_percent_bps(current: u64, previous: u64) -> Option<i64> {
 struct SqlPerfRawSamples {
     compile_samples: Vec<u64>,
     execute_samples: Vec<u64>,
+    store_get_call_samples: Vec<u64>,
     sql_compiled_command_cache_hit_samples: Vec<u64>,
     sql_compiled_command_cache_miss_samples: Vec<u64>,
     sql_select_plan_cache_hit_samples: Vec<u64>,
@@ -406,6 +408,7 @@ impl SqlPerfRawSamples {
         Self {
             compile_samples: Vec::with_capacity(sample_count),
             execute_samples: Vec::with_capacity(sample_count),
+            store_get_call_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_hit_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_miss_samples: Vec::with_capacity(sample_count),
             sql_select_plan_cache_hit_samples: Vec::with_capacity(sample_count),
@@ -422,6 +425,8 @@ impl SqlPerfRawSamples {
             .push(sample.attribution.compile_local_instructions);
         self.execute_samples
             .push(sample.attribution.execute_local_instructions);
+        self.store_get_call_samples
+            .push(sample.attribution.store_get_calls);
         self.sql_compiled_command_cache_hit_samples
             .push(sample.attribution.sql_compiled_command_cache_hits);
         self.sql_compiled_command_cache_miss_samples
@@ -447,6 +452,7 @@ fn build_sql_perf_scenario_sample(
 ) -> SqlPerfScenarioSample {
     let avg_compile_local_instructions = average_u64(&raw.compile_samples);
     let avg_execute_local_instructions = average_u64(&raw.execute_samples);
+    let avg_store_get_calls = average_u64(&raw.store_get_call_samples);
     let avg_sql_compiled_command_cache_hits =
         average_u64(&raw.sql_compiled_command_cache_hit_samples);
     let avg_sql_compiled_command_cache_misses =
@@ -487,6 +493,7 @@ fn build_sql_perf_scenario_sample(
         baseline_avg_local_instructions,
         avg_compile_local_instructions,
         avg_execute_local_instructions,
+        avg_store_get_calls,
         avg_sql_compiled_command_cache_hits,
         avg_sql_compiled_command_cache_misses,
         avg_sql_select_plan_cache_hits,
@@ -1204,9 +1211,9 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | SQL Compile Hits | SQL Compile Misses | SQL Select Hits | SQL Select Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Avg store.get() | SQL Compile Hits | SQL Compile Misses | SQL Select Hits | SQL Select Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
-    println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+    println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
 
     for sample in samples {
         let delta_text = sample
@@ -1218,11 +1225,12 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
             sample.avg_execute_local_instructions,
+            sample.avg_store_get_calls,
             sample.avg_sql_compiled_command_cache_hits,
             sample.avg_sql_compiled_command_cache_misses,
             sample.avg_sql_select_plan_cache_hits,

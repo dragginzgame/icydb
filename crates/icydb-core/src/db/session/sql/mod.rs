@@ -22,6 +22,8 @@ type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 const SQL_SELECT_PLAN_CACHE_METHOD_VERSION: u8 = 1;
 
+#[cfg(feature = "perf-attribution")]
+use crate::db::DataStore;
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
     db::{
@@ -51,6 +53,8 @@ use crate::db::{
     },
 };
 
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "structural-read-metrics")]
 pub use crate::db::session::sql::projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
@@ -103,6 +107,7 @@ pub struct SqlQueryExecutionAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub store_get_calls: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
@@ -686,8 +691,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
+        let store_get_calls_before = DataStore::current_get_call_count();
         let (result, execute_cache_attribution, execute_phase_attribution) =
             self.execute_compiled_sql_with_phase_attribution::<E>(&compiled)?;
+        let store_get_calls =
+            DataStore::current_get_call_count().saturating_sub(store_get_calls_before);
         let execute_local_instructions = execute_phase_attribution
             .planner_local_instructions
             .saturating_add(execute_phase_attribution.store_local_instructions)
@@ -703,6 +711,7 @@ impl<C: CanisterKind> DbSession<C> {
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
+                store_get_calls,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,
                 total_local_instructions,

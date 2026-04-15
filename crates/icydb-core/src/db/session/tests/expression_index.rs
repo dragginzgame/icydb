@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::session::sql::with_sql_projection_materialization_metrics;
 
 // Seed one deterministic mixed-case dataset for expression-index routing
 // checks where `LOWER(name)` order differs from primary-key order.
@@ -185,6 +186,68 @@ fn execute_sql_projection_expression_order_matrix_matches_entity_rows() {
             "{context} projection execution must honor the LOWER(name), id ordering contract",
         );
     }
+}
+
+#[test]
+fn execute_sql_projection_expression_order_pk_plus_row_field_uses_sparse_sql_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the expression
+    // index order disagrees with primary-key order and the SQL lane must rely
+    // on the `LOWER(name), id` access path for its page window.
+    seed_expression_order_fixture(
+        &session,
+        &[
+            (9_253_u128, "sam", 10),
+            (9_254, "Alex", 20),
+            (9_251, "bob", 30),
+            (9_252, "zoe", 40),
+        ],
+    );
+
+    // Phase 2: prove the SQL projection lane now admits the sparse
+    // index-backed projection path even when it returns only the primary key
+    // plus one uncovered row-backed field.
+    let sql = "SELECT id, age FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
+    let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            .expect("expression-order pk-plus-row projection query should execute")
+    });
+    let entity_rows =
+        execute_scalar_select_for_tests::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            .expect("expression-order pk-plus-row entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Uint(row.entity_ref().age),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(projected_rows, entity_projected_rows);
+    assert_eq!(
+        metrics.hybrid_covering_path_hits, 1,
+        "expression-order pk-plus-row projection should use the sparse SQL-side index-backed path",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_index_field_accesses, 0,
+        "expression-order pk-plus-row projection should not materialize projected index component values",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_row_field_accesses, 2,
+        "expression-order pk-plus-row projection should sparse-read one uncovered field per emitted row",
+    );
+    assert_eq!(
+        metrics.data_rows_path_hits, 0,
+        "expression-order pk-plus-row projection should bypass the generic data-row path",
+    );
+    assert_eq!(
+        metrics.slot_rows_path_hits, 0,
+        "expression-order pk-plus-row projection should bypass retained slot rows",
+    );
 }
 
 #[test]

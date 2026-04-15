@@ -373,6 +373,7 @@ impl PlannedContinuationContract {
         crate::db::cursor::prepare_grouped_cursor(
             entity_path,
             self.order_contract.order_spec(),
+            self.order_contract.direction(),
             self.continuation_signature(),
             self.expected_initial_offset(),
             bytes,
@@ -390,6 +391,7 @@ impl PlannedContinuationContract {
         crate::db::cursor::prepare_grouped_cursor_token(
             entity_path,
             self.order_contract.order_spec(),
+            self.order_contract.direction(),
             self.continuation_signature(),
             self.expected_initial_offset(),
             cursor,

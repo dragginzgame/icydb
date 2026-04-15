@@ -30,7 +30,7 @@ fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
 }
 
 #[test]
-fn prepare_grouped_cursor_rejects_descending_cursor_direction() {
+fn prepare_grouped_cursor_rejects_direction_mismatch() {
     let token = grouped_token_fixture(Direction::Desc);
     let encoded = token
         .encode()
@@ -38,17 +38,38 @@ fn prepare_grouped_cursor_rejects_descending_cursor_direction() {
     let err = prepare_grouped_cursor(
         "grouped::test_entity",
         None::<&OrderSpec>,
+        Direction::Asc,
         token.signature(),
         token.initial_offset(),
         Some(encoded.as_slice()),
     )
-    .expect_err("grouped cursor direction must remain ascending");
+    .expect_err("grouped cursor direction must match grouped execution direction");
 
     assert!(matches!(
         err,
         CursorPlanError::InvalidContinuationCursorPayload { reason }
-            if reason == "grouped continuation cursor direction must be ascending"
+            if reason == "grouped continuation cursor direction does not match executable plan direction"
     ));
+}
+
+#[test]
+fn prepare_grouped_cursor_accepts_matching_descending_direction() {
+    let token = grouped_token_fixture(Direction::Desc);
+    let encoded = token
+        .encode()
+        .expect("grouped continuation token should encode");
+
+    let prepared = prepare_grouped_cursor(
+        "grouped::test_entity",
+        None::<&OrderSpec>,
+        Direction::Desc,
+        token.signature(),
+        token.initial_offset(),
+        Some(encoded.as_slice()),
+    )
+    .expect("grouped cursor direction should match descending grouped execution");
+
+    assert_eq!(prepared.last_group_key(), Some(token.last_group_key()));
 }
 
 #[test]
@@ -61,6 +82,7 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     let err = prepare_grouped_cursor(
         "grouped::test_entity",
         None::<&OrderSpec>,
+        Direction::Asc,
         expected_signature,
         token.initial_offset(),
         Some(encoded.as_slice()),
@@ -86,6 +108,7 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
     let err = prepare_grouped_cursor(
         "grouped::test_entity",
         None::<&OrderSpec>,
+        Direction::Asc,
         token.signature(),
         token.initial_offset() + 1,
         Some(encoded.as_slice()),
@@ -159,6 +182,7 @@ fn revalidate_grouped_cursor_round_trip_preserves_resume_boundary_when_offset_ma
     let prepared = prepare_grouped_cursor(
         "grouped::test_entity",
         None::<&OrderSpec>,
+        Direction::Asc,
         token.signature(),
         token.initial_offset(),
         Some(encoded.as_slice()),
@@ -180,6 +204,7 @@ fn revalidate_grouped_cursor_rejects_offset_mismatch() {
     let prepared = prepare_grouped_cursor(
         "grouped::test_entity",
         None::<&OrderSpec>,
+        Direction::Asc,
         token.signature(),
         token.initial_offset(),
         Some(encoded.as_slice()),

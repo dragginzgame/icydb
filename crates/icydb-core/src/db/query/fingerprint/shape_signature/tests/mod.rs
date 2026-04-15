@@ -363,6 +363,7 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
     let decoded = prepare_grouped_cursor(
         "tests::Entity",
         None,
+        Direction::Asc,
         alias_signature,
         0,
         Some(encoded.as_slice()),

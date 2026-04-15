@@ -10,7 +10,11 @@ use crate::{
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::StructuralQuery,
-            plan::{AggregateKind, FieldSlot, resolve_aggregate_target_field_slot},
+            plan::{
+                AggregateKind, FieldSlot,
+                expr::{Expr, expr_references_only_fields},
+                resolve_aggregate_target_field_slot,
+            },
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlProjection, SqlSelectItem,
@@ -907,37 +911,57 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
         return Err(SqlLoweringError::unsupported_select_group_by());
     };
 
-    let mut projected_group_fields = Vec::<String>::new();
+    let grouped_field_names = group_by_fields
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let mut aggregate_calls = Vec::<SqlAggregateCall>::new();
     let mut seen_aggregate = false;
 
     for item in items {
         match item {
-            SqlSelectItem::Field(field) => {
-                // Keep grouped projection deterministic and mappable to grouped
-                // response contracts: group keys must be declared first.
-                if seen_aggregate {
-                    return Err(SqlLoweringError::unsupported_select_group_by());
-                }
-                projected_group_fields.push(field.clone());
-            }
             SqlSelectItem::Aggregate(aggregate) => {
                 seen_aggregate = true;
                 aggregate_calls.push(aggregate.clone());
             }
-            SqlSelectItem::TextFunction(_)
+            SqlSelectItem::Field(_)
+            | SqlSelectItem::TextFunction(_)
             | SqlSelectItem::Arithmetic(_)
             | SqlSelectItem::Round(_) => {
-                return Err(SqlLoweringError::unsupported_select_group_by());
+                if seen_aggregate {
+                    return Err(SqlLoweringError::unsupported_select_group_by());
+                }
+                let expr = crate::db::sql::lowering::select::lower_select_item_expr(item)?;
+                if expr_contains_aggregate(&expr)
+                    || !expr_references_only_fields(&expr, grouped_field_names.as_slice())
+                {
+                    return Err(SqlLoweringError::unsupported_select_group_by());
+                }
             }
         }
     }
 
-    if aggregate_calls.is_empty() || projected_group_fields.as_slice() != group_by_fields {
+    if aggregate_calls.is_empty() {
         return Err(SqlLoweringError::unsupported_select_group_by());
     }
 
     Ok(aggregate_calls)
+}
+
+// Keep grouped aggregate extraction narrow: non-aggregate projection items may
+// reference grouped fields, but aggregate leaves still belong only to the
+// explicit grouped aggregate list.
+fn expr_contains_aggregate(expr: &Expr) -> bool {
+    match expr {
+        Expr::Aggregate(_) => true,
+        Expr::Field(_) | Expr::Literal(_) => false,
+        Expr::FunctionCall { args, .. } => args.iter().any(expr_contains_aggregate),
+        Expr::Binary { left, right, .. } => {
+            expr_contains_aggregate(left) || expr_contains_aggregate(right)
+        }
+        #[cfg(test)]
+        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => expr_contains_aggregate(expr),
+    }
 }
 
 pub(in crate::db::sql::lowering) fn lower_aggregate_call(

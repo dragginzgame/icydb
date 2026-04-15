@@ -9,6 +9,8 @@ mod labels;
 mod payload;
 mod runtime;
 
+#[cfg(all(test, feature = "sql", not(feature = "structural-read-metrics")))]
+pub(crate) use crate::db::session::sql::projection::runtime::with_sql_projection_materialization_metrics;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use crate::db::session::sql::projection::runtime::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,

@@ -1308,7 +1308,7 @@ fn execute_sql_statement_grouped_payload_matrix() {
 }
 
 #[test]
-fn execute_sql_statement_grouped_rejects_computed_text_projection_widening() {
+fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1322,23 +1322,73 @@ fn execute_sql_statement_grouped_rejects_computed_text_projection_widening() {
         ],
     );
 
-    for sql in [
-        "SELECT TRIM(name), COUNT(*) \
-         FROM SessionSqlEntity \
-         GROUP BY name \
-         ORDER BY name ASC LIMIT 10",
-        "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
-         FROM SessionSqlEntity \
-         GROUP BY name \
-         ORDER BY name ASC LIMIT 10",
+    for (sql, expected_columns, expected_rows, context) in [
+        (
+            "SELECT name, TRIM(name), COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec!["name", "TRIM(name)", "COUNT(*)"],
+            vec![
+                (
+                    vec![Value::Text(" alpha ".into()), Value::Text("alpha".into())],
+                    vec![Value::Uint(2)],
+                ),
+                (
+                    vec![Value::Text("beta".into()), Value::Text("beta".into())],
+                    vec![Value::Uint(1)],
+                ),
+                (
+                    vec![Value::Text("gamma  ".into()), Value::Text("gamma".into())],
+                    vec![Value::Uint(1)],
+                ),
+            ],
+            "grouped statement SQL direct+computed text projection",
+        ),
+        (
+            "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            vec!["trimmed_name", "total"],
+            vec![
+                (vec![Value::Text("alpha".into())], vec![Value::Uint(2)]),
+                (vec![Value::Text("beta".into())], vec![Value::Uint(1)]),
+                (vec![Value::Text("gamma".into())], vec![Value::Uint(1)]),
+            ],
+            "grouped statement SQL computed-only text projection",
+        ),
     ] {
-        let err = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
-            .expect_err("grouped statement SQL should stay fail-closed for computed projections");
+        let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        let SqlStatementResult::Grouped {
+            columns,
+            rows,
+            row_count,
+            next_cursor,
+        } = payload
+        else {
+            panic!("{context} should return grouped payload");
+        };
 
-        assert_unsupported_query_error(
-            err,
-            None,
-            "grouped statement SQL computed projection widening",
+        assert_eq!(
+            columns,
+            expected_columns
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+            "{context} should preserve grouped projection labels",
+        );
+        assert_eq!(row_count, 3, "{context} should preserve grouped row count");
+        assert!(next_cursor.is_none(), "{context} should fully materialize");
+
+        let actual_rows = rows
+            .iter()
+            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual_rows, expected_rows,
+            "{context} should preserve computed grouped row payloads",
         );
     }
 }
@@ -1358,6 +1408,50 @@ fn execute_sql_statement_grouped_projection_unknown_field_stays_specific() {
         err.to_string().contains("unknown field 'agge'"),
         "grouped projection typo should stay a field-resolution error: {err}",
     );
+}
+
+#[test]
+fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_columns() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-a", 10),
+            ("grouped-b", 10),
+            ("grouped-c", 20),
+            ("grouped-d", 30),
+            ("grouped-e", 30),
+        ],
+    );
+
+    let sql =
+        "SELECT age, age + 1, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 1";
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("first grouped computed-projection page should succeed");
+    assert_eq!(first_page.rows()[0].group_key()[0], Value::Uint(10));
+    assert_eq!(
+        first_page.rows()[0].group_key()[1].cmp_numeric(&Value::Uint(11)),
+        Some(std::cmp::Ordering::Equal),
+    );
+    assert_eq!(first_page.rows()[0].aggregate_values(), [Value::Uint(2)]);
+    let first_cursor = first_page
+        .continuation_cursor()
+        .expect("first grouped computed-projection page should emit cursor");
+
+    let second_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        sql,
+        Some(&crate::db::encode_cursor(first_cursor)),
+    )
+    .expect("second grouped computed-projection page should succeed");
+    assert_eq!(second_page.rows()[0].group_key()[0], Value::Uint(20));
+    assert_eq!(
+        second_page.rows()[0].group_key()[1].cmp_numeric(&Value::Uint(21)),
+        Some(std::cmp::Ordering::Equal),
+    );
+    assert_eq!(second_page.rows()[0].aggregate_values(), [Value::Uint(1)]);
 }
 
 #[test]
@@ -1404,9 +1498,110 @@ fn grouped_select_helper_equivalent_row_matrix_matches_canonical_rows() {
              ORDER BY age ASC LIMIT 10",
             "top-level grouped SELECT DISTINCT",
         ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age + 1 ASC LIMIT 10",
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "grouped ORDER BY additive group-key expressions",
+        ),
+        (
+            "SELECT age + 1 AS next_age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY next_age ASC LIMIT 10",
+            "SELECT age + 1, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "grouped ORDER BY additive computed aliases",
+        ),
     ] {
         assert_grouped_row_equivalence_case(&session, left_sql, right_sql, context);
     }
+}
+
+#[test]
+fn grouped_select_rejects_non_preserving_computed_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("beta", 20), ("gamma", 30)]);
+
+    let err = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age + age ASC LIMIT 10",
+        None,
+    )
+    .expect_err("grouped non-preserving computed ORDER BY should stay fail-closed");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                            )
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("beta", 10),
+            ("gamma", 20),
+            ("delta", 30),
+            ("epsilon", 30),
+            ("zeta", 40),
+        ],
+    );
+
+    let sql = "SELECT age, age + 1, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age + 1 DESC LIMIT 2";
+    let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("first grouped computed-desc page should succeed");
+
+    assert_eq!(first_page.rows()[0].group_key()[0], Value::Uint(40));
+    assert_eq!(first_page.rows()[1].group_key()[0], Value::Uint(30));
+
+    let first_cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("first grouped computed-desc page should emit cursor"),
+    );
+    let second_page = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        sql,
+        Some(first_cursor.as_str()),
+    )
+    .expect("second grouped computed-desc page should succeed");
+
+    assert_eq!(second_page.rows()[0].group_key()[0], Value::Uint(20));
+    assert_eq!(second_page.rows()[1].group_key()[0], Value::Uint(10));
+    assert!(
+        second_page.continuation_cursor().is_none(),
+        "second grouped computed-desc page should fully exhaust the grouped result set",
+    );
 }
 
 #[test]

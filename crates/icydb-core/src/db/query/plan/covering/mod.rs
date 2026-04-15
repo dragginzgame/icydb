@@ -61,8 +61,11 @@ pub(in crate::db) struct CoveringProjectionContext {
 /// CoveringReadFieldSource
 ///
 /// Planner-owned covering-read source contract for one scalar output field.
-/// Phase 1 stays intentionally narrow:
-/// index components, primary-key output, and prefix-bound constants only.
+/// Pure covering-read fast paths admit only index components, primary-key
+/// output, and prefix-bound constants.
+/// `RowField` is reserved for SQL-side hybrid direct projection plans that
+/// still need sparse row reads for uncovered fields, but it is not admitted by
+/// executor covering-read fast paths.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,6 +73,7 @@ pub(in crate::db) enum CoveringReadFieldSource {
     IndexComponent { component_index: usize },
     PrimaryKey,
     Constant(Value),
+    RowField,
 }
 
 ///
@@ -247,6 +251,71 @@ pub(in crate::db) fn covering_read_plan_from_fields(
         &plan.access,
     )?;
     if fields.is_empty() {
+        return None;
+    }
+
+    Some(CoveringReadPlan {
+        fields,
+        prefix_len: metadata.prefix_len,
+        order_contract,
+    })
+}
+
+/// Derive one planner-owned hybrid direct-field projection plan for SQL
+/// projection consumers that can mix covering fields with sparse row-backed
+/// fields over the same index-backed access path.
+///
+/// This helper stays intentionally narrower than the executor covering-read
+/// fast path:
+/// - direct-field projections only
+/// - index-backed access only
+/// - no grouped plans
+/// - no residual predicate
+/// - at least one row-backed projected field
+/// - projected fields may still be primary-key, constant, or index-backed
+///   alongside those row-backed fields
+#[must_use]
+pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<CoveringReadPlan> {
+    // Phase 1: reject shapes that still need full executor-owned row
+    // materialization or post-access predicate semantics.
+    if plan.grouped_plan().is_some()
+        || !plan.scalar_plan().mode.is_load()
+        || plan.has_residual_predicate()
+    {
+        return None;
+    }
+
+    // Phase 2: freeze the shared index-backed order and component context.
+    let metadata = covering_access_metadata(&plan.access)?;
+    let order_terms = metadata.order_terms();
+    let order_contract = covering_projection_order_contract(
+        plan.scalar_plan().order.as_ref(),
+        order_terms.as_slice(),
+        metadata.prefix_len,
+        primary_key_name,
+        metadata.path_kind_is_range,
+    )?;
+
+    // Phase 3: admit direct projections that mix covering-backed and
+    // row-backed fields so SQL can assemble the final row from both sources.
+    let fields = covering_hybrid_projection_fields_from_projection(
+        fields,
+        plan.frozen_projection_spec(),
+        metadata.coverable_component_fields.as_slice(),
+        primary_key_name,
+        &plan.access,
+    )?;
+    if fields.is_empty() {
+        return None;
+    }
+    if !fields
+        .iter()
+        .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
+    {
         return None;
     }
 
@@ -584,6 +653,33 @@ fn covering_read_fields_from_projection(
     Some(covering_fields)
 }
 
+// Derive one hybrid direct-field projection field list where each projected
+// field is either covering-backed or explicitly row-backed.
+fn covering_hybrid_projection_fields_from_projection(
+    fields: &[FieldModel],
+    projection: &ProjectionSpec,
+    coverable_component_fields: &[Option<&'static str>],
+    primary_key_name: &'static str,
+    access: &AccessPlan<Value>,
+) -> Option<Vec<CoveringReadField>> {
+    let mut projection_fields = Vec::with_capacity(projection.len());
+
+    for projection_field in projection.fields() {
+        let field_name = projection_field_direct_field_name(projection_field)?;
+        let field_slot = resolve_covering_field_slot(fields, field_name)?;
+        let source = covering_hybrid_projection_field_source(
+            field_name,
+            coverable_component_fields,
+            primary_key_name,
+            access,
+        );
+
+        projection_fields.push(CoveringReadField { field_slot, source });
+    }
+
+    Some(projection_fields)
+}
+
 // Resolve one covering field against generated field-table authority without
 // reopening the wider semantic entity model.
 fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Option<FieldSlot> {
@@ -617,6 +713,27 @@ fn covering_read_field_source(
         .iter()
         .position(|field| field.is_some_and(|field| field == field_name))
         .map(|component_index| CoveringReadFieldSource::IndexComponent { component_index })
+}
+
+// Resolve one hybrid direct projection field source, falling back to an
+// explicit row-backed read when the field is not coverable from the index
+// access contract alone.
+fn covering_hybrid_projection_field_source(
+    field_name: &str,
+    coverable_component_fields: &[Option<&'static str>],
+    primary_key_name: &'static str,
+    access: &AccessPlan<Value>,
+) -> CoveringReadFieldSource {
+    if let Some(source) = covering_read_field_source(
+        field_name,
+        coverable_component_fields,
+        primary_key_name,
+        access,
+    ) {
+        return source;
+    }
+
+    CoveringReadFieldSource::RowField
 }
 
 // Project one component-field layout that preserves only directly recoverable

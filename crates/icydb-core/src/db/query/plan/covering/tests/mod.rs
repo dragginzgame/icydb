@@ -79,6 +79,19 @@ fn covering_read_plan(
     )
 }
 
+fn covering_hybrid_projection_plan(
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<super::CoveringReadPlan> {
+    let finalized = finalized_covering_read_plan(plan);
+
+    super::covering_hybrid_projection_plan_from_fields(
+        covering_read_model().fields(),
+        &finalized,
+        primary_key_name,
+    )
+}
+
 fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
     AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -482,6 +495,46 @@ fn covering_read_plan_rejects_non_coverable_row_field_projection() {
     assert!(
         covering.is_none(),
         "row-only projected fields must stay on the materialized read path",
+    );
+}
+
+#[test]
+fn covering_hybrid_projection_plan_accepts_covering_plus_row_field_projection() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: COVERING_READ_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("rank"), FieldId::new("label")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("group".to_string(), OrderDirection::Asc),
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let hybrid = covering_hybrid_projection_plan(&plan, "id")
+        .expect("mixed covering and row-backed direct fields should derive one hybrid plan");
+
+    assert_eq!(hybrid.prefix_len, 0);
+    assert_eq!(
+        hybrid.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(hybrid.fields.len(), 2);
+    assert_eq!(hybrid.fields[0].field_slot.field(), "rank");
+    assert_eq!(
+        hybrid.fields[0].source,
+        super::CoveringReadFieldSource::IndexComponent { component_index: 1 }
+    );
+    assert_eq!(hybrid.fields[1].field_slot.field(), "label");
+    assert_eq!(
+        hybrid.fields[1].source,
+        super::CoveringReadFieldSource::RowField
     );
 }
 

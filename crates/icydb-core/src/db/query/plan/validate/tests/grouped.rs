@@ -193,6 +193,66 @@ fn grouped_order_prefix_alignment_with_limit_passes_planner_cursor_policy() {
 }
 
 #[test]
+fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
+    let mut logical = scalar_with_group_order(vec![("score + 1".to_string(), OrderDirection::Asc)]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 0,
+    });
+    let group = GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model(), "score").expect("group field slot should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        },
+    };
+
+    validate_group_cursor_constraints_for_tests(&logical, &group).expect(
+        "grouped ORDER BY additive offsets over grouped keys should pass planner cursor policy",
+    );
+}
+
+#[test]
+fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_policy() {
+    let mut logical =
+        scalar_with_group_order(vec![("score + score".to_string(), OrderDirection::Asc)]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 0,
+    });
+    let group = GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model(), "score").expect("group field slot should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        },
+    };
+
+    let err = validate_group_cursor_constraints_for_tests(&logical, &group).expect_err(
+        "grouped ORDER BY expressions that do not preserve grouped-key order must stay fail-closed",
+    );
+
+    assert!(is_group_policy_error(&err, |inner| matches!(
+        inner,
+        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+    )));
+}
+
+#[test]
 fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
     let err = validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None)
         .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");

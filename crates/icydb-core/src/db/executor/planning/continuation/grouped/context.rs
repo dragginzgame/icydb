@@ -25,6 +25,7 @@ pub(in crate::db::executor) struct GroupedContinuationContext {
     continuation_signature: ContinuationSignature,
     continuation_boundary_arity: usize,
     grouped_pagination_window: GroupedPaginationWindow,
+    direction: Direction,
 }
 
 impl GroupedContinuationContext {
@@ -34,11 +35,13 @@ impl GroupedContinuationContext {
         continuation_signature: ContinuationSignature,
         continuation_boundary_arity: usize,
         grouped_pagination_window: GroupedPaginationWindow,
+        direction: Direction,
     ) -> Self {
         Self {
             continuation_signature,
             continuation_boundary_arity,
             grouped_pagination_window,
+            direction,
         }
     }
 
@@ -79,7 +82,7 @@ impl GroupedContinuationContext {
             GroupedContinuationToken::new_with_direction(
                 self.continuation_signature,
                 last_group_key,
-                Direction::Asc,
+                self.direction,
                 self.grouped_pagination_window.resume_initial_offset(),
             ),
         ))
@@ -103,8 +106,12 @@ mod tests {
     #[test]
     fn grouped_continuation_context_marks_initial_window_as_unapplied() {
         let window = GroupedPaginationWindow::new(Some(3), 2, Some(6), 2, None);
-        let continuation =
-            GroupedContinuationContext::new(ContinuationSignature::from_bytes([1; 32]), 1, window);
+        let continuation = GroupedContinuationContext::new(
+            ContinuationSignature::from_bytes([1; 32]),
+            1,
+            window,
+            crate::db::direction::Direction::Asc,
+        );
 
         assert!(!continuation.resume_boundary_applied());
         assert!(continuation.selection_bound_applied());
@@ -114,8 +121,12 @@ mod tests {
     fn grouped_continuation_context_marks_resume_window_as_applied() {
         let window =
             GroupedPaginationWindow::new(Some(3), 0, Some(4), 2, Some(Value::List(Vec::new())));
-        let continuation =
-            GroupedContinuationContext::new(ContinuationSignature::from_bytes([2; 32]), 1, window);
+        let continuation = GroupedContinuationContext::new(
+            ContinuationSignature::from_bytes([2; 32]),
+            1,
+            window,
+            crate::db::direction::Direction::Asc,
+        );
 
         assert!(continuation.resume_boundary_applied());
         assert!(continuation.selection_bound_applied());

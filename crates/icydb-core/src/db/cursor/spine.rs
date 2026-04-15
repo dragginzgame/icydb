@@ -266,6 +266,7 @@ pub(in crate::db) fn validate_grouped_cursor(
     cursor: Option<&[u8]>,
     entity_path: &'static str,
     continuation_signature: ContinuationSignature,
+    expected_direction: Direction,
     expected_initial_offset: u32,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
     let Some(cursor) = cursor else {
@@ -274,7 +275,7 @@ pub(in crate::db) fn validate_grouped_cursor(
     let token = decode_grouped_cursor_token(cursor)?;
 
     validate_cursor_signature(entity_path, &continuation_signature, &token.signature())?;
-    validate_grouped_cursor_direction(token.direction())?;
+    validate_grouped_cursor_direction(expected_direction, token.direction())?;
     validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
 
     Ok(GroupedPlannedCursor::new(
@@ -289,6 +290,7 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     cursor: Option<GroupedContinuationToken>,
     entity_path: &'static str,
     continuation_signature: ContinuationSignature,
+    expected_direction: Direction,
     expected_initial_offset: u32,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
     let Some(token) = cursor else {
@@ -297,7 +299,7 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     let (signature, last_group_key, direction, initial_offset) = token.into_parts();
 
     validate_cursor_signature(entity_path, &continuation_signature, &signature)?;
-    validate_grouped_cursor_direction(direction)?;
+    validate_grouped_cursor_direction(expected_direction, direction)?;
     validate_cursor_window_offset(expected_initial_offset, initial_offset)?;
 
     Ok(GroupedPlannedCursor::new(last_group_key, initial_offset))
@@ -322,10 +324,14 @@ fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken
     GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)
 }
 
-// Grouped continuation cursors are constrained to ascending logical order.
-fn validate_grouped_cursor_direction(direction: Direction) -> Result<(), CursorPlanError> {
-    if direction != Direction::Asc {
-        return Err(CursorPlanError::grouped_continuation_cursor_direction_ascending_required());
+// Grouped continuation cursors must match the grouped execution direction so
+// resume-boundary filtering stays consistent with grouped page ordering.
+fn validate_grouped_cursor_direction(
+    expected_direction: Direction,
+    actual_direction: Direction,
+) -> Result<(), CursorPlanError> {
+    if actual_direction != expected_direction {
+        return Err(CursorPlanError::grouped_continuation_cursor_direction_mismatch());
     }
 
     Ok(())

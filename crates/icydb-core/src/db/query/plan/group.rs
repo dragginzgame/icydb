@@ -197,16 +197,6 @@ impl PlannedProjectionLayout {
         self.aggregate_positions.as_slice()
     }
 
-    /// Construct one grouped layout invariant for mismatched grouped-field counts.
-    pub(in crate::db) fn group_field_count_mismatch(
-        layout_count: usize,
-        handoff_count: usize,
-    ) -> InternalError {
-        InternalError::planner_executor_invariant(format!(
-            "grouped projection layout group-field count mismatch: layout={layout_count}, handoff={handoff_count}",
-        ))
-    }
-
     /// Construct one grouped layout invariant for mismatched aggregate counts.
     pub(in crate::db) fn aggregate_count_mismatch(
         layout_count: usize,
@@ -412,18 +402,18 @@ pub(in crate::db) fn grouped_executor_handoff(
             "grouped executor handoff requires grouped logical plans",
         ));
     };
-    let projection_spec = plan.projection_spec_for_identity();
+    let projection_spec = plan.frozen_projection_spec();
     #[cfg(not(test))]
     let (projection_layout, aggregate_projection_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_projection_specs_from_spec(
-            &projection_spec,
+            projection_spec,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         );
     #[cfg(test)]
     let (projection_layout, aggregate_projection_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_projection_specs_from_spec(
-            &projection_spec,
+            projection_spec,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         )?;

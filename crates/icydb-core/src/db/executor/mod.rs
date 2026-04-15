@@ -45,8 +45,11 @@ pub(in crate::db) use aggregate::{
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
-    CoveringProjectionComponentRows, covering_projection_scan_direction,
-    covering_requires_row_presence_check, decode_single_covering_projection_pairs,
+    CoveringProjectionComponentRows, covering_requires_row_presence_check,
+    decode_single_covering_projection_pairs,
+};
+pub(in crate::db) use covering::{
+    covering_projection_scan_direction, decode_covering_projection_component,
     reorder_covering_projection_pairs, resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;

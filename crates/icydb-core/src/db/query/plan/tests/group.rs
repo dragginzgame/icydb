@@ -852,6 +852,35 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
 }
 
 #[test]
+fn grouped_plan_accepts_additive_group_key_order_when_limited() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("rank + 1".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+            Some(1),
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped).expect(
+        "grouped additive ORDER BY over the grouped key should be accepted when LIMIT is explicit",
+    );
+}
+
+#[test]
 fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);

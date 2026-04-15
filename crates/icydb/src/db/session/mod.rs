@@ -728,6 +728,7 @@ mod tests {
                 planner_local_instructions: 13,
                 store_local_instructions: 17,
                 executor_local_instructions: 17,
+                store_get_calls: 3,
                 response_decode_local_instructions: 0,
                 execute_local_instructions: 47,
                 total_local_instructions: 58,

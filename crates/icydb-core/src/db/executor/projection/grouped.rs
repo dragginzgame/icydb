@@ -3,18 +3,18 @@
 //! aggregate outputs.
 
 #[cfg(test)]
-use crate::db::{
-    executor::projection::eval::{eval_binary_expr, eval_unary_expr},
-    query::plan::expr::{BinaryOp, UnaryOp},
-};
+use crate::db::{executor::projection::eval::eval_unary_expr, query::plan::expr::UnaryOp};
 use crate::{
     db::{
-        executor::projection::eval::{ProjectionEvalError, projection_function_name},
+        executor::projection::eval::{
+            ProjectionEvalError, eval_binary_expr, eval_projection_function_call,
+            projection_function_name,
+        },
         query::{
             builder::AggregateExpr,
             plan::{
                 FieldSlot, GroupedAggregateExecutionSpec,
-                expr::{Expr, ProjectionField, ProjectionSpec},
+                expr::{BinaryOp, Expr, Function, ProjectionField, ProjectionSpec},
             },
         },
     },
@@ -75,12 +75,15 @@ pub(in crate::db::executor) enum GroupedProjectionExpr {
     Field(GroupedProjectionField),
     Aggregate(GroupedProjectionAggregate),
     Literal(Value),
+    FunctionCall {
+        function: Function,
+        args: Vec<Self>,
+    },
     #[cfg(test)]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
     },
-    #[cfg(test)]
     Binary {
         op: BinaryOp,
         left: Box<Self>,
@@ -182,12 +185,24 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
             Ok(value.clone())
         }
         GroupedProjectionExpr::Literal(value) => Ok(value.clone()),
+        GroupedProjectionExpr::FunctionCall { function, args } => {
+            let evaluated_args = args
+                .iter()
+                .map(|arg| eval_grouped_projection_expr(arg, grouped_row))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
+                ProjectionEvalError::InvalidFunctionCall {
+                    function: projection_function_name(*function).to_string(),
+                    message: err.to_string(),
+                }
+            })
+        }
         #[cfg(test)]
         GroupedProjectionExpr::Unary { op, expr } => {
             let operand = eval_grouped_projection_expr(expr, grouped_row)?;
             eval_unary_expr(*op, &operand)
         }
-        #[cfg(test)]
         GroupedProjectionExpr::Binary { op, left, right } => {
             let left = eval_grouped_projection_expr(left, grouped_row)?;
             let right = eval_grouped_projection_expr(right, grouped_row)?;
@@ -258,18 +273,15 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
             ))
         }
         Expr::Literal(value) => Ok(GroupedProjectionExpr::Literal(value.clone())),
-        Expr::FunctionCall { function, .. } => {
-            // Grouped projection stays fail-closed on function calls until the
-            // shared scalar function seam is widened for grouped execution too.
-            // Do not add grouped-only function semantics here; future support
-            // must extend the canonical compiled expression/eval path instead.
-            Err(ProjectionEvalError::InvalidFunctionCall {
-                function: projection_function_name(*function).to_string(),
-                message:
-                    "grouped projection does not admit function expressions in the current slice"
-                        .to_string(),
-            })
-        }
+        Expr::FunctionCall { function, args } => Ok(GroupedProjectionExpr::FunctionCall {
+            function: *function,
+            args: args
+                .iter()
+                .map(|arg| {
+                    compile_grouped_projection_expr(arg, group_fields, aggregate_execution_specs)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        }),
         #[cfg(test)]
         Expr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
             op: *op,
@@ -279,36 +291,19 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 aggregate_execution_specs,
             )?),
         }),
-        Expr::Binary { op, left, right } => {
-            #[cfg(test)]
-            {
-                Ok(GroupedProjectionExpr::Binary {
-                    op: *op,
-                    left: Box::new(compile_grouped_projection_expr(
-                        left.as_ref(),
-                        group_fields,
-                        aggregate_execution_specs,
-                    )?),
-                    right: Box::new(compile_grouped_projection_expr(
-                        right.as_ref(),
-                        group_fields,
-                        aggregate_execution_specs,
-                    )?),
-                })
-            }
-
-            #[cfg(not(test))]
-            {
-                let _ = (op, left, right);
-
-                Err(ProjectionEvalError::InvalidFunctionCall {
-                    function: "binary".to_string(),
-                    message:
-                        "grouped projection does not admit arithmetic expressions in the current slice"
-                            .to_string(),
-                })
-            }
-        }
+        Expr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
+            op: *op,
+            left: Box::new(compile_grouped_projection_expr(
+                left.as_ref(),
+                group_fields,
+                aggregate_execution_specs,
+            )?),
+            right: Box::new(compile_grouped_projection_expr(
+                right.as_ref(),
+                group_fields,
+                aggregate_execution_specs,
+            )?),
+        }),
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)

@@ -643,6 +643,7 @@ const fn covering_read_field_source_label(source: &CoveringReadFieldSource) -> &
         CoveringReadFieldSource::IndexComponent { .. } => "index_component",
         CoveringReadFieldSource::PrimaryKey => "primary_key",
         CoveringReadFieldSource::Constant(_) => "constant",
+        CoveringReadFieldSource::RowField => "row_field",
     }
 }
 

@@ -48,7 +48,7 @@ pub(in crate::db::executor) const fn covering_requires_row_presence_check()
 // Resolve one canonical scan direction for covering projections. Any contract
 // that still owes primary-key reordering must consume the underlying index in
 // ascending storage order before post-access reordering.
-pub(in crate::db::executor) const fn covering_projection_scan_direction(
+pub(in crate::db) const fn covering_projection_scan_direction(
     order_contract: CoveringProjectionOrder,
 ) -> Direction {
     match order_contract {
@@ -58,7 +58,7 @@ pub(in crate::db::executor) const fn covering_projection_scan_direction(
 }
 
 // Reapply the logical covering projection order after component decoding.
-pub(in crate::db::executor) fn reorder_covering_projection_pairs<T>(
+pub(in crate::db) fn reorder_covering_projection_pairs<T>(
     order_contract: CoveringProjectionOrder,
     projected_pairs: &mut [(DataKey, T)],
 ) {
@@ -75,7 +75,7 @@ pub(in crate::db::executor) fn reorder_covering_projection_pairs<T>(
 
 // Resolve one covering projection component stream from one lowered
 // index-prefix or index-range contract.
-pub(in crate::db::executor) fn resolve_covering_projection_components_from_lowered_specs<F>(
+pub(in crate::db) fn resolve_covering_projection_components_from_lowered_specs<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
     index_range_specs: &[LoweredIndexRangeSpec],
@@ -198,7 +198,7 @@ where
 // Decode one canonical covering-index component payload into one runtime
 // `Value`. Returning `Ok(None)` keeps unsupported component kinds fail-closed
 // at the caller boundary instead of guessing a lossy decode here.
-pub(in crate::db::executor) fn decode_covering_projection_component(
+pub(in crate::db) fn decode_covering_projection_component(
     component: &[u8],
 ) -> Result<Option<Value>, InternalError> {
     let Some((&tag, payload)) = component.split_first() else {

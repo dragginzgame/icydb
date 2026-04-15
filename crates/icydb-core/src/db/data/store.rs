@@ -3,8 +3,30 @@
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
-use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
+use crate::{
+    db::data::{
+        CanonicalRow, DataKey, RawDataKey, RawRow, SelectiveRowRead, StorageKey,
+        StructuralRowContract, decode_sparse_indexed_raw_row_with_contract,
+        decode_sparse_required_slot_with_contract,
+    },
+    error::InternalError,
+    value::Value,
+};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+#[cfg(feature = "perf-attribution")]
+use std::cell::Cell;
+
+#[cfg(feature = "perf-attribution")]
+thread_local! {
+    static DATA_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_data_store_get_call() {
+    DATA_STORE_GET_CALL_COUNT.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
 
 ///
 /// DataStore
@@ -46,7 +68,47 @@ impl DataStore {
 
     /// Load one row by raw key.
     pub fn get(&self, key: &RawDataKey) -> Option<RawRow> {
+        #[cfg(feature = "perf-attribution")]
+        record_data_store_get_call();
+
         self.map.get(key)
+    }
+
+    /// Selectively decode one caller-declared slot list from one persisted row key.
+    pub(in crate::db) fn read_slot_values(
+        &self,
+        key: &RawDataKey,
+        contract: StructuralRowContract,
+        expected_key: StorageKey,
+        required_slots: &[usize],
+    ) -> Result<SelectiveRowRead<Vec<Option<Value>>>, InternalError> {
+        // Phase 1: preserve the storage-boundary distinction between one
+        // missing row and one present row that decodes the requested sparse
+        // slot set.
+        let Some(raw_row) = self.get(key) else {
+            return Ok(SelectiveRowRead::MissingRow);
+        };
+
+        // Phase 2: keep selective row reads on one slot-list contract, while
+        // still letting the storage layer choose the narrower one-field decode
+        // path internally when the caller only needs one slot.
+        let values = if let [required_slot] = required_slots {
+            vec![decode_sparse_required_slot_with_contract(
+                &raw_row,
+                contract,
+                expected_key,
+                *required_slot,
+            )?]
+        } else {
+            decode_sparse_indexed_raw_row_with_contract(
+                &raw_row,
+                contract,
+                expected_key,
+                required_slots,
+            )?
+        };
+
+        Ok(SelectiveRowRead::Present(values))
     }
 
     /// Return whether one raw key exists without cloning the row payload.
@@ -66,6 +128,12 @@ impl DataStore {
         self.iter()
             .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
             .sum()
+    }
+
+    /// Return the monotonic perf-only count of stable row fetches seen by this process.
+    #[cfg(feature = "perf-attribution")]
+    pub(in crate::db) fn current_get_call_count() -> u64 {
+        DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 }
 

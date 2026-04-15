@@ -6,7 +6,10 @@
 
 use crate::db::{
     access::AccessPlan,
-    query::plan::{AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec},
+    query::plan::{
+        AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec,
+        expr::order_term_preserves_group_field_order,
+    },
 };
 
 // Keep the raw grouped family selector internal so downstream code consumes the
@@ -300,7 +303,9 @@ fn grouped_order_prefix_matches_group_fields(
     group_fields
         .iter()
         .zip(order.fields.iter())
-        .all(|(group_field, (order_field, _))| order_field == group_field.field())
+        .all(|(group_field, (order_field, _))| {
+            order_term_preserves_group_field_order(order_field, group_field.field())
+        })
 }
 
 fn grouped_access_path_proves_group_order<K>(

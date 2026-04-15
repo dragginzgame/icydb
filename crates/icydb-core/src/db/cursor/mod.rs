@@ -137,13 +137,20 @@ pub(in crate::db) fn revalidate_cursor<K: FieldValue>(
 pub(in crate::db) fn prepare_grouped_cursor(
     entity_path: &'static str,
     order: Option<&OrderSpec>,
+    direction: Direction,
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
     cursor: Option<&[u8]>,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
     validate_grouped_cursor_order_plan(order)?;
 
-    spine::validate_grouped_cursor(cursor, entity_path, continuation_signature, initial_offset)
+    spine::validate_grouped_cursor(
+        cursor,
+        entity_path,
+        continuation_signature,
+        direction,
+        initial_offset,
+    )
 }
 
 /// Validate one already-decoded grouped continuation token into grouped
@@ -151,6 +158,7 @@ pub(in crate::db) fn prepare_grouped_cursor(
 pub(in crate::db) fn prepare_grouped_cursor_token(
     entity_path: &'static str,
     order: Option<&OrderSpec>,
+    direction: Direction,
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
     cursor: Option<GroupedContinuationToken>,
@@ -161,6 +169,7 @@ pub(in crate::db) fn prepare_grouped_cursor_token(
         cursor,
         entity_path,
         continuation_signature,
+        direction,
         initial_offset,
     )
 }

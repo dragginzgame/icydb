@@ -738,22 +738,21 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
         "computed text projection explain should still expose the routed access shape",
     );
 
-    let grouped_err = statement_explain_sql::<SessionSqlEntity>(
+    let grouped_explain = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT TRIM(name), COUNT(*) \
          FROM SessionSqlEntity \
          GROUP BY name \
          ORDER BY name ASC LIMIT 10",
     )
-    .expect_err("EXPLAIN should stay fail-closed for grouped computed text projection");
+    .expect("EXPLAIN should support grouped computed text projection over grouped fields");
     assert!(
-        matches!(
-            grouped_err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "grouped computed SQL projection explain should remain rejected",
+        grouped_explain.contains("grouping="),
+        "grouped computed SQL projection explain should still expose grouped planning",
+    );
+    assert!(
+        grouped_explain.contains("mode=Load"),
+        "grouped computed SQL projection explain should still render the base load plan",
     );
 
     let (left_sql, right_sql, context) = (
@@ -762,6 +761,34 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
         "top-level grouped SELECT DISTINCT explain",
     );
     assert_explain_equivalence_case::<SessionSqlEntity>(&session, left_sql, right_sql, context);
+}
+
+#[test]
+fn explain_sql_grouped_additive_order_terms_preserve_surface_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for sql in [
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age + 1 ASC LIMIT 10",
+        "EXPLAIN SELECT age + 1 AS next_age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY next_age ASC LIMIT 10",
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .expect("grouped additive ORDER BY explain should succeed");
+        assert!(
+            explain.contains("grouping="),
+            "grouped additive ORDER BY explain should still expose grouped planning",
+        );
+        assert!(
+            explain.contains("age + 1") || explain.contains("next_age"),
+            "grouped additive ORDER BY explain should preserve the requested computed order surface",
+        );
+    }
 }
 
 #[test]
