@@ -645,6 +645,7 @@ mod tests {
     use darling::{FromMeta, ast::NestedMeta};
     use icydb_schema::types::Primitive;
     use quote::format_ident;
+    use quote::quote;
     use syn::parse_quote;
 
     fn relation_field(ident: &str, many: bool) -> Field {
@@ -811,6 +812,27 @@ mod tests {
             vec!["Id".to_string(), "generate".to_string()],
             "generated(insert = \"...\") should preserve the quoted path segments",
         );
+    }
+
+    #[test]
+    fn from_list_parses_generated_insert_clause() {
+        let args = NestedMeta::parse_meta_list(
+            quote!(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            )
+            .into(),
+        )
+        .expect("field args should parse");
+
+        let field = Field::from_list(&args).expect("field meta should lower");
+
+        assert!(
+            matches!(field.generated, Some(FieldGeneration::Insert(_))),
+            "generated(insert = ...) should parse into FieldGeneration::Insert",
+        );
+        assert_eq!(field.value.item.primitive, Some(Primitive::Ulid));
     }
 
     #[test]

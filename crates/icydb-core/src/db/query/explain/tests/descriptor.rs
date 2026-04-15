@@ -67,8 +67,8 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
         "verbose execution text should render predicate pushdown details",
     );
     assert!(
-        verbose.contains("node_properties=fetch="),
-        "verbose execution text should render node properties",
+        verbose.contains("node_properties:") && verbose.contains("  fetch="),
+        "verbose execution text should render expanded node properties",
     );
 }
 

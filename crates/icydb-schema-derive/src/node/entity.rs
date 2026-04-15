@@ -567,9 +567,11 @@ mod tests {
     use crate::node::{
         Def, Field, FieldList, Index, Item, PrimaryKey, PrimaryKeySource, Type, ValidateNode, Value,
     };
+    use darling::{FromMeta, ast::NestedMeta};
     use icydb_schema::types::Primitive;
     use proc_macro2::Span;
     use quote::format_ident;
+    use quote::quote;
     use syn::LitStr;
 
     fn scalar_field(ident: &str) -> Field {
@@ -680,6 +682,37 @@ mod tests {
         assert!(
             err.to_string().contains("index field 'name' not found"),
             "unexpected validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_parses_nested_indexes_and_fields() {
+        let args = NestedMeta::parse_meta_list(
+            quote!(
+                store = "UiDataStore",
+                pk(field = "id"),
+                index(fields = "missing_field"),
+                fields(field(
+                    ident = "id",
+                    value(item(prim = "Ulid")),
+                    default = "Ulid::generate"
+                ))
+            )
+            .into(),
+        )
+        .expect("entity args should parse");
+
+        let node = Entity::from_list(&args).expect("entity meta should lower");
+
+        assert_eq!(
+            node.indexes.len(),
+            1,
+            "index(...) should parse into indexes"
+        );
+        assert_eq!(
+            node.fields.len(),
+            1,
+            "fields(field(...)) should parse into fields"
         );
     }
 }

@@ -13,7 +13,7 @@ use crate::{
             planning::route::AggregateRouteShape,
         },
         query::explain::ExplainAggregateTerminalPlan,
-        session::sql::projection::annotate_sql_projection_labels_on_execution_descriptor,
+        session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_explain_global_aggregate_structural,
@@ -53,6 +53,47 @@ const fn unsupported_explain_sql_lane_message(lane: ExplainSqlLane) -> &'static 
         ExplainSqlLane::ShowEntities => "explain_sql rejects SHOW ENTITIES",
         ExplainSqlLane::Query | ExplainSqlLane::Explain => "explain_sql requires EXPLAIN",
     }
+}
+
+// Render the shell-facing SQL EXPLAIN EXECUTION header that explains how the
+// compact perf footer maps onto the current query lifecycle.
+fn sql_execution_phase_breakdown_lines() -> Vec<String> {
+    vec![
+        "phases:".to_string(),
+        "  c=compile: parse, lower, and compile the SQL surface".to_string(),
+        "  p=planner: resolve visible indexes and build the structural access plan".to_string(),
+        "  e=executor: run scan, filter, order, group, and projection execution".to_string(),
+        "  d=decode: package the public SQL result payload for the shell".to_string(),
+    ]
+}
+
+// Indent one already-rendered multiline execution block so it nests cleanly
+// under the SQL EXPLAIN EXECUTION `execution:` section header.
+fn indent_multiline_block(block: &str, indent: &str) -> String {
+    let mut rendered = String::new();
+
+    for (index, line) in block.lines().enumerate() {
+        if index > 0 {
+            rendered.push('\n');
+        }
+        rendered.push_str(indent);
+        rendered.push_str(line);
+    }
+
+    rendered
+}
+
+// Render one shell-facing SQL execution explain report with a phase legend and
+// one indented verbose execution tree.
+fn render_sql_execution_explain(descriptor: &crate::db::ExplainExecutionNodeDescriptor) -> String {
+    let mut lines = sql_execution_phase_breakdown_lines();
+    lines.push("execution:".to_string());
+    lines.push(indent_multiline_block(
+        descriptor.render_text_tree_verbose().as_str(),
+        "  ",
+    ));
+
+    lines.join("\n")
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -156,12 +197,14 @@ impl<C: CanisterKind> DbSession<C> {
             &plan,
         )
         .map_err(QueryError::execute)?;
-        annotate_sql_projection_labels_on_execution_descriptor(
+        annotate_sql_projection_debug_on_execution_descriptor(
             &mut descriptor,
+            authority.model(),
+            &plan,
             &plan.projection_spec(authority.model()),
         );
 
-        Ok(Some(descriptor.render_text_tree()))
+        Ok(Some(render_sql_execution_explain(&descriptor)))
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command
@@ -216,7 +259,9 @@ impl<C: CanisterKind> DbSession<C> {
                         execution,
                     );
 
-                    rendered.push(terminal_plan.execution_node_descriptor().render_text_tree());
+                    rendered.push(render_sql_execution_explain(
+                        &terminal_plan.execution_node_descriptor(),
+                    ));
                 }
 
                 Ok(rendered.join("\n\n"))

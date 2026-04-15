@@ -145,6 +145,31 @@ impl HasType for Newtype {
     }
 }
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Newtype;
+    use darling::{FromMeta, ast::NestedMeta};
+    use icydb_schema::types::Primitive;
+    use quote::quote;
+
+    #[test]
+    fn from_list_parses_nested_item_primitive() {
+        let args = NestedMeta::parse_meta_list(
+            quote!(primitive = "Decimal", item(prim = "Decimal")).into(),
+        )
+        .expect("newtype args should parse");
+
+        let node = Newtype::from_list(&args).expect("newtype meta should lower");
+
+        assert_eq!(node.primitive, Some(Primitive::Decimal));
+        assert_eq!(node.item.primitive, Some(Primitive::Decimal));
+    }
+}
+
 impl ToTokens for Newtype {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());

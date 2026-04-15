@@ -162,22 +162,27 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
     let cases = vec![
         (
             "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-            vec!["node_id=0", "layer="],
+            vec!["phases:", "execution:", "node_id=0", "node_properties:"],
         ),
         (
             "EXPLAIN EXECUTION SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
-            vec!["node_id=0", "execution_mode="],
+            vec!["phases:", "execution:", "node_id=0", "execution_mode="],
         ),
         (
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
-            vec!["AggregateCount execution_mode=", "node_id=0"],
+            vec![
+                "phases:",
+                "execution:",
+                "AggregateCount execution_mode=",
+                "node_id=0",
+            ],
         ),
         (
             "EXPLAIN EXECUTION DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
-            vec!["node_id=0", "layer="],
+            vec!["phases:", "execution:", "node_id=0", "layer="],
         ),
     ];
 
@@ -187,6 +192,41 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
         cases.as_slice(),
         "EXPLAIN EXECUTION matrix query",
         false,
+    );
+}
+
+#[test]
+fn explain_sql_execution_surfaces_direct_slot_row_projection_materialization() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+    )
+    .expect("direct-slot-row EXPLAIN EXECUTION should succeed");
+
+    assert!(
+        explain.contains("proj_materialization=Text(\"direct_slot_row\")"),
+        "scalar SQL EXPLAIN EXECUTION should expose direct slot-row projection materialization: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_execution_surfaces_covering_read_projection_materialization() {
+    reset_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+    let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
+    )
+    .expect("covering-read EXPLAIN EXECUTION should succeed");
+
+    assert!(
+        explain.contains("proj_materialization=Text(\"covering_read\")"),
+        "covering SQL EXPLAIN EXECUTION should expose covering-read projection materialization: {explain}",
     );
 }
 

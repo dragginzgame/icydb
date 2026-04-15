@@ -156,7 +156,8 @@ impl ExplainExecutionNodeDescriptor {
     fn render_text_tree_verbose_node_fields(&self, field_indent: &str, out: &mut String) {
         if let Some(access_strategy) = self.access_strategy.as_ref() {
             push_rendered_line_prefix_with_indent(out, field_indent);
-            let _ = write!(out, "access_strategy={access_strategy:?}");
+            out.push_str("access_strategy=");
+            write_access_strategy_label(out, access_strategy);
         }
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             push_rendered_line_prefix_with_indent(out, field_indent);
@@ -196,8 +197,15 @@ impl ExplainExecutionNodeDescriptor {
         }
         if !self.node_properties.is_empty() {
             push_rendered_line_prefix_with_indent(out, field_indent);
-            out.push_str("node_properties=");
-            write_node_properties(out, &self.node_properties);
+            out.push_str("node_properties:");
+
+            // Expand each stable property onto its own line so verbose explain
+            // stays readable even when route diagnostics grow.
+            for (key, value) in self.node_properties.iter() {
+                push_rendered_line_prefix_with_indent(out, field_indent);
+                out.push_str("  ");
+                let _ = write!(out, "{key}={value:?}");
+            }
         }
     }
 }

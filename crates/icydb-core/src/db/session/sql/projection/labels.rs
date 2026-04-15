@@ -6,16 +6,19 @@
 
 use crate::{
     db::{
-        executor::KernelRow,
+        executor::{KernelRow, projection::prepare_projection_shape_from_plan},
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::{
             builder::aggregate::AggregateExpr,
             explain::ExplainExecutionNodeDescriptor,
-            plan::expr::{Expr, ProjectionField, ProjectionSpec},
+            plan::{
+                AccessPlannedQuery,
+                expr::{Expr, ProjectionField, ProjectionSpec},
+            },
         },
     },
     error::InternalError,
-    model::field::FieldModel,
+    model::{entity::EntityModel, field::FieldModel},
     value::Value,
 };
 
@@ -115,10 +118,13 @@ fn round_scale_from_expr(expr: &Expr) -> Option<u32> {
     }
 }
 
-// Attach SQL-facing projection labels to one execution descriptor only at the
-// session SQL boundary so executor-owned EXPLAIN assembly stays structural.
-pub(in crate::db::session::sql) fn annotate_sql_projection_labels_on_execution_descriptor(
+// Attach SQL-facing projection labels and shell-facing projection runtime hints
+// only at the session SQL boundary so executor-owned EXPLAIN assembly stays
+// structural.
+pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_descriptor(
     descriptor: &mut ExplainExecutionNodeDescriptor,
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
     projection: &ProjectionSpec,
 ) {
     let labels = projection_labels_from_projection_spec(projection)
@@ -128,6 +134,38 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_labels_on_execution_d
     descriptor
         .node_properties
         .insert("proj_fields", Value::List(labels));
+
+    if let Some(materialization) = sql_projection_materialization_label(descriptor, model, plan) {
+        descriptor
+            .node_properties
+            .insert("proj_materialization", Value::from(materialization));
+    }
+}
+
+fn sql_projection_materialization_label(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Option<&'static str> {
+    if !plan.scalar_plan().mode.is_load()
+        || plan.grouped_plan().is_some()
+        || plan.scalar_projection_plan().is_none()
+    {
+        return None;
+    }
+    if descriptor.covering_scan() == Some(true) {
+        return Some("covering_read");
+    }
+
+    let prepared_projection = prepare_projection_shape_from_plan(model, plan);
+    if prepared_projection
+        .retained_slot_direct_projection_field_slots()
+        .is_some()
+    {
+        return Some("direct_slot_row");
+    }
+
+    Some("scalar_projection")
 }
 
 // Derive canonical full-entity projection labels in declared model order.
