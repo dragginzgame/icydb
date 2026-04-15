@@ -101,7 +101,7 @@ fn is_shell_help_command(input: &str) -> bool {
     )
 }
 
-fn shell_help_text() -> &'static str {
+const fn shell_help_text() -> &'static str {
     "icydb-cli help
 
 meta commands:
