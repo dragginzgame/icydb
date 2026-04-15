@@ -456,6 +456,7 @@ impl PreparedSqlScalarAggregateStrategy {
 pub(crate) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) query: LoweredBaseQueryShape,
     pub(in crate::db::sql::lowering) terminals: Vec<SqlGlobalAggregateTerminal>,
+    pub(in crate::db::sql::lowering) output_remap: Vec<usize>,
 }
 
 ///
@@ -487,6 +488,7 @@ enum LoweredSqlAggregateShape {
 pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
     terminals: Vec<TypedSqlGlobalAggregateTerminal>,
+    output_remap: Vec<usize>,
 }
 
 #[cfg(test)]
@@ -501,6 +503,13 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     #[must_use]
     pub(crate) fn terminals(&self) -> &[TypedSqlGlobalAggregateTerminal] {
         self.terminals.as_slice()
+    }
+
+    /// Borrow the output-to-unique-terminal remap preserved from original SQL projection order.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn output_remap(&self) -> &[usize] {
+        self.output_remap.as_slice()
     }
 
     /// Borrow the first lowered aggregate terminal for single-terminal callers.
@@ -532,6 +541,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
     terminals: Vec<SqlGlobalAggregateTerminal>,
+    output_remap: Vec<usize>,
 }
 
 impl SqlGlobalAggregateCommandCore {
@@ -539,6 +549,12 @@ impl SqlGlobalAggregateCommandCore {
     #[must_use]
     pub(in crate::db) const fn query(&self) -> &StructuralQuery {
         &self.query
+    }
+
+    /// Borrow the output remap used to fan unique aggregate terminal results back out.
+    #[must_use]
+    pub(in crate::db) const fn output_remap(&self) -> &[usize] {
+        self.output_remap.as_slice()
     }
 
     /// Prepare structural SQL scalar aggregate strategies using one concrete model.
@@ -716,7 +732,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
-    let terminals = lower_global_aggregate_terminals(projection)?;
+    let lowered_terminals = lower_global_aggregate_terminals(projection)?;
 
     Ok(LoweredSqlGlobalAggregateCommand {
         query: LoweredBaseQueryShape {
@@ -725,7 +741,8 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
             limit,
             offset,
         },
-        terminals,
+        terminals: lowered_terminals.terminals,
+        output_remap: lowered_terminals.output_remap,
     })
 }
 
@@ -734,14 +751,20 @@ pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command<E:
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-    let terminals = bind_lowered_sql_global_aggregate_terminals::<E>(lowered.terminals)?;
+    let LoweredSqlGlobalAggregateCommand {
+        query,
+        terminals,
+        output_remap,
+    } = lowered;
+    let terminals = bind_lowered_sql_global_aggregate_terminals::<E>(terminals)?;
 
     Ok(SqlGlobalAggregateCommand {
         query: Query::from_inner(crate::db::sql::lowering::apply_lowered_base_query_shape(
             StructuralQuery::new(E::MODEL, consistency),
-            lowered.query,
+            query,
         )),
         terminals,
+        output_remap,
     })
 }
 
@@ -750,12 +773,19 @@ fn bind_lowered_sql_global_aggregate_command_structural(
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
 ) -> SqlGlobalAggregateCommandCore {
+    let LoweredSqlGlobalAggregateCommand {
+        query,
+        terminals,
+        output_remap,
+    } = lowered;
+
     SqlGlobalAggregateCommandCore {
         query: crate::db::sql::lowering::apply_lowered_base_query_shape(
             StructuralQuery::new(model, consistency),
-            lowered.query,
+            query,
         ),
-        terminals: lowered.terminals,
+        terminals,
+        output_remap,
     }
 }
 
@@ -798,9 +828,20 @@ fn lower_global_aggregate_terminal(
     }
 }
 
+///
+/// LoweredSqlGlobalAggregateTerminals
+///
+/// Canonical global aggregate lowering result that keeps only unique
+/// executable terminals plus one remap back to original SQL projection order.
+///
+struct LoweredSqlGlobalAggregateTerminals {
+    terminals: Vec<SqlGlobalAggregateTerminal>,
+    output_remap: Vec<usize>,
+}
+
 fn lower_global_aggregate_terminals(
     projection: SqlProjection,
-) -> Result<Vec<SqlGlobalAggregateTerminal>, SqlLoweringError> {
+) -> Result<LoweredSqlGlobalAggregateTerminals, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::unsupported_select_projection());
     };
@@ -808,10 +849,26 @@ fn lower_global_aggregate_terminals(
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
-    items
-        .into_iter()
-        .map(lower_global_aggregate_terminal)
-        .collect()
+    let mut terminals = Vec::<SqlGlobalAggregateTerminal>::with_capacity(items.len());
+    let mut output_remap = Vec::<usize>::with_capacity(items.len());
+
+    for item in items {
+        let terminal = lower_global_aggregate_terminal(item)?;
+        let unique_index = terminals
+            .iter()
+            .position(|current| current == &terminal)
+            .unwrap_or_else(|| {
+                let index = terminals.len();
+                terminals.push(terminal);
+                index
+            });
+        output_remap.push(unique_index);
+    }
+
+    Ok(LoweredSqlGlobalAggregateTerminals {
+        terminals,
+        output_remap,
+    })
 }
 
 fn lower_sql_aggregate_shape(

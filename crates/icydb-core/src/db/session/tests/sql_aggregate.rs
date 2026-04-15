@@ -641,6 +641,134 @@ fn global_aggregate_multi_terminal_query_returns_expected_projection_row() {
 }
 
 #[test]
+fn global_aggregate_duplicate_terminals_preserve_duplicate_output_columns() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("duplicate-aggregate-a", 10),
+            ("duplicate-aggregate-b", 20),
+            ("duplicate-aggregate-c", 30),
+        ],
+    );
+
+    assert_eq!(
+        statement_projection_columns::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SessionSqlEntity",
+        )
+        .expect("duplicate global aggregate columns should load"),
+        vec![
+            "COUNT(age)".to_string(),
+            "COUNT(age)".to_string(),
+            "SUM(age)".to_string(),
+            "COUNT(age)".to_string(),
+        ],
+        "duplicate global aggregate SQL should preserve duplicate outward labels",
+    );
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SessionSqlEntity",
+        )
+        .expect("duplicate global aggregate row should load"),
+        vec![vec![
+            Value::Uint(3),
+            Value::Uint(3),
+            Value::Decimal(crate::types::Decimal::from(60_u64)),
+            Value::Uint(3),
+        ]],
+        "duplicate global aggregate SQL should fan unique reduced values back out into original projection order",
+    );
+}
+
+#[test]
+fn global_aggregate_duplicate_terminals_preserve_duplicate_alias_columns() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("duplicate-alias-a", 10),
+            ("duplicate-alias-b", 20),
+            ("duplicate-alias-c", 30),
+        ],
+    );
+
+    assert_eq!(
+        statement_projection_columns::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age) AS first_count, COUNT(age) AS second_count, COUNT(age) AS third_count FROM SessionSqlEntity",
+        )
+        .expect("duplicate aliased global aggregate columns should load"),
+        vec![
+            "first_count".to_string(),
+            "second_count".to_string(),
+            "third_count".to_string(),
+        ],
+        "duplicate global aggregate SQL should preserve outward alias labels after terminal dedupe",
+    );
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age) AS first_count, COUNT(age) AS second_count, COUNT(age) AS third_count FROM SessionSqlEntity",
+        )
+        .expect("duplicate aliased global aggregate row should load"),
+        vec![vec![Value::Uint(3), Value::Uint(3), Value::Uint(3)]],
+        "duplicate aliased global aggregate SQL should fan one reduced value back out to every aliased output slot",
+    );
+}
+
+#[test]
+fn global_aggregate_distinct_terminals_do_not_collapse_into_plain_count_outputs() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("distinct-aggregate-a", 10),
+            ("distinct-aggregate-b", 10),
+            ("distinct-aggregate-c", 30),
+        ],
+    );
+
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SessionSqlEntity",
+        )
+        .expect("distinct and non-distinct aggregate row should load"),
+        vec![vec![Value::Uint(3), Value::Uint(2), Value::Uint(3)]],
+        "COUNT(DISTINCT age) should stay separate from plain COUNT(age) while exact duplicates still fan out",
+    );
+}
+
+#[test]
+fn global_aggregate_qualified_and_unqualified_duplicates_preserve_same_outputs() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("qualified-aggregate-a", 10),
+            ("qualified-aggregate-b", 20),
+            ("qualified-aggregate-c", 30),
+        ],
+    );
+
+    assert_eq!(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "SELECT COUNT(age), COUNT(SessionSqlEntity.age), COUNT(age) FROM SessionSqlEntity",
+        )
+        .expect("qualified and unqualified duplicate aggregate row should load"),
+        vec![vec![Value::Uint(3), Value::Uint(3), Value::Uint(3)]],
+        "qualified and unqualified duplicate aggregate terminals should normalize to the same reduced output",
+    );
+}
+
+#[test]
 fn sql_aggregate_unknown_target_field_matrix_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();

@@ -2225,6 +2225,164 @@ fn compile_sql_global_aggregate_command_multiple_terminals_lower() {
 }
 
 #[test]
+fn compile_sql_global_aggregate_command_duplicate_terminals_dedup_to_unique_terminal_remap() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("duplicate global aggregate terminals should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "duplicate global aggregate SQL should keep only unique executable terminals",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "the first unique lowered terminal should preserve COUNT(age)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "the second unique lowered terminal should preserve SUM(age)",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 0, 1, 0],
+        "duplicate aggregate outputs should remap back to the original projection order",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_unique_order_remap() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(age), SUM(age), COUNT(age), SUM(age), MAX(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("mixed duplicate global aggregate terminals should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        3,
+        "mixed duplicate global aggregate SQL should keep one unique terminal per semantic aggregate",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "the first unique lowered terminal should preserve COUNT(age)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::SumField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "the second unique lowered terminal should preserve SUM(age)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[2],
+            TypedSqlGlobalAggregateTerminal::MaxField(target_slot)
+                if target_slot.field() == "age"
+        ),
+        "the third unique lowered terminal should preserve MAX(age)",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 1, 0, 1, 2],
+        "mixed duplicate aggregate outputs should remap to the first-seen unique terminal order",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_plain_count() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("distinct and non-distinct global aggregate terminals should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "COUNT(age) and COUNT(DISTINCT age) should remain separate executable terminals",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "the first unique lowered terminal should preserve plain COUNT(age)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: true,
+            } if target_slot.field() == "age"
+        ),
+        "the second unique lowered terminal should preserve COUNT(DISTINCT age)",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 1, 0],
+        "distinct and non-distinct aggregate outputs should only collapse exact duplicates",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_qualified_and_unqualified_duplicates_collapse() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(age), COUNT(SqlLowerEntity.age), COUNT(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("qualified and unqualified duplicate global aggregate terminals should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        1,
+        "qualified and unqualified aggregate terminals should normalize to one unique executable terminal",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::CountField {
+                target_slot,
+                distinct: false,
+            } if target_slot.field() == "age"
+        ),
+        "qualified aggregate target fields should normalize onto the canonical COUNT(age) terminal",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 0, 0],
+        "qualified and unqualified duplicate outputs should remap to the same unique terminal",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_terminal() {
     let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
         "SELECT SUM(SqlLowerEntity.age) FROM SqlLowerEntity",

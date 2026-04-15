@@ -285,21 +285,14 @@ impl<C: CanisterKind> DbSession<C> {
         let strategies = command
             .prepared_scalar_strategies_with_model(model)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let mut columns = Vec::with_capacity(strategies.len());
-        let mut fixed_scales = Vec::with_capacity(strategies.len());
-        let mut row = Vec::with_capacity(strategies.len());
+        let mut unique_values = Vec::with_capacity(strategies.len());
+        let mut columns = Vec::with_capacity(command.output_remap().len());
+        let mut fixed_scales = Vec::with_capacity(command.output_remap().len());
+        let mut row = Vec::with_capacity(command.output_remap().len());
         let mut cache_attribution = SqlCacheAttribution::default();
 
-        for (index, strategy) in strategies.iter().enumerate() {
-            columns.push(
-                label_overrides
-                    .get(index)
-                    .cloned()
-                    .flatten()
-                    .unwrap_or_else(|| Self::sql_scalar_aggregate_label(strategy)),
-            );
-            fixed_scales.push(None);
-
+        // Phase 1: execute each unique prepared aggregate terminal once.
+        for strategy in &strategies {
             let value = match strategy.runtime_descriptor() {
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
                     let (value, count_cache_attribution) = self
@@ -338,6 +331,32 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             };
 
+            unique_values.push(value);
+        }
+
+        // Phase 2: fan unique terminal values back out into original SQL output
+        // order so duplicate aggregate projections preserve both labels and
+        // column multiplicity without rerunning identical work.
+        for (output_index, unique_index) in command.output_remap().iter().copied().enumerate() {
+            let strategy = strategies.get(unique_index).ok_or_else(|| {
+                QueryError::invariant(
+                    "global aggregate output remap referenced missing unique terminal strategy",
+                )
+            })?;
+            let value = unique_values.get(unique_index).cloned().ok_or_else(|| {
+                QueryError::invariant(
+                    "global aggregate output remap referenced missing reduced terminal value",
+                )
+            })?;
+
+            columns.push(
+                label_overrides
+                    .get(output_index)
+                    .cloned()
+                    .flatten()
+                    .unwrap_or_else(|| Self::sql_scalar_aggregate_label(strategy)),
+            );
+            fixed_scales.push(None);
             row.push(value);
         }
 
