@@ -24,7 +24,7 @@ use crate::{
 use candid::CandidType;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_bytes::Bytes;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
 // re-exports
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
@@ -271,7 +271,7 @@ impl From<MapValueError> for SchemaInvariantError {
 // Unit        → internal placeholder for RHS; not a real value.
 //
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(CandidType, Clone, Eq, PartialEq)]
 pub enum Value {
     Account(Account),
     Blob(Vec<u8>),
@@ -306,6 +306,37 @@ pub enum Value {
     UintBig(Nat),
     Ulid(Ulid),
     Unit,
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Account(value) => f.debug_tuple("Account").field(value).finish(),
+            Self::Blob(value) => write!(f, "Blob({} bytes)", value.len()),
+            Self::Bool(value) => f.debug_tuple("Bool").field(value).finish(),
+            Self::Date(value) => f.debug_tuple("Date").field(value).finish(),
+            Self::Decimal(value) => f.debug_tuple("Decimal").field(value).finish(),
+            Self::Duration(value) => f.debug_tuple("Duration").field(value).finish(),
+            Self::Enum(value) => f.debug_tuple("Enum").field(value).finish(),
+            Self::Float32(value) => f.debug_tuple("Float32").field(value).finish(),
+            Self::Float64(value) => f.debug_tuple("Float64").field(value).finish(),
+            Self::Int(value) => f.debug_tuple("Int").field(value).finish(),
+            Self::Int128(value) => f.debug_tuple("Int128").field(value).finish(),
+            Self::IntBig(value) => f.debug_tuple("IntBig").field(value).finish(),
+            Self::List(value) => f.debug_tuple("List").field(value).finish(),
+            Self::Map(value) => f.debug_tuple("Map").field(value).finish(),
+            Self::Null => f.write_str("Null"),
+            Self::Principal(value) => f.debug_tuple("Principal").field(value).finish(),
+            Self::Subaccount(value) => f.debug_tuple("Subaccount").field(value).finish(),
+            Self::Text(value) => f.debug_tuple("Text").field(value).finish(),
+            Self::Timestamp(value) => f.debug_tuple("Timestamp").field(value).finish(),
+            Self::Uint(value) => f.debug_tuple("Uint").field(value).finish(),
+            Self::Uint128(value) => f.debug_tuple("Uint128").field(value).finish(),
+            Self::UintBig(value) => f.debug_tuple("UintBig").field(value).finish(),
+            Self::Ulid(value) => f.debug_tuple("Ulid").field(value).finish(),
+            Self::Unit => f.write_str("Unit"),
+        }
+    }
 }
 
 impl FieldTypeMeta for Value {
