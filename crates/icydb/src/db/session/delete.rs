@@ -142,7 +142,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     where
         E: EntityValue,
     {
-        Ok(self.execute()?)
+        self.execute()
     }
 
     /// Require exactly one affected row.
