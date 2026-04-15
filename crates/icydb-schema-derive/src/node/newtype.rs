@@ -205,10 +205,9 @@ mod tests {
 
     #[test]
     fn from_list_parses_nested_item_primitive() {
-        let args = NestedMeta::parse_meta_list(
-            quote!(primitive = "Decimal", item(prim = "Decimal")).into(),
-        )
-        .expect("newtype args should parse");
+        let args =
+            NestedMeta::parse_meta_list(quote!(primitive = "Decimal", item(prim = "Decimal")))
+                .expect("newtype args should parse");
 
         let node = Newtype::from_list(&args).expect("newtype meta should lower");
 

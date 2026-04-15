@@ -816,14 +816,11 @@ mod tests {
 
     #[test]
     fn from_list_parses_generated_insert_clause() {
-        let args = NestedMeta::parse_meta_list(
-            quote!(
-                ident = "id",
-                value(item(prim = "Ulid")),
-                generated(insert = "Ulid::generate")
-            )
-            .into(),
-        )
+        let args = NestedMeta::parse_meta_list(quote!(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
         .expect("field args should parse");
 
         let field = Field::from_list(&args).expect("field meta should lower");

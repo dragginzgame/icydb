@@ -687,19 +687,16 @@ mod tests {
 
     #[test]
     fn from_list_parses_nested_indexes_and_fields() {
-        let args = NestedMeta::parse_meta_list(
-            quote!(
-                store = "UiDataStore",
-                pk(field = "id"),
-                index(fields = "missing_field"),
-                fields(field(
-                    ident = "id",
-                    value(item(prim = "Ulid")),
-                    default = "Ulid::generate"
-                ))
-            )
-            .into(),
-        )
+        let args = NestedMeta::parse_meta_list(quote!(
+            store = "UiDataStore",
+            pk(field = "id"),
+            index(fields = "missing_field"),
+            fields(field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                default = "Ulid::generate"
+            ))
+        ))
         .expect("entity args should parse");
 
         let node = Entity::from_list(&args).expect("entity meta should lower");
