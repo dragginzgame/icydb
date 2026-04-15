@@ -42,6 +42,7 @@ pub use store::DataStore;
 pub(in crate::db) use structural_field::{
     decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
     decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+    encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
     validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
 };
 pub(in crate::db) use structural_row::{

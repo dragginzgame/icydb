@@ -6,7 +6,9 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks, Predicate,
-        codec::{ROW_FORMAT_VERSION_CURRENT, serialize_row_payload},
+        codec::{
+            ROW_FORMAT_VERSION_CURRENT, serialize_row_payload, serialize_row_payload_with_version,
+        },
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
             commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
@@ -3363,8 +3365,8 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
         .expect("row key should encode");
     let payload = serialize(&entity).expect("entity payload should encode");
     let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
-    let future_version_row =
-        serialize(&(future_version, payload)).expect("future-version row envelope should encode");
+    let future_version_row = serialize_row_payload_with_version(payload, future_version)
+        .expect("future-version row envelope should encode");
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {

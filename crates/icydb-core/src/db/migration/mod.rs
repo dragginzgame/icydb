@@ -16,10 +16,10 @@ use crate::{
         },
     },
     error::InternalError,
-    serialize::serialize,
     traits::CanisterKind,
 };
 use serde::{Deserialize, Serialize};
+use serde_cbor::to_vec;
 
 const MAX_MIGRATION_STATE_BYTES: usize = 64 * 1024;
 
@@ -464,7 +464,7 @@ fn decode_persisted_migration_state(
 fn encode_persisted_migration_state(
     state: &PersistedMigrationState,
 ) -> Result<Vec<u8>, InternalError> {
-    serialize(state).map_err(InternalError::migration_state_serialize_failed)
+    to_vec(state).map_err(InternalError::migration_state_serialize_failed)
 }
 
 fn execute_migration_step<C: CanisterKind>(

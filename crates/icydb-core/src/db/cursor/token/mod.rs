@@ -5,19 +5,17 @@
 //! Boundary: defines the current token payloads consumed by cursor
 //! encode/decode boundaries.
 
+mod codec;
 mod error;
 mod grouped;
 mod scalar;
-mod wire;
 
+pub(in crate::db::cursor::token) use codec::{
+    decode_grouped_token, decode_scalar_token, encode_grouped_token, encode_scalar_token,
+};
 pub(crate) use error::TokenWireError;
 pub(in crate::db) use grouped::GroupedContinuationToken;
 pub(crate) use scalar::ContinuationToken;
-pub(in crate::db::cursor::token) use wire::{
-    ContinuationTokenWire, ContinuationTokenWireRef, GroupedContinuationTokenWire,
-    GroupedContinuationTokenWireRef, IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef,
-    MAX_CONTINUATION_TOKEN_BYTES, MAX_GROUPED_CONTINUATION_TOKEN_BYTES,
-};
 
 ///
 /// IndexRangeCursorAnchor

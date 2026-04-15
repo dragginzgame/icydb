@@ -4,17 +4,11 @@
 //! Boundary: maps grouped cursor tokens between runtime domain and bounded wire payloads.
 
 use crate::{
-    db::{
-        codec::deserialize_protocol_payload, cursor::ContinuationSignature, direction::Direction,
-    },
-    serialize::{serialize, serialize_hex},
+    db::{codec::cursor::encode_cursor, cursor::ContinuationSignature, direction::Direction},
     value::Value,
 };
 
-use crate::db::cursor::token::{
-    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef,
-    MAX_GROUPED_CONTINUATION_TOKEN_BYTES, TokenWireError,
-};
+use crate::db::cursor::token::{TokenWireError, decode_grouped_token, encode_grouped_token};
 
 ///
 /// GroupedContinuationToken
@@ -77,34 +71,24 @@ impl GroupedContinuationToken {
     }
 
     pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
-        let wire = GroupedContinuationTokenWireRef {
-            signature: self.signature.into_bytes(),
-            last_group_key: self.last_group_key.as_slice(),
-            direction: self.direction,
-            initial_offset: self.initial_offset,
-        };
-
-        serialize(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
+        encode_grouped_token(
+            self.signature,
+            self.last_group_key.as_slice(),
+            self.direction,
+            self.initial_offset,
+        )
     }
 
     pub(in crate::db) fn encode_hex(&self) -> Result<String, TokenWireError> {
-        let wire = GroupedContinuationTokenWireRef {
-            signature: self.signature.into_bytes(),
-            last_group_key: self.last_group_key.as_slice(),
-            direction: self.direction,
-            initial_offset: self.initial_offset,
-        };
-
-        serialize_hex(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
+        self.encode()
+            .map(|encoded| encode_cursor(encoded.as_slice()))
     }
 
     pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
-        let wire: GroupedContinuationTokenWire =
-            deserialize_protocol_payload(bytes, MAX_GROUPED_CONTINUATION_TOKEN_BYTES)
-                .map_err(|err| TokenWireError::decode(err.to_string()))?;
+        let wire = decode_grouped_token(bytes)?;
 
         Ok(Self::new_with_direction(
-            ContinuationSignature::from_bytes(wire.signature),
+            wire.signature,
             wire.last_group_key,
             wire.direction,
             wire.initial_offset,
@@ -179,7 +163,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a4697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e634173636e696e697469616c5f6f666673657404"
+            "01024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
         );
     }
 
@@ -193,7 +177,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a4697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e64446573636e696e697469616c5f6f666673657404",
+            "01024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
             "grouped continuation token DESC wire encoding must remain stable",
         );
     }

@@ -125,11 +125,9 @@ fn is_shell_help_command(input: &str) -> bool {
 }
 
 const fn shell_help_text() -> &'static str {
-    "icydb-cli help
-
-meta commands:
-  ? / help        show this help
-  \\q / exit      quit the interactive shell
+    "meta commands:
+  ? / help         show this help
+  \\q / quit / exit quit the interactive shell
 
 perf footer legend:
   c = compile     parse, lower, and compile the SQL surface
@@ -982,6 +980,9 @@ mod tests {
     fn shell_help_text_mentions_current_perf_legend() {
         let help = shell_help_text();
 
+        assert!(help.contains("? / help         show this help"));
+        assert!(help.contains("\\q / quit / exit quit the interactive shell"));
+        assert!(!help.contains("icydb-cli help"));
         assert!(help.contains("c = compile"));
         assert!(help.contains("p = planner"));
         assert!(help.contains("s = store"));

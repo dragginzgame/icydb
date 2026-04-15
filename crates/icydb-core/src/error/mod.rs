@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 use crate::serialize::{SerializeError, SerializeErrorKind};
 use std::fmt;
 use thiserror::Error as ThisError;
@@ -1548,6 +1549,7 @@ impl InternalError {
 
     /// Construct the canonical persisted-payload decode failure mapping for one
     /// DB-owned serialized payload boundary.
+    #[cfg(test)]
     pub(crate) fn serialize_payload_decode_failed(
         source: SerializeError,
         payload_label: &'static str,

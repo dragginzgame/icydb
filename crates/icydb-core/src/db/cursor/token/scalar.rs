@@ -3,19 +3,12 @@
 //! Does not own: grouped continuation semantics or planner continuation policy decisions.
 //! Boundary: maps scalar cursor token between in-memory domain and bounded wire payload.
 
-use crate::{
-    db::{
-        codec::deserialize_protocol_payload,
-        cursor::{ContinuationSignature, CursorBoundary, IndexRangeCursorAnchor},
-        direction::Direction,
-    },
-    serialize::serialize,
+use crate::db::{
+    cursor::{ContinuationSignature, CursorBoundary, IndexRangeCursorAnchor},
+    direction::Direction,
 };
 
-use crate::db::cursor::token::{
-    ContinuationTokenWire, ContinuationTokenWireRef, IndexRangeCursorAnchorWire,
-    IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES, TokenWireError,
-};
+use crate::db::cursor::token::{TokenWireError, decode_scalar_token, encode_scalar_token};
 
 ///
 /// ContinuationToken
@@ -84,46 +77,31 @@ impl ContinuationToken {
     }
 
     pub(crate) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
-        let index_range_anchor = self
-            .index_range_anchor()
-            .map(IndexRangeCursorAnchorWireRef::from);
-        let wire = ContinuationTokenWireRef {
-            signature: self.signature.into_bytes(),
-            boundary: &self.boundary,
-            direction: self.direction,
-            initial_offset: self.initial_offset,
-            index_range_anchor,
-        };
-
-        serialize(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
+        encode_scalar_token(
+            self.signature,
+            &self.boundary,
+            self.direction,
+            self.initial_offset,
+            self.index_range_anchor(),
+        )
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
-        let wire: ContinuationTokenWire =
-            deserialize_protocol_payload(bytes, MAX_CONTINUATION_TOKEN_BYTES)
-                .map_err(|err| TokenWireError::decode(err.to_string()))?;
+        let parts = decode_scalar_token(bytes)?;
 
-        let signature = ContinuationSignature::from_bytes(wire.signature);
-        let boundary = wire.boundary;
-        let direction = wire.direction;
-        let initial_offset = wire.initial_offset;
-
-        match wire
-            .index_range_anchor
-            .map(IndexRangeCursorAnchorWire::into_anchor)
-        {
+        match parts.index_range_anchor {
             Some(anchor) => Ok(Self::new_index_range_with_direction(
-                signature,
-                boundary,
+                parts.signature,
+                parts.boundary,
                 anchor,
-                direction,
-                initial_offset,
+                parts.direction,
+                parts.initial_offset,
             )),
             None => Ok(Self::new_with_direction(
-                signature,
-                boundary,
-                direction,
-                initial_offset,
+                parts.signature,
+                parts.boundary,
+                parts.direction,
+                parts.initial_offset,
             )),
         }
     }
@@ -200,7 +178,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a5697369676e617475726598201824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182418241824182468626f756e64617279a165736c6f747382a16750726573656e74a16455696e7407a16750726573656e74a164546578746874656e616e742d6169646972656374696f6e634173636e696e697469616c5f6f66667365740372696e6465785f72616e67655f616e63686f72f6",
+            "010124242424242424242424242424242424242424242424242424242424242424240000000003000000020113000000000000000701110000000874656e616e742d6100",
             "scalar continuation token wire encoding must remain stable",
         );
     }
@@ -215,7 +193,7 @@ mod tests {
         let actual_hex = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_hex,
-            "a5697369676e617475726598201851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185118511851185168626f756e64617279a165736c6f747381a16750726573656e74a16455696e740b69646972656374696f6e634173636e696e697469616c5f6f66667365740972696e6465785f72616e67655f616e63686f72a16c6c6173745f7261775f6b65798318aa18bb18cc",
+            "010151515151515151515151515151515151515151515151515151515151515151510000000009000000010113000000000000000b0100000003aabbcc",
             "scalar continuation token with index-range anchor wire encoding must remain stable",
         );
     }

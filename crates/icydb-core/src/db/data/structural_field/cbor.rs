@@ -32,6 +32,9 @@ const CBOR_U64_WIDTH: usize = 8;
 const CBOR_FLOAT16_ARGUMENT: u64 = 25;
 const CBOR_FLOAT32_ARGUMENT: u64 = 26;
 const CBOR_FLOAT64_ARGUMENT: u64 = 27;
+const CBOR_FALSE_ARGUMENT: u64 = 20;
+const CBOR_TRUE_ARGUMENT: u64 = 21;
+const CBOR_NULL_ARGUMENT: u64 = 22;
 
 const TAGGED_VARIANT_ENTRY_COUNT: u64 = 1;
 
@@ -501,4 +504,125 @@ fn decode_cbor_half_float(bits: u16) -> f64 {
     }
 
     sign * (1.0 + f64::from(mantissa) / 1024.0) * 2f64.powi(exponent - 15)
+}
+
+// Emit one top-level CBOR null.
+pub(super) fn push_null(out: &mut Vec<u8>) {
+    push_cbor_head(out, CBOR_MAJOR_SIMPLE_OR_FLOAT, CBOR_NULL_ARGUMENT);
+}
+
+// Emit one top-level CBOR bool.
+pub(super) fn push_bool(out: &mut Vec<u8>, value: bool) {
+    let argument = if value {
+        CBOR_TRUE_ARGUMENT
+    } else {
+        CBOR_FALSE_ARGUMENT
+    };
+    push_cbor_head(out, CBOR_MAJOR_SIMPLE_OR_FLOAT, argument);
+}
+
+// Emit one top-level CBOR signed integer.
+pub(super) fn push_signed_integer(out: &mut Vec<u8>, value: i128) {
+    if value >= 0 {
+        push_unsigned_integer(out, value.cast_unsigned());
+    } else {
+        let magnitude = value.unsigned_abs().saturating_sub(1);
+        push_cbor_head_u128(out, CBOR_MAJOR_NEGATIVE_INT, magnitude);
+    }
+}
+
+// Emit one top-level CBOR unsigned integer.
+pub(super) fn push_unsigned_integer(out: &mut Vec<u8>, value: u128) {
+    push_cbor_head_u128(out, CBOR_MAJOR_UNSIGNED_INT, value);
+}
+
+// Emit one top-level CBOR byte string.
+pub(super) fn push_byte_string(out: &mut Vec<u8>, bytes: &[u8]) {
+    push_len_prefixed_bytes(out, CBOR_MAJOR_BYTE_STRING, bytes);
+}
+
+// Emit one top-level CBOR text string.
+pub(super) fn push_text(out: &mut Vec<u8>, value: &str) {
+    push_len_prefixed_bytes(out, CBOR_MAJOR_TEXT_STRING, value.as_bytes());
+}
+
+// Emit one top-level CBOR float32 payload.
+pub(super) fn push_float32(out: &mut Vec<u8>, value: f32) {
+    out.push(
+        (CBOR_MAJOR_SIMPLE_OR_FLOAT << CBOR_MAJOR_TYPE_SHIFT)
+            | u8::try_from(CBOR_FLOAT32_ARGUMENT).expect("float32 argument fits u8"),
+    );
+    out.extend_from_slice(&value.to_bits().to_be_bytes());
+}
+
+// Emit one top-level CBOR float64 payload.
+pub(super) fn push_float64(out: &mut Vec<u8>, value: f64) {
+    out.push(
+        (CBOR_MAJOR_SIMPLE_OR_FLOAT << CBOR_MAJOR_TYPE_SHIFT)
+            | u8::try_from(CBOR_FLOAT64_ARGUMENT).expect("float64 argument fits u8"),
+    );
+    out.extend_from_slice(&value.to_bits().to_be_bytes());
+}
+
+// Emit one top-level CBOR array header.
+pub(super) fn push_array_len(out: &mut Vec<u8>, len: usize) {
+    push_cbor_head(
+        out,
+        CBOR_MAJOR_ARRAY,
+        u64::try_from(len).expect("array len fits u64"),
+    );
+}
+
+// Emit one top-level CBOR map header.
+pub(super) fn push_map_len(out: &mut Vec<u8>, len: usize) {
+    push_cbor_head(
+        out,
+        CBOR_MAJOR_MAP,
+        u64::try_from(len).expect("map len fits u64"),
+    );
+}
+
+// Emit one definite-length scalar payload and append its body bytes.
+fn push_len_prefixed_bytes(out: &mut Vec<u8>, major: u8, bytes: &[u8]) {
+    push_cbor_head(
+        out,
+        major,
+        u64::try_from(bytes.len()).expect("payload len fits u64"),
+    );
+    out.extend_from_slice(bytes);
+}
+
+// Emit one CBOR head using the smallest definite-width length form that fits
+// the provided argument.
+fn push_cbor_head(out: &mut Vec<u8>, major: u8, argument: u64) {
+    const INLINE_MAX: u64 = CBOR_ADDITIONAL_INFO_INLINE_MAX as u64;
+
+    match argument {
+        0..=INLINE_MAX => {
+            out.push((major << CBOR_MAJOR_TYPE_SHIFT) | u8::try_from(argument).expect("inline u8"));
+        }
+        value if u8::try_from(value).is_ok() => {
+            out.push((major << CBOR_MAJOR_TYPE_SHIFT) | 0x18);
+            out.push(u8::try_from(value).expect("u8 value"));
+        }
+        value if u16::try_from(value).is_ok() => {
+            out.push((major << CBOR_MAJOR_TYPE_SHIFT) | 0x19);
+            out.extend_from_slice(&u16::try_from(value).expect("u16 value").to_be_bytes());
+        }
+        value if u32::try_from(value).is_ok() => {
+            out.push((major << CBOR_MAJOR_TYPE_SHIFT) | 0x1A);
+            out.extend_from_slice(&u32::try_from(value).expect("u32 value").to_be_bytes());
+        }
+        value => {
+            out.push((major << CBOR_MAJOR_TYPE_SHIFT) | 0x1B);
+            out.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+}
+
+// Emit one CBOR head for an unsigned argument that may temporarily exceed
+// `u64` while the caller is still operating on `u128` arithmetic.
+fn push_cbor_head_u128(out: &mut Vec<u8>, major: u8, argument: u128) {
+    let narrowed = u64::try_from(argument).expect("persisted CBOR integer fits u64");
+    push_cbor_head(out, major, narrowed);
 }

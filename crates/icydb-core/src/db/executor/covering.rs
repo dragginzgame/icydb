@@ -284,21 +284,25 @@ pub(in crate::db) fn decode_single_covering_projection_pairs<T, F>(
 where
     F: FnMut(Value) -> Result<T, InternalError>,
 {
-    decode_covering_projection_pairs(
+    map_covering_projection_pairs(
         raw_pairs,
         store,
         consistency,
         existing_row_mode,
-        |decoded| {
-            let mut decoded = decoded.into_iter();
-            let Some(value) = decoded.next() else {
+        |components| {
+            let mut components = components.into_iter();
+            let Some(component) = components.next() else {
                 return Err(InternalError::query_executor_invariant(invariant_message));
             };
-            if decoded.next().is_some() {
+            if components.next().is_some() {
                 return Err(InternalError::query_executor_invariant(invariant_message));
             }
 
-            map_decoded(value)
+            let Some(value) = decode_covering_projection_component(component.as_slice())? else {
+                return Ok(None);
+            };
+
+            Ok(Some(map_decoded(value)?))
         },
     )
 }

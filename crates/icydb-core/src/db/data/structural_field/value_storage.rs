@@ -19,11 +19,13 @@ use crate::db::data::structural_field::{
     validate_structural_field_by_kind_bytes,
 };
 use crate::{
+    error::InternalError,
     model::field::FieldKind,
     types::{Float64, Int, Nat},
     value::{Value, ValueEnum},
 };
 use candid::{Int as WrappedInt, Nat as WrappedNat};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 // Carry the output buffer for recursively decoded `Value::List` items.
 type ValueArrayDecodeState = Vec<Value>;
@@ -59,6 +61,20 @@ enum ValueEnumFieldTag {
     Path,
     Payload,
 }
+
+const CBOR_MAJOR_UNSIGNED_INT: u8 = 0;
+const CBOR_MAJOR_NEGATIVE_INT: u8 = 1;
+const CBOR_MAJOR_BYTE_STRING: u8 = 2;
+const CBOR_MAJOR_TEXT_STRING: u8 = 3;
+const CBOR_MAJOR_ARRAY: u8 = 4;
+const CBOR_MAJOR_MAP: u8 = 5;
+const CBOR_MAJOR_SIMPLE_OR_FLOAT: u8 = 7;
+
+const CBOR_FLOAT32_ARGUMENT: u8 = 26;
+const CBOR_FLOAT64_ARGUMENT: u8 = 27;
+const CBOR_NULL_ARGUMENT: u8 = 22;
+const CBOR_FALSE_ARGUMENT: u8 = 20;
+const CBOR_TRUE_ARGUMENT: u8 = 21;
 
 // Resolve one tagged `Value` variant label into its decode contract.
 fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, FieldDecodeError> {
@@ -106,6 +122,371 @@ fn parse_value_enum_field_tag(raw_bytes: &[u8]) -> Option<ValueEnumFieldTag> {
         b"\x67payload" => Some(ValueEnumFieldTag::Payload),
         _ => None,
     }
+}
+
+/// Encode one persisted `FieldStorageDecode::Value` payload through the
+/// owner-local structural value-storage contract.
+pub(in crate::db) fn encode_structural_value_storage_bytes(
+    value: &Value,
+) -> Result<Vec<u8>, InternalError> {
+    let mut encoded = Vec::new();
+    encode_value_storage_into(&mut encoded, value)?;
+
+    Ok(encoded)
+}
+
+// Encode one runtime `Value` into the canonical externally tagged storage
+// envelope consumed by the structural value-storage decoder.
+fn encode_value_storage_into(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
+    match value {
+        Value::Null => push_text_variant_label(out, "Null"),
+        Value::Unit => push_text_variant_label(out, "Unit"),
+        Value::Account(value) => {
+            push_single_entry_variant_label(out, "Account");
+            push_account_payload(out, *value);
+        }
+        Value::Blob(value) => {
+            push_single_entry_variant_label(out, "Blob");
+            push_byte_string(out, value.as_slice());
+        }
+        Value::Bool(value) => {
+            push_single_entry_variant_label(out, "Bool");
+            push_bool(out, *value);
+        }
+        Value::Date(value) => {
+            push_single_entry_variant_label(out, "Date");
+            push_text(out, &value.to_string());
+        }
+        Value::Decimal(value) => {
+            push_single_entry_variant_label(out, "Decimal");
+            push_decimal_payload(out, *value);
+        }
+        Value::Duration(value) => {
+            push_single_entry_variant_label(out, "Duration");
+            push_unsigned_integer(out, u128::from(value.as_millis()));
+        }
+        Value::Enum(value) => {
+            push_single_entry_variant_label(out, "Enum");
+            push_value_enum_payload(out, value)?;
+        }
+        Value::Float32(value) => {
+            push_single_entry_variant_label(out, "Float32");
+            push_float32(out, value.get());
+        }
+        Value::Float64(value) => {
+            push_single_entry_variant_label(out, "Float64");
+            push_float64(out, value.get());
+        }
+        Value::Int(value) => {
+            push_single_entry_variant_label(out, "Int");
+            push_signed_integer(out, i128::from(*value));
+        }
+        Value::Int128(value) => {
+            push_single_entry_variant_label(out, "Int128");
+            push_byte_string(out, &value.get().to_be_bytes());
+        }
+        Value::IntBig(value) => {
+            push_single_entry_variant_label(out, "IntBig");
+            push_int_big_payload(out, value);
+        }
+        Value::List(items) => {
+            push_single_entry_variant_label(out, "List");
+            push_value_list_payload(out, items.as_slice())?;
+        }
+        Value::Map(entries) => {
+            push_single_entry_variant_label(out, "Map");
+            push_value_map_payload(out, entries.as_slice())?;
+        }
+        Value::Principal(value) => {
+            push_single_entry_variant_label(out, "Principal");
+            push_byte_string(out, value.as_slice());
+        }
+        Value::Subaccount(value) => {
+            push_single_entry_variant_label(out, "Subaccount");
+            push_subaccount_payload(out, *value);
+        }
+        Value::Text(value) => {
+            push_single_entry_variant_label(out, "Text");
+            push_text(out, value);
+        }
+        Value::Timestamp(value) => {
+            push_single_entry_variant_label(out, "Timestamp");
+            push_timestamp_payload(out, *value)?;
+        }
+        Value::Uint(value) => {
+            push_single_entry_variant_label(out, "Uint");
+            push_unsigned_integer(out, u128::from(*value));
+        }
+        Value::Uint128(value) => {
+            push_single_entry_variant_label(out, "Uint128");
+            push_byte_string(out, &value.get().to_be_bytes());
+        }
+        Value::UintBig(value) => {
+            push_single_entry_variant_label(out, "UintBig");
+            push_uint_big_payload(out, value);
+        }
+        Value::Ulid(value) => {
+            push_single_entry_variant_label(out, "Ulid");
+            push_text(out, &value.to_string());
+        }
+    }
+
+    Ok(())
+}
+
+// Encode the single-entry externally tagged enum envelope used for non-unit
+// `Value` variants.
+fn push_single_entry_variant_label(out: &mut Vec<u8>, label: &str) {
+    push_map_len(out, 1);
+    push_text(out, label);
+}
+
+// Encode the text-only externally tagged enum envelope used for unit variants.
+fn push_text_variant_label(out: &mut Vec<u8>, label: &str) {
+    push_text(out, label);
+}
+
+// Encode one `Value::List` payload as an array of recursively tagged nested
+// `Value` items.
+fn push_value_list_payload(out: &mut Vec<u8>, items: &[Value]) -> Result<(), InternalError> {
+    push_array_len(out, items.len());
+    for item in items {
+        encode_value_storage_into(out, item)?;
+    }
+
+    Ok(())
+}
+
+// Encode one `Value::Map` payload as the canonical array-of-entry-pairs shape.
+fn push_value_map_payload(
+    out: &mut Vec<u8>,
+    entries: &[(Value, Value)],
+) -> Result<(), InternalError> {
+    push_array_len(out, entries.len());
+    for (key, value) in entries {
+        push_array_len(out, 2);
+        encode_value_storage_into(out, key)?;
+        encode_value_storage_into(out, value)?;
+    }
+
+    Ok(())
+}
+
+// Encode one `ValueEnum` payload struct, preserving the stable field order and
+// explicit `null` markers used by the derived serde wire.
+fn push_value_enum_payload(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), InternalError> {
+    push_map_len(out, 3);
+
+    push_text(out, "variant");
+    push_text(out, value.variant());
+
+    push_text(out, "path");
+    match value.path() {
+        Some(path) => push_text(out, path),
+        None => push_null(out),
+    }
+
+    push_text(out, "payload");
+    match value.payload() {
+        Some(payload) => encode_value_storage_into(out, payload)?,
+        None => push_null(out),
+    }
+
+    Ok(())
+}
+
+// Encode one account payload using the stable two-field CBOR struct shape.
+fn push_account_payload(out: &mut Vec<u8>, value: crate::types::Account) {
+    push_map_len(out, 2);
+
+    push_text(out, "owner");
+    push_byte_string(out, value.owner().as_slice());
+
+    push_text(out, "subaccount");
+    match value.subaccount() {
+        Some(subaccount) => push_subaccount_payload(out, subaccount),
+        None => push_null(out),
+    }
+}
+
+// Encode one timestamp payload using the persisted RFC3339 text form.
+fn push_timestamp_payload(
+    out: &mut Vec<u8>,
+    value: crate::types::Timestamp,
+) -> Result<(), InternalError> {
+    let nanos = i128::from(value.as_millis()).saturating_mul(1_000_000);
+    let dt = OffsetDateTime::from_unix_timestamp_nanos(nanos)
+        .map_err(InternalError::persisted_row_encode_failed)?;
+    let rendered = dt
+        .format(&Rfc3339)
+        .map_err(InternalError::persisted_row_encode_failed)?;
+    push_text(out, &rendered);
+
+    Ok(())
+}
+
+// Encode one decimal payload using the persisted binary `(mantissa, scale)`
+// tuple shape.
+fn push_decimal_payload(out: &mut Vec<u8>, value: crate::types::Decimal) {
+    push_array_len(out, 2);
+    push_byte_string(out, &value.mantissa().to_be_bytes());
+    push_unsigned_integer(out, u128::from(value.scale()));
+}
+
+// Encode one arbitrary-precision signed integer as `(sign, limbs)`.
+fn push_int_big_payload(out: &mut Vec<u8>, value: &Int) {
+    let (negative, digits) = value.sign_and_u32_digits();
+    let sign = if digits.is_empty() {
+        0
+    } else if negative {
+        -1
+    } else {
+        1
+    };
+
+    push_array_len(out, 2);
+    push_signed_integer(out, sign);
+    push_uint_big_digits(out, digits.as_slice());
+}
+
+// Encode one arbitrary-precision unsigned integer as its base-2^32 limb array.
+fn push_uint_big_payload(out: &mut Vec<u8>, value: &Nat) {
+    let digits = value.u32_digits();
+    push_uint_big_digits(out, digits.as_slice());
+}
+
+// Encode one base-2^32 limb sequence as the persisted CBOR array shape.
+fn push_uint_big_digits(out: &mut Vec<u8>, digits: &[u32]) {
+    push_array_len(out, digits.len());
+    for digit in digits {
+        push_unsigned_integer(out, u128::from(*digit));
+    }
+}
+
+// Encode one subaccount using the stable byte-array payload shape emitted by
+// the derived serde form for `[u8; 32]`.
+fn push_subaccount_payload(out: &mut Vec<u8>, value: crate::types::Subaccount) {
+    push_array_len(out, 32);
+    for byte in value.as_slice() {
+        push_unsigned_integer(out, u128::from(*byte));
+    }
+}
+
+// Emit one top-level CBOR null.
+fn push_null(out: &mut Vec<u8>) {
+    push_cbor_head(
+        out,
+        CBOR_MAJOR_SIMPLE_OR_FLOAT,
+        u64::from(CBOR_NULL_ARGUMENT),
+    );
+}
+
+// Emit one top-level CBOR bool.
+fn push_bool(out: &mut Vec<u8>, value: bool) {
+    let argument = if value {
+        CBOR_TRUE_ARGUMENT
+    } else {
+        CBOR_FALSE_ARGUMENT
+    };
+    push_cbor_head(out, CBOR_MAJOR_SIMPLE_OR_FLOAT, u64::from(argument));
+}
+
+// Emit one top-level CBOR signed integer.
+fn push_signed_integer(out: &mut Vec<u8>, value: i128) {
+    if value >= 0 {
+        push_unsigned_integer(out, value.cast_unsigned());
+    } else {
+        let magnitude = value.unsigned_abs().saturating_sub(1);
+        push_cbor_head_u128(out, CBOR_MAJOR_NEGATIVE_INT, magnitude);
+    }
+}
+
+// Emit one top-level CBOR unsigned integer.
+fn push_unsigned_integer(out: &mut Vec<u8>, value: u128) {
+    push_cbor_head_u128(out, CBOR_MAJOR_UNSIGNED_INT, value);
+}
+
+// Emit one top-level CBOR byte string.
+fn push_byte_string(out: &mut Vec<u8>, bytes: &[u8]) {
+    push_len_prefixed_bytes(out, CBOR_MAJOR_BYTE_STRING, bytes);
+}
+
+// Emit one top-level CBOR text string.
+fn push_text(out: &mut Vec<u8>, value: &str) {
+    push_len_prefixed_bytes(out, CBOR_MAJOR_TEXT_STRING, value.as_bytes());
+}
+
+// Emit one top-level CBOR float32 payload.
+fn push_float32(out: &mut Vec<u8>, value: f32) {
+    out.push((CBOR_MAJOR_SIMPLE_OR_FLOAT << 5) | CBOR_FLOAT32_ARGUMENT);
+    out.extend_from_slice(&value.to_bits().to_be_bytes());
+}
+
+// Emit one top-level CBOR float64 payload.
+fn push_float64(out: &mut Vec<u8>, value: f64) {
+    out.push((CBOR_MAJOR_SIMPLE_OR_FLOAT << 5) | CBOR_FLOAT64_ARGUMENT);
+    out.extend_from_slice(&value.to_bits().to_be_bytes());
+}
+
+// Emit one top-level CBOR array header.
+fn push_array_len(out: &mut Vec<u8>, len: usize) {
+    push_cbor_head(
+        out,
+        CBOR_MAJOR_ARRAY,
+        u64::try_from(len).expect("array len fits u64"),
+    );
+}
+
+// Emit one top-level CBOR map header.
+fn push_map_len(out: &mut Vec<u8>, len: usize) {
+    push_cbor_head(
+        out,
+        CBOR_MAJOR_MAP,
+        u64::try_from(len).expect("map len fits u64"),
+    );
+}
+
+// Emit one definite-length scalar payload and append its body bytes.
+fn push_len_prefixed_bytes(out: &mut Vec<u8>, major: u8, bytes: &[u8]) {
+    push_cbor_head(
+        out,
+        major,
+        u64::try_from(bytes.len()).expect("payload len fits u64"),
+    );
+    out.extend_from_slice(bytes);
+}
+
+// Emit one CBOR head using the smallest definite-width length form that fits
+// the provided argument.
+fn push_cbor_head(out: &mut Vec<u8>, major: u8, argument: u64) {
+    const INLINE_MAX: u64 = 23;
+
+    match argument {
+        0..=INLINE_MAX => out.push((major << 5) | u8::try_from(argument).expect("inline u8")),
+        value if u8::try_from(value).is_ok() => {
+            out.push((major << 5) | 0x18);
+            out.push(u8::try_from(value).expect("u8 value"));
+        }
+        value if u16::try_from(value).is_ok() => {
+            out.push((major << 5) | 0x19);
+            out.extend_from_slice(&u16::try_from(value).expect("u16 value").to_be_bytes());
+        }
+        value if u32::try_from(value).is_ok() => {
+            out.push((major << 5) | 0x1A);
+            out.extend_from_slice(&u32::try_from(value).expect("u32 value").to_be_bytes());
+        }
+        value => {
+            out.push((major << 5) | 0x1B);
+            out.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+}
+
+// Emit one CBOR head for an unsigned argument that may temporarily exceed
+// `u64` while the caller is still operating on `u128` arithmetic.
+fn push_cbor_head_u128(out: &mut Vec<u8>, major: u8, argument: u128) {
+    let narrowed = u64::try_from(argument).expect("persisted CBOR integer fits u64");
+    push_cbor_head(out, major, narrowed);
 }
 
 // Push one recursively tagged `Value` list item into the decoded buffer.

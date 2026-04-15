@@ -15,14 +15,16 @@ use super::{
 use crate::{
     db::{
         codec::serialize_row_payload,
-        data::{RawRow, StructuralSlotReader, decode_structural_value_storage_bytes},
+        data::{
+            RawRow, StructuralSlotReader, decode_structural_value_storage_bytes,
+            encode_structural_value_storage_bytes,
+        },
     },
     error::InternalError,
     model::{
         EntityModel,
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
     },
-    serialize::serialize,
     testing::SIMPLE_ENTITY_TAG,
     traits::{EntitySchema, FieldValue},
     types::{
@@ -417,6 +419,13 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
     ]
 }
 
+// Encode one persisted `FieldStorageDecode::Value` fixture payload through the
+// owner-local structural value-storage boundary.
+fn encode_value_storage_payload(value: &Value) -> Vec<u8> {
+    encode_structural_value_storage_bytes(value)
+        .expect("value-storage payload fixture should encode")
+}
+
 fn encode_slot_payload_allowing_missing_for_tests(
     model: &'static EntityModel,
     slots: &[Option<&[u8]>],
@@ -478,8 +487,7 @@ fn decode_slot_value_from_bytes_reports_scalar_prefix_bytes() {
 
 #[test]
 fn decode_slot_value_from_bytes_respects_value_storage_decode_contract() {
-    let payload = crate::serialize::serialize(&Value::Text("Ada".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("Ada".to_string()));
 
     let value =
         decode_slot_value_from_bytes(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
@@ -589,9 +597,7 @@ fn encode_slot_value_from_value_accepts_value_storage_maps_with_structured_value
 #[test]
 fn structured_value_storage_cases_decode_through_direct_value_storage_boundary() {
     for value in representative_value_storage_cases() {
-        let payload = serialize(&value).unwrap_or_else(|err| {
-            panic!("structured value-storage payload should serialize for value {value:?}: {err:?}")
-        });
+        let payload = encode_value_storage_payload(&value);
         let decoded = decode_structural_value_storage_bytes(payload.as_slice()).unwrap_or_else(
             |err| {
                 panic!(
@@ -762,8 +768,7 @@ fn encode_slot_value_from_value_rejects_unknown_enum_payload_variants() {
 #[test]
 fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -793,8 +798,7 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 #[test]
 fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materialization() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -875,8 +879,7 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
 #[test]
 fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_scalar_only_access() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -914,8 +917,7 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
 #[test]
 fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first_semantic_access() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -977,8 +979,7 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
 #[test]
 fn apply_update_patch_to_raw_row_updates_only_targeted_slots() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1085,8 +1086,7 @@ fn slot_buffer_writer_rejects_clear_slots() {
 #[test]
 fn apply_update_patch_to_raw_row_uses_last_write_wins() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1137,8 +1137,7 @@ fn apply_update_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline() {
 
 #[test]
 fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_baseline() {
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     let malformed_slots = [Some([0xF6].as_slice()), Some(payload.as_slice())];
     let raw_row = RawRow::try_new(
         serialize_row_payload(
@@ -1171,8 +1170,7 @@ fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_baseline
 #[test]
 fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_patch_payload() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1206,8 +1204,7 @@ fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_patch_pa
 #[test]
 fn structural_slot_reader_rejects_slot_count_mismatch() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload =
-        crate::serialize::serialize(&Value::Text("payload".to_string())).expect("encode payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1232,8 +1229,7 @@ fn structural_slot_reader_rejects_slot_count_mismatch() {
 #[test]
 fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload =
-        crate::serialize::serialize(&Value::Text("payload".to_string())).expect("encode payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1258,8 +1254,7 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
 #[test]
 fn apply_serialized_update_patch_to_raw_row_replays_preencoded_slots() {
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     writer
         .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
         .expect("write scalar slot");
@@ -1514,8 +1509,7 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
 
 #[test]
 fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
     writer
         .write_slot(0, Some(&[0xF6]))
@@ -1545,8 +1539,7 @@ fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
 
 #[test]
 fn raw_row_from_complete_serialized_update_patch_rejects_noncanonical_scalar_payload() {
-    let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
-        .expect("encode value-storage payload");
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
     let serialized = SerializedUpdatePatch::new(vec![
         SerializedFieldUpdate::new(
             FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
@@ -1576,8 +1569,7 @@ fn raw_row_from_complete_serialized_update_patch_rejects_noncanonical_scalar_pay
 fn raw_row_from_complete_serialized_update_patch_rejects_incomplete_slot_image() {
     let serialized = SerializedUpdatePatch::new(vec![SerializedFieldUpdate::new(
         FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
-        crate::serialize::serialize(&Value::Text("payload".to_string()))
-            .expect("encode value-storage payload"),
+        encode_value_storage_payload(&Value::Text("payload".to_string())),
     )]);
 
     let err = RawRow::from_complete_serialized_update_patch(&TEST_MODEL, &serialized)

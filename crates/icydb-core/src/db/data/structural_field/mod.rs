@@ -5,6 +5,7 @@
 
 mod cbor;
 mod composite;
+mod encode;
 mod leaf;
 mod scalar;
 mod storage_key;
@@ -17,11 +18,13 @@ use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_b
 use leaf::decode_leaf_field_by_kind_bytes;
 use scalar::decode_scalar_fast_path_bytes;
 
+pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 pub(in crate::db) use storage_key::{
     decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
 };
 pub(in crate::db) use value_storage::{
-    decode_structural_value_storage_bytes, validate_structural_value_storage_bytes,
+    decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+    validate_structural_value_storage_bytes,
 };
 
 ///
@@ -97,11 +100,10 @@ pub(in crate::db) fn validate_structural_field_by_kind_bytes(
 mod tests {
     use super::{
         decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
-        decode_structural_value_storage_bytes,
+        decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
     };
     use crate::{
         model::field::{FieldKind, RelationStrength},
-        serialize::serialize,
         types::{Account, Decimal, EntityTag, Int128, Nat128, Principal, Subaccount, Ulid},
         value::{StorageKey, Value, ValueEnum},
     };
@@ -207,7 +209,8 @@ mod tests {
                 Value::Uint(7),
             )])),
         );
-        let bytes = serde_cbor::to_vec(&value).expect("value bytes should encode");
+        let bytes =
+            encode_structural_value_storage_bytes(&value).expect("value bytes should encode");
 
         let decoded = decode_structural_value_storage_bytes(&bytes)
             .expect("value enum payload should decode");
@@ -266,11 +269,38 @@ mod tests {
             ),
         ])
         .expect("nested value payload should normalize");
-        let bytes = serialize(&nested).expect("nested value payload should serialize");
+        let bytes = encode_structural_value_storage_bytes(&nested)
+            .expect("nested value payload should serialize");
 
         let decoded = decode_structural_value_storage_bytes(&bytes)
             .expect("nested value payload should decode through value storage");
 
         assert_eq!(decoded, nested);
+    }
+
+    #[test]
+    fn structural_field_encode_value_storage_matches_legacy_serde_bytes() {
+        let value = Value::Enum(
+            ValueEnum::new("Loaded", Some("tests::StructuredPayload")).with_payload(
+                Value::from_map(vec![
+                    (
+                        Value::Text("blob".to_string()),
+                        Value::Blob(vec![0x10, 0x20, 0x30]),
+                    ),
+                    (
+                        Value::Text("counter".to_string()),
+                        Value::UintBig(crate::types::Nat::from(17_u64)),
+                    ),
+                ])
+                .expect("nested map should normalize"),
+            ),
+        );
+
+        let encoded = encode_structural_value_storage_bytes(&value)
+            .expect("owner-local value storage encode should succeed");
+        let legacy = crate::serialize::serialize(&value)
+            .expect("legacy serde value storage encode should succeed");
+
+        assert_eq!(encoded, legacy);
     }
 }

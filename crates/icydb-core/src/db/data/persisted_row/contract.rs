@@ -3,7 +3,8 @@ use crate::{
         codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
+            decode_structural_value_storage_bytes, encode_structural_field_by_kind_bytes,
+            encode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
             validate_structural_value_storage_bytes,
         },
         scalar_expr::compile_scalar_literal_expr_value,
@@ -14,11 +15,9 @@ use crate::{
         entity::EntityModel,
         field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     },
-    serialize::serialize,
-    value::{StorageKey, Value, ValueEnum},
+    value::{StorageKey, Value},
 };
-use serde_cbor::{Value as CborValue, value::to_value as to_cbor_value};
-use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
+use std::{borrow::Cow, cmp::Ordering};
 
 use crate::db::data::persisted_row::{
     codec::{
@@ -97,7 +96,7 @@ pub(in crate::db::data::persisted_row) fn encode_slot_value_from_value(
     ensure_slot_value_matches_field_contract(field, value)?;
 
     match field.storage_decode() {
-        FieldStorageDecode::Value => serialize(value)
+        FieldStorageDecode::Value => encode_structural_value_storage_bytes(value)
             .map_err(|err| InternalError::persisted_row_field_encode_failed(field.name(), err)),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(_) => {
@@ -514,149 +513,7 @@ fn encode_structural_field_bytes_by_kind(
     value: &Value,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    let cbor_value = encode_structural_field_cbor_by_kind(kind, value, field_name)?;
-
-    serialize(&cbor_value)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
-}
-
-// Encode one `ByKind` field payload into its raw CBOR value form.
-fn encode_structural_field_cbor_by_kind(
-    kind: FieldKind,
-    value: &Value,
-    field_name: &str,
-) -> Result<CborValue, InternalError> {
-    match (kind, value) {
-        (_, Value::Null) => Ok(CborValue::Null),
-        (FieldKind::Blob, Value::Blob(value)) => Ok(CborValue::Bytes(value.clone())),
-        (FieldKind::Bool, Value::Bool(value)) => Ok(CborValue::Bool(*value)),
-        (FieldKind::Text, Value::Text(value)) => Ok(CborValue::Text(value.clone())),
-        (FieldKind::Int, Value::Int(value)) => Ok(CborValue::Integer(i128::from(*value))),
-        (FieldKind::Uint, Value::Uint(value)) => Ok(CborValue::Integer(i128::from(*value))),
-        (FieldKind::Float32, Value::Float32(value)) => to_cbor_value(value)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
-        (FieldKind::Float64, Value::Float64(value)) => to_cbor_value(value)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
-        (FieldKind::Int128, Value::Int128(value)) => to_cbor_value(value)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
-        (FieldKind::Uint128, Value::Uint128(value)) => to_cbor_value(value)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
-        (FieldKind::Ulid, Value::Ulid(value)) => Ok(CborValue::Text(value.to_string())),
-        (FieldKind::Account, Value::Account(value)) => encode_leaf_cbor_value(value, field_name),
-        (FieldKind::Date, Value::Date(value)) => encode_leaf_cbor_value(value, field_name),
-        (FieldKind::Decimal { .. }, Value::Decimal(value)) => {
-            encode_leaf_cbor_value(value, field_name)
-        }
-        (FieldKind::Duration, Value::Duration(value)) => encode_leaf_cbor_value(value, field_name),
-        (FieldKind::IntBig, Value::IntBig(value)) => encode_leaf_cbor_value(value, field_name),
-        (FieldKind::Principal, Value::Principal(value)) => {
-            encode_leaf_cbor_value(value, field_name)
-        }
-        (FieldKind::Subaccount, Value::Subaccount(value)) => {
-            encode_leaf_cbor_value(value, field_name)
-        }
-        (FieldKind::Timestamp, Value::Timestamp(value)) => {
-            encode_leaf_cbor_value(value, field_name)
-        }
-        (FieldKind::UintBig, Value::UintBig(value)) => encode_leaf_cbor_value(value, field_name),
-        (FieldKind::Unit, Value::Unit) => encode_leaf_cbor_value(&(), field_name),
-        (FieldKind::Relation { key_kind, .. }, value) => {
-            encode_structural_field_cbor_by_kind(*key_kind, value, field_name)
-        }
-        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
-            Ok(CborValue::Array(
-                items
-                    .iter()
-                    .map(|item| encode_structural_field_cbor_by_kind(*inner, item, field_name))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
-        }
-        (FieldKind::Map { key, value }, Value::Map(entries)) => {
-            let mut encoded = BTreeMap::new();
-            for (entry_key, entry_value) in entries {
-                encoded.insert(
-                    encode_structural_field_cbor_by_kind(*key, entry_key, field_name)?,
-                    encode_structural_field_cbor_by_kind(*value, entry_value, field_name)?,
-                );
-            }
-
-            Ok(CborValue::Map(encoded))
-        }
-        (FieldKind::Enum { path, variants }, Value::Enum(value)) => {
-            encode_enum_cbor_value(path, variants, value, field_name)
-        }
-        (FieldKind::Structured { .. }, _) => Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            "structured ByKind field encoding is unsupported",
-        )),
-        _ => Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!("field kind {kind:?} does not accept runtime value {value:?}"),
-        )),
-    }
-}
-
-// Encode one typed leaf wrapper into its raw CBOR value form.
-fn encode_leaf_cbor_value<T>(value: &T, field_name: &str) -> Result<CborValue, InternalError>
-where
-    T: serde::Serialize,
-{
-    to_cbor_value(value)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
-}
-
-// Encode one enum field using the same unit-vs-one-entry-map envelope expected
-// by structural enum decode.
-fn encode_enum_cbor_value(
-    path: &'static str,
-    variants: &'static [crate::model::field::EnumVariantModel],
-    value: &ValueEnum,
-    field_name: &str,
-) -> Result<CborValue, InternalError> {
-    if let Some(actual_path) = value.path()
-        && actual_path != path
-    {
-        return Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!("enum path mismatch: expected '{path}', found '{actual_path}'"),
-        ));
-    }
-
-    let Some(payload) = value.payload() else {
-        return Ok(CborValue::Text(value.variant().to_string()));
-    };
-
-    let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
-        return Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!(
-                "unknown enum variant '{}' for path '{path}'",
-                value.variant()
-            ),
-        ));
-    };
-    let Some(payload_kind) = variant_model.payload_kind() else {
-        return Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!(
-                "enum variant '{}' does not accept a payload",
-                value.variant()
-            ),
-        ));
-    };
-
-    let payload_value = match variant_model.payload_storage_decode() {
-        FieldStorageDecode::ByKind => {
-            encode_structural_field_cbor_by_kind(*payload_kind, payload, field_name)?
-        }
-        FieldStorageDecode::Value => to_cbor_value(payload)
-            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))?,
-    };
-
-    let mut encoded = BTreeMap::new();
-    encoded.insert(CborValue::Text(value.variant().to_string()), payload_value);
-
-    Ok(CborValue::Map(encoded))
+    encode_structural_field_by_kind_bytes(kind, value, field_name)
 }
 
 // Resolve one field model entry by stable slot index.

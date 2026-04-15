@@ -12,7 +12,7 @@ use super::{
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        codec::ROW_FORMAT_VERSION_CURRENT,
+        codec::{ROW_FORMAT_VERSION_CURRENT, serialize_row_payload_with_version},
         commit::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
@@ -285,8 +285,8 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
         .to_raw()
         .expect("integrity test data key should encode");
     let payload = serialize(entity).expect("integrity test entity payload should encode");
-    let encoded =
-        serialize(&(version, payload)).expect("integrity test row envelope should encode");
+    let encoded = serialize_row_payload_with_version(payload, version)
+        .expect("integrity test row envelope should encode");
     let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");
 
     with_data_store_mut(STORE_A_PATH, |store| {
