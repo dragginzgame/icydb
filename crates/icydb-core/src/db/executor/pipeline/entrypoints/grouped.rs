@@ -67,7 +67,7 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
 impl GroupedPathRuntimeCore {
     // Build the grouped runtime spine once from one recovered store handle and
     // its resolved structural entity authority.
-    fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
+    const fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
         Self {
             traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
             row_store: store,
