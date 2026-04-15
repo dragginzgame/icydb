@@ -708,8 +708,20 @@ mod tests {
         );
         assert_eq!(
             node.fields.len(),
-            1,
-            "fields(field(...)) should parse into fields"
+            3,
+            "fields(field(...)) should parse into one declared field plus the auto-managed metadata fields"
+        );
+        assert!(
+            node.fields.get(&format_ident!("id")).is_some(),
+            "declared nested field should be preserved in the lowered field list",
+        );
+        assert!(
+            node.fields.get(&format_ident!("created_at")).is_some(),
+            "entity lowering should append created_at metadata field",
+        );
+        assert!(
+            node.fields.get(&format_ident!("updated_at")).is_some(),
+            "entity lowering should append updated_at metadata field",
         );
     }
 }
