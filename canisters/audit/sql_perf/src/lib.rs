@@ -105,6 +105,10 @@ fn average_fluent_attribution(
     total_runtime_local_instructions: u64,
     total_finalize_local_instructions: u64,
     total_direct_data_row_scan_local_instructions: u64,
+    total_direct_data_row_key_stream_local_instructions: u64,
+    total_direct_data_row_row_read_local_instructions: u64,
+    total_direct_data_row_key_encode_local_instructions: u64,
+    total_direct_data_row_store_get_local_instructions: u64,
     total_direct_data_row_order_window_local_instructions: u64,
     total_direct_data_row_page_window_local_instructions: u64,
     total_response_decode_local_instructions: u64,
@@ -122,6 +126,14 @@ fn average_fluent_attribution(
         finalize_local_instructions: total_finalize_local_instructions / divisor,
         direct_data_row_scan_local_instructions: total_direct_data_row_scan_local_instructions
             / divisor,
+        direct_data_row_key_stream_local_instructions:
+            total_direct_data_row_key_stream_local_instructions / divisor,
+        direct_data_row_row_read_local_instructions:
+            total_direct_data_row_row_read_local_instructions / divisor,
+        direct_data_row_key_encode_local_instructions:
+            total_direct_data_row_key_encode_local_instructions / divisor,
+        direct_data_row_store_get_local_instructions:
+            total_direct_data_row_store_get_local_instructions / divisor,
         direct_data_row_order_window_local_instructions:
             total_direct_data_row_order_window_local_instructions / divisor,
         direct_data_row_page_window_local_instructions:
@@ -403,6 +415,10 @@ fn query_fluent_scenario_loop(
     let mut total_runtime_local_instructions = 0_u64;
     let mut total_finalize_local_instructions = 0_u64;
     let mut total_direct_data_row_scan_local_instructions = 0_u64;
+    let mut total_direct_data_row_key_stream_local_instructions = 0_u64;
+    let mut total_direct_data_row_row_read_local_instructions = 0_u64;
+    let mut total_direct_data_row_key_encode_local_instructions = 0_u64;
+    let mut total_direct_data_row_store_get_local_instructions = 0_u64;
     let mut total_direct_data_row_order_window_local_instructions = 0_u64;
     let mut total_direct_data_row_page_window_local_instructions = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
@@ -437,6 +453,18 @@ fn query_fluent_scenario_loop(
         total_direct_data_row_scan_local_instructions =
             total_direct_data_row_scan_local_instructions
                 .saturating_add(attribution.direct_data_row_scan_local_instructions);
+        total_direct_data_row_key_stream_local_instructions =
+            total_direct_data_row_key_stream_local_instructions
+                .saturating_add(attribution.direct_data_row_key_stream_local_instructions);
+        total_direct_data_row_row_read_local_instructions =
+            total_direct_data_row_row_read_local_instructions
+                .saturating_add(attribution.direct_data_row_row_read_local_instructions);
+        total_direct_data_row_key_encode_local_instructions =
+            total_direct_data_row_key_encode_local_instructions
+                .saturating_add(attribution.direct_data_row_key_encode_local_instructions);
+        total_direct_data_row_store_get_local_instructions =
+            total_direct_data_row_store_get_local_instructions
+                .saturating_add(attribution.direct_data_row_store_get_local_instructions);
         total_direct_data_row_order_window_local_instructions =
             total_direct_data_row_order_window_local_instructions
                 .saturating_add(attribution.direct_data_row_order_window_local_instructions);
@@ -462,6 +490,10 @@ fn query_fluent_scenario_loop(
             total_runtime_local_instructions,
             total_finalize_local_instructions,
             total_direct_data_row_scan_local_instructions,
+            total_direct_data_row_key_stream_local_instructions,
+            total_direct_data_row_row_read_local_instructions,
+            total_direct_data_row_key_encode_local_instructions,
+            total_direct_data_row_store_get_local_instructions,
             total_direct_data_row_order_window_local_instructions,
             total_direct_data_row_page_window_local_instructions,
             total_response_decode_local_instructions,

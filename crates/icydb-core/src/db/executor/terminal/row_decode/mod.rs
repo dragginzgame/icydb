@@ -72,6 +72,22 @@ impl RowLayout {
     ) -> Result<StructuralSlotReader<'_>, InternalError> {
         StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
     }
+
+    /// Decode one compact sparse slot buffer directly through the frozen row
+    /// contract without constructing the general structural slot reader.
+    pub(in crate::db) fn decode_indexed_values(
+        self,
+        row: &RawRow,
+        expected_key: StorageKey,
+        required_slots: &[usize],
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        decode_sparse_indexed_raw_row_with_contract(
+            row,
+            self.contract,
+            expected_key,
+            required_slots,
+        )
+    }
 }
 
 ///

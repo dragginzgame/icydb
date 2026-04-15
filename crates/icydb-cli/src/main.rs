@@ -16,6 +16,12 @@ fn main() {
 
     match config.sql {
         Some(sql) => {
+            if is_shell_help_command(sql.as_str()) {
+                print!("{}", finalize_successful_command_output(shell_help_text()));
+
+                return;
+            }
+
             let output = execute_sql(config.canister.as_str(), sql.as_str())
                 .unwrap_or_else(|err| panic!("execute SQL statement: {err}"));
             print!("{}", finalize_successful_command_output(output.as_str()));
@@ -51,6 +57,7 @@ struct ShellConfig {
 struct ShellPerfAttribution {
     total: u64,
     planner: u64,
+    store: u64,
     executor: u64,
     decode: u64,
     compiler: u64,
@@ -58,10 +65,11 @@ struct ShellPerfAttribution {
 
 impl ShellPerfAttribution {
     // Sum the current top-level SQL query perf contract exactly as emitted by
-    // query_with_perf: compiler, planner, executor, then public decode.
+    // query_with_perf: compiler, planner, store, executor, then public decode.
     const fn attributed_total(&self) -> u64 {
         self.compiler
             .saturating_add(self.planner)
+            .saturating_add(self.store)
             .saturating_add(self.executor)
             .saturating_add(self.decode)
     }
@@ -71,6 +79,45 @@ impl ShellPerfAttribution {
     const fn residual_total(&self) -> u64 {
         self.total.saturating_sub(self.attributed_total())
     }
+}
+
+///
+/// ShellInput
+///
+/// ShellInput classifies one top-level interactive shell action before the CLI
+/// decides whether to execute SQL, print local help text, or exit the shell.
+///
+
+enum ShellInput {
+    Sql(String),
+    Help,
+    Exit,
+}
+
+fn is_shell_help_command(input: &str) -> bool {
+    matches!(
+        input.trim().trim_end_matches(';').trim(),
+        "?" | "help" | "\\?" | "\\help"
+    )
+}
+
+fn shell_help_text() -> &'static str {
+    "icydb-cli help
+
+meta commands:
+  ? / help        show this help
+  \\q / exit      quit the interactive shell
+
+perf footer legend:
+  c = compile     parse, lower, and compile the SQL surface
+  p = planner     resolve visible indexes and build the structural access plan
+  s = store       physical data/index-store traversal and physical payload decode
+  e = executor    residual filter, order, group, aggregate, and projection logic
+  d = decode      package the public SQL result payload for the shell
+
+examples:
+  SELECT name FROM character;
+  EXPLAIN EXECUTION SELECT name FROM character;"
 }
 
 impl ShellConfig {
@@ -138,26 +185,31 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
 
     // Phase 2: collect one semicolon-terminated statement, then execute it.
     loop {
-        let Some(sql) = read_statement(&mut editor)? else {
-            break;
-        };
-        editor
-            .add_history_entry(sql.as_str())
-            .map_err(|err| err.to_string())?;
-        editor
-            .append_history(config.history_file.as_path())
-            .map_err(|err| err.to_string())?;
+        match read_statement(&mut editor)? {
+            ShellInput::Exit => break,
+            ShellInput::Help => {
+                print!("{}", finalize_successful_command_output(shell_help_text()));
+            }
+            ShellInput::Sql(sql) => {
+                editor
+                    .add_history_entry(sql.as_str())
+                    .map_err(|err| err.to_string())?;
+                editor
+                    .append_history(config.history_file.as_path())
+                    .map_err(|err| err.to_string())?;
 
-        match execute_sql(config.canister.as_str(), sql.as_str()) {
-            Ok(output) => print!("{}", finalize_successful_command_output(output.as_str())),
-            Err(err) => println!("ERROR: {err}"),
+                match execute_sql(config.canister.as_str(), sql.as_str()) {
+                    Ok(output) => print!("{}", finalize_successful_command_output(output.as_str())),
+                    Err(err) => println!("ERROR: {err}"),
+                }
+            }
         }
     }
 
     Ok(())
 }
 
-fn read_statement(editor: &mut DefaultEditor) -> Result<Option<String>, String> {
+fn read_statement(editor: &mut DefaultEditor) -> Result<ShellInput, String> {
     let mut statement = String::new();
     let mut prompt = "icydb> ";
 
@@ -172,7 +224,11 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<Option<String>, String> 
                 }
 
                 if statement.trim().is_empty() && matches!(line.as_str(), "\\q" | "quit" | "exit") {
-                    return Ok(None);
+                    return Ok(ShellInput::Exit);
+                }
+
+                if statement.trim().is_empty() && is_shell_help_command(line.as_str()) {
+                    return Ok(ShellInput::Help);
                 }
 
                 if !statement.is_empty() {
@@ -181,7 +237,7 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<Option<String>, String> 
                 statement.push_str(line.as_str());
 
                 if statement.trim_end().ends_with(';') {
-                    return Ok(Some(statement));
+                    return Ok(ShellInput::Sql(statement));
                 }
 
                 prompt = "    -> ";
@@ -193,10 +249,10 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<Option<String>, String> 
             Err(ReadlineError::Eof) => {
                 if statement.trim().is_empty() {
                     println!();
-                    return Ok(None);
+                    return Ok(ShellInput::Exit);
                 }
 
-                return Ok(Some(statement));
+                return Ok(ShellInput::Sql(statement));
             }
             Err(err) => return Err(err.to_string()),
         }
@@ -354,11 +410,12 @@ fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
     Some(format!("{total} {bar}"))
 }
 
-// Render one compact fixed-order composition bar for compiler/planner/executor/decode shares.
+// Render one compact fixed-order composition bar for compiler/planner/store/executor/decode shares.
 fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<String> {
     let phases = [
         ('c', attribution.compiler),
         ('p', attribution.planner),
+        ('s', attribution.store),
         ('e', attribution.executor),
         ('d', attribution.decode),
         ('?', attribution.residual_total()),
@@ -397,14 +454,15 @@ fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<Str
         remaining = remaining.saturating_sub(1);
     }
 
-    // Phase 2: restore the canonical c/p/e/d order in the rendered shell surface.
+    // Phase 2: restore the canonical c/p/s/e/d order in the rendered shell surface.
     allocated.sort_by_key(|bucket| match bucket.label {
         'c' => 0,
         'p' => 1,
-        'e' => 2,
-        'd' => 3,
-        '?' => 4,
-        _ => 5,
+        's' => 2,
+        'e' => 3,
+        'd' => 4,
+        '?' => 5,
+        _ => 6,
     });
 
     let mut rendered = String::with_capacity(width.saturating_add(2));
@@ -503,6 +561,7 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
         ShellPerfAttribution {
             total: parse_perf_u64(value, "instructions")?,
             planner: parse_perf_u64(value, "planner_instructions")?,
+            store: parse_perf_u64_or_default(value, "store_instructions")?,
             executor: parse_perf_u64(value, "executor_instructions")?,
             decode: parse_perf_u64_or_default(value, "decode_instructions")?,
             compiler: parse_perf_u64(value, "compiler_instructions")?,
@@ -573,8 +632,8 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ShellPerfAttribution, finalize_successful_command_output,
-        normalize_grouped_next_cursor_json, parse_perf_result, render_perf_suffix,
+        ShellPerfAttribution, finalize_successful_command_output, is_shell_help_command,
+        normalize_grouped_next_cursor_json, parse_perf_result, render_perf_suffix, shell_help_text,
     };
     use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
     use serde_json::json;
@@ -593,6 +652,7 @@ mod tests {
             },
             "instructions": "1",
             "planner_instructions": "1",
+            "store_instructions": "1",
             "executor_instructions": "1",
             "decode_instructions": "1",
             "compiler_instructions": "1"
@@ -633,6 +693,7 @@ mod tests {
         let suffix = render_perf_suffix(&ShellPerfAttribution {
             total: 2_400,
             planner: 0,
+            store: 0,
             executor: 1_900,
             decode: 0,
             compiler: 500,
@@ -648,6 +709,7 @@ mod tests {
             render_perf_suffix(&ShellPerfAttribution {
                 total: 0,
                 planner: 0,
+                store: 0,
                 executor: 0,
                 decode: 0,
                 compiler: 0,
@@ -662,13 +724,14 @@ mod tests {
         let suffix = render_perf_suffix(&ShellPerfAttribution {
             total: 120_000_000,
             planner: 20_000_000,
-            executor: 60_000_000,
+            store: 20_000_000,
+            executor: 40_000_000,
             decode: 10_000_000,
             compiler: 10_000_000,
         })
         .expect("large perf attribution should render a footer");
 
-        assert_eq!(suffix, "120.0Mi [ccppppeeeeeeeeeeeeedd????]");
+        assert_eq!(suffix, "120.0Mi [ccppppsssseeeeeeeeedd????]");
     }
 
     #[test]
@@ -676,13 +739,14 @@ mod tests {
         let suffix = render_perf_suffix(&ShellPerfAttribution {
             total: 10_000_000,
             planner: 2_000_000,
-            executor: 5_000_000,
+            store: 2_000_000,
+            executor: 3_000_000,
             decode: 2_000_000,
             compiler: 1_000_000,
         })
         .expect("complete perf attribution should render a footer");
 
-        assert_eq!(suffix, "10.0Mi [ccppppeeeeeeeeeedddd]");
+        assert_eq!(suffix, "10.0Mi [ccppppsssseeeeeedddd]");
     }
 
     #[test]
@@ -690,13 +754,14 @@ mod tests {
         let suffix = render_perf_suffix(&ShellPerfAttribution {
             total: 10_000_000,
             planner: 1_000_000,
+            store: 1_000_000,
             executor: 4_000_000,
             decode: 1_000_000,
             compiler: 1_000_000,
         })
         .expect("residual perf attribution should render a footer");
 
-        assert_eq!(suffix, "10.0Mi [ccppeeeeeeeedd??????]");
+        assert_eq!(suffix, "10.0Mi [ccppsseeeeeeeedd????]");
     }
 
     #[test]
@@ -705,6 +770,27 @@ mod tests {
             finalize_successful_command_output("surface=explain"),
             "surface=explain\n\n",
         );
+    }
+
+    #[test]
+    fn help_command_matches_supported_spellings() {
+        for input in ["?", "help", "\\?", "\\help", "help;", " ? "] {
+            assert!(
+                is_shell_help_command(input),
+                "input should be treated as shell help: {input:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn shell_help_text_mentions_current_perf_legend() {
+        let help = shell_help_text();
+
+        assert!(help.contains("c = compile"));
+        assert!(help.contains("p = planner"));
+        assert!(help.contains("s = store"));
+        assert!(help.contains("e = executor"));
+        assert!(help.contains("d = decode"));
     }
 
     #[test]

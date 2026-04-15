@@ -1,7 +1,7 @@
-error[E0560]: struct `UiEntityCreate` has no field named `created_at`
+error[E0560]: struct `UiEntity_Create` has no field named `created_at`
   --> tests/ui/insert_type_excludes_managed_field.rs:27:9
    |
 27 |         created_at: Some(Timestamp::now()),
-   |         ^^^^^^^^^^ `UiEntityCreate` does not have this field
+   |         ^^^^^^^^^^ `UiEntity_Create` does not have this field
    |
    = note: all struct fields are already assigned

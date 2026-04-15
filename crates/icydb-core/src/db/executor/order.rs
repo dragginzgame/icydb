@@ -312,6 +312,25 @@ fn cache_order_values_from_data_row(
     row_layout: RowLayout,
     resolved_order: &ResolvedOrder,
 ) -> Result<CachedOrderValues, InternalError> {
+    // Phase 1: pure direct-field ORDER BY terms can stay on the sparse
+    // contract path and decode only the ordered slots in field order.
+    if let Some(required_slots) = resolved_order_direct_field_slots(resolved_order) {
+        let values = row_layout.decode_indexed_values(
+            &row.1,
+            row.0.storage_key(),
+            required_slots.as_slice(),
+        )?;
+        let mut cached_values = CachedOrderValues::with_capacity(values.len());
+
+        for value in values {
+            cached_values.push(value);
+        }
+
+        return Ok(cached_values);
+    }
+
+    // Phase 2: expression-backed ordering still needs the general structural
+    // slot reader so expression evaluation can borrow slots repeatedly.
     let slots = row_layout.open_raw_row(&row.1)?;
     let mut cached_values = CachedOrderValues::with_capacity(resolved_order.fields().len());
 
@@ -332,6 +351,22 @@ fn cache_order_values_from_data_row(
     }
 
     Ok(cached_values)
+}
+
+// Return the resolved order slots when every ORDER BY term is one direct
+// field reference, preserving canonical field order and duplicates.
+fn resolved_order_direct_field_slots(resolved_order: &ResolvedOrder) -> Option<Vec<usize>> {
+    let mut required_slots = Vec::with_capacity(resolved_order.fields().len());
+
+    for field in resolved_order.fields() {
+        let ResolvedOrderValueSource::DirectField(slot) = field.source() else {
+            return None;
+        };
+
+        required_slots.push(*slot);
+    }
+
+    Some(required_slots)
 }
 
 // Compare two already-materialized ordering tuples by walking their cached
@@ -440,7 +475,16 @@ fn compare_order_value_with_boundary(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::plan::ResolvedOrderField;
+    use crate::{
+        db::data::{RawRow, with_structural_read_metrics},
+        db::query::plan::ResolvedOrderField,
+        model::field::FieldKind,
+        traits::EntitySchema,
+        types::{Blob, Text, Ulid},
+        value::Value,
+    };
+    use icydb_derive::{FieldProjection, PersistedRow};
+    use serde::{Deserialize, Serialize};
     use std::{borrow::Cow, cell::Cell, rc::Rc};
 
     struct TestRow {
@@ -585,6 +629,52 @@ mod tests {
         assert_eq!(right_reads.get(), 1);
     }
 
+    crate::test_canister! {
+        ident = OrderWindowCanister,
+        commit_memory_id = crate::testing::test_commit_memory_id(),
+    }
+
+    crate::test_store! {
+        ident = OrderWindowStore,
+        canister = OrderWindowCanister,
+    }
+
+    #[derive(
+        Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+    )]
+    struct OrderWindowEntity {
+        id: Ulid,
+        title: Text,
+        tags: Vec<Text>,
+        portrait: Blob,
+    }
+
+    crate::test_entity_schema! {
+        ident = OrderWindowEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "OrderWindowEntity",
+        entity_tag = crate::testing::PROBE_ENTITY_TAG,
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("title", FieldKind::Text),
+            ("tags", FieldKind::List(&FieldKind::Text)),
+            ("portrait", FieldKind::Blob),
+        ],
+        indexes = [],
+        store = OrderWindowStore,
+        canister = OrderWindowCanister,
+    }
+
+    fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
+        let key = crate::db::data::DataKey::try_new::<OrderWindowEntity>(entity.id)
+            .expect("test key construction should succeed");
+        let row = RawRow::from_entity(entity).expect("test row serialization should succeed");
+
+        (key, row)
+    }
+
     #[test]
     fn cursor_boundary_from_orderable_row_handles_heap_cached_values() {
         let row = TestRow::new(vec![
@@ -615,5 +705,48 @@ mod tests {
                 CursorBoundarySlot::Present(Value::Uint(5)),
             ]
         );
+    }
+
+    #[test]
+    fn direct_data_row_order_window_uses_sparse_direct_field_decode() {
+        let alpha = OrderWindowEntity {
+            id: Ulid::from_u128(1),
+            title: "alpha".to_string(),
+            tags: vec!["one".to_string(), "two".to_string()],
+            portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+        };
+        let beta = OrderWindowEntity {
+            id: Ulid::from_u128(2),
+            title: "beta".to_string(),
+            tags: vec!["three".to_string()],
+            portrait: Blob::from(vec![0x40, 0x50, 0x60]),
+        };
+        let mut rows = vec![direct_data_row(&beta), direct_data_row(&alpha)];
+
+        let (_result, metrics) = with_structural_read_metrics(|| {
+            apply_structural_order_window_to_data_rows(
+                &mut rows,
+                RowLayout::from_model(OrderWindowEntity::MODEL),
+                &resolved_order(&[(1, OrderDirection::Asc)]),
+                None,
+            )
+        });
+
+        assert_eq!(rows[0].1.try_decode::<OrderWindowEntity>().unwrap(), alpha);
+        assert_eq!(rows[1].1.try_decode::<OrderWindowEntity>().unwrap(), beta);
+        assert_eq!(metrics.rows_opened, 2);
+        assert_eq!(
+            metrics.declared_slots_validated, 2,
+            "pure direct-field ordering should validate only the ordered slot per row",
+        );
+        assert_eq!(
+            metrics.validated_non_scalar_slots, 0,
+            "direct-field ordering should not validate untouched non-scalar slots",
+        );
+        assert_eq!(
+            metrics.materialized_non_scalar_slots, 0,
+            "direct-field ordering should leave untouched non-scalar slots unmaterialized",
+        );
+        assert_eq!(metrics.rows_without_lazy_non_scalar_materializations, 2);
     }
 }

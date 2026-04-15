@@ -128,7 +128,7 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 
 // Fold the public SQL response-packaging phase onto the outward top-level perf
 // contract so shell-facing totals remain exhaustive across compile, planner,
-// executor, and decode.
+// store, executor, and decode.
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 const fn finalize_public_sql_query_attribution(
     mut attribution: crate::db::SqlQueryExecutionAttribution,
@@ -137,6 +137,7 @@ const fn finalize_public_sql_query_attribution(
     attribution.response_decode_local_instructions = response_decode_local_instructions;
     attribution.execute_local_instructions = attribution
         .planner_local_instructions
+        .saturating_add(attribution.store_local_instructions)
         .saturating_add(attribution.executor_local_instructions)
         .saturating_add(response_decode_local_instructions);
     attribution.total_local_instructions = attribution
@@ -753,10 +754,11 @@ mod tests {
             SqlQueryExecutionAttribution {
                 compile_local_instructions: 11,
                 planner_local_instructions: 13,
+                store_local_instructions: 17,
                 executor_local_instructions: 17,
                 response_decode_local_instructions: 0,
-                execute_local_instructions: 30,
-                total_local_instructions: 41,
+                execute_local_instructions: 47,
+                total_local_instructions: 58,
                 sql_compiled_command_cache_hits: 0,
                 sql_compiled_command_cache_misses: 0,
                 sql_select_plan_cache_hits: 0,
@@ -771,16 +773,17 @@ mod tests {
             finalized.execute_local_instructions,
             finalized
                 .planner_local_instructions
+                .saturating_add(finalized.store_local_instructions)
                 .saturating_add(finalized.executor_local_instructions)
                 .saturating_add(finalized.response_decode_local_instructions),
-            "public SQL execute totals should include planner, executor, and decode work",
+            "public SQL execute totals should include planner, store, executor, and decode work",
         );
         assert_eq!(
             finalized.total_local_instructions,
             finalized
                 .compile_local_instructions
                 .saturating_add(finalized.execute_local_instructions),
-            "public SQL total instructions should remain exhaustive across compiler, planner, executor, and decode",
+            "public SQL total instructions should remain exhaustive across compiler, planner, store, executor, and decode",
         );
     }
 }

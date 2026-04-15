@@ -262,6 +262,19 @@ pub trait EntityCreateInput: Sized {
     fn materialize_create(self) -> EntityCreateMaterialization<Self::Entity>;
 }
 
+///
+/// EntityCreateType
+///
+/// Entity-owned association from one entity type to its generated create
+/// input shape.
+/// This keeps the public create-input surface generic at the facade boundary
+/// while generated code remains free to pick any concrete backing type name.
+///
+
+pub trait EntityCreateType: EntityValue {
+    type Create: EntityCreateInput<Entity = Self>;
+}
+
 /// Marker for entities with exactly one logical row.
 pub trait SingletonEntity: EntityValue {}
 

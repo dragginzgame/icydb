@@ -19,12 +19,13 @@ icydb::start!();
 // SqlQueryPerfResult
 //
 // Lightweight dev-shell envelope that preserves the normal SQL result payload
-// while attaching the current SQL compile/execute attribution split.
+// while attaching the current SQL compile/planner/store/executor/decode split.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     instructions: u64,
     planner_instructions: u64,
+    store_instructions: u64,
     executor_instructions: u64,
     decode_instructions: u64,
     compiler_instructions: u64,
@@ -40,6 +41,7 @@ impl SqlQueryPerfResult {
             result,
             instructions: attribution.total_local_instructions,
             planner_instructions: attribution.planner_local_instructions,
+            store_instructions: attribution.store_local_instructions,
             executor_instructions: attribution.executor_local_instructions,
             decode_instructions: attribution.response_decode_local_instructions,
             compiler_instructions: attribution.compile_local_instructions,
@@ -73,7 +75,8 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 }
 
 /// Execute one Character-only reduced SQL query and return one dev-shell
-/// compile/execute attribution split alongside the normal SQL result payload.
+/// compile/planner/store/executor/decode attribution split alongside the
+/// normal SQL result payload.
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 #[query]
 fn query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {

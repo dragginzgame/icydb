@@ -80,6 +80,10 @@ pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) runtime_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
     pub(in crate::db) direct_data_row_scan_local_instructions: u64,
+    pub(in crate::db) direct_data_row_key_stream_local_instructions: u64,
+    pub(in crate::db) direct_data_row_row_read_local_instructions: u64,
+    pub(in crate::db) direct_data_row_key_encode_local_instructions: u64,
+    pub(in crate::db) direct_data_row_store_get_local_instructions: u64,
     pub(in crate::db) direct_data_row_order_window_local_instructions: u64,
     pub(in crate::db) direct_data_row_page_window_local_instructions: u64,
 }
@@ -377,6 +381,14 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
             finalize_local_instructions,
             direct_data_row_scan_local_instructions: direct_data_row_phase_attribution
                 .scan_local_instructions,
+            direct_data_row_key_stream_local_instructions: direct_data_row_phase_attribution
+                .key_stream_local_instructions,
+            direct_data_row_row_read_local_instructions: direct_data_row_phase_attribution
+                .row_read_local_instructions,
+            direct_data_row_key_encode_local_instructions: direct_data_row_phase_attribution
+                .key_encode_local_instructions,
+            direct_data_row_store_get_local_instructions: direct_data_row_phase_attribution
+                .store_get_local_instructions,
             direct_data_row_order_window_local_instructions: direct_data_row_phase_attribution
                 .order_window_local_instructions,
             direct_data_row_page_window_local_instructions: direct_data_row_phase_attribution

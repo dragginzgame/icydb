@@ -459,7 +459,7 @@ impl HasType for Entity {
 }
 
 fn entity_create_ident(ident: &Ident) -> Ident {
-    format_ident!("{ident}Create")
+    format_ident!("{ident}_Create")
 }
 
 const fn field_is_insert_authorable(field: &Field) -> bool {
@@ -529,6 +529,10 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
 
                 ::icydb::traits::EntityCreateMaterialization::new(entity, authored_slots)
             }
+        }
+
+        impl ::icydb::traits::EntityCreateType for #ident {
+            type Create = #create_ident;
         }
     }
 }

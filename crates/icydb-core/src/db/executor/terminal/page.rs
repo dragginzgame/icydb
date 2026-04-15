@@ -155,9 +155,8 @@ pub struct ScalarMaterializationLaneMetrics {
 /// DirectDataRowPhaseAttribution
 ///
 /// DirectDataRowPhaseAttribution isolates the direct raw-row scalar lane into
-/// the three remaining runtime subphases that still matter for warmed fluent
-/// perf work: row scan/decode, optional in-memory order shaping, and the final
-/// page window.
+/// scan-local subphases plus the later order/page windows that still matter
+/// for warmed fluent perf work.
 /// Non-direct executor lanes leave these counters at zero so the attribution
 /// surface stays lane-local instead of pretending to describe every runtime.
 ///
@@ -167,6 +166,10 @@ pub struct ScalarMaterializationLaneMetrics {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
     pub(in crate::db::executor) scan_local_instructions: u64,
+    pub(in crate::db::executor) key_stream_local_instructions: u64,
+    pub(in crate::db::executor) row_read_local_instructions: u64,
+    pub(in crate::db::executor) key_encode_local_instructions: u64,
+    pub(in crate::db::executor) store_get_local_instructions: u64,
     pub(in crate::db::executor) order_window_local_instructions: u64,
     pub(in crate::db::executor) page_window_local_instructions: u64,
 }
@@ -183,6 +186,10 @@ std::thread_local! {
     static DIRECT_DATA_ROW_PHASE_ATTRIBUTION: Cell<DirectDataRowPhaseAttribution> = const {
         Cell::new(DirectDataRowPhaseAttribution {
             scan_local_instructions: 0,
+            key_stream_local_instructions: 0,
+            row_read_local_instructions: 0,
+            key_encode_local_instructions: 0,
+            store_get_local_instructions: 0,
             order_window_local_instructions: 0,
             page_window_local_instructions: 0,
         })
@@ -307,6 +314,72 @@ fn record_direct_data_row_scan_local_instructions(delta: u64) {
         let current = attribution.get();
         attribution.set(DirectDataRowPhaseAttribution {
             scan_local_instructions: current.scan_local_instructions.saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_key_stream_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            key_stream_local_instructions: current
+                .key_stream_local_instructions
+                .saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_row_read_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            row_read_local_instructions: current.row_read_local_instructions.saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_key_encode_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            key_encode_local_instructions: current
+                .key_encode_local_instructions
+                .saturating_add(delta),
+            ..current
+        });
+    });
+}
+
+#[cfg(feature = "perf-attribution")]
+fn record_direct_data_row_store_get_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
+        let current = attribution.get();
+        attribution.set(DirectDataRowPhaseAttribution {
+            store_get_local_instructions: current
+                .store_get_local_instructions
+                .saturating_add(delta),
             ..current
         });
     });
@@ -732,8 +805,25 @@ impl ScalarRowRuntimeState {
         consistency: MissingRowPolicy,
         key: &DataKey,
     ) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
+        #[cfg(feature = "perf-attribution")]
+        let (key_encode_local_instructions, raw_key_result) =
+            measure_direct_data_row_phase(|| key.to_raw());
+        #[cfg(not(feature = "perf-attribution"))]
+        let raw_key_result = key.to_raw();
+        let raw_key = raw_key_result?;
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_key_encode_local_instructions(key_encode_local_instructions);
+
+        #[cfg(feature = "perf-attribution")]
+        let (store_get_local_instructions, row) = measure_direct_data_row_phase(|| {
+            Ok::<_, InternalError>(self.store.with_data(|store| store.get(&raw_key)))
+        });
+        #[cfg(not(feature = "perf-attribution"))]
         let row = self.store.with_data(|store| store.get(&raw_key));
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_store_get_local_instructions(store_get_local_instructions);
+        #[cfg(feature = "perf-attribution")]
+        let row = row?;
 
         match consistency {
             MissingRowPolicy::Error => row
@@ -2177,9 +2267,27 @@ fn scan_data_rows_direct(
     );
     let mut data_rows = Vec::with_capacity(staged_capacity);
 
-    while let Some(key) = key_stream.next_key()? {
+    loop {
+        #[cfg(feature = "perf-attribution")]
+        let (key_stream_local_instructions, read_result) =
+            measure_direct_data_row_phase(|| key_stream.next_key());
+        #[cfg(not(feature = "perf-attribution"))]
+        let read_result = key_stream.next_key();
+        let Some(key) = read_result? else {
+            break;
+        };
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
+
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(data_row) = row_runtime.read_data_row(consistency, key)? else {
+        #[cfg(feature = "perf-attribution")]
+        let (row_read_local_instructions, row_read_result) =
+            measure_direct_data_row_phase(|| row_runtime.read_data_row(consistency, key));
+        #[cfg(not(feature = "perf-attribution"))]
+        let row_read_result = row_runtime.read_data_row(consistency, key);
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
+        let Some(data_row) = row_read_result? else {
             continue;
         };
         data_rows.push(data_row);
@@ -2208,15 +2316,38 @@ fn scan_data_rows_direct_with_predicate(
     );
     let mut data_rows = Vec::with_capacity(staged_capacity);
 
-    while let Some(key) = key_stream.next_key()? {
+    loop {
+        #[cfg(feature = "perf-attribution")]
+        let (key_stream_local_instructions, read_result) =
+            measure_direct_data_row_phase(|| key_stream.next_key());
+        #[cfg(not(feature = "perf-attribution"))]
+        let read_result = key_stream.next_key();
+        let Some(key) = read_result? else {
+            break;
+        };
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
+
         rows_scanned = rows_scanned.saturating_add(1);
-        let Some(data_row) = row_runtime.read_data_row_with_predicate(
+        #[cfg(feature = "perf-attribution")]
+        let (row_read_local_instructions, row_read_result) = measure_direct_data_row_phase(|| {
+            row_runtime.read_data_row_with_predicate(
+                consistency,
+                key,
+                predicate_program,
+                retained_slot_layout,
+            )
+        });
+        #[cfg(not(feature = "perf-attribution"))]
+        let row_read_result = row_runtime.read_data_row_with_predicate(
             consistency,
             key,
             predicate_program,
             retained_slot_layout,
-        )?
-        else {
+        );
+        #[cfg(feature = "perf-attribution")]
+        record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
+        let Some(data_row) = row_read_result? else {
             continue;
         };
         data_rows.push(data_row);

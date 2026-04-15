@@ -13,6 +13,8 @@ mod write;
 #[cfg(feature = "perf-attribution")]
 use crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister;
 #[cfg(feature = "perf-attribution")]
+use crate::db::physical_access::with_physical_access_attribution;
+#[cfg(feature = "perf-attribution")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 use crate::{
     db::{
@@ -59,6 +61,19 @@ fn measure_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Resu
     let delta = read_local_instruction_counter().saturating_sub(start);
 
     (delta, result)
+}
+
+#[cfg(feature = "perf-attribution")]
+fn measure_execute_phase_with_physical_access<T, E>(
+    run: impl FnOnce() -> Result<T, E>,
+) -> ((u64, u64), Result<T, E>) {
+    let (store_local_instructions, (execute_local_instructions, result)) =
+        with_physical_access_attribution(|| measure_execute_phase(run));
+
+    (
+        (execute_local_instructions, store_local_instructions),
+        result,
+    )
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -139,19 +154,20 @@ impl<C: CanisterKind> DbSession<C> {
         });
         let (columns, fixed_scales, plan, cache_attribution) = prepared?;
 
-        let (executor_local_instructions, payload) = measure_execute_phase(move || {
-            let projected =
-                execute_sql_projection_rows_for_canister(&self.db, self.debug, authority, plan)
-                    .map_err(QueryError::execute)?;
-            let (rows, row_count) = projected.into_parts();
+        let ((execute_local_instructions, store_local_instructions), payload) =
+            measure_execute_phase_with_physical_access(move || {
+                let projected =
+                    execute_sql_projection_rows_for_canister(&self.db, self.debug, authority, plan)
+                        .map_err(QueryError::execute)?;
+                let (rows, row_count) = projected.into_parts();
 
-            Ok::<SqlProjectionPayload, QueryError>(SqlProjectionPayload::new(
-                columns,
-                fixed_scales,
-                rows,
-                row_count,
-            ))
-        });
+                Ok::<SqlProjectionPayload, QueryError>(SqlProjectionPayload::new(
+                    columns,
+                    fixed_scales,
+                    rows,
+                    row_count,
+                ))
+            });
         let payload = payload?;
 
         Ok((
@@ -159,7 +175,9 @@ impl<C: CanisterKind> DbSession<C> {
             cache_attribution,
             SqlExecutePhaseAttribution {
                 planner_local_instructions,
-                executor_local_instructions,
+                store_local_instructions,
+                executor_local_instructions: execute_local_instructions
+                    .saturating_sub(store_local_instructions),
             },
         ))
     }
@@ -186,33 +204,35 @@ impl<C: CanisterKind> DbSession<C> {
         let (entry, cache_attribution) = prepared?;
         let (plan, columns, _) = entry.into_parts();
 
-        let (executor_local_instructions, statement_result) = measure_execute_phase(move || {
-            let page =
-                execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
-                    .map_err(QueryError::execute)?;
-            let next_cursor = page
-                .next_cursor
-                .map(|cursor| {
-                    let Some(token) = cursor.as_grouped() else {
-                        return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-                    };
+        let ((execute_local_instructions, store_local_instructions), statement_result) =
+            measure_execute_phase_with_physical_access(move || {
+                let page = execute_initial_grouped_rows_for_canister(
+                    &self.db, self.debug, authority, plan,
+                )
+                .map_err(QueryError::execute)?;
+                let next_cursor = page
+                    .next_cursor
+                    .map(|cursor| {
+                        let Some(token) = cursor.as_grouped() else {
+                            return Err(QueryError::grouped_paged_emitted_scalar_continuation());
+                        };
 
-                    token.encode_hex().map_err(|err| {
-                        QueryError::serialize_internal(format!(
-                            "failed to serialize grouped continuation cursor: {err}"
-                        ))
+                        token.encode_hex().map_err(|err| {
+                            QueryError::serialize_internal(format!(
+                                "failed to serialize grouped continuation cursor: {err}"
+                            ))
+                        })
                     })
-                })
-                .transpose()?;
+                    .transpose()?;
 
-            Ok::<SqlStatementResult, QueryError>(
-                crate::db::session::sql::projection::grouped_sql_statement_result(
-                    columns,
-                    page.rows,
-                    next_cursor,
-                ),
-            )
-        });
+                Ok::<SqlStatementResult, QueryError>(
+                    crate::db::session::sql::projection::grouped_sql_statement_result(
+                        columns,
+                        page.rows,
+                        next_cursor,
+                    ),
+                )
+            });
         let statement_result = statement_result?;
 
         Ok((
@@ -220,7 +240,9 @@ impl<C: CanisterKind> DbSession<C> {
             cache_attribution,
             SqlExecutePhaseAttribution {
                 planner_local_instructions,
-                executor_local_instructions,
+                store_local_instructions,
+                executor_local_instructions: execute_local_instructions
+                    .saturating_sub(store_local_instructions),
             },
         ))
     }
@@ -276,133 +298,171 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             CompiledSqlCommand::Delete { query, statement } => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    self.execute_sql_delete_statement::<E>(query.clone(), statement)
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        self.execute_sql_delete_statement::<E>(query.clone(), statement)
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::GlobalAggregate {
                 command,
                 label_overrides,
             } => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    self.execute_global_aggregate_statement_for_authority::<E>(
-                        command.clone(),
-                        authority,
-                        label_overrides.clone(),
-                    )
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        self.execute_global_aggregate_statement_for_authority::<E>(
+                            command.clone(),
+                            authority,
+                            label_overrides.clone(),
+                        )
+                    });
                 let (result, cache_attribution) = result?;
 
                 Ok((
                     result,
                     cache_attribution,
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    if let Some(explain) =
-                        self.explain_lowered_sql_execution_for_authority(lowered, authority)?
-                    {
-                        return Ok::<SqlStatementResult, QueryError>(SqlStatementResult::Explain(
-                            explain,
-                        ));
-                    }
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        if let Some(explain) =
+                            self.explain_lowered_sql_execution_for_authority(lowered, authority)?
+                        {
+                            return Ok::<SqlStatementResult, QueryError>(
+                                SqlStatementResult::Explain(explain),
+                            );
+                        }
 
-                    self.explain_lowered_sql_for_authority(lowered, authority)
-                        .map(SqlStatementResult::Explain)
-                });
+                        self.explain_lowered_sql_for_authority(lowered, authority)
+                            .map(SqlStatementResult::Explain)
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::Insert(statement) => {
-                let (execute_local_instructions, result) =
-                    measure_execute_phase(|| self.execute_sql_insert_statement::<E>(statement));
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        self.execute_sql_insert_statement::<E>(statement)
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::Update(statement) => {
-                let (execute_local_instructions, result) =
-                    measure_execute_phase(|| self.execute_sql_update_statement::<E>(statement));
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        self.execute_sql_update_statement::<E>(statement)
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::DescribeEntity => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    Ok::<SqlStatementResult, QueryError>(SqlStatementResult::Describe(
-                        self.describe_entity::<E>(),
-                    ))
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        Ok::<SqlStatementResult, QueryError>(SqlStatementResult::Describe(
+                            self.describe_entity::<E>(),
+                        ))
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::ShowIndexesEntity => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowIndexes(
-                        self.show_indexes::<E>(),
-                    ))
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowIndexes(
+                            self.show_indexes::<E>(),
+                        ))
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::ShowColumnsEntity => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowColumns(
-                        self.show_columns::<E>(),
-                    ))
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowColumns(
+                            self.show_columns::<E>(),
+                        ))
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
             CompiledSqlCommand::ShowEntities => {
-                let (execute_local_instructions, result) = measure_execute_phase(|| {
-                    Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowEntities(
-                        self.show_entities(),
-                    ))
-                });
+                let ((execute_local_instructions, store_local_instructions), result) =
+                    measure_execute_phase_with_physical_access(|| {
+                        Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ShowEntities(
+                            self.show_entities(),
+                        ))
+                    });
                 let result = result?;
 
                 Ok((
                     result,
                     SqlCacheAttribution::default(),
-                    SqlExecutePhaseAttribution::from_execute_total(execute_local_instructions),
+                    SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+                        execute_local_instructions,
+                        store_local_instructions,
+                    ),
                 ))
             }
         }

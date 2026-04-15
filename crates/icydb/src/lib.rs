@@ -125,6 +125,9 @@ pub mod error;
 pub mod traits;
 pub use error::Error;
 
+/// Generic create-input alias for one entity type.
+pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;
+
 // Macro/runtime wiring surface used by generated code.
 // This is intentionally narrow and not semver-stable.
 #[doc(hidden)]

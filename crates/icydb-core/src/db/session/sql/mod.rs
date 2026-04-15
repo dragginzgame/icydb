@@ -101,6 +101,7 @@ pub enum SqlStatementResult {
 pub struct SqlQueryExecutionAttribution {
     pub compile_local_instructions: u64,
     pub planner_local_instructions: u64,
+    pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
@@ -114,21 +115,28 @@ pub struct SqlQueryExecutionAttribution {
 }
 
 // SqlExecutePhaseAttribution keeps the execute side split into select-plan
-// work versus narrower runtime execution so shell tooling can show both.
+// work, physical store/index access, and narrower runtime execution so shell
+// tooling can show all three.
 #[cfg(feature = "perf-attribution")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
+    pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
 }
 
 #[cfg(feature = "perf-attribution")]
 impl SqlExecutePhaseAttribution {
     #[must_use]
-    pub(in crate::db) const fn from_execute_total(execute_local_instructions: u64) -> Self {
+    pub(in crate::db) const fn from_execute_total_and_store_total(
+        execute_local_instructions: u64,
+        store_local_instructions: u64,
+    ) -> Self {
         Self {
             planner_local_instructions: 0,
-            executor_local_instructions: execute_local_instructions,
+            store_local_instructions,
+            executor_local_instructions: execute_local_instructions
+                .saturating_sub(store_local_instructions),
         }
     }
 }
@@ -681,6 +689,7 @@ impl<C: CanisterKind> DbSession<C> {
             self.execute_compiled_sql_with_phase_attribution::<E>(&compiled)?;
         let execute_local_instructions = execute_phase_attribution
             .planner_local_instructions
+            .saturating_add(execute_phase_attribution.store_local_instructions)
             .saturating_add(execute_phase_attribution.executor_local_instructions);
         let cache_attribution = compile_cache_attribution.merge(execute_cache_attribution);
         let total_local_instructions =
@@ -691,6 +700,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlQueryExecutionAttribution {
                 compile_local_instructions,
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
+                store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,

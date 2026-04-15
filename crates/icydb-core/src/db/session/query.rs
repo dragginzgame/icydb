@@ -135,6 +135,10 @@ pub struct QueryExecutionAttribution {
     pub runtime_local_instructions: u64,
     pub finalize_local_instructions: u64,
     pub direct_data_row_scan_local_instructions: u64,
+    pub direct_data_row_key_stream_local_instructions: u64,
+    pub direct_data_row_row_read_local_instructions: u64,
+    pub direct_data_row_key_encode_local_instructions: u64,
+    pub direct_data_row_store_get_local_instructions: u64,
     pub direct_data_row_order_window_local_instructions: u64,
     pub direct_data_row_page_window_local_instructions: u64,
     pub response_decode_local_instructions: u64,
@@ -177,6 +181,10 @@ impl<C: CanisterKind> DbSession<C> {
             runtime_local_instructions: 0,
             finalize_local_instructions: 0,
             direct_data_row_scan_local_instructions: 0,
+            direct_data_row_key_stream_local_instructions: 0,
+            direct_data_row_row_read_local_instructions: 0,
+            direct_data_row_key_encode_local_instructions: 0,
+            direct_data_row_store_get_local_instructions: 0,
             direct_data_row_order_window_local_instructions: 0,
             direct_data_row_page_window_local_instructions: 0,
         }
@@ -638,6 +646,14 @@ impl<C: CanisterKind> DbSession<C> {
                 finalize_local_instructions: execute_phase_attribution.finalize_local_instructions,
                 direct_data_row_scan_local_instructions: execute_phase_attribution
                     .direct_data_row_scan_local_instructions,
+                direct_data_row_key_stream_local_instructions: execute_phase_attribution
+                    .direct_data_row_key_stream_local_instructions,
+                direct_data_row_row_read_local_instructions: execute_phase_attribution
+                    .direct_data_row_row_read_local_instructions,
+                direct_data_row_key_encode_local_instructions: execute_phase_attribution
+                    .direct_data_row_key_encode_local_instructions,
+                direct_data_row_store_get_local_instructions: execute_phase_attribution
+                    .direct_data_row_store_get_local_instructions,
                 direct_data_row_order_window_local_instructions: execute_phase_attribution
                     .direct_data_row_order_window_local_instructions,
                 direct_data_row_page_window_local_instructions: execute_phase_attribution

@@ -9,6 +9,8 @@ pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
+#[cfg(feature = "perf-attribution")]
+pub(crate) mod physical_access;
 pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;

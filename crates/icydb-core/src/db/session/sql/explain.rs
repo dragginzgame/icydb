@@ -62,7 +62,10 @@ fn sql_execution_phase_breakdown_lines() -> Vec<String> {
         "phases:".to_string(),
         "  c=compile: parse, lower, and compile the SQL surface".to_string(),
         "  p=planner: resolve visible indexes and build the structural access plan".to_string(),
-        "  e=executor: run scan, filter, order, group, and projection execution".to_string(),
+        "  s=store: traverse physical index/data storage and decode physical access payloads"
+            .to_string(),
+        "  e=executor: run residual filter, order, group, aggregate, and projection logic"
+            .to_string(),
         "  d=decode: package the public SQL result payload for the shell".to_string(),
     ]
 }

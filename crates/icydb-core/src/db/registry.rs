@@ -81,7 +81,17 @@ impl StoreHandle {
 
     /// Borrow the row store immutably.
     pub fn with_data<R>(&self, f: impl FnOnce(&DataStore) -> R) -> R {
-        self.data.with_borrow(f)
+        #[cfg(feature = "perf-attribution")]
+        {
+            return crate::db::physical_access::measure_physical_access_operation(|| {
+                self.data.with_borrow(f)
+            });
+        }
+
+        #[cfg(not(feature = "perf-attribution"))]
+        {
+            self.data.with_borrow(f)
+        }
     }
 
     /// Borrow the row store mutably.
@@ -91,7 +101,17 @@ impl StoreHandle {
 
     /// Borrow the index store immutably.
     pub fn with_index<R>(&self, f: impl FnOnce(&IndexStore) -> R) -> R {
-        self.index.with_borrow(f)
+        #[cfg(feature = "perf-attribution")]
+        {
+            return crate::db::physical_access::measure_physical_access_operation(|| {
+                self.index.with_borrow(f)
+            });
+        }
+
+        #[cfg(not(feature = "perf-attribution"))]
+        {
+            self.index.with_borrow(f)
+        }
     }
 
     /// Borrow the index store mutably.
