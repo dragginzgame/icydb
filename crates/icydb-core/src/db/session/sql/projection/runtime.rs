@@ -19,7 +19,8 @@ use crate::{
         executor::{
             EntityAuthority, StructuralCursorPage, StructuralCursorPagePayload,
             covering_projection_scan_direction, decode_covering_projection_component,
-            decode_covering_projection_pairs,
+            decode_covering_projection_pairs, decode_single_covering_projection_pairs,
+            map_covering_projection_pairs,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
             projection::{
                 PreparedProjectionShape, ProjectionEvalError, ScalarProjectionExpr,
@@ -39,6 +40,8 @@ use crate::{
     },
     value::Value,
 };
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+use std::cell::Cell;
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use std::cell::RefCell;
 use std::{borrow::Cow, collections::BTreeMap};
@@ -90,6 +93,44 @@ pub struct SqlProjectionTextExecutorAttribution {
     pub materialize_projection: u64,
     pub result_rows: u64,
     pub total: u64,
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+std::thread_local! {
+    static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
+    static PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+fn record_pure_covering_decode_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(|counter| {
+        counter.set(counter.get().saturating_add(delta));
+    });
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
+    if delta == 0 {
+        return;
+    }
+
+    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(|counter| {
+        counter.set(counter.get().saturating_add(delta));
+    });
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
+    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(Cell::get)
+}
+
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
+    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
 }
 
 #[cfg(all(feature = "sql", feature = "perf-attribution", target_arch = "wasm32"))]
@@ -224,6 +265,7 @@ where
 }
 
 #[cfg(feature = "sql")]
+#[expect(clippy::too_many_lines)]
 fn try_execute_covering_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
@@ -285,9 +327,286 @@ where
         |index| db.recovered_store(index.store()),
     )?;
 
+    if component_indices.is_empty() {
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let (decode_local_instructions, projected_keys) = measure_structural_result(|| {
+            map_covering_projection_pairs(
+                raw_pairs,
+                store,
+                plan.scalar_plan().consistency,
+                covering.existing_row_mode,
+                |_components| Ok::<Option<()>, InternalError>(Some(())),
+            )
+        });
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        record_pure_covering_decode_local_instructions(decode_local_instructions);
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let Some(projected_keys): Option<Vec<(DataKey, ())>> = projected_keys? else {
+            return Ok(None);
+        };
+
+        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        let Some(projected_keys) = map_covering_projection_pairs(
+            raw_pairs,
+            store,
+            plan.scalar_plan().consistency,
+            covering.existing_row_mode,
+            |_components| Ok::<Option<()>, InternalError>(Some(())),
+        )?
+        else {
+            return Ok(None);
+        };
+
+        if matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        ) {
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            let (row_assembly_local_instructions, projected_rows) =
+                measure_structural_result(|| {
+                    projected_keys
+                        .into_iter()
+                        .map(|(data_key, ())| {
+                            project_covering_row_from_decoded_values(
+                                &data_key,
+                                covering.fields.as_slice(),
+                                &[],
+                                &[],
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                });
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            let mut projected_rows = projected_rows?;
+
+            #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+            let mut projected_rows = projected_keys
+                .into_iter()
+                .map(|(data_key, ())| {
+                    project_covering_row_from_decoded_values(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        &[],
+                        &[],
+                    )
+                })
+                .collect::<Result<Vec<Vec<Value>>, _>>()?;
+
+            if !plan.scalar_plan().distinct
+                && let Some(page) = plan.scalar_plan().page.as_ref()
+            {
+                apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+            }
+
+            return Ok(Some(projected_rows));
+        }
+
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
+            projected_keys
+                .into_iter()
+                .map(|(data_key, ())| {
+                    let projected_row = project_covering_row_from_decoded_values(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        &[],
+                        &[],
+                    )?;
+
+                    Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        });
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_rows?;
+
+        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_keys
+            .into_iter()
+            .map(|(data_key, ())| {
+                let projected_row = project_covering_row_from_decoded_values(
+                    &data_key,
+                    covering.fields.as_slice(),
+                    &[],
+                    &[],
+                )?;
+
+                Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        reorder_covering_projection_pairs(covering.order_contract, projected_rows.as_mut_slice());
+        if !plan.scalar_plan().distinct
+            && let Some(page) = plan.scalar_plan().page.as_ref()
+        {
+            apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+        }
+
+        return Ok(Some(
+            projected_rows
+                .into_iter()
+                .map(|(_data_key, row)| row)
+                .collect(),
+        ));
+    }
+
+    // Phase 3b: one-component pure covering rows can skip the generic
+    // decoded-vector contract and carry one runtime `Value` directly through
+    // the SQL assembly path.
+    if component_indices.len() == 1 {
+        let component_index = component_indices[0];
+
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
+            decode_single_covering_projection_pairs(
+                raw_pairs,
+                store,
+                plan.scalar_plan().consistency,
+                covering.existing_row_mode,
+                "pure covering SQL projection expected one decodable covering component payload",
+                Ok::<Value, InternalError>,
+            )
+        });
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        record_pure_covering_decode_local_instructions(decode_local_instructions);
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let Some(decoded_rows): Option<Vec<(DataKey, Value)>> = decoded_rows? else {
+            return Ok(None);
+        };
+
+        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        let Some(decoded_rows) = decode_single_covering_projection_pairs(
+            raw_pairs,
+            store,
+            plan.scalar_plan().consistency,
+            covering.existing_row_mode,
+            "pure covering SQL projection expected one decodable covering component payload",
+            Ok::<Value, InternalError>,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        if matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        ) {
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            let (row_assembly_local_instructions, projected_rows) =
+                measure_structural_result(|| {
+                    decoded_rows
+                        .into_iter()
+                        .map(|(data_key, decoded_value)| {
+                            project_covering_row_from_single_decoded_value(
+                                &data_key,
+                                covering.fields.as_slice(),
+                                component_index,
+                                &decoded_value,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                });
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            let mut projected_rows: Vec<Vec<Value>> = projected_rows?;
+
+            #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+            let mut projected_rows = decoded_rows
+                .into_iter()
+                .map(|(data_key, decoded_value)| {
+                    project_covering_row_from_single_decoded_value(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        component_index,
+                        &decoded_value,
+                    )
+                })
+                .collect::<Result<Vec<Vec<Value>>, _>>()?;
+
+            if !plan.scalar_plan().distinct
+                && let Some(page) = plan.scalar_plan().page.as_ref()
+            {
+                apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+            }
+
+            return Ok(Some(projected_rows));
+        }
+
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
+            decoded_rows
+                .into_iter()
+                .map(|(data_key, decoded_value)| {
+                    let projected_row = project_covering_row_from_single_decoded_value(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        component_index,
+                        &decoded_value,
+                    )?;
+
+                    Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        });
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_rows?;
+
+        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        let mut projected_rows: Vec<(DataKey, Vec<Value>)> = decoded_rows
+            .into_iter()
+            .map(|(data_key, decoded_value)| {
+                let projected_row = project_covering_row_from_single_decoded_value(
+                    &data_key,
+                    covering.fields.as_slice(),
+                    component_index,
+                    &decoded_value,
+                )?;
+
+                Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        reorder_covering_projection_pairs(covering.order_contract, projected_rows.as_mut_slice());
+        if !plan.scalar_plan().distinct
+            && let Some(page) = plan.scalar_plan().page.as_ref()
+        {
+            apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+        }
+
+        return Ok(Some(
+            projected_rows
+                .into_iter()
+                .map(|(_data_key, row)| row)
+                .collect(),
+        ));
+    }
+
     // Phase 3: reuse the executor-owned covering decode contract so planner-
     // proven routes avoid row-store reads entirely while row-check-required
     // routes still preserve missing-row consistency rules.
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
+        decode_covering_projection_pairs(
+            raw_pairs,
+            store,
+            plan.scalar_plan().consistency,
+            covering.existing_row_mode,
+            Ok::<Vec<Value>, InternalError>,
+        )
+    });
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    record_pure_covering_decode_local_instructions(decode_local_instructions);
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    let Some(decoded_rows) = decoded_rows? else {
+        return Ok(None);
+    };
+
+    #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
     let Some(decoded_rows) = decode_covering_projection_pairs(
         raw_pairs,
         store,
@@ -298,13 +617,83 @@ where
     else {
         return Ok(None);
     };
+
+    if matches!(
+        covering.order_contract,
+        CoveringProjectionOrder::IndexOrder(_)
+    ) {
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
+            decoded_rows
+                .into_iter()
+                .map(|(data_key, decoded_values)| {
+                    project_covering_row_from_decoded_values(
+                        &data_key,
+                        covering.fields.as_slice(),
+                        component_indices.as_slice(),
+                        decoded_values.as_slice(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        });
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        let mut projected_rows = projected_rows?;
+
+        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        let mut projected_rows = decoded_rows
+            .into_iter()
+            .map(|(data_key, decoded_values)| {
+                project_covering_row_from_decoded_values(
+                    &data_key,
+                    covering.fields.as_slice(),
+                    component_indices.as_slice(),
+                    decoded_values.as_slice(),
+                )
+            })
+            .collect::<Result<Vec<Vec<Value>>, _>>()?;
+
+        if !plan.scalar_plan().distinct
+            && let Some(page) = plan.scalar_plan().page.as_ref()
+        {
+            apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+        }
+
+        return Ok(Some(projected_rows));
+    }
+
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
+        decoded_rows
+            .into_iter()
+            .map(|(data_key, decoded_values)| {
+                let projected_row = project_covering_row_from_decoded_values(
+                    &data_key,
+                    covering.fields.as_slice(),
+                    component_indices.as_slice(),
+                    decoded_values.as_slice(),
+                )?;
+
+                Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    });
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    let mut projected_rows = projected_rows?;
+
+    #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
     let mut projected_rows: Vec<(DataKey, Vec<Value>)> = decoded_rows
         .into_iter()
         .map(|(data_key, decoded_values)| {
-            let decoded_components =
-                covering_decoded_component_map(component_indices.as_slice(), decoded_values)?;
-            let projected_row =
-                project_covering_row(&data_key, covering.fields.as_slice(), &decoded_components)?;
+            let projected_row = project_covering_row_from_decoded_values(
+                &data_key,
+                covering.fields.as_slice(),
+                component_indices.as_slice(),
+                decoded_values.as_slice(),
+            )?;
 
             Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
         })
@@ -497,24 +886,6 @@ fn hybrid_covering_scan_limit(
 }
 
 #[cfg(feature = "sql")]
-fn covering_decoded_component_map(
-    component_indices: &[usize],
-    decoded_values: Vec<Value>,
-) -> Result<BTreeMap<usize, Value>, InternalError> {
-    if component_indices.len() != decoded_values.len() {
-        return Err(InternalError::query_executor_invariant(
-            "covering SQL projection component decode arity mismatch",
-        ));
-    }
-
-    Ok(component_indices
-        .iter()
-        .copied()
-        .zip(decoded_values)
-        .collect())
-}
-
-#[cfg(feature = "sql")]
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {
     let mut row_field_slots = Vec::new();
 
@@ -552,23 +923,74 @@ fn decode_hybrid_covering_components(
 }
 
 #[cfg(feature = "sql")]
-fn project_covering_row(
+fn project_covering_row_from_decoded_values(
     data_key: &crate::db::data::DataKey,
     fields: &[CoveringReadField],
-    decoded_components: &BTreeMap<usize, Value>,
+    component_indices: &[usize],
+    decoded_values: &[Value],
+) -> Result<Vec<Value>, InternalError> {
+    if component_indices.len() != decoded_values.len() {
+        return Err(InternalError::query_executor_invariant(
+            "covering SQL projection component decode arity mismatch",
+        ));
+    }
+
+    let mut projected = Vec::with_capacity(fields.len());
+
+    for field in fields {
+        let value = match &field.source {
+            CoveringReadFieldSource::IndexComponent { component_index } => {
+                let Some(position) = component_indices
+                    .iter()
+                    .position(|candidate| candidate == component_index)
+                else {
+                    return Err(InternalError::query_executor_invariant(
+                        "covering SQL projection missing decoded covering component",
+                    ));
+                };
+
+                decoded_values.get(position).cloned().ok_or_else(|| {
+                    InternalError::query_executor_invariant(
+                        "covering SQL projection decoded component position out of bounds",
+                    )
+                })?
+            }
+            CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
+            CoveringReadFieldSource::Constant(value) => value.clone(),
+            CoveringReadFieldSource::RowField => {
+                return Err(InternalError::query_executor_invariant(
+                    "pure covering SQL projection unexpectedly reached row-backed field source",
+                ));
+            }
+        };
+        projected.push(value);
+    }
+
+    Ok(projected)
+}
+
+#[cfg(feature = "sql")]
+fn project_covering_row_from_single_decoded_value(
+    data_key: &crate::db::data::DataKey,
+    fields: &[CoveringReadField],
+    component_index: usize,
+    decoded_value: &Value,
 ) -> Result<Vec<Value>, InternalError> {
     let mut projected = Vec::with_capacity(fields.len());
 
     for field in fields {
         let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index } => decoded_components
-                .get(component_index)
-                .cloned()
-                .ok_or_else(|| {
-                    InternalError::query_executor_invariant(
+            CoveringReadFieldSource::IndexComponent {
+                component_index: field_component_index,
+            } => {
+                if *field_component_index != component_index {
+                    return Err(InternalError::query_executor_invariant(
                         "covering SQL projection missing decoded covering component",
-                    )
-                })?,
+                    ));
+                }
+
+                decoded_value.clone()
+            }
             CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {

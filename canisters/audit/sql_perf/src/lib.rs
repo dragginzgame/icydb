@@ -70,6 +70,8 @@ fn average_attribution(
     total_planner_local_instructions: u64,
     total_store_local_instructions: u64,
     total_executor_local_instructions: u64,
+    total_pure_covering_decode_local_instructions: u64,
+    total_pure_covering_row_assembly_local_instructions: u64,
     total_store_get_calls: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
@@ -89,6 +91,10 @@ fn average_attribution(
         planner_local_instructions: total_planner_local_instructions / divisor,
         store_local_instructions: total_store_local_instructions / divisor,
         executor_local_instructions: total_executor_local_instructions / divisor,
+        pure_covering_decode_local_instructions: total_pure_covering_decode_local_instructions
+            / divisor,
+        pure_covering_row_assembly_local_instructions:
+            total_pure_covering_row_assembly_local_instructions / divisor,
         store_get_calls: total_store_get_calls / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,

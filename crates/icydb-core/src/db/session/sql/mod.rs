@@ -24,6 +24,11 @@ const SQL_SELECT_PLAN_CACHE_METHOD_VERSION: u8 = 1;
 
 #[cfg(feature = "perf-attribution")]
 use crate::db::DataStore;
+#[cfg(feature = "perf-attribution")]
+use crate::db::session::sql::projection::{
+    current_pure_covering_decode_local_instructions,
+    current_pure_covering_row_assembly_local_instructions,
+};
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
     db::{
@@ -107,6 +112,8 @@ pub struct SqlQueryExecutionAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub pure_covering_decode_local_instructions: u64,
+    pub pure_covering_row_assembly_local_instructions: u64,
     pub store_get_calls: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
@@ -692,10 +699,19 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
         let store_get_calls_before = DataStore::current_get_call_count();
+        let pure_covering_decode_before = current_pure_covering_decode_local_instructions();
+        let pure_covering_row_assembly_before =
+            current_pure_covering_row_assembly_local_instructions();
         let (result, execute_cache_attribution, execute_phase_attribution) =
             self.execute_compiled_sql_with_phase_attribution::<E>(&compiled)?;
         let store_get_calls =
             DataStore::current_get_call_count().saturating_sub(store_get_calls_before);
+        let pure_covering_decode_local_instructions =
+            current_pure_covering_decode_local_instructions()
+                .saturating_sub(pure_covering_decode_before);
+        let pure_covering_row_assembly_local_instructions =
+            current_pure_covering_row_assembly_local_instructions()
+                .saturating_sub(pure_covering_row_assembly_before);
         let execute_local_instructions = execute_phase_attribution
             .planner_local_instructions
             .saturating_add(execute_phase_attribution.store_local_instructions)
@@ -711,6 +727,8 @@ impl<C: CanisterKind> DbSession<C> {
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
+                pure_covering_decode_local_instructions,
+                pure_covering_row_assembly_local_instructions,
                 store_get_calls,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,

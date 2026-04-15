@@ -27,6 +27,8 @@ struct SqlQueryPerfResult {
     planner_instructions: u64,
     store_instructions: u64,
     executor_instructions: u64,
+    pure_covering_decode_instructions: u64,
+    pure_covering_row_assembly_instructions: u64,
     decode_instructions: u64,
     compiler_instructions: u64,
 }
@@ -43,6 +45,9 @@ impl SqlQueryPerfResult {
             planner_instructions: attribution.planner_local_instructions,
             store_instructions: attribution.store_local_instructions,
             executor_instructions: attribution.executor_local_instructions,
+            pure_covering_decode_instructions: attribution.pure_covering_decode_local_instructions,
+            pure_covering_row_assembly_instructions: attribution
+                .pure_covering_row_assembly_local_instructions,
             decode_instructions: attribution.response_decode_local_instructions,
             compiler_instructions: attribution.compile_local_instructions,
         }

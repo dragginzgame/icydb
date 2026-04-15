@@ -2,6 +2,7 @@ use std::{
     env,
     path::PathBuf,
     process::{Command, Stdio},
+    time::Instant,
 };
 
 use icydb::{
@@ -59,6 +60,8 @@ struct ShellPerfAttribution {
     planner: u64,
     store: u64,
     executor: u64,
+    pure_covering_decode: u64,
+    pure_covering_row_assembly: u64,
     decode: u64,
     compiler: u64,
 }
@@ -79,6 +82,26 @@ impl ShellPerfAttribution {
     const fn residual_total(&self) -> u64 {
         self.total.saturating_sub(self.attributed_total())
     }
+
+    const fn pure_covering_executor_residual(&self) -> u64 {
+        self.executor
+            .saturating_sub(self.pure_covering_decode)
+            .saturating_sub(self.pure_covering_row_assembly)
+    }
+}
+
+///
+/// ShellLocalRenderAttribution
+///
+/// ShellLocalRenderAttribution records the CLI-only render time spent turning
+/// decoded SQL result payloads into the local table/footer text shown in the
+/// shell. This stays separate from the canister-side `c/p/s/e/d` instruction
+/// contract because it measures native shell formatting work rather than query
+/// engine execution.
+///
+
+struct ShellLocalRenderAttribution {
+    render_micros: u128,
 }
 
 ///
@@ -114,6 +137,9 @@ perf footer legend:
   s = store       physical data/index-store traversal and physical payload decode
   e = executor    residual filter, order, group, aggregate, and projection logic
   d = decode      package the public SQL result payload for the shell
+  {pc=.../...}    pure covering decode / pure covering row assembly
+  {er=...}        remaining executor work outside the explicit pure covering subpath
+  {r=...}         local shell render time for table/footer formatting
 
 examples:
   SELECT name FROM character;
@@ -216,25 +242,32 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<ShellInput, String> {
     loop {
         match editor.readline(prompt) {
             Ok(line) => {
+                // Normalize recalled or freshly typed lines before they enter
+                // the statement buffer so history recall does not reintroduce
+                // trailing spaces or duplicate terminators.
+                let normalized_line = normalize_shell_statement_line(line.as_str());
+
                 // Ignore top-level blank input so pressing Enter on an empty
                 // prompt simply reprompts instead of executing empty SQL.
-                if statement.trim().is_empty() && line.trim().is_empty() {
+                if statement.trim().is_empty() && normalized_line.is_empty() {
                     prompt = "icydb> ";
                     continue;
                 }
 
-                if statement.trim().is_empty() && matches!(line.as_str(), "\\q" | "quit" | "exit") {
+                if statement.trim().is_empty()
+                    && matches!(normalized_line.as_str(), "\\q" | "quit" | "exit")
+                {
                     return Ok(ShellInput::Exit);
                 }
 
-                if statement.trim().is_empty() && is_shell_help_command(line.as_str()) {
+                if statement.trim().is_empty() && is_shell_help_command(normalized_line.as_str()) {
                     return Ok(ShellInput::Help);
                 }
 
                 if !statement.is_empty() {
                     statement.push('\n');
                 }
-                statement.push_str(line.as_str());
+                statement.push_str(normalized_line.as_str());
 
                 if statement.trim_end().ends_with(';') {
                     return Ok(ShellInput::Sql(statement));
@@ -257,6 +290,19 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<ShellInput, String> {
             Err(err) => return Err(err.to_string()),
         }
     }
+}
+
+// Trim shell-facing line noise while preserving the SQL text itself, so
+// history recall does not force users to remove stray whitespace or `;;`.
+fn normalize_shell_statement_line(line: &str) -> String {
+    let trimmed = line.trim();
+    let without_extra_semicolons = trimmed.trim_end_matches(';');
+
+    if without_extra_semicolons.len() == trimmed.len() {
+        return trimmed.to_string();
+    }
+
+    format!("{without_extra_semicolons};")
 }
 
 fn execute_sql(canister: &str, sql: &str) -> Result<String, String> {
@@ -314,8 +360,14 @@ fn render_shell_text_from_dfx_json(input: &str) -> Result<String, String> {
 
     if let Some(ok) = payload.get("Ok") {
         let (result, attribution) = parse_perf_result(ok)?;
+        let render_start = Instant::now();
+        let rendered = render_shell_text(result, Some(attribution), None);
+        let render_attribution = ShellLocalRenderAttribution {
+            render_micros: render_start.elapsed().as_micros(),
+        };
+        let rendered = append_shell_render_suffix(rendered, Some(&render_attribution));
 
-        return Ok(render_shell_text(result, Some(attribution)));
+        return Ok(rendered);
     }
 
     let err: Error = serde_json::from_value(
@@ -329,10 +381,18 @@ fn render_shell_text_from_dfx_json(input: &str) -> Result<String, String> {
     Ok(format!("ERROR: {err}"))
 }
 
-fn render_shell_text(result: SqlQueryResult, attribution: Option<ShellPerfAttribution>) -> String {
+fn render_shell_text(
+    result: SqlQueryResult,
+    attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<ShellLocalRenderAttribution>,
+) -> String {
     match result {
-        SqlQueryResult::Projection(rows) => render_projection_shell_text(rows, attribution),
-        SqlQueryResult::Grouped(rows) => render_grouped_shell_text(rows, attribution),
+        SqlQueryResult::Projection(rows) => {
+            render_projection_shell_text(rows, attribution, render_attribution)
+        }
+        SqlQueryResult::Grouped(rows) => {
+            render_grouped_shell_text(rows, attribution, render_attribution)
+        }
         other => other.render_text(),
     }
 }
@@ -340,12 +400,17 @@ fn render_shell_text(result: SqlQueryResult, attribution: Option<ShellPerfAttrib
 fn render_projection_shell_text(
     mut rows: SqlQueryRowsOutput,
     attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<ShellLocalRenderAttribution>,
 ) -> String {
     uppercase_null_cells(rows.rows.as_mut_slice());
 
     let mut lines =
         icydb::db::sql::render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows());
-    append_perf_suffix(lines.as_mut_slice(), attribution.as_ref());
+    append_perf_suffix(
+        lines.as_mut_slice(),
+        attribution.as_ref(),
+        render_attribution.as_ref(),
+    );
 
     lines.join("\n")
 }
@@ -353,11 +418,16 @@ fn render_projection_shell_text(
 fn render_grouped_shell_text(
     mut rows: SqlGroupedRowsOutput,
     attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<ShellLocalRenderAttribution>,
 ) -> String {
     uppercase_null_cells(rows.rows.as_mut_slice());
 
     let mut lines = render_grouped_lines(&rows);
-    append_perf_suffix(lines.as_mut_slice(), attribution.as_ref());
+    append_perf_suffix(
+        lines.as_mut_slice(),
+        attribution.as_ref(),
+        render_attribution.as_ref(),
+    );
 
     lines.join("\n")
 }
@@ -383,21 +453,61 @@ fn uppercase_null_cells(rows: &mut [Vec<String>]) {
     }
 }
 
-fn append_perf_suffix(lines: &mut [String], attribution: Option<&ShellPerfAttribution>) {
+fn append_perf_suffix(
+    lines: &mut [String],
+    attribution: Option<&ShellPerfAttribution>,
+    render_attribution: Option<&ShellLocalRenderAttribution>,
+) {
     let Some(last) = lines.last_mut() else {
         return;
     };
-    let Some(attribution) = attribution else {
+    let perf_suffix = render_perf_suffix(attribution);
+    let pure_covering_suffix = render_pure_covering_suffix(attribution);
+    let executor_residual_suffix = render_executor_residual_suffix(attribution);
+    let render_suffix = render_shell_render_suffix(render_attribution);
+    if perf_suffix.is_none()
+        && pure_covering_suffix.is_none()
+        && executor_residual_suffix.is_none()
+        && render_suffix.is_none()
+    {
         return;
-    };
-    let Some(perf_suffix) = render_perf_suffix(attribution) else {
-        return;
-    };
+    }
 
-    *last = format!("{last} {perf_suffix}");
+    let mut suffixes = Vec::new();
+    if let Some(perf_suffix) = perf_suffix {
+        suffixes.push(perf_suffix);
+    }
+    if let Some(pure_covering_suffix) = pure_covering_suffix {
+        suffixes.push(pure_covering_suffix);
+    }
+    if let Some(executor_residual_suffix) = executor_residual_suffix {
+        suffixes.push(executor_residual_suffix);
+    }
+    if let Some(render_suffix) = render_suffix {
+        suffixes.push(render_suffix);
+    }
+
+    *last = format!("{last} {}", suffixes.join(" "));
 }
 
-fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
+fn append_shell_render_suffix(
+    rendered: String,
+    render_attribution: Option<&ShellLocalRenderAttribution>,
+) -> String {
+    let Some(render_suffix) = render_shell_render_suffix(render_attribution) else {
+        return rendered;
+    };
+    let mut lines = rendered.lines().map(str::to_string).collect::<Vec<_>>();
+    let Some(last) = lines.last_mut() else {
+        return rendered;
+    };
+    *last = format!("{last} {render_suffix}");
+
+    lines.join("\n")
+}
+
+fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+    let attribution = attribution?;
     if attribution.total == 0 {
         return None;
     }
@@ -408,6 +518,55 @@ fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
     };
 
     Some(format!("{total} {bar}"))
+}
+
+fn render_shell_render_suffix(
+    render_attribution: Option<&ShellLocalRenderAttribution>,
+) -> Option<String> {
+    let render_attribution = render_attribution?;
+    if render_attribution.render_micros == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "{{r={}}}",
+        format_render_duration(render_attribution.render_micros)
+    ))
+}
+
+fn render_pure_covering_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+    let attribution = attribution?;
+    if attribution.pure_covering_decode == 0 && attribution.pure_covering_row_assembly == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "{{pc={}/{}}}",
+        format_instructions(attribution.pure_covering_decode),
+        format_instructions(attribution.pure_covering_row_assembly),
+    ))
+}
+
+fn render_executor_residual_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+    let attribution = attribution?;
+    let residual = attribution.pure_covering_executor_residual();
+    if residual == 0 {
+        return None;
+    }
+
+    Some(format!("{{er={}}}", format_instructions(residual)))
+}
+
+fn format_render_duration(render_micros: u128) -> String {
+    if render_micros >= 1_000 {
+        let millis_tenths = (render_micros + 50) / 100;
+        let whole = millis_tenths / 10;
+        let fractional = millis_tenths % 10;
+
+        return format!("{whole}.{fractional}ms");
+    }
+
+    format!("{render_micros}us")
 }
 
 // Render one compact fixed-order composition bar for compiler/planner/store/executor/decode shares.
@@ -563,6 +722,14 @@ fn parse_perf_result(value: &Value) -> Result<(SqlQueryResult, ShellPerfAttribut
             planner: parse_perf_u64(value, "planner_instructions")?,
             store: parse_perf_u64_or_default(value, "store_instructions")?,
             executor: parse_perf_u64(value, "executor_instructions")?,
+            pure_covering_decode: parse_perf_u64_or_default(
+                value,
+                "pure_covering_decode_instructions",
+            )?,
+            pure_covering_row_assembly: parse_perf_u64_or_default(
+                value,
+                "pure_covering_row_assembly_instructions",
+            )?,
             decode: parse_perf_u64_or_default(value, "decode_instructions")?,
             compiler: parse_perf_u64(value, "compiler_instructions")?,
         },
@@ -633,7 +800,8 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
 mod tests {
     use super::{
         ShellPerfAttribution, finalize_successful_command_output, is_shell_help_command,
-        normalize_grouped_next_cursor_json, parse_perf_result, render_perf_suffix, shell_help_text,
+        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
+        render_perf_suffix, shell_help_text,
     };
     use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
     use serde_json::json;
@@ -690,14 +858,16 @@ mod tests {
 
     #[test]
     fn render_perf_suffix_skips_zero_instruction_segments() {
-        let suffix = render_perf_suffix(&ShellPerfAttribution {
+        let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
             total: 2_400,
             planner: 0,
             store: 0,
             executor: 1_900,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
             decode: 0,
             compiler: 500,
-        })
+        }))
         .expect("non-zero perf attribution should render a footer");
 
         assert_eq!(suffix, "2.4Ki [cceeeeeeee]");
@@ -706,14 +876,16 @@ mod tests {
     #[test]
     fn render_perf_suffix_omits_empty_attribution() {
         assert!(
-            render_perf_suffix(&ShellPerfAttribution {
+            render_perf_suffix(Some(&ShellPerfAttribution {
                 total: 0,
                 planner: 0,
                 store: 0,
                 executor: 0,
+                pure_covering_decode: 0,
+                pure_covering_row_assembly: 0,
                 decode: 0,
                 compiler: 0,
-            })
+            }))
             .is_none(),
             "all-zero perf attribution should not render a footer",
         );
@@ -721,14 +893,16 @@ mod tests {
 
     #[test]
     fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
-        let suffix = render_perf_suffix(&ShellPerfAttribution {
+        let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
             total: 120_000_000,
             planner: 20_000_000,
             store: 20_000_000,
             executor: 40_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
             decode: 10_000_000,
             compiler: 10_000_000,
-        })
+        }))
         .expect("large perf attribution should render a footer");
 
         assert_eq!(suffix, "120.0Mi [ccppppsssseeeeeeeeedd????]");
@@ -736,14 +910,16 @@ mod tests {
 
     #[test]
     fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaustive() {
-        let suffix = render_perf_suffix(&ShellPerfAttribution {
+        let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
             total: 10_000_000,
             planner: 2_000_000,
             store: 2_000_000,
             executor: 3_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
             decode: 2_000_000,
             compiler: 1_000_000,
-        })
+        }))
         .expect("complete perf attribution should render a footer");
 
         assert_eq!(suffix, "10.0Mi [ccppppsssseeeeeedddd]");
@@ -751,14 +927,16 @@ mod tests {
 
     #[test]
     fn render_perf_suffix_surfaces_unattributed_remainder_as_unknown_bucket() {
-        let suffix = render_perf_suffix(&ShellPerfAttribution {
+        let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
             total: 10_000_000,
             planner: 1_000_000,
             store: 1_000_000,
             executor: 4_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
             decode: 1_000_000,
             compiler: 1_000_000,
-        })
+        }))
         .expect("residual perf attribution should render a footer");
 
         assert_eq!(suffix, "10.0Mi [ccppsseeeeeeeedd????]");
@@ -783,6 +961,24 @@ mod tests {
     }
 
     #[test]
+    fn normalize_shell_statement_line_trims_surrounding_whitespace() {
+        assert_eq!(
+            normalize_shell_statement_line("   SELECT * FROM character   "),
+            "SELECT * FROM character",
+        );
+    }
+
+    #[test]
+    fn normalize_shell_statement_line_collapses_repeated_trailing_semicolons() {
+        assert_eq!(normalize_shell_statement_line("  query();;   "), "query();",);
+    }
+
+    #[test]
+    fn normalize_shell_statement_line_preserves_semicolon_only_terminator_lines() {
+        assert_eq!(normalize_shell_statement_line("  ;; "), ";");
+    }
+
+    #[test]
     fn shell_help_text_mentions_current_perf_legend() {
         let help = shell_help_text();
 
@@ -791,6 +987,9 @@ mod tests {
         assert!(help.contains("s = store"));
         assert!(help.contains("e = executor"));
         assert!(help.contains("d = decode"));
+        assert!(help.contains("{pc=.../...}"));
+        assert!(help.contains("{er=...}"));
+        assert!(help.contains("{r=...}"));
     }
 
     #[test]
@@ -802,6 +1001,7 @@ mod tests {
                 rows: vec![vec!["alice".to_string()]],
                 row_count: 1,
             },
+            None,
             None,
         );
 
@@ -821,6 +1021,7 @@ mod tests {
                 row_count: 1,
                 next_cursor: None,
             },
+            None,
             None,
         );
 

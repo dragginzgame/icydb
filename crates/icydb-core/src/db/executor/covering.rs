@@ -157,7 +157,7 @@ fn resolve_covering_projection_components_for_index_bounds(
 // Map one raw covering projection stream under the existing-row contract and
 // let the caller decide how the admitted component bytes become terminal
 // payloads.
-pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
+pub(in crate::db) fn map_covering_projection_pairs<T, F>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
@@ -167,32 +167,33 @@ pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
 where
     F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
 {
-    store.with_data(|data| {
-        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        for (data_key, _existence_witness, components) in raw_pairs {
-            if existing_row_mode.requires_row_presence_check() {
-                record_row_check_covering_candidate_seen();
+    let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
 
-                if !read_row_presence_with_consistency_from_data_store(
-                    data,
-                    &data_key,
-                    consistency,
-                )? {
-                    continue;
-                }
-            }
+    for (data_key, _existence_witness, components) in raw_pairs {
+        // Keep the physical-access bucket scoped to the actual row-presence
+        // probe only. Planner-proven covering rows should not charge covering
+        // decode or terminal row mapping to `s`.
+        if existing_row_mode.requires_row_presence_check() {
+            record_row_check_covering_candidate_seen();
 
-            let Some(projected) = map_components(components)? else {
-                return Ok(None);
-            };
-            projected_pairs.push((data_key, projected));
-            if existing_row_mode.requires_row_presence_check() {
-                record_row_check_row_emitted();
+            let row_present = store.with_data(|data| {
+                read_row_presence_with_consistency_from_data_store(data, &data_key, consistency)
+            })?;
+            if !row_present {
+                continue;
             }
         }
 
-        Ok(Some(projected_pairs))
-    })
+        let Some(projected) = map_components(components)? else {
+            return Ok(None);
+        };
+        projected_pairs.push((data_key, projected));
+        if existing_row_mode.requires_row_presence_check() {
+            record_row_check_row_emitted();
+        }
+    }
+
+    Ok(Some(projected_pairs))
 }
 
 // Decode one canonical covering-index component payload into one runtime
@@ -272,7 +273,7 @@ where
 
 // Decode one single-component covering projection stream under the existing-row
 // contract and let the caller map the decoded runtime value.
-pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
+pub(in crate::db) fn decode_single_covering_projection_pairs<T, F>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
@@ -343,6 +344,18 @@ fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
 }
 
 fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> {
+    // Fast-path the common ordered-text encoding shape: raw UTF-8 bytes with
+    // no embedded zeroes followed by the canonical `[0, 0]` terminator.
+    if payload.len() >= 2
+        && payload.ends_with(&[COVERING_TEXT_TERMINATOR, COVERING_TEXT_TERMINATOR])
+        && !payload[..payload.len().saturating_sub(2)].contains(&COVERING_TEXT_ESCAPE_PREFIX)
+    {
+        let text = String::from_utf8(payload[..payload.len().saturating_sub(2)].to_vec())
+            .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
+
+        return Ok(Some(Value::Text(text)));
+    }
+
     let mut bytes = Vec::new();
     let mut i = 0usize;
 
