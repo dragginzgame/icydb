@@ -3,7 +3,7 @@
 //! Does not own: row layout planning, typed entity reconstruction, or query semantics.
 //! Boundary: runtime paths use this module when they need one persisted field decoded without `E`.
 
-mod cbor;
+mod binary;
 mod composite;
 mod encode;
 mod leaf;
@@ -20,7 +20,9 @@ use scalar::decode_scalar_fast_path_bytes;
 
 pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 pub(in crate::db) use storage_key::{
-    decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
+    decode_relation_target_storage_keys_bytes, decode_storage_key_binary_value_bytes,
+    decode_storage_key_field_bytes, encode_storage_key_binary_value_bytes,
+    supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
 };
 pub(in crate::db) use value_storage::{
     decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
@@ -100,14 +102,21 @@ pub(in crate::db) fn validate_structural_field_by_kind_bytes(
 mod tests {
     use super::{
         decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
-        decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+        decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
+        encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+        validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
     };
     use crate::{
+        db::data::structural_field::binary::{
+            push_binary_bytes, push_binary_list_len, push_binary_text, push_binary_uint64,
+        },
         model::field::{FieldKind, RelationStrength},
-        types::{Account, Decimal, EntityTag, Int128, Nat128, Principal, Subaccount, Ulid},
+        types::{
+            Account, Decimal, EntityTag, Float32, Float64, Int128, Nat128, Principal, Subaccount,
+            Ulid,
+        },
         value::{StorageKey, Value, ValueEnum},
     };
-    use std::collections::BTreeMap;
 
     static RELATION_ULID_KEY_KIND: FieldKind = FieldKind::Ulid;
     static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
@@ -123,9 +132,14 @@ mod tests {
     #[test]
     fn relation_target_storage_key_decode_handles_single_ulid_and_null() {
         let target = Ulid::from_u128(7);
-        let target_bytes = serde_cbor::to_vec(&target).expect("ulid relation bytes should encode");
+        let target_bytes =
+            encode_storage_key_binary_value_bytes(STRONG_RELATION_KIND, &Value::Ulid(target), "id")
+                .expect("storage-key relation bytes should encode")
+                .expect("relation kind should use storage-key binary lane");
         let null_bytes =
-            serde_cbor::to_vec(&Option::<Ulid>::None).expect("null relation bytes should encode");
+            encode_storage_key_binary_value_bytes(STRONG_RELATION_KIND, &Value::Null, "id")
+                .expect("null relation bytes should encode")
+                .expect("relation kind should use storage-key binary lane");
 
         let decoded =
             decode_relation_target_storage_keys_bytes(&target_bytes, STRONG_RELATION_KIND)
@@ -145,8 +159,13 @@ mod tests {
     fn relation_target_storage_key_decode_handles_list_and_skips_null_items() {
         let left = Ulid::from_u128(8);
         let right = Ulid::from_u128(9);
-        let bytes = serde_cbor::to_vec(&vec![Some(left), None, Some(right)])
-            .expect("relation list bytes should encode");
+        let bytes = encode_storage_key_binary_value_bytes(
+            STRONG_RELATION_LIST_KIND,
+            &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
+            "ids",
+        )
+        .expect("relation list bytes should encode")
+        .expect("relation list should use storage-key binary lane");
 
         let decoded = decode_relation_target_storage_keys_bytes(&bytes, STRONG_RELATION_LIST_KIND)
             .expect("relation list should decode");
@@ -159,8 +178,15 @@ mod tests {
 
     #[test]
     fn structural_field_decode_list_bytes_preserves_scalar_items() {
-        let bytes = serde_cbor::to_vec(&vec!["left".to_string(), "right".to_string()])
-            .expect("list bytes should encode");
+        let bytes = encode_structural_field_by_kind_bytes(
+            FieldKind::List(&FieldKind::Text),
+            &Value::List(vec![
+                Value::Text("left".to_string()),
+                Value::Text("right".to_string()),
+            ]),
+            "items",
+        )
+        .expect("list bytes should encode");
 
         let decoded =
             decode_structural_field_by_kind_bytes(&bytes, FieldKind::List(&FieldKind::Text))
@@ -177,10 +203,17 @@ mod tests {
 
     #[test]
     fn structural_field_decode_map_bytes_preserves_scalar_entries() {
-        let bytes = serde_cbor::to_vec(&BTreeMap::from([
-            ("alpha".to_string(), 1_u64),
-            ("beta".to_string(), 2_u64),
-        ]))
+        let bytes = encode_structural_field_by_kind_bytes(
+            FieldKind::Map {
+                key: &FieldKind::Text,
+                value: &FieldKind::Uint,
+            },
+            &Value::Map(vec![
+                (Value::Text("alpha".to_string()), Value::Uint(1)),
+                (Value::Text("beta".to_string()), Value::Uint(2)),
+            ]),
+            "entries",
+        )
         .expect("map bytes should encode");
 
         let decoded = decode_structural_field_by_kind_bytes(
@@ -199,6 +232,29 @@ mod tests {
                 (Value::Text("beta".to_string()), Value::Uint(2)),
             ]),
         );
+    }
+
+    #[test]
+    fn structural_field_decode_float_scalars_uses_binary_lane() {
+        let float32 = Value::Float32(Float32::try_new(3.5).expect("finite f32"));
+        let float64 = Value::Float64(Float64::try_new(9.25).expect("finite f64"));
+
+        let float32_bytes =
+            encode_structural_field_by_kind_bytes(FieldKind::Float32, &float32, "ratio")
+                .expect("float32 bytes should encode");
+        let float64_bytes =
+            encode_structural_field_by_kind_bytes(FieldKind::Float64, &float64, "score")
+                .expect("float64 bytes should encode");
+
+        let decoded_float32 =
+            decode_structural_field_by_kind_bytes(&float32_bytes, FieldKind::Float32)
+                .expect("float32 payload should decode");
+        let decoded_float64 =
+            decode_structural_field_by_kind_bytes(&float64_bytes, FieldKind::Float64)
+                .expect("float64 payload should decode");
+
+        assert_eq!(decoded_float32, float32);
+        assert_eq!(decoded_float64, float64);
     }
 
     #[test]
@@ -223,8 +279,18 @@ mod tests {
         let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
         let decimal = Decimal::new(1234, 2);
 
-        let account_bytes = serde_cbor::to_vec(&account).expect("account bytes should encode");
-        let decimal_bytes = serde_cbor::to_vec(&decimal).expect("decimal bytes should encode");
+        let account_bytes = encode_structural_field_by_kind_bytes(
+            FieldKind::Account,
+            &Value::Account(account),
+            "account",
+        )
+        .expect("account bytes should encode");
+        let decimal_bytes = encode_structural_field_by_kind_bytes(
+            FieldKind::Decimal { scale: 2 },
+            &Value::Decimal(decimal),
+            "amount",
+        )
+        .expect("decimal bytes should encode");
 
         let decoded_account =
             decode_structural_field_by_kind_bytes(&account_bytes, FieldKind::Account)
@@ -279,28 +345,78 @@ mod tests {
     }
 
     #[test]
-    fn structural_field_encode_value_storage_matches_legacy_serde_bytes() {
-        let value = Value::Enum(
-            ValueEnum::new("Loaded", Some("tests::StructuredPayload")).with_payload(
-                Value::from_map(vec![
-                    (
-                        Value::Text("blob".to_string()),
-                        Value::Blob(vec![0x10, 0x20, 0x30]),
-                    ),
-                    (
-                        Value::Text("counter".to_string()),
-                        Value::UintBig(crate::types::Nat::from(17_u64)),
-                    ),
-                ])
-                .expect("nested map should normalize"),
-            ),
+    fn structural_field_validate_matches_decode_for_malformed_leaf_payloads() {
+        let mut bytes = Vec::new();
+        push_binary_list_len(&mut bytes, 2);
+        push_binary_bytes(&mut bytes, &1_i128.to_be_bytes());
+        push_binary_uint64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
+
+        let decode = decode_structural_field_by_kind_bytes(
+            bytes.as_slice(),
+            FieldKind::Decimal { scale: 2 },
+        );
+        let validate = validate_structural_field_by_kind_bytes(
+            bytes.as_slice(),
+            FieldKind::Decimal { scale: 2 },
         );
 
-        let encoded = encode_structural_value_storage_bytes(&value)
-            .expect("owner-local value storage encode should succeed");
-        let legacy = crate::serialize::serialize(&value)
-            .expect("legacy serde value storage encode should succeed");
+        assert!(
+            decode.is_err(),
+            "malformed decimal payload must fail decode"
+        );
+        assert!(
+            validate.is_err(),
+            "malformed decimal payload must fail validate"
+        );
+    }
 
-        assert_eq!(encoded, legacy);
+    #[test]
+    fn structural_field_validate_matches_decode_for_malformed_storage_key_payloads() {
+        let mut bytes = Vec::new();
+        push_binary_text(&mut bytes, "aaaaa-aa");
+
+        let decode = decode_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::Principal);
+        let validate =
+            validate_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::Principal);
+
+        assert!(decode.is_err(), "principal text payload must fail decode");
+        assert!(
+            validate.is_err(),
+            "principal text payload must fail validate"
+        );
+    }
+
+    #[test]
+    fn structural_field_validate_matches_decode_for_malformed_composite_payloads() {
+        let mut bytes = encode_structural_field_by_kind_bytes(
+            FieldKind::List(&FieldKind::Text),
+            &Value::List(vec![Value::Text("left".to_string())]),
+            "items",
+        )
+        .expect("list bytes should encode");
+        bytes.push(0x00);
+
+        let decode = decode_structural_field_by_kind_bytes(
+            bytes.as_slice(),
+            FieldKind::List(&FieldKind::Text),
+        );
+        let validate = validate_structural_field_by_kind_bytes(
+            bytes.as_slice(),
+            FieldKind::List(&FieldKind::Text),
+        );
+
+        assert!(decode.is_err(), "trailing list bytes must fail decode");
+        assert!(validate.is_err(), "trailing list bytes must fail validate");
+    }
+
+    #[test]
+    fn structural_value_storage_validate_matches_decode_for_malformed_payloads() {
+        let bytes = [0xF6];
+
+        let decode = decode_structural_value_storage_bytes(&bytes);
+        let validate = validate_structural_value_storage_bytes(&bytes);
+
+        assert!(decode.is_err(), "unknown value tag must fail decode");
+        assert!(validate.is_err(), "unknown value tag must fail validate");
     }
 }

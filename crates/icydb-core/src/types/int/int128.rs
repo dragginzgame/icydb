@@ -12,7 +12,7 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Add, AddAssign, Sub, SubAssign, Sum};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     cmp::Ordering,
     fmt,
@@ -173,15 +173,6 @@ impl SanitizeAuto for Int128 {}
 
 impl SanitizeCustom for Int128 {}
 
-impl Serialize for Int128 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.0.to_be_bytes())
-    }
-}
-
 impl<'de> Deserialize<'de> for Int128 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -204,53 +195,3 @@ impl ValidateAuto for Int128 {}
 impl ValidateCustom for Int128 {}
 
 impl Visitable for Int128 {}
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn roundtrip(v: i128) {
-        let int128: Int128 = v.into();
-
-        // serialize
-        let bytes = crate::serialize::serialize(&int128).expect("serialize failed");
-
-        // must be length-prefixed
-        // so length = 16 + 1/2 bytes overhead, but we just check round-trip.
-        let decoded: Int128 = crate::serialize::deserialize(&bytes).expect("deserialize failed");
-
-        assert_eq!(decoded, int128, "roundtrip failed for {v}");
-
-        // sanity check on raw serialization: inner payload must be 16 bytes
-        let raw = int128.0.to_be_bytes();
-        let encoded_inner = &bytes[bytes.len() - 16..];
-        assert_eq!(encoded_inner, &raw, "encoded inner bytes mismatch");
-    }
-
-    #[test]
-    fn test_roundtrip_basic() {
-        roundtrip(0);
-        roundtrip(1);
-        roundtrip(-1);
-        roundtrip(1_234_567_890_123_456_789);
-        roundtrip(-1_234_567_890_123_456_789);
-    }
-
-    #[test]
-    fn test_roundtrip_edges() {
-        roundtrip(i128::MIN);
-        roundtrip(i128::MAX);
-    }
-
-    #[test]
-    fn test_manual_encoding() {
-        let v: Int128 = 42.into();
-        let bytes = crate::serialize::serialize(&v).unwrap();
-        let encoded_inner = &bytes[bytes.len() - 16..];
-        assert_eq!(encoded_inner, &42i128.to_be_bytes());
-    }
-}

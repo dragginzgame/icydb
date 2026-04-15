@@ -8,8 +8,6 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::serialize::{SerializeError, SerializeErrorKind};
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -1545,32 +1543,6 @@ impl InternalError {
             ErrorOrigin::Serialize,
             message.into(),
         )
-    }
-
-    /// Construct the canonical persisted-payload decode failure mapping for one
-    /// DB-owned serialized payload boundary.
-    #[cfg(test)]
-    pub(crate) fn serialize_payload_decode_failed(
-        source: SerializeError,
-        payload_label: &'static str,
-    ) -> Self {
-        match source {
-            // DB codec only decodes engine-owned persisted payloads.
-            // Size-limit breaches indicate persisted bytes violate DB storage policy.
-            SerializeError::DeserializeSizeLimitExceeded { len, max_bytes } => {
-                Self::serialize_corruption(format!(
-                    "{payload_label} decode failed: payload size {len} exceeds limit {max_bytes}"
-                ))
-            }
-            SerializeError::Deserialize(_) => Self::serialize_corruption(format!(
-                "{payload_label} decode failed: {}",
-                SerializeErrorKind::Deserialize
-            )),
-            SerializeError::Serialize(_) => Self::serialize_corruption(format!(
-                "{payload_label} decode failed: {}",
-                SerializeErrorKind::Serialize
-            )),
-        }
     }
 
     /// Construct a query-origin unsupported error preserving one SQL parser

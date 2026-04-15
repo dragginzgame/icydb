@@ -6,12 +6,12 @@
 use crate::{
     db::{
         predicate::CompareOp,
-        reduced_sql::{Keyword, SqlParseError},
         sql::parser::{
             Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
             SqlArithmeticProjectionOperand, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
             SqlOrderTerm, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
         },
+        sql_shared::{Keyword, SqlParseError},
     },
     value::Value,
 };

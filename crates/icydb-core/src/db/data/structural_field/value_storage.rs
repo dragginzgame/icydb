@@ -1,433 +1,1176 @@
 //! Module: data::structural_field::value_storage
-//! Responsibility: externally tagged `Value` payload decode plus shallow untyped fallback behavior.
-//! Does not own: top-level `ByKind` dispatch, typed wrapper payload definitions, or raw CBOR policy.
-//! Boundary: `FieldStorageDecode::Value` and conservative fallback paths route through this module.
+//! Responsibility: owner-local binary `Value` envelope encode and decode.
+//! Does not own: top-level `ByKind` dispatch, typed wrapper payload definitions, or storage-key policy.
+//! Boundary: `FieldStorageDecode::Value` routes through this module without widening authority over sibling structural lanes.
 
-use crate::db::data::structural_field::cbor::{
-    decode_cbor_float, decode_cbor_integer, decode_text_scalar_bytes, parse_tagged_cbor_head,
-    parse_tagged_variant_payload_bytes, payload_bytes, push_account_payload, push_array_len,
-    push_bool, push_byte_string, push_decimal_payload, push_float32, push_float64,
-    push_int_big_payload, push_map_len, push_null, push_signed_integer, push_subaccount_payload,
-    push_text, push_timestamp_payload, push_uint_big_payload, push_unsigned_integer,
-    skip_cbor_value, walk_cbor_array_items, walk_cbor_map_entries,
-};
-use crate::db::data::structural_field::leaf::{
-    decode_account_value_bytes, decode_date_value_bytes, decode_decimal_value_bytes,
-    decode_duration_value_bytes, decode_int_big_value_bytes, decode_null_value_bytes,
-    decode_principal_value_bytes, decode_subaccount_value_bytes, decode_timestamp_value_bytes,
-    decode_uint_big_value_bytes, decode_unit_value_bytes,
-};
-use crate::db::data::structural_field::{
-    FieldDecodeError, decode_structural_field_by_kind_bytes,
-    validate_structural_field_by_kind_bytes,
+use crate::db::data::structural_field::FieldDecodeError;
+use crate::db::data::structural_field::binary::{
+    TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE, TAG_UINT64,
+    decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
+    payload_bytes as binary_payload_bytes, push_binary_bool, push_binary_bytes, push_binary_int64,
+    push_binary_list_len, push_binary_map_len, push_binary_null, push_binary_tag, push_binary_text,
+    push_binary_uint64, skip_binary_value,
 };
 use crate::{
     error::InternalError,
-    model::field::FieldKind,
-    types::{Float64, Int, Nat},
+    types::{
+        Account, Date, Decimal, Duration, Float32, Float64, Int, Nat, Principal, Subaccount,
+        Timestamp, Ulid,
+    },
     value::{Value, ValueEnum},
 };
 use candid::{Int as WrappedInt, Nat as WrappedNat};
+use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 // Carry the output buffer for recursively decoded `Value::List` items.
 type ValueArrayDecodeState = Vec<Value>;
 
-// Carry the output buffer for shallow fallback map entry decode.
-type UntypedMapDecodeState = Vec<(Value, Value)>;
+// Alias the callback shape for binary value-map walkers.
+type ValueBinaryMapEntryFn = unsafe fn(&[u8], &[u8], *mut ()) -> Result<(), FieldDecodeError>;
 
-// Tag the externally tagged `Value` envelope so payload decode can dispatch
-// without repeated string matching downstream.
-#[derive(Clone, Copy)]
-enum ValueVariantTag {
-    Account,
-    Date,
-    Decimal,
-    Duration,
-    Enum,
-    IntBig,
-    List,
-    Map,
-    Null,
-    Principal,
-    Scalar(FieldKind),
-    Subaccount,
-    Timestamp,
-    UintBig,
-    Unit,
-}
-
-// Tag the fixed field names inside the persisted `ValueEnum` payload struct.
-#[derive(Clone, Copy)]
-enum ValueEnumFieldTag {
-    Variant,
-    Path,
-    Payload,
-}
-
-// Resolve one tagged `Value` variant label into its decode contract.
-fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, FieldDecodeError> {
-    let tag = match variant {
-        "Account" => ValueVariantTag::Account,
-        "Blob" => ValueVariantTag::Scalar(FieldKind::Blob),
-        "Bool" => ValueVariantTag::Scalar(FieldKind::Bool),
-        "Date" => ValueVariantTag::Date,
-        "Decimal" => ValueVariantTag::Decimal,
-        "Duration" => ValueVariantTag::Duration,
-        "Enum" => ValueVariantTag::Enum,
-        "Float32" => ValueVariantTag::Scalar(FieldKind::Float32),
-        "Float64" => ValueVariantTag::Scalar(FieldKind::Float64),
-        "Int" => ValueVariantTag::Scalar(FieldKind::Int),
-        "Int128" => ValueVariantTag::Scalar(FieldKind::Int128),
-        "IntBig" => ValueVariantTag::IntBig,
-        "List" => ValueVariantTag::List,
-        "Map" => ValueVariantTag::Map,
-        "Null" => ValueVariantTag::Null,
-        "Principal" => ValueVariantTag::Principal,
-        "Subaccount" => ValueVariantTag::Subaccount,
-        "Text" => ValueVariantTag::Scalar(FieldKind::Text),
-        "Timestamp" => ValueVariantTag::Timestamp,
-        "Uint" => ValueVariantTag::Scalar(FieldKind::Uint),
-        "Uint128" => ValueVariantTag::Scalar(FieldKind::Uint128),
-        "UintBig" => ValueVariantTag::UintBig,
-        "Ulid" => ValueVariantTag::Scalar(FieldKind::Ulid),
-        "Unit" => ValueVariantTag::Unit,
-        other => {
-            return Err(FieldDecodeError::new(format!(
-                "unsupported value variant '{other}'"
-            )));
-        }
-    };
-
-    Ok(tag)
-}
-
-// Resolve one raw CBOR-encoded `ValueEnum` field name without re-running text
-// literal decoding for each known field.
-fn parse_value_enum_field_tag(raw_bytes: &[u8]) -> Option<ValueEnumFieldTag> {
-    match raw_bytes {
-        b"\x67variant" => Some(ValueEnumFieldTag::Variant),
-        b"\x64path" => Some(ValueEnumFieldTag::Path),
-        b"\x67payload" => Some(ValueEnumFieldTag::Payload),
-        _ => None,
-    }
-}
+const VALUE_BINARY_TAG_ACCOUNT: u8 = 0x80;
+const VALUE_BINARY_TAG_DATE: u8 = 0x81;
+const VALUE_BINARY_TAG_DECIMAL: u8 = 0x82;
+const VALUE_BINARY_TAG_DURATION: u8 = 0x83;
+const VALUE_BINARY_TAG_ENUM: u8 = 0x84;
+const VALUE_BINARY_TAG_FLOAT32: u8 = 0x85;
+const VALUE_BINARY_TAG_FLOAT64: u8 = 0x86;
+const VALUE_BINARY_TAG_INT128: u8 = 0x87;
+const VALUE_BINARY_TAG_INT_BIG: u8 = 0x88;
+const VALUE_BINARY_TAG_PRINCIPAL: u8 = 0x89;
+const VALUE_BINARY_TAG_SUBACCOUNT: u8 = 0x8A;
+const VALUE_BINARY_TAG_TIMESTAMP: u8 = 0x8B;
+const VALUE_BINARY_TAG_UINT128: u8 = 0x8C;
+const VALUE_BINARY_TAG_UINT_BIG: u8 = 0x8D;
+const VALUE_BINARY_TAG_ULID: u8 = 0x8E;
 
 /// Encode one persisted `FieldStorageDecode::Value` payload through the
 /// owner-local structural value-storage contract.
 pub(in crate::db) fn encode_structural_value_storage_bytes(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
+    encode_structural_value_storage_binary_bytes(value)
+}
+
+/// Encode one persisted `FieldStorageDecode::Value` payload through the
+/// parallel Structural Binary v1 `Value` envelope.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn encode_structural_value_storage_binary_bytes(
+    value: &Value,
+) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
-    encode_value_storage_into(&mut encoded, value)?;
+    encode_value_storage_binary_into(&mut encoded, value)?;
 
     Ok(encoded)
 }
 
-// Encode one runtime `Value` into the canonical externally tagged storage
-// envelope consumed by the structural value-storage decoder.
-fn encode_value_storage_into(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
+/// Decode one `FieldStorageDecode::Value` payload from the parallel
+/// Structural Binary v1 `Value` envelope.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn decode_structural_value_storage_binary_bytes(
+    raw_bytes: &[u8],
+) -> Result<Value, FieldDecodeError> {
+    let Some(&tag) = raw_bytes.first() else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value payload",
+        ));
+    };
+
+    // Phase 1: decode the unambiguous generic root tags directly.
+    let generic = match tag {
+        TAG_NULL => Some(Value::Null),
+        crate::db::data::structural_field::binary::TAG_UNIT => Some(Value::Unit),
+        TAG_FALSE => Some(Value::Bool(false)),
+        TAG_TRUE => Some(Value::Bool(true)),
+        TAG_INT64 => Some(decode_binary_i64_value(raw_bytes)?),
+        TAG_UINT64 => Some(decode_binary_u64_value(raw_bytes)?),
+        TAG_TEXT => Some(decode_binary_text_value(raw_bytes)?),
+        TAG_BYTES => Some(decode_binary_blob_value(raw_bytes)?),
+        TAG_LIST => Some(decode_value_storage_binary_list_bytes(raw_bytes)?),
+        TAG_MAP => Some(decode_value_storage_binary_map_bytes(raw_bytes)?),
+        _ => None,
+    };
+    if let Some(value) = generic {
+        return Ok(value);
+    }
+
+    // Phase 2: decode the local value-envelope tags without widening authority
+    // beyond this owner's semantic surface.
+    match tag {
+        VALUE_BINARY_TAG_ACCOUNT => decode_binary_account_value(raw_bytes),
+        VALUE_BINARY_TAG_DATE => decode_binary_date_value(raw_bytes),
+        VALUE_BINARY_TAG_DECIMAL => decode_binary_decimal_value(raw_bytes),
+        VALUE_BINARY_TAG_DURATION => decode_binary_duration_value(raw_bytes),
+        VALUE_BINARY_TAG_ENUM => decode_binary_enum_value(raw_bytes),
+        VALUE_BINARY_TAG_FLOAT32 => decode_binary_float32_value(raw_bytes),
+        VALUE_BINARY_TAG_FLOAT64 => decode_binary_float64_value(raw_bytes),
+        VALUE_BINARY_TAG_INT128 => decode_binary_int128_value(raw_bytes),
+        VALUE_BINARY_TAG_INT_BIG => decode_binary_int_big_value(raw_bytes),
+        VALUE_BINARY_TAG_PRINCIPAL => decode_binary_principal_value(raw_bytes),
+        VALUE_BINARY_TAG_SUBACCOUNT => decode_binary_subaccount_value(raw_bytes),
+        VALUE_BINARY_TAG_TIMESTAMP => decode_binary_timestamp_value(raw_bytes),
+        VALUE_BINARY_TAG_UINT128 => decode_binary_uint128_value(raw_bytes),
+        VALUE_BINARY_TAG_UINT_BIG => decode_binary_uint_big_value(raw_bytes),
+        VALUE_BINARY_TAG_ULID => decode_binary_ulid_value(raw_bytes),
+        other => Err(FieldDecodeError::new(format!(
+            "structural binary: unsupported value tag 0x{other:02X}"
+        ))),
+    }
+}
+
+/// Validate one `FieldStorageDecode::Value` payload from the parallel
+/// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn validate_structural_value_storage_binary_bytes(
+    raw_bytes: &[u8],
+) -> Result<(), FieldDecodeError> {
+    decode_structural_value_storage_binary_bytes(raw_bytes).map(|_| ())
+}
+
+// Encode one runtime `Value` into the parallel Structural Binary v1 envelope.
+fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     match value {
-        Value::Null => push_text_variant_label(out, "Null"),
-        Value::Unit => push_text_variant_label(out, "Unit"),
-        Value::Account(value) => {
-            push_single_entry_variant_label(out, "Account");
-            push_account_payload(out, *value);
-        }
-        Value::Blob(value) => {
-            push_single_entry_variant_label(out, "Blob");
-            push_byte_string(out, value.as_slice());
-        }
-        Value::Bool(value) => {
-            push_single_entry_variant_label(out, "Bool");
-            push_bool(out, *value);
-        }
-        Value::Date(value) => {
-            push_single_entry_variant_label(out, "Date");
-            push_text(out, &value.to_string());
-        }
-        Value::Decimal(value) => {
-            push_single_entry_variant_label(out, "Decimal");
-            push_decimal_payload(out, *value);
-        }
+        Value::Null => push_binary_null(out),
+        Value::Unit => push_binary_tag(out, crate::db::data::structural_field::binary::TAG_UNIT),
+        Value::Blob(value) => push_binary_bytes(out, value.as_slice()),
+        Value::Bool(value) => push_binary_bool(out, *value),
+        Value::Int(value) => push_binary_int64(out, *value),
+        Value::Uint(value) => push_binary_uint64(out, *value),
+        Value::Text(value) => push_binary_text(out, value),
+        Value::List(items) => push_value_binary_list_payload(out, items.as_slice())?,
+        Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
+        Value::Account(value) => push_binary_account_value(out, *value)?,
+        Value::Date(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DATE, |out| {
+            push_binary_text(out, &value.to_string());
+            Ok(())
+        })?,
+        Value::Decimal(value) => push_binary_decimal_value(out, *value)?,
         Value::Duration(value) => {
-            push_single_entry_variant_label(out, "Duration");
-            push_unsigned_integer(out, u128::from(value.as_millis()));
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DURATION, |out| {
+                push_binary_uint64(out, value.as_millis());
+                Ok(())
+            })?;
         }
-        Value::Enum(value) => {
-            push_single_entry_variant_label(out, "Enum");
-            push_value_enum_payload(out, value)?;
-        }
+        Value::Enum(value) => push_binary_enum_value(out, value)?,
         Value::Float32(value) => {
-            push_single_entry_variant_label(out, "Float32");
-            push_float32(out, value.get());
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_FLOAT32, |out| {
+                push_binary_bytes(out, &value.to_be_bytes());
+                Ok(())
+            })?;
         }
         Value::Float64(value) => {
-            push_single_entry_variant_label(out, "Float64");
-            push_float64(out, value.get());
-        }
-        Value::Int(value) => {
-            push_single_entry_variant_label(out, "Int");
-            push_signed_integer(out, i128::from(*value));
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_FLOAT64, |out| {
+                push_binary_bytes(out, &value.to_be_bytes());
+                Ok(())
+            })?;
         }
         Value::Int128(value) => {
-            push_single_entry_variant_label(out, "Int128");
-            push_byte_string(out, &value.get().to_be_bytes());
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_INT128, |out| {
+                push_binary_bytes(out, &value.get().to_be_bytes());
+                Ok(())
+            })?;
         }
-        Value::IntBig(value) => {
-            push_single_entry_variant_label(out, "IntBig");
-            push_int_big_payload(out, value);
-        }
-        Value::List(items) => {
-            push_single_entry_variant_label(out, "List");
-            push_value_list_payload(out, items.as_slice())?;
-        }
-        Value::Map(entries) => {
-            push_single_entry_variant_label(out, "Map");
-            push_value_map_payload(out, entries.as_slice())?;
-        }
+        Value::IntBig(value) => push_binary_int_big_value(out, value)?,
         Value::Principal(value) => {
-            push_single_entry_variant_label(out, "Principal");
-            push_byte_string(out, value.as_slice());
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_PRINCIPAL, |out| {
+                push_binary_bytes(
+                    out,
+                    &value
+                        .to_bytes()
+                        .map_err(InternalError::persisted_row_encode_failed)?,
+                );
+                Ok(())
+            })?;
         }
         Value::Subaccount(value) => {
-            push_single_entry_variant_label(out, "Subaccount");
-            push_subaccount_payload(out, *value);
-        }
-        Value::Text(value) => {
-            push_single_entry_variant_label(out, "Text");
-            push_text(out, value);
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_SUBACCOUNT, |out| {
+                push_binary_bytes(out, value.as_slice());
+                Ok(())
+            })?;
         }
         Value::Timestamp(value) => {
-            push_single_entry_variant_label(out, "Timestamp");
-            push_timestamp_payload(out, *value)?;
-        }
-        Value::Uint(value) => {
-            push_single_entry_variant_label(out, "Uint");
-            push_unsigned_integer(out, u128::from(*value));
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_TIMESTAMP, |out| {
+                push_binary_int64(out, value.as_millis());
+                Ok(())
+            })?;
         }
         Value::Uint128(value) => {
-            push_single_entry_variant_label(out, "Uint128");
-            push_byte_string(out, &value.get().to_be_bytes());
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_UINT128, |out| {
+                push_binary_bytes(out, &value.get().to_be_bytes());
+                Ok(())
+            })?;
         }
-        Value::UintBig(value) => {
-            push_single_entry_variant_label(out, "UintBig");
-            push_uint_big_payload(out, value);
-        }
-        Value::Ulid(value) => {
-            push_single_entry_variant_label(out, "Ulid");
-            push_text(out, &value.to_string());
-        }
+        Value::UintBig(value) => push_binary_uint_big_value(out, value)?,
+        Value::Ulid(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ULID, |out| {
+            push_binary_text(out, &value.to_string());
+            Ok(())
+        })?,
     }
 
     Ok(())
 }
 
-// Encode the single-entry externally tagged enum envelope used for non-unit
-// `Value` variants.
-fn push_single_entry_variant_label(out: &mut Vec<u8>, label: &str) {
-    push_map_len(out, 1);
-    push_text(out, label);
-}
-
-// Encode the text-only externally tagged enum envelope used for unit variants.
-fn push_text_variant_label(out: &mut Vec<u8>, label: &str) {
-    push_text(out, label);
-}
-
-// Encode one `Value::List` payload as an array of recursively tagged nested
-// `Value` items.
-fn push_value_list_payload(out: &mut Vec<u8>, items: &[Value]) -> Result<(), InternalError> {
-    push_array_len(out, items.len());
+// Encode one binary `Value::List` payload as a list of recursively encoded
+// nested `Value` items.
+fn push_value_binary_list_payload(out: &mut Vec<u8>, items: &[Value]) -> Result<(), InternalError> {
+    push_binary_list_len(out, items.len());
     for item in items {
-        encode_value_storage_into(out, item)?;
+        encode_value_storage_binary_into(out, item)?;
     }
 
     Ok(())
 }
 
-// Encode one `Value::Map` payload as the canonical array-of-entry-pairs shape.
-fn push_value_map_payload(
+// Encode one binary `Value::Map` payload as a canonical map of recursively
+// encoded key/value pairs.
+fn push_value_binary_map_payload(
     out: &mut Vec<u8>,
     entries: &[(Value, Value)],
 ) -> Result<(), InternalError> {
-    push_array_len(out, entries.len());
+    push_binary_map_len(out, entries.len());
     for (key, value) in entries {
-        push_array_len(out, 2);
-        encode_value_storage_into(out, key)?;
-        encode_value_storage_into(out, value)?;
+        encode_value_storage_binary_into(out, key)?;
+        encode_value_storage_binary_into(out, value)?;
     }
 
     Ok(())
 }
 
-// Encode one `ValueEnum` payload struct, preserving the stable field order and
-// explicit `null` markers used by the derived serde wire.
-fn push_value_enum_payload(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), InternalError> {
-    push_map_len(out, 3);
+// Encode one locally tagged `Value` payload that carries exactly one nested
+// Structural Binary v1 payload.
+fn push_value_binary_payload_tag<F>(
+    out: &mut Vec<u8>,
+    tag: u8,
+    push_payload: F,
+) -> Result<(), InternalError>
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<(), InternalError>,
+{
+    push_binary_tag(out, tag);
+    push_payload(out)
+}
 
-    push_text(out, "variant");
-    push_text(out, value.variant());
+// Encode one binary `Value::Account` payload through Account's fixed-size byte
+// contract instead of routing through the general `Value` lane.
+fn push_binary_account_value(out: &mut Vec<u8>, value: Account) -> Result<(), InternalError> {
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ACCOUNT, |out| {
+        push_binary_bytes(
+            out,
+            &value
+                .to_bytes()
+                .map_err(InternalError::persisted_row_encode_failed)?,
+        );
 
-    push_text(out, "path");
-    match value.path() {
-        Some(path) => push_text(out, path),
-        None => push_null(out),
+        Ok(())
+    })
+}
+
+// Encode one binary decimal payload as `(mantissa_bytes, scale)` without
+// embedding a generic field-name object model in bytes.
+fn push_binary_decimal_value(out: &mut Vec<u8>, value: Decimal) -> Result<(), InternalError> {
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DECIMAL, |out| {
+        let parts = value.parts();
+        push_binary_list_len(out, 2);
+        push_binary_bytes(out, &parts.mantissa().to_be_bytes());
+        push_binary_uint64(out, u64::from(parts.scale()));
+
+        Ok(())
+    })
+}
+
+// Encode one binary `Value::Enum` payload using a fixed positional tuple:
+// `(variant, path, payload)`.
+fn push_binary_enum_value(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), InternalError> {
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ENUM, |out| {
+        push_binary_list_len(out, 3);
+        push_binary_text(out, value.variant());
+        match value.path() {
+            Some(path) => push_binary_text(out, path),
+            None => push_binary_null(out),
+        }
+        match value.payload() {
+            Some(payload) => encode_value_storage_binary_into(out, payload)?,
+            None => push_binary_null(out),
+        }
+
+        Ok(())
+    })
+}
+
+// Encode one binary `Value::IntBig` payload as `(sign, limbs)`.
+fn push_binary_int_big_value(out: &mut Vec<u8>, value: &Int) -> Result<(), InternalError> {
+    let (is_negative, digits) = value.sign_and_u32_digits();
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_INT_BIG, |out| {
+        push_binary_list_len(out, 2);
+        push_binary_int64(
+            out,
+            if digits.is_empty() {
+                0
+            } else if is_negative {
+                -1
+            } else {
+                1
+            },
+        );
+        push_binary_u32_digit_list(out, digits.as_slice());
+
+        Ok(())
+    })
+}
+
+// Encode one binary `Value::UintBig` payload as a limb sequence.
+fn push_binary_uint_big_value(out: &mut Vec<u8>, value: &Nat) -> Result<(), InternalError> {
+    let digits = value.u32_digits();
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_UINT_BIG, |out| {
+        push_binary_u32_digit_list(out, digits.as_slice());
+
+        Ok(())
+    })
+}
+
+// Encode one canonical big-integer limb sequence.
+fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
+    push_binary_list_len(out, digits.len());
+    for digit in digits {
+        push_binary_uint64(out, u64::from(*digit));
+    }
+}
+
+// Skip one binary `Value` envelope without delegating nested `Value` items
+// back to the generic Structural Binary walker.
+fn skip_value_storage_binary_value(
+    raw_bytes: &[u8],
+    offset: usize,
+) -> Result<usize, FieldDecodeError> {
+    let Some(&tag) = raw_bytes.get(offset) else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value payload",
+        ));
+    };
+
+    match tag {
+        TAG_NULL
+        | crate::db::data::structural_field::binary::TAG_UNIT
+        | TAG_FALSE
+        | TAG_TRUE
+        | TAG_INT64
+        | TAG_UINT64
+        | TAG_TEXT
+        | TAG_BYTES => skip_binary_value(raw_bytes, offset),
+        TAG_LIST => skip_value_storage_binary_list(raw_bytes, offset),
+        TAG_MAP => skip_value_storage_binary_map(raw_bytes, offset),
+        VALUE_BINARY_TAG_ACCOUNT
+        | VALUE_BINARY_TAG_DATE
+        | VALUE_BINARY_TAG_DECIMAL
+        | VALUE_BINARY_TAG_DURATION
+        | VALUE_BINARY_TAG_ENUM
+        | VALUE_BINARY_TAG_FLOAT32
+        | VALUE_BINARY_TAG_FLOAT64
+        | VALUE_BINARY_TAG_INT128
+        | VALUE_BINARY_TAG_INT_BIG
+        | VALUE_BINARY_TAG_PRINCIPAL
+        | VALUE_BINARY_TAG_SUBACCOUNT
+        | VALUE_BINARY_TAG_TIMESTAMP
+        | VALUE_BINARY_TAG_UINT128
+        | VALUE_BINARY_TAG_UINT_BIG
+        | VALUE_BINARY_TAG_ULID => skip_value_storage_binary_value(raw_bytes, offset + 1),
+        other => Err(FieldDecodeError::new(format!(
+            "structural binary: unsupported value tag 0x{other:02X}"
+        ))),
+    }
+}
+
+// Skip one binary value list by recursing through nested `Value` items.
+fn skip_value_storage_binary_list(
+    raw_bytes: &[u8],
+    offset: usize,
+) -> Result<usize, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value list payload",
+        ));
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value list payload",
+        ));
     }
 
-    push_text(out, "payload");
-    match value.payload() {
-        Some(payload) => encode_value_storage_into(out, payload)?,
-        None => push_null(out),
+    let mut cursor = payload_start;
+    for _ in 0..len {
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+    }
+
+    Ok(cursor)
+}
+
+// Skip one binary value map by recursing through nested `Value` keys and
+// values.
+fn skip_value_storage_binary_map(
+    raw_bytes: &[u8],
+    offset: usize,
+) -> Result<usize, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value map payload",
+        ));
+    };
+    if tag != TAG_MAP {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value map payload",
+        ));
+    }
+
+    let mut cursor = payload_start;
+    for _ in 0..len {
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+    }
+
+    Ok(cursor)
+}
+
+// Walk one binary value list and yield each nested `Value` item slice.
+fn walk_value_storage_binary_list_items(
+    raw_bytes: &[u8],
+    shape_label: &'static str,
+    trailing_label: &'static str,
+    context: *mut (),
+    on_item: unsafe fn(&[u8], *mut ()) -> Result<(), FieldDecodeError>,
+) -> Result<(), FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value list payload",
+        ));
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new(shape_label));
+    }
+
+    let mut cursor = payload_start;
+    for _ in 0..len {
+        let item_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        unsafe { on_item(&raw_bytes[item_start..cursor], context)? };
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(trailing_label));
     }
 
     Ok(())
+}
+
+// Walk one binary value map and yield each nested key/value slice pair.
+fn walk_value_storage_binary_map_entries(
+    raw_bytes: &[u8],
+    shape_label: &'static str,
+    trailing_label: &'static str,
+    context: *mut (),
+    on_entry: ValueBinaryMapEntryFn,
+) -> Result<(), FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value map payload",
+        ));
+    };
+    if tag != TAG_MAP {
+        return Err(FieldDecodeError::new(shape_label));
+    }
+
+    let mut cursor = payload_start;
+    for _ in 0..len {
+        let key_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        let value_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        unsafe {
+            on_entry(
+                &raw_bytes[key_start..value_start],
+                &raw_bytes[value_start..cursor],
+                context,
+            )?;
+        };
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(trailing_label));
+    }
+
+    Ok(())
+}
+
+// Decode one top-level i64 generic binary value.
+fn decode_binary_i64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated integer payload",
+        ));
+    };
+    if tag != TAG_INT64 || len != 8 {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected i64 integer payload",
+        ));
+    }
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after integer payload",
+        ));
+    }
+
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid i64 payload"))?;
+
+    Ok(Value::Int(i64::from_be_bytes(bytes)))
+}
+
+// Decode one top-level u64 generic binary value.
+fn decode_binary_u64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated integer payload",
+        ));
+    };
+    if tag != TAG_UINT64 || len != 8 {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected u64 integer payload",
+        ));
+    }
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after integer payload",
+        ));
+    }
+
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid u64 payload"))?;
+
+    Ok(Value::Uint(u64::from_be_bytes(bytes)))
+}
+
+// Decode one top-level text generic binary value.
+fn decode_binary_text_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated text payload",
+        ));
+    };
+    if tag != TAG_TEXT {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected text payload",
+        ));
+    }
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after text payload",
+        ));
+    }
+
+    Ok(Value::Text(
+        decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?.to_string(),
+    ))
+}
+
+// Decode one top-level bytes generic binary value.
+fn decode_binary_blob_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated byte payload",
+        ));
+    };
+    if tag != TAG_BYTES {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected byte payload",
+        ));
+    }
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after byte payload",
+        ));
+    }
+
+    Ok(Value::Blob(
+        binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?.to_vec(),
+    ))
+}
+
+// Extract the single nested payload carried by one local `Value` binary tag.
+fn decode_value_storage_binary_payload<'a>(
+    raw_bytes: &'a [u8],
+    expected_tag: u8,
+    label: &'static str,
+) -> Result<&'a [u8], FieldDecodeError> {
+    let Some((&tag, _)) = raw_bytes.split_first() else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    if tag != expected_tag {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label} payload"
+        )));
+    }
+
+    let payload_end = skip_value_storage_binary_value(raw_bytes, 1)?;
+    if payload_end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: trailing bytes after {label} payload"
+        )));
+    }
+
+    raw_bytes.get(1..payload_end).ok_or_else(|| {
+        FieldDecodeError::new(format!("structural binary: truncated {label} payload"))
+    })
+}
+
+// Split a fixed-length binary tuple into generic item slices without
+// allocating a generic intermediate tree.
+fn split_binary_tuple_items<'a>(
+    raw_bytes: &'a [u8],
+    expected_len: u32,
+    label: &'static str,
+) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    if tag != TAG_LIST || len != expected_len {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    let mut cursor = payload_start;
+    let mut items = Vec::with_capacity(expected_len as usize);
+    for _ in 0..expected_len {
+        let item_start = cursor;
+        cursor = skip_binary_value(raw_bytes, cursor)?;
+        items.push(&raw_bytes[item_start..cursor]);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: trailing bytes after {label}"
+        )));
+    }
+
+    Ok(items)
+}
+
+// Split a fixed-length binary tuple whose items are nested `Value` envelopes.
+fn split_binary_value_storage_tuple_items<'a>(
+    raw_bytes: &'a [u8],
+    expected_len: u32,
+    label: &'static str,
+) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    if tag != TAG_LIST || len != expected_len {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    let mut cursor = payload_start;
+    let mut items = Vec::with_capacity(expected_len as usize);
+    for _ in 0..expected_len {
+        let item_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        items.push(&raw_bytes[item_start..cursor]);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: trailing bytes after {label}"
+        )));
+    }
+
+    Ok(items)
+}
+
+// Decode one local account payload from its fixed byte representation.
+fn decode_binary_account_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ACCOUNT, "account")?;
+    let Some((tag, len, payload_start)) = parse_binary_head(payload, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated account bytes",
+        ));
+    };
+    if tag != TAG_BYTES {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected account bytes",
+        ));
+    }
+
+    let account = Account::try_from_bytes(binary_payload_bytes(
+        payload,
+        len,
+        payload_start,
+        "account bytes",
+    )?)
+    .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
+
+    Ok(Value::Account(account))
+}
+
+// Decode one local date payload from canonical text.
+fn decode_binary_date_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DATE, "date")?;
+    let Some((tag, len, payload_start)) = parse_binary_head(payload, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated date payload",
+        ));
+    };
+    if tag != TAG_TEXT {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected date text",
+        ));
+    }
+
+    let text = decode_binary_text_scalar_bytes(payload, len, payload_start)?;
+    Date::parse(text)
+        .map(Value::Date)
+        .ok_or_else(|| FieldDecodeError::new(format!("structural binary: invalid date: {text}")))
+}
+
+// Decode one local decimal payload from `(mantissa_bytes, scale)`.
+fn decode_binary_decimal_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DECIMAL, "decimal")?;
+    let parts = split_binary_tuple_items(payload, 2, "decimal tuple")?;
+    let mantissa_bytes = decode_binary_required_bytes(parts[0], "decimal mantissa")?;
+    let scale = decode_binary_required_u64(parts[1], "decimal scale")?;
+    let mantissa_buf: [u8; 16] = mantissa_bytes
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid decimal mantissa length"))?;
+    let scale = u32::try_from(scale)
+        .map_err(|_| FieldDecodeError::new("structural binary: decimal scale out of u32 range"))?;
+
+    Ok(Value::Decimal(decode_binary_decimal_mantissa_scale(
+        i128::from_be_bytes(mantissa_buf),
+        scale,
+    )?))
+}
+
+// Decode one local duration payload from canonical millis.
+fn decode_binary_duration_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DURATION, "duration")?;
+    Ok(Value::Duration(Duration::from_millis(
+        decode_binary_required_u64(payload, "duration millis")?,
+    )))
+}
+
+// Decode one local enum payload from the fixed positional tuple
+// `(variant, path, payload)`.
+fn decode_binary_enum_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ENUM, "enum")?;
+    let fields = split_binary_value_storage_tuple_items(payload, 3, "enum tuple")?;
+    let variant = decode_binary_required_text(fields[0], "enum variant")?;
+    let path = decode_binary_optional_text(fields[1], "enum path")?;
+    let nested = decode_binary_optional_nested_value(fields[2], "enum payload")?;
+
+    let mut value = ValueEnum::new(variant, path);
+    if let Some(payload) = nested {
+        value = value.with_payload(payload);
+    }
+
+    Ok(Value::Enum(value))
+}
+
+// Decode one local float32 payload from its canonical finite-byte form.
+fn decode_binary_float32_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT32, "float32")?;
+    let bytes: [u8; 4] = decode_binary_required_bytes(payload, "float32 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid float32 length"))?;
+    let value = Float32::try_from_bytes(&bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
+
+    Ok(Value::Float32(value))
+}
+
+// Decode one local float64 payload from its canonical finite-byte form.
+fn decode_binary_float64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT64, "float64")?;
+    let bytes: [u8; 8] = decode_binary_required_bytes(payload, "float64 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid float64 length"))?;
+    let value = Float64::try_from_bytes(&bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
+
+    Ok(Value::Float64(value))
+}
+
+// Decode one local int128 payload from canonical big-endian bytes.
+fn decode_binary_int128_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT128, "int128")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "int128 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid int128 length"))?;
+
+    Ok(Value::Int128(crate::types::Int128::from(
+        i128::from_be_bytes(bytes),
+    )))
+}
+
+// Decode one local arbitrary-precision signed integer payload from
+// `(sign, limbs)`.
+fn decode_binary_int_big_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "bigint")?;
+    let parts = split_binary_tuple_items(payload, 2, "bigint tuple")?;
+    let sign = decode_binary_required_i64(parts[0], "bigint sign")?;
+    let magnitude = decode_binary_biguint_digits(parts[1])?;
+    let sign = match sign {
+        -1 => BigIntSign::Minus,
+        0 => BigIntSign::NoSign,
+        1 => BigIntSign::Plus,
+        other => {
+            return Err(FieldDecodeError::new(format!(
+                "structural binary: invalid bigint sign {other}"
+            )));
+        }
+    };
+    let wrapped = WrappedInt::from(BigInt::from_biguint(sign, magnitude));
+
+    Ok(Value::IntBig(Int::from(wrapped)))
+}
+
+// Decode one local principal payload from canonical raw bytes.
+fn decode_binary_principal_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_PRINCIPAL, "principal")?;
+    let bytes = decode_binary_required_bytes(payload, "principal bytes")?;
+    let principal = Principal::try_from_bytes(bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
+
+    Ok(Value::Principal(principal))
+}
+
+// Decode one local subaccount payload from canonical raw bytes.
+fn decode_binary_subaccount_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_SUBACCOUNT, "subaccount")?;
+    let bytes: [u8; 32] = decode_binary_required_bytes(payload, "subaccount bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid subaccount length"))?;
+
+    Ok(Value::Subaccount(Subaccount::from_array(bytes)))
+}
+
+// Decode one local timestamp payload from canonical unix millis.
+fn decode_binary_timestamp_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_TIMESTAMP, "timestamp")?;
+    Ok(Value::Timestamp(Timestamp::from_millis(
+        decode_binary_required_i64(payload, "timestamp millis")?,
+    )))
+}
+
+// Decode one local uint128 payload from canonical big-endian bytes.
+fn decode_binary_uint128_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT128, "uint128")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "uint128 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid uint128 length"))?;
+
+    Ok(Value::Uint128(crate::types::Nat128::from(
+        u128::from_be_bytes(bytes),
+    )))
+}
+
+// Decode one local arbitrary-precision unsigned integer payload from a limb
+// sequence.
+fn decode_binary_uint_big_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT_BIG, "biguint")?;
+    let magnitude = decode_binary_biguint_digits(payload)?;
+    let wrapped = WrappedNat::from(magnitude);
+
+    Ok(Value::UintBig(Nat::from(wrapped)))
+}
+
+// Decode one local ULID payload from canonical text.
+fn decode_binary_ulid_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ULID, "ulid")?;
+    let text = decode_binary_required_text(payload, "ulid text")?;
+    let value = Ulid::from_str(text)
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid string"))?;
+
+    Ok(Value::Ulid(value))
+}
+
+// Decode one binary list payload recursively from raw item bytes.
+fn decode_value_storage_binary_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let mut items = Vec::new();
+    walk_value_storage_binary_list_items(
+        raw_bytes,
+        "expected structural binary list for value list payload",
+        "structural binary: trailing bytes after value list payload",
+        (&raw mut items).cast(),
+        push_value_binary_array_item,
+    )?;
+
+    Ok(Value::List(items))
+}
+
+// Decode one binary map payload recursively while preserving runtime map
+// invariants.
+fn decode_value_storage_binary_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let mut entries = Vec::new();
+    walk_value_storage_binary_map_entries(
+        raw_bytes,
+        "expected structural binary map for value map payload",
+        "structural binary: trailing bytes after value map payload",
+        (&raw mut entries).cast(),
+        push_value_binary_map_entry,
+    )?;
+
+    Value::from_map(entries)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+}
+
+// Decode one u32-limb sequence into a `BigUint`.
+fn decode_binary_biguint_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated biguint digits",
+        ));
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected biguint digit list",
+        ));
+    }
+
+    let mut cursor = payload_start;
+    let mut digits = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        let start = cursor;
+        cursor = skip_binary_value(raw_bytes, cursor)?;
+        let digit = decode_binary_required_u64(&raw_bytes[start..cursor], "biguint digit")?;
+        digits.push(u32::try_from(digit).map_err(|_| {
+            FieldDecodeError::new("structural binary: biguint digit out of u32 range")
+        })?);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after biguint digits",
+        ));
+    }
+
+    Ok(BigUint::new(digits))
+}
+
+// Decode one required binary bytes payload.
+fn decode_binary_required_bytes<'a>(
+    raw_bytes: &'a [u8],
+    label: &'static str,
+) -> Result<&'a [u8], FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_BYTES {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    binary_payload_bytes(raw_bytes, len, payload_start, label)
+}
+
+// Decode one required binary text payload.
+fn decode_binary_required_text<'a>(
+    raw_bytes: &'a [u8],
+    label: &'static str,
+) -> Result<&'a str, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_TEXT {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)
+}
+
+// Decode one required binary i64 payload.
+fn decode_binary_required_i64(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<i64, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_INT64 || len != 8 {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
+
+    Ok(i64::from_be_bytes(bytes))
+}
+
+// Decode one required binary u64 payload.
+fn decode_binary_required_u64(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<u64, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_UINT64 || len != 8 {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label}"
+        )));
+    }
+
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
+
+    Ok(u64::from_be_bytes(bytes))
+}
+
+// Decode one optional binary text field from the fixed enum tuple.
+fn decode_binary_optional_text<'a>(
+    raw_bytes: &'a [u8],
+    label: &'static str,
+) -> Result<Option<&'a str>, FieldDecodeError> {
+    let Some(&tag) = raw_bytes.first() else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    if tag == TAG_NULL {
+        let end = skip_binary_value(raw_bytes, 0)?;
+        if end != raw_bytes.len() {
+            return Err(FieldDecodeError::new(format!(
+                "structural binary: trailing bytes after {label}"
+            )));
+        }
+
+        return Ok(None);
+    }
+
+    decode_binary_required_text(raw_bytes, label).map(Some)
+}
+
+// Decode one optional nested binary `Value` field from the fixed enum tuple.
+fn decode_binary_optional_nested_value(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<Option<Value>, FieldDecodeError> {
+    let Some(&tag) = raw_bytes.first() else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label}"
+        )));
+    };
+    if tag == TAG_NULL {
+        let end = skip_binary_value(raw_bytes, 0)?;
+        if end != raw_bytes.len() {
+            return Err(FieldDecodeError::new(format!(
+                "structural binary: trailing bytes after {label}"
+            )));
+        }
+
+        return Ok(None);
+    }
+
+    decode_structural_value_storage_binary_bytes(raw_bytes).map(Some)
+}
+
+// Apply Decimal's mantissa/scale validation locally so the binary value
+// envelope does not silently normalize invalid payloads to zero.
+fn decode_binary_decimal_mantissa_scale(
+    mantissa: i128,
+    scale: u32,
+) -> Result<Decimal, FieldDecodeError> {
+    if scale <= Decimal::max_supported_scale() {
+        return Ok(Decimal::from_i128_with_scale(mantissa, scale));
+    }
+
+    let mut value = mantissa;
+    let mut normalized_scale = scale;
+    while normalized_scale > Decimal::max_supported_scale() {
+        if value == 0 {
+            return Ok(Decimal::from_i128_with_scale(
+                0,
+                Decimal::max_supported_scale(),
+            ));
+        }
+        if value % 10 != 0 {
+            return Err(FieldDecodeError::new(
+                "structural binary: invalid decimal payload",
+            ));
+        }
+        value /= 10;
+        normalized_scale -= 1;
+    }
+
+    Ok(Decimal::from_i128_with_scale(value, normalized_scale))
 }
 
 // Push one recursively tagged `Value` list item into the decoded buffer.
 //
 // Safety:
 // `context` must be a valid `ValueArrayDecodeState`.
-fn push_value_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
+fn push_value_binary_array_item(
+    item_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
     let items = unsafe { &mut *context.cast::<ValueArrayDecodeState>() };
-    items.push(decode_structural_value_storage_bytes(item_bytes)?);
+    items.push(decode_structural_value_storage_binary_bytes(item_bytes)?);
 
     Ok(())
 }
 
-// Push one shallow fallback list item into the decoded buffer.
-//
-// Safety:
-// `context` must be a valid `ValueArrayDecodeState`.
-fn push_untyped_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
-    let items = unsafe { &mut *context.cast::<ValueArrayDecodeState>() };
-    items.push(decode_untyped_shallow_bytes(item_bytes)?);
-
-    Ok(())
-}
-
-// Push one decoded `Value::Map` entry into the runtime entry buffer.
+// Push one decoded binary `Value::Map` entry into the runtime entry buffer.
 //
 // Safety:
 // `context` must be a valid `Vec<(Value, Value)>`.
-fn push_value_storage_map_entry_item(
-    item_bytes: &[u8],
+fn push_value_binary_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
     context: *mut (),
 ) -> Result<(), FieldDecodeError> {
     let entries = unsafe { &mut *context.cast::<Vec<(Value, Value)>>() };
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(item_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated value map entry",
-        ));
-    };
-    if major != 4 || argument != 2 {
-        return Err(FieldDecodeError::new(
-            "expected two-item CBOR array for value map entry",
-        ));
-    }
-
-    let key_start = cursor;
-    cursor = skip_cbor_value(item_bytes, cursor)?;
-    let value_start = cursor;
-    cursor = skip_cbor_value(item_bytes, cursor)?;
-    if cursor != item_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after value map entry",
-        ));
-    }
-
     entries.push((
-        decode_structural_value_storage_bytes(&item_bytes[key_start..value_start])?,
-        decode_structural_value_storage_bytes(&item_bytes[value_start..cursor])?,
+        decode_structural_value_storage_binary_bytes(key_bytes)?,
+        decode_structural_value_storage_binary_bytes(value_bytes)?,
     ));
 
     Ok(())
-}
-
-// Push one shallow fallback map entry into the decoded runtime entry buffer.
-//
-// Safety:
-// `context` must be a valid `UntypedMapDecodeState`.
-fn push_untyped_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let entries = unsafe { &mut *context.cast::<UntypedMapDecodeState>() };
-    entries.push((
-        decode_untyped_shallow_bytes(key_bytes)?,
-        decode_untyped_shallow_bytes(value_bytes)?,
-    ));
-
-    Ok(())
-}
-
-// Validate one recursively tagged `Value` list item without pushing it into a
-// runtime buffer.
-//
-// Safety:
-// `context` is unused for this callback.
-fn validate_value_array_item(item_bytes: &[u8], _context: *mut ()) -> Result<(), FieldDecodeError> {
-    validate_structural_value_storage_bytes(item_bytes)
-}
-
-// Validate one encoded `Value::Map` entry without allocating decoded key/value
-// pairs.
-//
-// Safety:
-// `context` is unused for this callback.
-fn validate_value_storage_map_entry_item(
-    item_bytes: &[u8],
-    _context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(item_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated value map entry",
-        ));
-    };
-    if major != 4 || argument != 2 {
-        return Err(FieldDecodeError::new(
-            "expected two-item CBOR array for value map entry",
-        ));
-    }
-
-    let key_start = cursor;
-    cursor = skip_cbor_value(item_bytes, cursor)?;
-    let value_start = cursor;
-    cursor = skip_cbor_value(item_bytes, cursor)?;
-    if cursor != item_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after value map entry",
-        ));
-    }
-
-    validate_structural_value_storage_bytes(&item_bytes[key_start..value_start])?;
-    validate_structural_value_storage_bytes(&item_bytes[value_start..cursor])
-}
-
-// Validate one shallow fallback list item without pushing it into a runtime
-// buffer.
-//
-// Safety:
-// `context` is unused for this callback.
-fn validate_untyped_array_item(
-    item_bytes: &[u8],
-    _context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    validate_untyped_shallow_bytes(item_bytes)
-}
-
-// Validate one shallow fallback map entry without allocating runtime keys or
-// values.
-//
-// Safety:
-// `context` is unused for this callback.
-fn validate_untyped_map_entry(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    _context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    validate_untyped_shallow_bytes(key_bytes)?;
-    validate_untyped_shallow_bytes(value_bytes)
 }
 
 // Decode one `FieldStorageDecode::Value` payload directly from the externally
@@ -436,62 +1179,15 @@ fn validate_untyped_map_entry(
 pub(in crate::db) fn decode_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
-    let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
-        raw_bytes,
-        "typed CBOR: truncated value payload",
-        "expected text or one-entry CBOR map for value payload",
-        "expected one-entry CBOR map for value payload",
-        "typed CBOR: trailing bytes after value payload",
-    )?;
-    let variant = parse_value_variant_tag(variant)?;
-
-    if let Some(payload_bytes) = payload_bytes {
-        decode_value_variant_payload(variant, payload_bytes)
-    } else {
-        decode_unit_value_variant(variant)
-    }
+    decode_structural_value_storage_binary_bytes(raw_bytes)
 }
 
-/// Validate one `FieldStorageDecode::Value` payload directly from the
-/// externally tagged `Value` wire shape without eagerly rebuilding the final
-/// runtime `Value`.
+/// Validate one `FieldStorageDecode::Value` payload through the canonical
+/// Structural Binary v1 owner.
 pub(in crate::db) fn validate_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
-    let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
-        raw_bytes,
-        "typed CBOR: truncated value payload",
-        "expected text or one-entry CBOR map for value payload",
-        "expected one-entry CBOR map for value payload",
-        "typed CBOR: trailing bytes after value payload",
-    )?;
-    let variant = parse_value_variant_tag(variant)?;
-
-    if let Some(payload_bytes) = payload_bytes {
-        validate_value_variant_payload(variant, payload_bytes)
-    } else {
-        validate_unit_value_variant(variant)
-    }
-}
-
-// Decode one conservative enum payload directly from bytes.
-//
-// This keeps the fallback shallow: scalar payloads decode directly, and
-// composite payloads decode only one structural level before degrading nested
-// composites to `Null`.
-pub(super) fn decode_untyped_enum_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
-    };
-
-    match major {
-        0 | 1 | 2 | 3 | 7 => decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start),
-        4 => decode_untyped_list_bytes(raw_bytes),
-        5 => decode_untyped_map_bytes(raw_bytes),
-        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
-    }
+    validate_structural_value_storage_binary_bytes(raw_bytes)
 }
 
 // Normalize decoded map entries in place when they satisfy the runtime map
@@ -515,495 +1211,100 @@ pub(super) fn normalize_map_entries_or_preserve(mut entries: Vec<(Value, Value)>
     Value::Map(entries)
 }
 
-// Decode one unit `Value` variant from the externally tagged wire shape.
-fn decode_unit_value_variant(variant: ValueVariantTag) -> Result<Value, FieldDecodeError> {
-    match variant {
-        ValueVariantTag::Null => Ok(Value::Null),
-        ValueVariantTag::Unit => Ok(Value::Unit),
-        _ => Err(FieldDecodeError::new("unsupported unit value variant")),
-    }
-}
+///
+/// TESTS
+///
 
-// Validate one unit `Value` variant from the externally tagged wire shape.
-fn validate_unit_value_variant(variant: ValueVariantTag) -> Result<(), FieldDecodeError> {
-    match variant {
-        ValueVariantTag::Null | ValueVariantTag::Unit => Ok(()),
-        _ => Err(FieldDecodeError::new("unsupported unit value variant")),
-    }
-}
-
-// Decode one non-unit `Value` payload variant using the variant's declared
-// runtime contract.
-fn decode_value_variant_payload(
-    variant: ValueVariantTag,
-    payload_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    match variant {
-        ValueVariantTag::Account => decode_account_value_bytes(payload_bytes),
-        ValueVariantTag::Date => decode_date_value_bytes(payload_bytes),
-        ValueVariantTag::Decimal => decode_decimal_value_bytes(payload_bytes),
-        ValueVariantTag::Duration => decode_duration_value_bytes(payload_bytes),
-        ValueVariantTag::Enum => decode_value_enum_payload_bytes(payload_bytes),
-        ValueVariantTag::IntBig => decode_int_big_value_bytes(payload_bytes),
-        ValueVariantTag::List => decode_value_storage_list_bytes(payload_bytes),
-        ValueVariantTag::Map => decode_value_storage_map_bytes(payload_bytes),
-        ValueVariantTag::Null => decode_null_value_bytes(payload_bytes),
-        ValueVariantTag::Principal => decode_principal_value_bytes(payload_bytes),
-        ValueVariantTag::Scalar(kind) => decode_structural_field_by_kind_bytes(payload_bytes, kind),
-        ValueVariantTag::Subaccount => decode_subaccount_value_bytes(payload_bytes),
-        ValueVariantTag::Timestamp => decode_timestamp_value_bytes(payload_bytes),
-        ValueVariantTag::UintBig => decode_uint_big_value_bytes(payload_bytes),
-        ValueVariantTag::Unit => decode_unit_value_bytes(payload_bytes),
-    }
-}
-
-// Validate one non-unit `Value` payload variant using the variant's declared
-// runtime contract without eagerly rebuilding the final `Value`.
-fn validate_value_variant_payload(
-    variant: ValueVariantTag,
-    payload_bytes: &[u8],
-) -> Result<(), FieldDecodeError> {
-    match variant {
-        ValueVariantTag::Account => decode_account_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Date => decode_date_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Decimal => decode_decimal_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Duration => decode_duration_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Enum => validate_value_enum_payload_bytes(payload_bytes),
-        ValueVariantTag::IntBig => decode_int_big_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::List => validate_value_storage_list_bytes(payload_bytes),
-        ValueVariantTag::Map => validate_value_storage_map_bytes(payload_bytes),
-        ValueVariantTag::Null => decode_null_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Principal => decode_principal_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Scalar(kind) => {
-            validate_structural_field_by_kind_bytes(payload_bytes, kind)
-        }
-        ValueVariantTag::Subaccount => decode_subaccount_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Timestamp => decode_timestamp_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::UintBig => decode_uint_big_value_bytes(payload_bytes).map(|_| ()),
-        ValueVariantTag::Unit => decode_unit_value_bytes(payload_bytes).map(|_| ()),
-    }
-}
-
-// Decode one persisted `Value::List` payload recursively from raw element bytes.
-fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let mut items = Vec::new();
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for value list payload",
-        "typed CBOR: trailing bytes after value list payload",
-        (&raw mut items).cast(),
-        push_value_array_item,
-    )?;
-
-    Ok(Value::List(items))
-}
-
-// Validate one persisted `Value::List` payload recursively from raw element
-// bytes without building a `Vec<Value>`.
-fn validate_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for value list payload",
-        "typed CBOR: trailing bytes after value list payload",
-        std::ptr::null_mut(),
-        validate_value_array_item,
-    )
-}
-
-// Decode one persisted `Value::Map` payload recursively while preserving
-// runtime map invariants.
-fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let mut entries = Vec::new();
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for value map payload",
-        "typed CBOR: trailing bytes after value map payload",
-        (&raw mut entries).cast(),
-        push_value_storage_map_entry_item,
-    )?;
-
-    Value::from_map(entries).map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))
-}
-
-// Validate one persisted `Value::Map` payload recursively while avoiding a
-// temporary runtime entry buffer.
-fn validate_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for value map payload",
-        "typed CBOR: trailing bytes after value map payload",
-        std::ptr::null_mut(),
-        validate_value_storage_map_entry_item,
-    )
-}
-
-// Decode one persisted `Value::Enum` payload struct without routing through the
-// generic `Value` deserializer.
-fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated value enum payload",
-        ));
+#[cfg(test)]
+mod tests {
+    use super::{
+        VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_ULID, decode_structural_value_storage_binary_bytes,
+        encode_structural_value_storage_binary_bytes,
+        validate_structural_value_storage_binary_bytes,
     };
-    if major != 5 {
-        return Err(FieldDecodeError::new(
-            "expected CBOR map for value enum payload",
-        ));
-    }
-
-    let entry_count = usize::try_from(argument)
-        .map_err(|_| FieldDecodeError::new("expected bounded CBOR map length"))?;
-    let mut variant = None;
-    let mut path = None;
-    let mut payload = None;
-
-    // Phase 1: collect the struct fields while preserving serde's tolerant
-    // unknown-field behavior.
-    for _ in 0..entry_count {
-        let field_name_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
-        let field_name = &raw_bytes[field_name_start..cursor];
-
-        let field_value_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
-        let field_value = &raw_bytes[field_value_start..cursor];
-
-        match parse_value_enum_field_tag(field_name) {
-            Some(ValueEnumFieldTag::Variant) => {
-                variant = Some(decode_required_text_value_field(field_value)?);
-            }
-            Some(ValueEnumFieldTag::Path) => {
-                path = decode_optional_text_value_field(field_value)?;
-            }
-            Some(ValueEnumFieldTag::Payload) => {
-                payload = decode_optional_nested_value_field(field_value)?;
-            }
-            None => {}
-        }
-    }
-
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after value enum payload",
-        ));
-    }
-
-    let variant =
-        variant.ok_or_else(|| FieldDecodeError::new("typed CBOR: missing enum variant field"))?;
-    let mut value = ValueEnum::new(variant, path);
-    if let Some(payload) = payload {
-        value = value.with_payload(payload);
-    }
-
-    Ok(Value::Enum(value))
-}
-
-// Validate one persisted `Value::Enum` payload struct without routing through
-// the generic `Value` deserializer or allocating the final runtime `ValueEnum`.
-fn validate_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated value enum payload",
-        ));
+    use crate::{
+        db::data::structural_field::binary::TAG_LIST,
+        types::{Account, Decimal, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
+        value::{Value, ValueEnum},
     };
-    if major != 5 {
-        return Err(FieldDecodeError::new(
-            "expected CBOR map for value enum payload",
-        ));
-    }
 
-    let entry_count = usize::try_from(argument)
-        .map_err(|_| FieldDecodeError::new("expected bounded CBOR map length"))?;
-    let mut variant = None;
-
-    // Phase 1: validate the known struct fields while preserving serde's
-    // tolerant unknown-field behavior.
-    for _ in 0..entry_count {
-        let field_name_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
-        let field_name = &raw_bytes[field_name_start..cursor];
-
-        let field_value_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
-        let field_value = &raw_bytes[field_value_start..cursor];
-
-        match parse_value_enum_field_tag(field_name) {
-            Some(ValueEnumFieldTag::Variant) => {
-                decode_required_text_value_field(field_value)?;
-                variant = Some(());
-            }
-            Some(ValueEnumFieldTag::Path) => {
-                validate_optional_text_value_field(field_value)?;
-            }
-            Some(ValueEnumFieldTag::Payload) => {
-                validate_optional_nested_value_field(field_value)?;
-            }
-            None => {}
-        }
-    }
-
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after value enum payload",
-        ));
-    }
-
-    variant.ok_or_else(|| FieldDecodeError::new("typed CBOR: missing enum variant field"))?;
-
-    Ok(())
-}
-
-fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new("typed CBOR: missing text field"));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after text field",
-        ));
-    }
-    if major != 3 {
-        return Err(FieldDecodeError::new("typed CBOR: expected a text string"));
-    }
-
-    decode_text_scalar_bytes(raw_bytes, argument, payload_start)
-}
-
-// Decode one optional text field from the `ValueEnum` payload struct.
-fn decode_optional_text_value_field(raw_bytes: &[u8]) -> Result<Option<&str>, FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: missing optional text field",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after optional text field",
-        ));
-    }
-    if major == 7 && argument == 22 {
-        return Ok(None);
-    }
-    if major != 3 {
-        return Err(FieldDecodeError::new("typed CBOR: expected a text string"));
-    }
-
-    Ok(Some(decode_text_scalar_bytes(
-        raw_bytes,
-        argument,
-        payload_start,
-    )?))
-}
-
-// Validate one optional text field from the `ValueEnum` payload struct.
-fn validate_optional_text_value_field(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    decode_optional_text_value_field(raw_bytes).map(|_| ())
-}
-
-// Decode one optional nested `Value` field from the `ValueEnum` payload struct.
-fn decode_optional_nested_value_field(raw_bytes: &[u8]) -> Result<Option<Value>, FieldDecodeError> {
-    let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: missing nested value field",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after nested value field",
-        ));
-    }
-    if major == 7 && argument == 22 {
-        return Ok(None);
-    }
-
-    decode_structural_value_storage_bytes(raw_bytes).map(Some)
-}
-
-// Validate one optional nested `Value` field from the `ValueEnum` payload
-// struct without eagerly rebuilding the nested runtime `Value`.
-fn validate_optional_nested_value_field(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: missing nested value field",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after nested value field",
-        ));
-    }
-    if major == 7 && argument == 22 {
-        return Ok(());
-    }
-
-    validate_structural_value_storage_bytes(raw_bytes)
-}
-
-// Decode one untyped scalar payload directly from bytes.
-fn decode_untyped_scalar_bytes(
-    raw_bytes: &[u8],
-    major: u8,
-    argument: u64,
-    payload_start: usize,
-) -> Result<Value, FieldDecodeError> {
-    let value = match major {
-        0 | 1 => decode_untyped_integer(decode_cbor_integer(major, argument)?),
-        2 => {
-            Value::Blob(payload_bytes(raw_bytes, argument, payload_start, "byte string")?.to_vec())
-        }
-        3 => Value::Text(decode_text_scalar_bytes(raw_bytes, argument, payload_start)?.to_string()),
-        7 => match argument {
-            20 => Value::Bool(false),
-            21 => Value::Bool(true),
-            22 => Value::Null,
-            26 | 27 => Value::Float64(
-                Float64::try_new(decode_cbor_float(raw_bytes, argument, payload_start)?)
-                    .ok_or_else(|| FieldDecodeError::new("non-finite CBOR float payload"))?,
+    #[test]
+    fn binary_value_storage_roundtrips_nested_variants() {
+        let value = Value::Map(vec![
+            (
+                Value::Text("account".to_string()),
+                Value::Account(Account::new(
+                    Principal::from_slice(&[1, 2, 3]),
+                    Some([7u8; 32]),
+                )),
             ),
-            _ => {
-                return Err(FieldDecodeError::new("unsupported enum payload CBOR shape"));
-            }
-        },
-        _ => {
-            return Err(FieldDecodeError::new("unsupported enum payload CBOR shape"));
-        }
-    };
+            (
+                Value::Text("enum".to_string()),
+                Value::Enum(
+                    ValueEnum::new("Spell", Some("Demo/Spell")).with_payload(Value::List(vec![
+                        Value::Decimal(Decimal::from_i128_with_scale(12345, 2)),
+                        Value::Timestamp(Timestamp::from_millis(1_710_013_530_123)),
+                        Value::Ulid(Ulid::from_u128(77)),
+                    ])),
+                ),
+            ),
+            (
+                Value::Text("floats".to_string()),
+                Value::List(vec![
+                    Value::Float32(Float32::try_new(3.5).expect("finite f32")),
+                    Value::Float64(Float64::try_new(9.25).expect("finite f64")),
+                    Value::Subaccount(Subaccount::from_array([9u8; 32])),
+                ]),
+            ),
+        ]);
 
-    Ok(value)
-}
+        let encoded = encode_structural_value_storage_binary_bytes(&value)
+            .expect("binary value bytes should encode");
+        let decoded = decode_structural_value_storage_binary_bytes(&encoded)
+            .expect("binary value bytes should decode");
 
-// Validate one untyped scalar payload directly from bytes.
-fn validate_untyped_scalar_bytes(
-    raw_bytes: &[u8],
-    major: u8,
-    argument: u64,
-    payload_start: usize,
-) -> Result<(), FieldDecodeError> {
-    decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start).map(|_| ())
-}
-
-// Decode one untyped list payload one level deep directly from bytes.
-fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let mut values = Vec::new();
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for enum payload array",
-        "typed CBOR: trailing bytes after enum payload array",
-        (&raw mut values).cast(),
-        push_untyped_array_item,
-    )?;
-
-    Ok(Value::List(values))
-}
-
-// Validate one untyped list payload one level deep directly from bytes.
-fn validate_untyped_list_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    walk_cbor_array_items(
-        raw_bytes,
-        "expected CBOR array for enum payload array",
-        "typed CBOR: trailing bytes after enum payload array",
-        std::ptr::null_mut(),
-        validate_untyped_array_item,
-    )
-}
-
-// Decode one untyped map payload one level deep directly from bytes.
-fn decode_untyped_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let mut values = Vec::new();
-    walk_cbor_map_entries(
-        raw_bytes,
-        "expected CBOR map for enum payload map",
-        "typed CBOR: trailing bytes after enum payload map",
-        (&raw mut values).cast(),
-        push_untyped_map_entry,
-    )?;
-
-    Ok(normalize_map_entries_or_preserve(values))
-}
-
-// Validate one untyped map payload one level deep directly from bytes.
-fn validate_untyped_map_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    walk_cbor_map_entries(
-        raw_bytes,
-        "expected CBOR map for enum payload map",
-        "typed CBOR: trailing bytes after enum payload map",
-        std::ptr::null_mut(),
-        validate_untyped_map_entry,
-    )
-}
-
-// Decode one fallback payload item without rebuilding nested composites.
-fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
-    };
-
-    match major {
-        0 | 1 | 2 | 3 | 7 => decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start),
-        4 | 5 => Ok(Value::Null),
-        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
-    }
-}
-
-// Validate one fallback payload item without rebuilding nested composites.
-fn validate_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after enum payload item",
-        ));
+        assert_eq!(decoded, value);
     }
 
-    match major {
-        0 | 1 | 2 | 3 | 7 => {
-            validate_untyped_scalar_bytes(raw_bytes, major, argument, payload_start)
-        }
-        4 | 5 => Ok(()),
-        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
-    }
-}
+    #[test]
+    fn binary_value_storage_uses_local_tags_for_ambiguous_variants() {
+        let ulid = Value::Ulid(Ulid::from_u128(99));
+        let enum_value = Value::Enum(ValueEnum::loose("Loose"));
 
-// Validate one conservative enum payload directly from bytes.
-//
-// This keeps the fallback shallow: scalar payloads validate directly, and
-// composite payloads validate only one structural level before nested
-// composites degrade to `Null` at runtime.
-pub(super) fn validate_untyped_enum_payload_bytes(
-    raw_bytes: &[u8],
-) -> Result<(), FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
-    };
+        let ulid_bytes = encode_structural_value_storage_binary_bytes(&ulid)
+            .expect("ulid value bytes should encode");
+        let enum_bytes = encode_structural_value_storage_binary_bytes(&enum_value)
+            .expect("enum value bytes should encode");
 
-    match major {
-        0 | 1 | 2 | 3 | 7 => {
-            validate_untyped_scalar_bytes(raw_bytes, major, argument, payload_start)
-        }
-        4 => validate_untyped_list_bytes(raw_bytes),
-        5 => validate_untyped_map_bytes(raw_bytes),
-        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
-    }
-}
-
-// Decode one untyped CBOR integer into the narrowest deterministic runtime value.
-fn decode_untyped_integer(value: i128) -> Value {
-    if let Ok(value) = u64::try_from(value) {
-        return Value::Uint(value);
-    }
-    if let Ok(value) = i64::try_from(value) {
-        return Value::Int(value);
+        assert_eq!(ulid_bytes[0], VALUE_BINARY_TAG_ULID);
+        assert_eq!(enum_bytes[0], VALUE_BINARY_TAG_ENUM);
+        assert_eq!(enum_bytes[1], TAG_LIST);
     }
 
-    if value.is_negative() {
-        Value::IntBig(Int::from(WrappedInt::from(value)))
-    } else {
-        Value::UintBig(Nat::from(WrappedNat::from(value.cast_unsigned())))
+    #[test]
+    fn binary_value_storage_rejects_trailing_bytes() {
+        let mut encoded =
+            encode_structural_value_storage_binary_bytes(&Value::Text("alpha".to_string()))
+                .expect("binary value bytes should encode");
+        encoded.push(0xFF);
+
+        let err = decode_structural_value_storage_binary_bytes(&encoded)
+            .expect_err("trailing bytes must be rejected");
+        assert!(
+            err.to_string().contains("trailing bytes"),
+            "expected trailing-byte error, got: {err}",
+        );
+    }
+
+    #[test]
+    fn binary_value_storage_validate_matches_decode() {
+        let value = Value::Enum(
+            ValueEnum::new("Arc", Some("Spell/Arc")).with_payload(Value::Ulid(Ulid::from_u128(5))),
+        );
+        let encoded = encode_structural_value_storage_binary_bytes(&value)
+            .expect("binary value bytes should encode");
+
+        validate_structural_value_storage_binary_bytes(&encoded)
+            .expect("binary value bytes should validate");
     }
 }

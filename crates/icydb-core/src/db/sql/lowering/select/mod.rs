@@ -27,7 +27,9 @@ use crate::db::sql::lowering::select::{
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
 };
 
-pub(in crate::db) use binding::canonicalize_sql_predicate_for_model;
+pub(in crate::db) use binding::{
+    canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
+};
 pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
 
 ///
@@ -161,7 +163,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
             ResolvedHavingClause::GroupField { field, op, value } => {
                 let value = model_field_kind(model, &field)
                     .and_then(|field_kind| {
-                        binding::canonicalize_strict_sql_numeric_value_for_kind(&field_kind, &value)
+                        binding::canonicalize_strict_sql_literal_for_kind(&field_kind, &value)
                     })
                     .unwrap_or(value);
                 query = query.having_group(field, op, value)?;
@@ -240,6 +242,15 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     delete: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
 ) -> StructuralQuery {
+    let delete = LoweredBaseQueryShape {
+        predicate: delete
+            .predicate
+            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+        order_by: delete.order_by,
+        limit: delete.limit,
+        offset: delete.offset,
+    };
+
     apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
 }
 

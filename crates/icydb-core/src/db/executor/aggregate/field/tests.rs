@@ -18,7 +18,7 @@ use crate::{
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cmp::Ordering;
 
 static SCORE_LIST_KIND: FieldKind = FieldKind::Uint;
@@ -71,9 +71,7 @@ crate::test_store! {
     canister = AggregateFieldCanister,
 }
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct AggregateFieldEntity {
     id: Ulid,
     rank: u32,

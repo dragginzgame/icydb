@@ -7,8 +7,9 @@ mod decode;
 mod raw;
 
 use crate::db::{data::DataKey, index::IndexEntryExistenceWitness};
+use std::sync::Arc;
 
-type IndexComponentValues = Vec<Vec<u8>>;
+type IndexComponentValues = Arc<[Vec<u8>]>;
 type DataKeyComponentRows = Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
 
 ///

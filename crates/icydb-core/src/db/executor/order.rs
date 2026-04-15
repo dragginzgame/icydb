@@ -484,7 +484,7 @@ mod tests {
         value::Value,
     };
     use icydb_derive::{FieldProjection, PersistedRow};
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use std::{borrow::Cow, cell::Cell, rc::Rc};
 
     struct TestRow {
@@ -639,9 +639,7 @@ mod tests {
         canister = OrderWindowCanister,
     }
 
-    #[derive(
-        Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-    )]
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
     struct OrderWindowEntity {
         id: Ulid,
         title: Text,

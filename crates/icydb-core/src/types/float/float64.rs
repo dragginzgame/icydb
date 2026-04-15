@@ -12,7 +12,7 @@ use crate::{
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     cmp::Ordering,
     fmt,
@@ -40,7 +40,7 @@ pub enum Float64DecodeError {
 //
 
 #[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Default, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default)]
 pub struct Float64(f64);
 
 impl Float64 {

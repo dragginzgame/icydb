@@ -131,6 +131,30 @@ fn sql_query_lowering_casefold_prefix_matrix_matches_casefold_starts_with_intent
 }
 
 #[test]
+fn sql_query_lowering_ulid_string_literal_matches_exact_key_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let id = Ulid::from_u128(9_901);
+    let sql = format!("SELECT * FROM SessionSqlEntity WHERE id = '{id}'");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::Eq,
+        Value::Ulid(id),
+        CoercionId::Strict,
+    )));
+
+    assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+        &session,
+        sql.as_str(),
+        fluent_query,
+        "quoted ULID equality SQL lowering",
+    );
+}
+
+#[test]
 fn sql_query_lowering_is_true_and_is_false_match_canonical_bool_intent() {
     reset_session_sql_store();
     let session = sql_session();

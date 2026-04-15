@@ -1,6 +1,6 @@
 use crate::db::{
-    reduced_sql::SqlParseError,
     sql::parser::{Parser, SqlInsertSource, SqlInsertStatement, SqlReturningProjection},
+    sql_shared::{Keyword, SqlParseError},
 };
 use crate::value::Value;
 
@@ -18,7 +18,7 @@ impl Parser {
         } else {
             Vec::new()
         };
-        let source = if self.eat_keyword(crate::db::reduced_sql::Keyword::Select) {
+        let source = if self.eat_keyword(Keyword::Select) {
             SqlInsertSource::Select(Box::new(self.parse_select_statement()?))
         } else {
             self.expect_identifier_keyword("VALUES")?;
@@ -27,7 +27,7 @@ impl Parser {
 
             SqlInsertSource::Values(values)
         };
-        let returning = if self.eat_keyword(crate::db::reduced_sql::Keyword::Returning) {
+        let returning = if self.eat_keyword(Keyword::Returning) {
             Some(self.parse_returning_projection()?)
         } else {
             None

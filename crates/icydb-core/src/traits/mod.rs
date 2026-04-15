@@ -296,20 +296,12 @@ pub trait SingletonEntity: EntityValue {}
 ///
 
 pub trait TypeKind:
-    Kind + Clone + Default + Serialize + DeserializeOwned + Sanitize + Validate + Visitable + PartialEq
+    Kind + Clone + Default + DeserializeOwned + Sanitize + Validate + Visitable + PartialEq
 {
 }
 
 impl<T> TypeKind for T where
-    T: Kind
-        + Clone
-        + Default
-        + DeserializeOwned
-        + PartialEq
-        + Serialize
-        + Sanitize
-        + Validate
-        + Visitable
+    T: Kind + Clone + Default + DeserializeOwned + PartialEq + Sanitize + Validate + Visitable
 {
 }
 
@@ -327,6 +319,53 @@ pub trait FieldTypeMeta {
 
     /// Persisted decode contract used by row and payload decoding.
     const STORAGE_DECODE: FieldStorageDecode;
+}
+
+impl<T> FieldTypeMeta for Option<T>
+where
+    T: FieldTypeMeta,
+{
+    const KIND: FieldKind = T::KIND;
+    const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
+}
+
+impl<T> FieldTypeMeta for Box<T>
+where
+    T: FieldTypeMeta,
+{
+    const KIND: FieldKind = T::KIND;
+    const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
+}
+
+// Standard containers mirror the generated collection-wrapper contract: their
+// semantic kind remains structural, but persisted decode routes through the
+// shared structural `Value` storage seam instead of leaf-by-leaf scalar decode.
+impl<T> FieldTypeMeta for Vec<T>
+where
+    T: FieldTypeMeta,
+{
+    const KIND: FieldKind = FieldKind::List(&T::KIND);
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl<T> FieldTypeMeta for BTreeSet<T>
+where
+    T: FieldTypeMeta,
+{
+    const KIND: FieldKind = FieldKind::Set(&T::KIND);
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl<K, V> FieldTypeMeta for BTreeMap<K, V>
+where
+    K: FieldTypeMeta,
+    V: FieldTypeMeta,
+{
+    const KIND: FieldKind = FieldKind::Map {
+        key: &K::KIND,
+        value: &V::KIND,
+    };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
 /// ============================================================================

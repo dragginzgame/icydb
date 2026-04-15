@@ -18,6 +18,7 @@ use crate::{
     model::index::IndexModel,
     types::EntityTag,
 };
+use std::sync::Arc;
 
 use crate::db::index::scan::DataKeyComponentRows;
 
@@ -143,6 +144,7 @@ impl IndexStore {
             };
             components.push(component.to_vec());
         }
+        let components: Arc<[Vec<u8>]> = Arc::from(components);
 
         if let Some(execution) = index_predicate_execution
             && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
@@ -209,7 +211,7 @@ impl IndexStore {
                     ),
                 ),
                 membership.existence_witness(),
-                components.clone(),
+                Arc::clone(&components),
             ));
 
             if let Some(limit) = limit

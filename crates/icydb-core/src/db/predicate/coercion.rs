@@ -100,54 +100,6 @@ impl fmt::Debug for CoercionParamsDebug<'_> {
     }
 }
 
-///
-/// CoercionRuleFamily
-///
-/// Rule-side matcher for coercion routing families.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CoercionRuleFamily {
-    Any,
-    Family(CoercionFamily),
-}
-
-///
-/// CoercionRule
-///
-/// Declarative coercion routing rule between value families.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct CoercionRule {
-    left: CoercionRuleFamily,
-    right: CoercionRuleFamily,
-    id: CoercionId,
-}
-
-pub(crate) const COERCION_TABLE: &[CoercionRule] = &[
-    CoercionRule {
-        left: CoercionRuleFamily::Any,
-        right: CoercionRuleFamily::Any,
-        id: CoercionId::Strict,
-    },
-    CoercionRule {
-        left: CoercionRuleFamily::Family(CoercionFamily::Numeric),
-        right: CoercionRuleFamily::Family(CoercionFamily::Numeric),
-        id: CoercionId::NumericWiden,
-    },
-    CoercionRule {
-        left: CoercionRuleFamily::Family(CoercionFamily::Textual),
-        right: CoercionRuleFamily::Family(CoercionFamily::Textual),
-        id: CoercionId::TextCasefold,
-    },
-    CoercionRule {
-        left: CoercionRuleFamily::Any,
-        right: CoercionRuleFamily::Any,
-        id: CoercionId::CollectionElement,
-    },
-];
-
 /// Returns whether a coercion rule exists for the provided routing families.
 #[must_use]
 pub(in crate::db) fn supports_coercion(
@@ -155,14 +107,61 @@ pub(in crate::db) fn supports_coercion(
     right: CoercionFamily,
     id: CoercionId,
 ) -> bool {
-    COERCION_TABLE.iter().any(|rule| {
-        rule.id == id && family_matches(rule.left, left) && family_matches(rule.right, right)
-    })
+    match id {
+        CoercionId::Strict | CoercionId::CollectionElement => true,
+        CoercionId::NumericWiden => {
+            left == CoercionFamily::Numeric && right == CoercionFamily::Numeric
+        }
+        CoercionId::TextCasefold => {
+            left == CoercionFamily::Textual && right == CoercionFamily::Textual
+        }
+    }
 }
 
-fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
-    match rule {
-        CoercionRuleFamily::Any => true,
-        CoercionRuleFamily::Family(expected) => expected == value,
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::predicate::{CoercionId, coercion::supports_coercion},
+        value::CoercionFamily,
+    };
+
+    #[test]
+    fn supports_coercion_matches_canonical_family_matrix() {
+        assert!(supports_coercion(
+            CoercionFamily::Numeric,
+            CoercionFamily::Textual,
+            CoercionId::Strict,
+        ));
+        assert!(supports_coercion(
+            CoercionFamily::Textual,
+            CoercionFamily::Numeric,
+            CoercionId::CollectionElement,
+        ));
+
+        assert!(supports_coercion(
+            CoercionFamily::Numeric,
+            CoercionFamily::Numeric,
+            CoercionId::NumericWiden,
+        ));
+        assert!(!supports_coercion(
+            CoercionFamily::Numeric,
+            CoercionFamily::Textual,
+            CoercionId::NumericWiden,
+        ));
+
+        assert!(supports_coercion(
+            CoercionFamily::Textual,
+            CoercionFamily::Textual,
+            CoercionId::TextCasefold,
+        ));
+        assert!(!supports_coercion(
+            CoercionFamily::Textual,
+            CoercionFamily::Numeric,
+            CoercionId::TextCasefold,
+        ));
     }
 }

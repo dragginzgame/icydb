@@ -15,7 +15,7 @@ use crate::{
     types::{Account, Principal, Subaccount, Timestamp, Ulid},
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
 
@@ -77,7 +77,7 @@ pub enum StorageKeyDecodeError {
 // It is deliberately separated from typed primary-key values (`Id<E>`).
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
 pub enum StorageKey {
     Account(Account),
     Int(i64),

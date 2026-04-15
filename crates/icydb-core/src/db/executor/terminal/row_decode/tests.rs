@@ -1,16 +1,17 @@
 use super::*;
 use crate::{
-    db::data::{decode_structural_field_by_kind_bytes, with_structural_read_metrics},
+    db::data::{
+        decode_structural_field_by_kind_bytes, encode_structural_field_by_kind_bytes,
+        with_structural_read_metrics,
+    },
     error::{ErrorClass, ErrorOrigin},
     model::field::{FieldKind, FieldStorageDecode},
-    serialize::serialize,
     traits::EntitySchema,
     types::{Blob, Text},
     value::{Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use serde::Deserialize;
 
 crate::test_canister! {
     ident = RowDecodeCanister,
@@ -22,9 +23,7 @@ crate::test_store! {
     canister = RowDecodeCanister,
 }
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeEntity {
     id: Ulid,
     title: Text,
@@ -84,10 +83,6 @@ fn decode_required_test_slots_with_metrics(
             )
             .expect("selective slot decode should succeed")
     })
-}
-
-fn to_cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
-    serde_cbor::to_vec(value).expect("test fixture should serialize into CBOR bytes")
 }
 
 #[test]
@@ -166,71 +161,6 @@ fn selective_slot_decode_can_skip_unused_non_scalar_materialization() {
 }
 
 #[test]
-fn structural_row_decoder_rejects_raw_cbor_scalar_slot_payloads() {
-    let entity = RowDecodeEntity {
-        id: Ulid::from_u128(8),
-        title: "alpha".to_string(),
-        tags: vec!["one".to_string(), "two".to_string()],
-        portrait: Blob::from(vec![0x10, 0x20, 0x30]),
-    };
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
-        .expect("test key construction should succeed");
-    let id_bytes = crate::db::data::encode_persisted_scalar_slot_payload(&entity.id, "id")
-        .expect("id payload should encode");
-    let raw_title = serialize(&entity.title).expect("raw scalar title should encode");
-    let tags_bytes = crate::db::data::encode_persisted_slot_payload_by_kind(
-        &entity.tags,
-        crate::model::field::FieldKind::List(&crate::model::field::FieldKind::Text),
-        "tags",
-    )
-    .expect("tags payload should encode");
-    let portrait_bytes =
-        crate::db::data::encode_persisted_scalar_slot_payload(&entity.portrait, "portrait")
-            .expect("portrait payload should encode");
-    let slot_payloads = [
-        id_bytes.as_slice(),
-        raw_title.as_slice(),
-        tags_bytes.as_slice(),
-        portrait_bytes.as_slice(),
-    ];
-    let mut payload = Vec::new();
-    let mut offset = 0_u32;
-
-    payload.extend_from_slice(&4_u16.to_be_bytes());
-    for bytes in slot_payloads {
-        let len = u32::try_from(bytes.len()).expect("slot length should fit u32");
-        payload.extend_from_slice(&offset.to_be_bytes());
-        payload.extend_from_slice(&len.to_be_bytes());
-        offset = offset.saturating_add(len);
-    }
-    for bytes in slot_payloads {
-        payload.extend_from_slice(bytes);
-    }
-    let row = RawRow::try_new(
-        crate::db::codec::serialize_row_payload(payload).expect("serialize row payload"),
-    )
-    .expect("build raw row");
-
-    let Err(err) =
-        RowDecoder::structural().decode(&RowLayout::from_model(RowDecodeEntity::MODEL), (key, row))
-    else {
-        panic!("raw CBOR scalar slot payloads must fail closed");
-    };
-
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
-    assert!(
-        err.message.contains("field 'title'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF"),
-        "unexpected error: {err:?}"
-    );
-}
-
-#[test]
 fn structural_row_decoder_rejects_primary_key_mismatch() {
     let entity = RowDecodeEntity {
         id: Ulid::from_u128(9),
@@ -253,29 +183,24 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
 }
 
 #[test]
-fn structural_row_decoder_returns_null_for_structured_field_kind() {
-    let decoded = decode_structural_field_by_kind_bytes(
-        &to_cbor_bytes(&vec!["x".to_string(), "y".to_string()]),
-        FieldKind::Structured { queryable: false },
-    )
-    .expect("structured field decode should succeed");
-
-    assert_eq!(decoded, Value::Null);
-}
-
-#[test]
 fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
     static ENUM_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
         "Loaded",
         Some(&FieldKind::Uint),
         FieldStorageDecode::ByKind,
     )];
+    let bytes = encode_structural_field_by_kind_bytes(
+        FieldKind::Enum {
+            path: "tests::State",
+            variants: ENUM_VARIANTS,
+        },
+        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7))),
+        "status",
+    )
+    .expect("enum payload bytes should encode");
 
     let decoded = decode_structural_field_by_kind_bytes(
-        &to_cbor_bytes(&serde_cbor::Value::Map(BTreeMap::from([(
-            serde_cbor::Value::Text("Loaded".to_string()),
-            serde_cbor::Value::Integer(7),
-        )]))),
+        &bytes,
         FieldKind::Enum {
             path: "tests::State",
             variants: ENUM_VARIANTS,
@@ -289,9 +214,10 @@ fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
     );
 }
 
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeValueEntity {
     id: Ulid,
+    #[icydb(meta)]
     status: Value,
 }
 

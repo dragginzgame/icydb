@@ -9,7 +9,7 @@ use crate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
             parse_sql_predicate,
         },
-        reduced_sql::SqlParseError,
+        sql_shared::SqlParseError,
     },
     value::Value,
 };
@@ -155,140 +155,70 @@ fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
 
 #[test]
 fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
-    let plain = parse_sql_predicate("name LIKE 'Al%'").expect("plain LIKE prefix should parse");
-    let lower =
-        parse_sql_predicate("LOWER(name) LIKE 'Al%'").expect("LOWER(field) LIKE should parse");
-    let upper =
-        parse_sql_predicate("UPPER(name) LIKE 'AL%'").expect("UPPER(field) LIKE should parse");
-
-    assert_eq!(
-        plain,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        ))
+    assert_prefix_text_predicate("name LIKE 'Al%'", "Al", CoercionId::Strict, false);
+    assert_prefix_text_predicate(
+        "LOWER(name) LIKE 'Al%'",
+        "Al",
+        CoercionId::TextCasefold,
+        false,
     );
-    assert_eq!(
-        lower,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
-        ))
-    );
-    assert_eq!(
-        upper,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
-        ))
+    assert_prefix_text_predicate(
+        "UPPER(name) LIKE 'AL%'",
+        "AL",
+        CoercionId::TextCasefold,
+        false,
     );
 }
 
 #[test]
 fn parse_sql_predicate_not_like_prefix_lowering_respects_operand_text_mode() {
-    let plain =
-        parse_sql_predicate("name NOT LIKE 'Al%'").expect("plain NOT LIKE prefix should parse");
-    let lower = parse_sql_predicate("LOWER(name) NOT LIKE 'Al%'")
-        .expect("LOWER(field) NOT LIKE should parse");
-    let upper = parse_sql_predicate("UPPER(name) NOT LIKE 'AL%'")
-        .expect("UPPER(field) NOT LIKE should parse");
-
-    assert_eq!(
-        plain,
-        Predicate::Not(Box::new(Predicate::Compare(
-            ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::Strict,
-            )
-        )))
+    assert_prefix_text_predicate("name NOT LIKE 'Al%'", "Al", CoercionId::Strict, true);
+    assert_prefix_text_predicate(
+        "LOWER(name) NOT LIKE 'Al%'",
+        "Al",
+        CoercionId::TextCasefold,
+        true,
     );
-    assert_eq!(
-        lower,
-        Predicate::Not(Box::new(Predicate::Compare(
-            ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::TextCasefold,
-            )
-        )))
-    );
-    assert_eq!(
-        upper,
-        Predicate::Not(Box::new(Predicate::Compare(
-            ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("AL".to_string()),
-                CoercionId::TextCasefold,
-            )
-        )))
+    assert_prefix_text_predicate(
+        "UPPER(name) NOT LIKE 'AL%'",
+        "AL",
+        CoercionId::TextCasefold,
+        true,
     );
 }
 
 #[test]
 fn parse_sql_predicate_ilike_prefix_lowering_stays_casefolded() {
-    let plain = parse_sql_predicate("name ILIKE 'al%'").expect("plain ILIKE prefix should parse");
-    let lower =
-        parse_sql_predicate("LOWER(name) ILIKE 'al%'").expect("LOWER(field) ILIKE should parse");
-    let upper =
-        parse_sql_predicate("UPPER(name) ILIKE 'AL%'").expect("UPPER(field) ILIKE should parse");
-
-    let expected_plain = Predicate::Compare(ComparePredicate::with_coercion(
-        "name",
-        CompareOp::StartsWith,
-        Value::Text("al".to_string()),
+    assert_prefix_text_predicate("name ILIKE 'al%'", "al", CoercionId::TextCasefold, false);
+    assert_prefix_text_predicate(
+        "LOWER(name) ILIKE 'al%'",
+        "al",
         CoercionId::TextCasefold,
-    ));
-    let expected_upper = Predicate::Compare(ComparePredicate::with_coercion(
-        "name",
-        CompareOp::StartsWith,
-        Value::Text("AL".to_string()),
+        false,
+    );
+    assert_prefix_text_predicate(
+        "UPPER(name) ILIKE 'AL%'",
+        "AL",
         CoercionId::TextCasefold,
-    ));
-
-    assert_eq!(plain, expected_plain);
-    assert_eq!(lower, expected_plain);
-    assert_eq!(upper, expected_upper);
+        false,
+    );
 }
 
 #[test]
 fn parse_sql_predicate_not_ilike_prefix_lowering_stays_casefolded() {
-    let plain =
-        parse_sql_predicate("name NOT ILIKE 'al%'").expect("plain NOT ILIKE prefix should parse");
-    let lower = parse_sql_predicate("LOWER(name) NOT ILIKE 'al%'")
-        .expect("LOWER(field) NOT ILIKE should parse");
-    let upper = parse_sql_predicate("UPPER(name) NOT ILIKE 'AL%'")
-        .expect("UPPER(field) NOT ILIKE should parse");
-
-    let expected_plain = Predicate::Not(Box::new(Predicate::Compare(
-        ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("al".to_string()),
-            CoercionId::TextCasefold,
-        ),
-    )));
-    let expected_upper = Predicate::Not(Box::new(Predicate::Compare(
-        ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
-        ),
-    )));
-
-    assert_eq!(plain, expected_plain);
-    assert_eq!(lower, expected_plain);
-    assert_eq!(upper, expected_upper);
+    assert_prefix_text_predicate("name NOT ILIKE 'al%'", "al", CoercionId::TextCasefold, true);
+    assert_prefix_text_predicate(
+        "LOWER(name) NOT ILIKE 'al%'",
+        "al",
+        CoercionId::TextCasefold,
+        true,
+    );
+    assert_prefix_text_predicate(
+        "UPPER(name) NOT ILIKE 'AL%'",
+        "AL",
+        CoercionId::TextCasefold,
+        true,
+    );
 }
 
 #[test]
@@ -441,44 +371,22 @@ fn parse_sql_predicate_wrapped_equality_remains_fail_closed() {
 
 #[test]
 fn parse_sql_predicate_direct_starts_with_lowers_to_strict_starts_with_intent() {
-    let predicate = parse_sql_predicate("STARTS_WITH(name, 'Al')")
-        .expect("direct STARTS_WITH predicate should parse");
-
-    assert_eq!(
-        predicate,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        ))
-    );
+    assert_prefix_text_predicate("STARTS_WITH(name, 'Al')", "Al", CoercionId::Strict, false);
 }
 
 #[test]
 fn parse_sql_predicate_direct_wrapped_starts_with_lowers_to_casefold_intent() {
-    let lower = parse_sql_predicate("STARTS_WITH(LOWER(name), 'Al')")
-        .expect("direct LOWER(field) STARTS_WITH predicate should parse");
-    let upper = parse_sql_predicate("STARTS_WITH(UPPER(name), 'AL')")
-        .expect("direct UPPER(field) STARTS_WITH predicate should parse");
-
-    assert_eq!(
-        lower,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
-        ))
+    assert_prefix_text_predicate(
+        "STARTS_WITH(LOWER(name), 'Al')",
+        "Al",
+        CoercionId::TextCasefold,
+        false,
     );
-    assert_eq!(
-        upper,
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
-        ))
+    assert_prefix_text_predicate(
+        "STARTS_WITH(UPPER(name), 'AL')",
+        "AL",
+        CoercionId::TextCasefold,
+        false,
     );
 }
 
@@ -543,4 +451,28 @@ fn parse_sql_predicate_normalizes_swapped_field_equality_to_deterministic_order(
             CoercionId::Strict,
         )),
     );
+}
+
+fn assert_prefix_text_predicate(sql: &str, prefix: &str, coercion: CoercionId, negated: bool) {
+    let predicate = parse_sql_predicate(sql).expect("prefix predicate should parse");
+
+    assert_eq!(
+        predicate,
+        expected_prefix_text_predicate(prefix, coercion, negated),
+    );
+}
+
+fn expected_prefix_text_predicate(prefix: &str, coercion: CoercionId, negated: bool) -> Predicate {
+    let compare = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text(prefix.to_string()),
+        coercion,
+    ));
+
+    if negated {
+        Predicate::Not(Box::new(compare))
+    } else {
+        compare
+    }
 }

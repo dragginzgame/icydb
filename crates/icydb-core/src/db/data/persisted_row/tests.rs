@@ -4,10 +4,10 @@ use super::{
     UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
     canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
-    decode_persisted_option_slot_payload_by_kind, decode_slot_value_by_contract,
-    decode_slot_value_from_bytes, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_scalar_slot_value, encode_slot_payload_from_parts,
-    encode_slot_value_from_value, materialize_entity_from_serialized_update_patch,
+    decode_slot_value_by_contract, decode_slot_value_from_bytes,
+    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
+    materialize_entity_from_serialized_update_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
     with_structural_read_metrics,
 };
@@ -33,7 +33,7 @@ use crate::{
     value::{Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 crate::test_canister! {
     ident = PersistedRowPatchBridgeCanister,
@@ -56,9 +56,7 @@ crate::test_store! {
 /// save/update path now uses.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct PersistedRowPatchBridgeEntity {
     id: crate::types::Ulid,
     name: String,
@@ -68,20 +66,73 @@ struct PersistedRowPatchBridgeEntity {
 /// PersistedRowDecimalHintEntity
 ///
 /// PersistedRowDecimalHintEntity proves that the metadata-free
-/// `PersistedRow` derive can leave the CBOR compatibility seam for decimal
-/// fields when the caller supplies an explicit scale hint.
+/// `PersistedRow` derive can encode decimal fields through the owner-local
+/// by-kind structural contract when the caller supplies an explicit scale
+/// hint.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct PersistedRowDecimalHintEntity {
     id: crate::types::Ulid,
     #[icydb(scale = 2)]
     amount: Decimal,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+///
+/// PersistedRowValueHintEntity
+///
+/// PersistedRowValueHintEntity proves that the metadata-free `PersistedRow`
+/// derive can use the owner-local structural value contract for explicit
+/// `FieldStorageDecode::Value`-style fields when the caller opts into the
+/// matching hint.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct PersistedRowValueHintEntity {
+    id: crate::types::Ulid,
+    #[icydb(value)]
+    profile: PersistedRowProfileValue,
+}
+
+///
+/// PersistedRowMetaHintEntity
+///
+/// PersistedRowMetaHintEntity proves that the metadata-free `PersistedRow`
+/// derive can reuse a field type's own `FieldTypeMeta` contract directly.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct PersistedRowMetaHintEntity {
+    id: crate::types::Ulid,
+    #[icydb(meta)]
+    payload: Value,
+}
+
+impl Default for PersistedRowMetaHintEntity {
+    fn default() -> Self {
+        Self {
+            id: crate::types::Ulid::from_u128(0),
+            payload: Value::Null,
+        }
+    }
+}
+
+///
+/// PersistedRowMetaManyHintEntity
+///
+/// PersistedRowMetaManyHintEntity proves that the metadata-free
+/// `PersistedRow` derive can reuse blanket `FieldTypeMeta` contracts for
+/// standard containers, not just leaf or wrapper types.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct PersistedRowMetaManyHintEntity {
+    id: crate::types::Ulid,
+    #[icydb(meta)]
+    payloads: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct PersistedRowProfileValue {
     bio: String,
 }
@@ -148,6 +199,66 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("amount", FieldKind::Decimal { scale: 2 }),
+    ],
+    indexes = [],
+    store = PersistedRowPatchBridgeStore,
+    canister = PersistedRowPatchBridgeCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PersistedRowValueHintEntity,
+    id = crate::types::Ulid,
+    id_field = id,
+    entity_name = "PersistedRowValueHintEntity",
+    entity_tag = SIMPLE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value
+        ),
+    ],
+    indexes = [],
+    store = PersistedRowPatchBridgeStore,
+    canister = PersistedRowPatchBridgeCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PersistedRowMetaHintEntity,
+    id = crate::types::Ulid,
+    id_field = id,
+    entity_name = "PersistedRowMetaHintEntity",
+    entity_tag = SIMPLE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "payload",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value
+        ),
+    ],
+    indexes = [],
+    store = PersistedRowPatchBridgeStore,
+    canister = PersistedRowPatchBridgeCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PersistedRowMetaManyHintEntity,
+    id = crate::types::Ulid,
+    id_field = id,
+    entity_name = "PersistedRowMetaManyHintEntity",
+    entity_tag = SIMPLE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "payloads",
+            FieldKind::List(&FieldKind::Structured { queryable: false }),
+            FieldStorageDecode::Value
+        ),
     ],
     indexes = [],
     store = PersistedRowPatchBridgeStore,
@@ -713,31 +824,18 @@ fn custom_many_slot_payload_roundtrips_structured_value_lists() {
 }
 
 #[test]
-fn decode_persisted_non_null_slot_payload_rejects_null_for_required_structured_fields() {
+fn decode_persisted_non_null_slot_payload_rejects_malformed_structured_null_payload() {
     let err = decode_persisted_non_null_slot_payload_by_kind::<PersistedRowProfileValue>(
         &[0xF6],
         FieldKind::Structured { queryable: false },
         "profile",
     )
-    .expect_err("required structured payload must reject null");
+    .expect_err("structured payload must reject legacy malformed null bytes");
 
     assert!(
-        err.message
-            .contains("unexpected null for non-nullable field"),
+        err.message.contains("structural binary: unknown tag 0xF6"),
         "unexpected error: {err:?}"
     );
-}
-
-#[test]
-fn decode_persisted_option_slot_payload_treats_cbor_null_as_none() {
-    let decoded = decode_persisted_option_slot_payload_by_kind::<PersistedRowProfileValue>(
-        &[0xF6],
-        FieldKind::Structured { queryable: false },
-        "profile",
-    )
-    .expect("optional structured payload should decode");
-
-    assert_eq!(decoded, None);
 }
 
 #[test]
@@ -1418,6 +1516,192 @@ fn legacy_decimal_scale_hint_decodes_matching_by_kind_payload() {
         PersistedRowDecimalHintEntity {
             id,
             amount: Decimal::new(123, 2),
+        }
+    );
+}
+
+#[test]
+fn legacy_persisted_row_value_hint_uses_structural_value_slot_codec() {
+    let entity = PersistedRowValueHintEntity {
+        id: crate::types::Ulid::from_u128(79),
+        profile: PersistedRowProfileValue {
+            bio: "systems".to_string(),
+        },
+    };
+    let expected_profile = encode_structural_value_storage_bytes(&entity.profile.to_value())
+        .expect("profile slot bytes should encode through structural value storage");
+    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowValueHintEntity::MODEL)
+        .expect("raw row should decode structurally");
+
+    assert_eq!(
+        reader.get_bytes(1),
+        Some(expected_profile.as_slice()),
+        "legacy derive value hint should emit the same structural value bytes as owner-local value storage",
+    );
+}
+
+#[test]
+fn legacy_value_hint_decodes_matching_structural_value_payload() {
+    let id = crate::types::Ulid::from_u128(80);
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let profile = PersistedRowProfileValue {
+        bio: "runtime".to_string(),
+    };
+    let profile_payload = encode_structural_value_storage_bytes(&profile.to_value())
+        .expect("matching structural value bytes should encode");
+    let payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
+                u32::try_from(profile_payload.len())
+                    .expect("profile slot length should fit in u32"),
+            ),
+        ],
+        &[id_payload.as_slice(), profile_payload.as_slice()].concat(),
+    )
+    .expect("test row payload should encode");
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
+            .expect("test row should encode");
+    let decoded = raw_row
+        .try_decode::<PersistedRowValueHintEntity>()
+        .expect("legacy derive value hint should decode matching structural value payload");
+
+    assert_eq!(decoded, PersistedRowValueHintEntity { id, profile });
+}
+
+#[test]
+fn legacy_persisted_row_meta_hint_uses_field_type_meta_storage_contract() {
+    let entity = PersistedRowMetaHintEntity {
+        id: crate::types::Ulid::from_u128(81),
+        payload: Value::from_map(vec![(
+            Value::Text("bio".to_string()),
+            Value::Text("meta".to_string()),
+        )])
+        .expect("payload value should normalize"),
+    };
+    let expected_payload = encode_structural_value_storage_bytes(&entity.payload)
+        .expect("payload bytes should encode through structural value storage");
+    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaHintEntity::MODEL)
+        .expect("raw row should decode structurally");
+
+    assert_eq!(
+        reader.get_bytes(1),
+        Some(expected_payload.as_slice()),
+        "legacy derive meta hint should emit bytes from the field type's own storage contract",
+    );
+}
+
+#[test]
+fn legacy_meta_hint_decodes_matching_field_type_meta_payload() {
+    let id = crate::types::Ulid::from_u128(82);
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let payload_value = Value::from_map(vec![(
+        Value::Text("bio".to_string()),
+        Value::Text("field-meta".to_string()),
+    )])
+    .expect("payload value should normalize");
+    let payload_bytes = encode_structural_value_storage_bytes(&payload_value)
+        .expect("matching field-meta bytes should encode");
+    let payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
+                u32::try_from(payload_bytes.len()).expect("payload slot length should fit in u32"),
+            ),
+        ],
+        &[id_payload.as_slice(), payload_bytes.as_slice()].concat(),
+    )
+    .expect("test row payload should encode");
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
+            .expect("test row should encode");
+    let decoded = raw_row
+        .try_decode::<PersistedRowMetaHintEntity>()
+        .expect("legacy derive meta hint should decode matching field-meta payload");
+
+    assert_eq!(
+        decoded,
+        PersistedRowMetaHintEntity {
+            id,
+            payload: payload_value,
+        }
+    );
+}
+
+#[test]
+fn legacy_persisted_row_meta_many_hint_uses_container_field_type_meta_contract() {
+    let entity = PersistedRowMetaManyHintEntity {
+        id: crate::types::Ulid::from_u128(83),
+        payloads: vec![
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ],
+    };
+    let expected_payload =
+        encode_structural_value_storage_bytes(&Value::List(entity.payloads.clone()))
+            .expect("payload list bytes should encode through structural value storage");
+    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let reader =
+        StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaManyHintEntity::MODEL)
+            .expect("raw row should decode structurally");
+
+    assert_eq!(
+        reader.get_bytes(1),
+        Some(expected_payload.as_slice()),
+        "legacy derive meta hint should emit container bytes from blanket field-type metadata",
+    );
+}
+
+#[test]
+fn legacy_meta_many_hint_decodes_matching_container_field_type_meta_payload() {
+    let id = crate::types::Ulid::from_u128(84);
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let payload_values = vec![
+        Value::Text("left".to_string()),
+        Value::Text("right".to_string()),
+    ];
+    let payload_bytes = encode_structural_value_storage_bytes(&Value::List(payload_values.clone()))
+        .expect("matching container field-meta bytes should encode");
+    let payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
+                u32::try_from(payload_bytes.len()).expect("payload slot length should fit in u32"),
+            ),
+        ],
+        &[id_payload.as_slice(), payload_bytes.as_slice()].concat(),
+    )
+    .expect("test row payload should encode");
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
+            .expect("test row should encode");
+    let decoded = raw_row
+        .try_decode::<PersistedRowMetaManyHintEntity>()
+        .expect("legacy derive meta many hint should decode matching field-meta payload");
+
+    assert_eq!(
+        decoded,
+        PersistedRowMetaManyHintEntity {
+            id,
+            payloads: payload_values,
         }
     );
 }

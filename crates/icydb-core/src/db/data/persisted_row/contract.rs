@@ -2,9 +2,11 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes, encode_structural_field_by_kind_bytes,
-            encode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
+            CanonicalRow, RawRow, decode_storage_key_binary_value_bytes,
+            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+            encode_storage_key_binary_value_bytes, encode_structural_field_by_kind_bytes,
+            encode_structural_value_storage_bytes, supports_storage_key_binary_kind,
+            validate_storage_key_binary_value_bytes, validate_structural_field_by_kind_bytes,
             validate_structural_value_storage_bytes,
         },
         scalar_expr::compile_scalar_literal_expr_value,
@@ -44,7 +46,7 @@ pub(in crate::db::data::persisted_row) fn decode_slot_value_by_contract(
 ///
 /// This is the canonical field-level decode boundary for persisted-row bytes.
 /// Higher-level row readers may still cache decoded values, but they should not
-/// rebuild scalar-vs-CBOR field dispatch themselves.
+/// rebuild scalar-vs-structural field dispatch themselves.
 pub(in crate::db) fn decode_slot_value_from_bytes(
     model: &'static EntityModel,
     slot: usize,
@@ -67,13 +69,7 @@ pub(in crate::db::data::persisted_row) fn decode_slot_value_for_field(
             ScalarSlotValueRef::Null => Ok(Value::Null),
             ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
         },
-        LeafCodec::CborFallback => {
-            if field.nullable() && is_canonical_nullable_cbor_null_payload(raw_value) {
-                return Ok(Value::Null);
-            }
-
-            decode_non_scalar_slot_value(raw_value, field)
-        }
+        LeafCodec::StructuralFallback => decode_non_scalar_slot_value(raw_value, field),
     }
 }
 
@@ -112,8 +108,18 @@ pub(in crate::db::data::persisted_row) fn encode_slot_value_from_value(
 
                 Ok(encode_scalar_slot_value(scalar.as_slot_value_ref()))
             }
-            LeafCodec::CborFallback => {
-                encode_structural_field_bytes_by_kind(field.kind(), value, field.name())
+            LeafCodec::StructuralFallback => {
+                if supports_storage_key_binary_kind(field.kind()) {
+                    encode_storage_key_binary_value_bytes(field.kind(), value, field.name())?
+                        .ok_or_else(|| {
+                            InternalError::persisted_row_field_encode_failed(
+                                field.name(),
+                                "storage-key binary lane rejected a supported field kind",
+                            )
+                        })
+                } else {
+                    encode_structural_field_bytes_by_kind(field.kind(), value, field.name())
+                }
             }
         },
     }
@@ -254,18 +260,39 @@ fn decode_non_scalar_slot_value(
     raw_value: &[u8],
     field: &FieldModel,
 ) -> Result<Value, InternalError> {
-    let decoded = match field.storage_decode() {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            decode_structural_field_by_kind_bytes(raw_value, field.kind())
-        }
+    match field.storage_decode() {
+        crate::model::field::FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::StructuralFallback if supports_storage_key_binary_kind(field.kind()) => {
+                match decode_storage_key_binary_value_bytes(raw_value, field.kind()) {
+                    Ok(Some(value)) => Ok(value),
+                    Ok(None) => {
+                        unreachable!("storage-key binary lane must decode supported field kinds")
+                    }
+                    Err(err) => Err(InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )),
+                }
+            }
+            _ => decode_structural_field_by_kind_bytes(raw_value, field.kind()).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.name(),
+                    field.kind(),
+                    err,
+                )
+            }),
+        },
         crate::model::field::FieldStorageDecode::Value => {
-            decode_structural_value_storage_bytes(raw_value)
+            decode_structural_value_storage_bytes(raw_value).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.name(),
+                    field.kind(),
+                    err,
+                )
+            })
         }
-    };
-
-    decoded.map_err(|err| {
-        InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
-    })
+    }
 }
 
 // Validate one non-scalar slot through the exact persisted contract declared
@@ -274,28 +301,39 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
     raw_value: &[u8],
     field: &FieldModel,
 ) -> Result<(), InternalError> {
-    if field.nullable() && is_canonical_nullable_cbor_null_payload(raw_value) {
-        return Ok(());
-    }
-
-    let validated = match field.storage_decode() {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            validate_structural_field_by_kind_bytes(raw_value, field.kind())
-        }
+    match field.storage_decode() {
+        crate::model::field::FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::StructuralFallback if supports_storage_key_binary_kind(field.kind()) => {
+                match validate_storage_key_binary_value_bytes(raw_value, field.kind()) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => {
+                        unreachable!("storage-key binary lane must validate supported field kinds")
+                    }
+                    Err(err) => Err(InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )),
+                }
+            }
+            _ => validate_structural_field_by_kind_bytes(raw_value, field.kind()).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.name(),
+                    field.kind(),
+                    err,
+                )
+            }),
+        },
         crate::model::field::FieldStorageDecode::Value => {
-            validate_structural_value_storage_bytes(raw_value)
+            validate_structural_value_storage_bytes(raw_value).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.name(),
+                    field.kind(),
+                    err,
+                )
+            })
         }
-    };
-
-    validated.map_err(|err| {
-        InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
-    })
-}
-
-// Detect the canonical explicit-null payload used for nullable CBOR-backed
-// fields before field-kind-specific structural decode requires a concrete shape.
-fn is_canonical_nullable_cbor_null_payload(raw_value: &[u8]) -> bool {
-    raw_value == [0xF6]
+    }
 }
 
 // Validate one runtime value against the persisted field contract before field-
@@ -506,8 +544,8 @@ pub(in crate::db::data::persisted_row) fn serialized_patch_payload_by_slot<'a>(
     Ok(payloads)
 }
 
-// Encode one `ByKind` field payload into the raw CBOR shape expected by the
-// structural field decoder.
+// Encode one `ByKind` field payload into the owner-local structural binary
+// shape expected by the structural field decoder.
 fn encode_structural_field_bytes_by_kind(
     kind: FieldKind,
     value: &Value,

@@ -34,7 +34,7 @@ pub(in crate::db::executor::tests) use crate::{
     types::{Ulid, Unit},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cell::RefCell;
 
 ///
@@ -159,9 +159,7 @@ pub(in crate::db::executor::tests) static DB: Db<TestCanister> = Db::new(&STORE_
 /// SimpleEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct SimpleEntity {
     pub(in crate::db::executor::tests) id: Ulid,
 }
@@ -186,9 +184,7 @@ crate::test_entity_schema! {
 /// behavior covered after the old semantics harness was pruned.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct SingletonUnitEntity {
     pub(in crate::db::executor::tests) id: Unit,
     pub(in crate::db::executor::tests) label: String,
@@ -215,9 +211,7 @@ crate::test_entity_schema! {
 /// IndexedMetricsEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct IndexedMetricsEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) tag: u32,
@@ -254,9 +248,7 @@ crate::test_entity_schema! {
 /// PushdownParityEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct PushdownParityEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) group: u32,
@@ -300,9 +292,7 @@ crate::test_entity_schema! {
 /// harness instead of depending on pruned pagination backlogs.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct UniqueIndexRangeEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) code: u32,
@@ -339,9 +329,7 @@ crate::test_entity_schema! {
 /// PhaseEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct PhaseEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) opt_rank: Option<u32>,
@@ -513,9 +501,7 @@ pub(in crate::db::executor::tests) static REL_DB: Db<RelationTestCanister> =
 /// RelationTargetEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct RelationTargetEntity {
     pub(in crate::db::executor::tests) id: Ulid,
 }
@@ -537,9 +523,7 @@ crate::test_entity_schema! {
 /// RelationSourceEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct RelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) target: Ulid,
@@ -576,9 +560,7 @@ crate::test_entity_schema! {
 /// WeakSingleRelationSourceEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct WeakSingleRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) target: Ulid,
@@ -615,9 +597,7 @@ crate::test_entity_schema! {
 /// WeakOptionalRelationSourceEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct WeakOptionalRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) target: Option<Ulid>,
@@ -654,9 +634,7 @@ crate::test_entity_schema! {
 /// WeakListRelationSourceEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 pub(in crate::db::executor::tests) struct WeakListRelationSourceEntity {
     pub(in crate::db::executor::tests) id: Ulid,
     pub(in crate::db::executor::tests) targets: Vec<Ulid>,

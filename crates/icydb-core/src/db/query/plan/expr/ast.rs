@@ -5,7 +5,7 @@
 
 use crate::db::{
     query::builder::aggregate::AggregateExpr,
-    reduced_sql::{SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
+    sql_shared::{SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
 };
 use crate::value::Value;
 

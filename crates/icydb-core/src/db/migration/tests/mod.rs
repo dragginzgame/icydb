@@ -31,7 +31,7 @@ use crate::{
     types::Ulid,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cell::RefCell;
 
 type MigrationStoreSnapshot = (Vec<(Vec<u8>, Vec<u8>)>, Vec<(Vec<u8>, Vec<u8>)>);
@@ -61,9 +61,7 @@ crate::test_store! {
 /// This entity keeps migration tests focused on commit-marker row semantics.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct MigrationEntity {
     id: Ulid,
     rank: u32,

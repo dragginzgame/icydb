@@ -18,7 +18,7 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Deref, DerefMut};
-use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
+use serde::{Deserialize, de::Deserializer};
 use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
@@ -223,20 +223,6 @@ impl PartialEq<Ulid> for WrappedUlid {
 impl SanitizeAuto for Ulid {}
 
 impl SanitizeCustom for Ulid {}
-
-// The ulid crate's serde impls are gated behind its `serde` feature.
-// With default-features disabled (to avoid pulling in `rand`), we implement
-// Serialize/Deserialize here explicitly.
-impl Serialize for Ulid {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut buffer = [0; ::ulid::ULID_LEN];
-        let text = self.array_to_str(&mut buffer);
-        text.serialize(serializer)
-    }
-}
 
 impl<'de> Deserialize<'de> for Ulid {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

@@ -1,7 +1,7 @@
 //! Module: cursor::token::codec
 //! Responsibility: custom binary wire codec for scalar and grouped cursor tokens.
 //! Does not own: cursor validation policy or higher-level continuation planning.
-//! Boundary: token-owned bounded wire encoding that avoids generic serde/CBOR
+//! Boundary: token-owned bounded wire encoding that avoids generic serde
 //! serialization on the cursor runtime path.
 
 use crate::{

@@ -29,7 +29,7 @@ use crate::{
     types::Id,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -66,9 +66,7 @@ const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v1";
 //
 
 #[repr(transparent)]
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProjectedIdentity([u8; 32]);
 
 impl ProjectedIdentity {

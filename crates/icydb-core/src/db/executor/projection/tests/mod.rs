@@ -18,22 +18,17 @@ use crate::{
         },
     },
     db::{
-        codec::serialize_row_payload,
-        data::{
-            CanonicalSlotReader, DataKey, DataRow, RawRow, SlotReader, StructuralSlotReader,
-            encode_persisted_scalar_slot_payload,
-        },
+        data::{CanonicalSlotReader, DataKey, DataRow, RawRow, SlotReader, StructuralSlotReader},
         executor::terminal::RowLayout,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{field::FieldKind, index::IndexModel},
-    serialize::serialize,
     traits::{EntitySchema, EntityValue},
     types::Ulid,
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cmp::Ordering;
 
 #[cfg(feature = "sql")]
@@ -60,9 +55,7 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
     false,
 );
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct ProjectionEvalEntity {
     id: Ulid,
     rank: i64,

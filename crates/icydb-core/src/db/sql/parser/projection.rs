@@ -5,13 +5,13 @@
 
 use crate::{
     db::{
-        reduced_sql::{Keyword, TokenKind},
         sql::parser::{
             Parser, SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall,
             SqlArithmeticProjectionOp, SqlArithmeticProjectionOperand, SqlProjection,
             SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
             SqlTextFunctionCall,
         },
+        sql_shared::{Keyword, TokenKind},
     },
     value::Value,
 };
@@ -19,7 +19,7 @@ use crate::{
 impl Parser {
     pub(super) fn parse_projection(
         &mut self,
-    ) -> Result<(SqlProjection, Vec<Option<String>>), crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<(SqlProjection, Vec<Option<String>>), crate::db::sql_shared::SqlParseError> {
         if self.eat_star() {
             return Ok((SqlProjection::All, Vec::new()));
         }
@@ -38,7 +38,7 @@ impl Parser {
         }
 
         if items.is_empty() {
-            return Err(crate::db::reduced_sql::SqlParseError::expected(
+            return Err(crate::db::sql_shared::SqlParseError::expected(
                 "one projection item",
                 self.peek_kind(),
             ));
@@ -47,9 +47,7 @@ impl Parser {
         Ok((SqlProjection::Items(items), aliases))
     }
 
-    fn parse_select_item(
-        &mut self,
-    ) -> Result<SqlSelectItem, crate::db::reduced_sql::SqlParseError> {
+    fn parse_select_item(&mut self) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
         if let Some(kind) = self.parse_aggregate_kind() {
             return Ok(SqlSelectItem::Aggregate(self.parse_aggregate_call(kind)?));
         }
@@ -61,7 +59,7 @@ impl Parser {
             }
 
             let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
-                return Err(crate::db::reduced_sql::SqlParseError::unsupported_feature(
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                     "SQL function namespace beyond supported aggregate or scalar text projection forms",
                 ));
             };
@@ -109,7 +107,7 @@ impl Parser {
     pub(super) fn parse_aggregate_call(
         &mut self,
         kind: SqlAggregateKind,
-    ) -> Result<SqlAggregateCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlAggregateCall, crate::db::sql_shared::SqlParseError> {
         let _ = self.cursor.advance();
         self.expect_lparen()?;
         let distinct = self.eat_keyword(Keyword::Distinct);
@@ -132,7 +130,7 @@ impl Parser {
     fn parse_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         self.expect_lparen()?;
 
         let call = match function {
@@ -163,7 +161,7 @@ impl Parser {
     // parser/session boundary instead of widening planner semantics.
     fn parse_projection_alias_if_present(
         &mut self,
-    ) -> Result<Option<String>, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<Option<String>, crate::db::sql_shared::SqlParseError> {
         if self.eat_keyword(Keyword::As) {
             return self.expect_identifier().map(Some);
         }
@@ -178,7 +176,7 @@ impl Parser {
     fn parse_unary_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
 
         Ok(Self::text_function_call(function, field, None, None, None))
@@ -187,7 +185,7 @@ impl Parser {
     fn parse_field_plus_literal_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
         self.expect_text_function_argument_comma()?;
         let literal = self.parse_literal()?;
@@ -204,7 +202,7 @@ impl Parser {
     fn parse_position_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         let literal = self.parse_literal()?;
         self.expect_text_function_argument_comma()?;
         let field = self.expect_identifier()?;
@@ -221,7 +219,7 @@ impl Parser {
     fn parse_replace_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
         self.expect_text_function_argument_comma()?;
         let from = self.parse_literal()?;
@@ -240,7 +238,7 @@ impl Parser {
     fn parse_substring_text_function_call(
         &mut self,
         function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
         self.expect_text_function_argument_comma()?;
         let start = self.parse_literal()?;
@@ -268,12 +266,12 @@ impl Parser {
 
     fn expect_text_function_argument_comma(
         &mut self,
-    ) -> Result<(), crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<(), crate::db::sql_shared::SqlParseError> {
         if self.eat_comma() {
             return Ok(());
         }
 
-        Err(crate::db::reduced_sql::SqlParseError::expected(
+        Err(crate::db::sql_shared::SqlParseError::expected(
             "',' between text function arguments",
             self.peek_kind(),
         ))
@@ -283,7 +281,7 @@ impl Parser {
         &mut self,
         field: String,
         op: SqlArithmeticProjectionOp,
-    ) -> Result<SqlArithmeticProjectionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlArithmeticProjectionCall, crate::db::sql_shared::SqlParseError> {
         let rhs = if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
             SqlArithmeticProjectionOperand::Field(self.expect_identifier()?)
         } else {
@@ -295,7 +293,7 @@ impl Parser {
 
     pub(super) fn parse_round_projection_call(
         &mut self,
-    ) -> Result<SqlRoundProjectionCall, crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<SqlRoundProjectionCall, crate::db::sql_shared::SqlParseError> {
         self.expect_lparen()?;
 
         let field = self.expect_identifier()?;
@@ -328,12 +326,12 @@ impl Parser {
 
     fn expect_round_projection_argument_comma(
         &mut self,
-    ) -> Result<(), crate::db::reduced_sql::SqlParseError> {
+    ) -> Result<(), crate::db::sql_shared::SqlParseError> {
         if self.eat_comma() {
             return Ok(());
         }
 
-        Err(crate::db::reduced_sql::SqlParseError::expected(
+        Err(crate::db::sql_shared::SqlParseError::expected(
             "',' between ROUND arguments",
             self.peek_kind(),
         ))

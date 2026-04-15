@@ -36,7 +36,7 @@ mod prelude {
     pub use darling::{Error as DarlingError, FromMeta};
     pub use proc_macro2::{Span, TokenStream};
     pub use quote::{ToTokens, format_ident, quote};
-    pub use serde::{Deserialize, Serialize};
+    pub use serde::Deserialize;
     pub use syn::{Ident, ItemStruct, LitStr, Path};
 }
 

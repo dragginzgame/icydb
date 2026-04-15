@@ -17,7 +17,7 @@ use crate::{
     traits::FieldValue,
     value::{StorageKey, Value},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cmp::Ordering;
 
 ///
@@ -25,7 +25,7 @@ use std::cmp::Ordering;
 /// Slot value used for deterministic cursor boundaries.
 ///
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub(crate) enum CursorBoundarySlot {
     Missing,
     Present(Value),
@@ -36,7 +36,7 @@ pub(crate) enum CursorBoundarySlot {
 /// Ordered boundary tuple for continuation pagination.
 ///
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub(crate) struct CursorBoundary {
     pub(crate) slots: Vec<CursorBoundarySlot>,
 }

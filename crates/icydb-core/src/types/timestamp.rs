@@ -15,15 +15,12 @@ use crate::{
 };
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 use std::{
     fmt,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
-use time::{
-    Date as TimeDate, Month, OffsetDateTime, PrimitiveDateTime, Time as TimeOfDay, UtcOffset,
-    format_description::well_known::Rfc3339,
-};
+use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
 
 const ERR_INVALID_CALENDAR_DATE: &str = "timestamp parse error: invalid calendar date";
 const ERR_INVALID_FRACTIONAL_SECONDS: &str = "timestamp parse error: invalid fractional seconds";
@@ -54,7 +51,7 @@ const ERR_TIMESTAMP_TOO_SHORT: &str = "timestamp parse error: timestamp is too s
 // Timestamp
 //
 // Stored as Unix milliseconds.
-// RFC3339 JSON wire format is string-based.
+// API/JSON deserialization accepts RFC3339 strings and unix-millis numbers.
 //
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -386,19 +383,6 @@ impl Repr for Timestamp {
 
 impl Atomic for Timestamp {}
 
-impl Serialize for Timestamp {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let nanos = i128::from(self.0).saturating_mul(1_000_000);
-        let dt =
-            OffsetDateTime::from_unix_timestamp_nanos(nanos).map_err(serde::ser::Error::custom)?;
-        let rendered = dt.format(&Rfc3339).map_err(serde::ser::Error::custom)?;
-        serializer.serialize_str(&rendered)
-    }
-}
-
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -696,83 +680,5 @@ mod tests {
         let t = Timestamp::from_secs(77);
         let v = t.to_value();
         assert_eq!(v, Value::Timestamp(t));
-    }
-
-    #[test]
-    fn test_json_iso_serialization() {
-        let t = Timestamp::from_millis(1_710_013_530_123);
-        let json = serde_json::to_string(&t).unwrap();
-        assert_eq!(json, "\"2024-03-09T19:45:30.123Z\"");
-    }
-
-    #[test]
-    fn test_json_unix_deserialization() {
-        let unquoted: Timestamp = serde_json::from_str("1710013530000").unwrap();
-        assert_eq!(unquoted, Timestamp::from_millis(1_710_013_530_000));
-
-        let quoted: Timestamp = serde_json::from_str("\"1710013530000\"").unwrap();
-        assert_eq!(quoted, Timestamp::from_millis(1_710_013_530_000));
-    }
-
-    #[test]
-    fn test_json_iso_deserialization() {
-        let parsed: Timestamp = serde_json::from_str("\"2024-03-09T19:45:30Z\"").unwrap();
-        assert_eq!(parsed, Timestamp::from_millis(1_710_013_530_000));
-    }
-
-    #[test]
-    fn test_json_rejects_invalid_iso_and_out_of_range_u64() {
-        let iso_err = serde_json::from_str::<Timestamp>("\"not-a-timestamp\"").unwrap_err();
-        assert!(iso_err.to_string().contains("timestamp parse error"));
-
-        let overflow_u64_err =
-            serde_json::from_str::<Timestamp>("18446744073709551615").unwrap_err();
-        assert!(
-            overflow_u64_err
-                .to_string()
-                .contains("exceeds i64 timestamp range")
-        );
-    }
-
-    #[test]
-    fn test_json_pre_epoch_roundtrip() {
-        let ts = Timestamp::from_millis(-1_000);
-        let json = serde_json::to_string(&ts).unwrap();
-        let parsed: Timestamp = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, ts);
-    }
-
-    #[test]
-    fn test_json_roundtrip() {
-        let t = Timestamp::from_millis(1_710_013_530_000);
-        let json = serde_json::to_string(&t).unwrap();
-        let parsed: Timestamp = serde_json::from_str(&json).unwrap();
-        assert_eq!(t, parsed);
-    }
-
-    #[test]
-    fn test_serde_cbor_boundary_uses_rfc3339_text_not_millis_number() {
-        let t = Timestamp::from_millis(1_710_013_530_123);
-
-        let bytes = serde_cbor::to_vec(&t).expect("timestamp serialization should succeed");
-        let wire: serde_cbor::Value =
-            serde_cbor::from_slice(&bytes).expect("timestamp cbor decode should succeed");
-
-        match wire {
-            serde_cbor::Value::Text(rendered) => {
-                assert_eq!(rendered, "2024-03-09T19:45:30.123Z");
-            }
-            other => panic!("timestamp wire shape must remain RFC3339 text, got {other:?}"),
-        }
-
-        let decoded: Timestamp =
-            serde_cbor::from_slice(&bytes).expect("timestamp decode should succeed");
-        assert_eq!(decoded, t);
-    }
-
-    #[test]
-    fn test_json_extreme_timestamps_fail_cleanly_for_iso_rendering() {
-        assert!(serde_json::to_string(&Timestamp::MIN).is_err());
-        assert!(serde_json::to_string(&Timestamp::MAX).is_err());
     }
 }

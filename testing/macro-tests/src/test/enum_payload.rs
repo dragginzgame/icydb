@@ -11,7 +11,7 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::{deserialize, serialize, traits::FieldValue, value::Value};
+    use icydb::{traits::FieldValue, value::Value};
 
     #[entity(
         store = "TestStore",
@@ -37,21 +37,6 @@ pub mod test {
             }
             other => panic!("expected Value::Enum with payload, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn enum_with_tokens_roundtrips_via_serialize() {
-        let entity = EnumEntityHarness {
-            id: Ulid::generate(),
-            cost: EnumWithPayload::Icp(Tokens::from(42_u64)),
-            ..Default::default()
-        };
-
-        let bytes = serialize(&entity).expect("serialize enum with payload");
-        let decoded: EnumEntityHarness =
-            deserialize(&bytes).expect("deserialize enum with payload");
-
-        assert_eq!(entity, decoded);
     }
 
     #[test]

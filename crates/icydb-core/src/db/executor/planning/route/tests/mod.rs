@@ -63,7 +63,7 @@ use crate::{
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{fs, ops::Bound};
 
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
@@ -88,9 +88,7 @@ crate::test_store! {
 /// scalar field, and one non-indexed scalar field for capability checks.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RouteCapabilityEntity {
     id: Ulid,
     rank: u32,
@@ -139,9 +137,7 @@ crate::test_entity_schema! {
 /// the unique-index budget/hint checks local to the route module.
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct UniqueRouteCapabilityEntity {
     id: Ulid,
     code: u32,

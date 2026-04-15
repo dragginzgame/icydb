@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
+use serde::{Deserialize, de::Deserializer};
 use std::{
     fmt,
     hash::{Hash, Hasher},
@@ -45,7 +45,7 @@ use std::{
 // ## Storage model
 // - Entities themselves store **primitive key values only**
 // - Conversion between `Id<E>` and the primitive key is explicit
-// - `Id<E>` serializes identically to `E::Key`
+// - `Id<E>` deserializes identically to `E::Key`
 //
 // ## Safety
 // Construction from raw key material is intentionally explicit so call sites show where typed
@@ -289,19 +289,6 @@ where
 {
     fn from(id: &Id<E>) -> Self {
         id.as_value()
-    }
-}
-
-impl<E> Serialize for Id<E>
-where
-    E: EntityKey,
-    E::Key: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.key.serialize(serializer)
     }
 }
 

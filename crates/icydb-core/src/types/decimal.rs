@@ -10,8 +10,8 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
-use serde_bytes::{ByteBuf, Bytes};
+use serde::Deserialize;
+use serde_bytes::ByteBuf;
 use std::{
     cmp::Ordering,
     convert::From,
@@ -645,23 +645,6 @@ impl CandidType for Decimal {
     }
 }
 
-// Serde:
-// - Human-readable formats (e.g. JSON) use a decimal string for API ergonomics.
-// - Non-human-readable formats (e.g. CBOR persistence) use compact binary parts.
-impl Serialize for Decimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if serializer.is_human_readable() {
-            return serializer.serialize_str(&self.to_string());
-        }
-
-        let mantissa_bytes = self.mantissa().to_be_bytes();
-        (Bytes::new(&mantissa_bytes), self.scale()).serialize(serializer)
-    }
-}
-
 impl<'de> Deserialize<'de> for Decimal {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1200,59 +1183,6 @@ mod tests {
             let wire_str: String = decode_one(&bytes).expect("candid decode to String");
             assert_eq!(wire_str, d1.to_string(), "wire text mismatch for {s}");
         }
-    }
-
-    #[test]
-    fn decimal_serde_cbor_binary_roundtrip() {
-        let cases = [
-            "0",
-            "1",
-            "-1",
-            "42.5",
-            "1234567890.123456789",
-            "0.00000001",
-            "1000000000000000000.000000000000000001",
-        ];
-
-        for s in cases {
-            let d1 = Decimal::from_str(s).expect("parse decimal");
-
-            let bytes = serde_cbor::to_vec(&d1).expect("cbor serialize");
-            let d2: Decimal = serde_cbor::from_slice(&bytes).expect("cbor deserialize");
-            assert_eq!(d2, d1, "cbor roundtrip mismatch for {s}");
-
-            let wire: serde_cbor::Value =
-                serde_cbor::from_slice(&bytes).expect("decode cbor value");
-            match wire {
-                serde_cbor::Value::Array(values) => {
-                    assert_eq!(values.len(), 2, "expected [mantissa_bytes, scale] for {s}");
-                    assert!(
-                        matches!(values.first(), Some(serde_cbor::Value::Bytes(_))),
-                        "expected mantissa bytes in first position for {s}"
-                    );
-                }
-                other => panic!("expected binary decimal array payload for {s}; got {other:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn decimal_serde_cbor_rejects_invalid_binary_mantissa_length() {
-        let invalid = serde_cbor::to_vec(&(vec![1u8, 2, 3], 2u32))
-            .expect("serialize invalid binary mantissa payload");
-        let parsed: Result<Decimal, _> = serde_cbor::from_slice(&invalid);
-        assert!(
-            parsed.is_err(),
-            "invalid binary mantissa length must be rejected"
-        );
-    }
-
-    #[test]
-    fn decimal_serde_cbor_rejects_invalid_binary_scale() {
-        let invalid = serde_cbor::to_vec(&(123_i128.to_be_bytes().to_vec(), 29u32))
-            .expect("serialize invalid decimal scale payload");
-        let parsed: Result<Decimal, _> = serde_cbor::from_slice(&invalid);
-        assert!(parsed.is_err(), "invalid binary scale must be rejected");
     }
 
     #[test]

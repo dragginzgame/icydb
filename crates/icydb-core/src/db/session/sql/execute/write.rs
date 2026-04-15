@@ -11,8 +11,8 @@ use crate::{
         },
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSqlQuery, bind_lowered_sql_query,
-            canonicalize_sql_predicate_for_model, lower_sql_command_from_prepared_statement,
-            prepare_sql_statement,
+            canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
+            lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{
             SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
@@ -21,7 +21,7 @@ use crate::{
     },
     model::{
         entity::resolve_field_slot,
-        field::{FieldInsertGeneration, FieldKind, FieldModel},
+        field::{FieldInsertGeneration, FieldModel},
     },
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityKind, EntityValue, FieldValue},
@@ -55,17 +55,15 @@ where
         return Ok(key);
     }
 
-    let widened = match value {
-        Value::Int(v) if *v >= 0 => Value::Uint(v.cast_unsigned()),
-        Value::Uint(v) if i64::try_from(*v).is_ok() => Value::Int(v.cast_signed()),
-        _ => {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
-            )));
-        }
+    let Some(normalized) =
+        canonicalize_strict_sql_literal_for_kind(&E::MODEL.primary_key().kind(), value)
+    else {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
+        )));
     };
 
-    <E::Key as FieldValue>::from_value(&widened).ok_or_else(|| {
+    <E::Key as FieldValue>::from_value(&normalized).ok_or_else(|| {
         QueryError::unsupported_query(format!(
             "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
         ))
@@ -89,14 +87,8 @@ where
         QueryError::invariant("SQL write field must resolve against the target entity model")
     })?;
     let field_kind = E::MODEL.fields()[field_slot].kind();
-
-    let normalized = match (field_kind, value) {
-        (FieldKind::Uint, Value::Int(v)) if *v >= 0 => Value::Uint(v.cast_unsigned()),
-        (FieldKind::Int, Value::Uint(v)) if i64::try_from(*v).is_ok() => {
-            Value::Int(v.cast_signed())
-        }
-        _ => value.clone(),
-    };
+    let normalized = canonicalize_strict_sql_literal_for_kind(&field_kind, value)
+        .unwrap_or_else(|| value.clone());
 
     let field_type = field_type_from_model_kind(&field_kind);
     if !literal_matches_type(&normalized, &field_type) {

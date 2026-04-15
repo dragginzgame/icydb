@@ -3,16 +3,15 @@
 //! used by runtime row access.
 
 use crate::{
-    db::{
-        codec::{decode_cbor_bytes, encode_cbor_bytes},
-        data::{
-            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
-            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
-        },
+    db::data::{
+        decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
+        decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
+        encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+        supports_storage_key_binary_kind,
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
-    traits::{DeserializeOwned, FieldValue, Serialize, field_value_vec_from_value},
+    traits::{FieldTypeMeta, FieldValue, field_value_vec_from_value},
     types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,
 };
@@ -21,7 +20,6 @@ use std::str;
 const SCALAR_SLOT_PREFIX: u8 = 0xFF;
 const SCALAR_SLOT_TAG_NULL: u8 = 0;
 const SCALAR_SLOT_TAG_VALUE: u8 = 1;
-const CBOR_NULL_PAYLOAD: [u8; 1] = [0xF6];
 
 const SCALAR_BOOL_PAYLOAD_LEN: usize = 1;
 const SCALAR_WORD32_PAYLOAD_LEN: usize = 4;
@@ -103,7 +101,7 @@ pub enum ScalarSlotValueRef<'a> {
 /// PersistedScalar defines the canonical binary payload codec for one scalar
 /// leaf type.
 /// Derive-generated persisted-row materializers and writers use this trait to
-/// avoid routing scalar fields back through CBOR.
+/// avoid routing scalar fields back through a generic structural envelope.
 ///
 
 pub trait PersistedScalar: Sized {
@@ -118,19 +116,6 @@ pub trait PersistedScalar: Sized {
     -> Result<Self, InternalError>;
 }
 
-/// Encode one persisted slot payload through the compatibility CBOR seam used
-/// by metadata-free persisted-row derives.
-pub fn encode_persisted_slot_payload<T>(
-    value: &T,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: Serialize,
-{
-    encode_cbor_bytes(value)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
-}
-
 /// Encode one persisted slot payload using the stricter schema-owned `ByKind`
 /// storage contract.
 pub fn encode_persisted_slot_payload_by_kind<T>(
@@ -141,6 +126,16 @@ pub fn encode_persisted_slot_payload_by_kind<T>(
 where
     T: FieldValue,
 {
+    if supports_storage_key_binary_kind(kind) {
+        return encode_storage_key_binary_value_bytes(kind, &value.to_value(), field_name)?
+            .ok_or_else(|| {
+                InternalError::persisted_row_field_encode_failed(
+                    field_name,
+                    "storage-key binary lane rejected a supported field kind",
+                )
+            });
+    }
+
     encode_structural_field_by_kind_bytes(kind, &value.to_value(), field_name)
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
@@ -183,19 +178,6 @@ where
     }
 }
 
-/// Decode one persisted slot payload through the compatibility CBOR seam used
-/// by metadata-free persisted-row derives.
-pub fn decode_persisted_slot_payload<T>(
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<T, InternalError>
-where
-    T: DeserializeOwned,
-{
-    decode_cbor_bytes(bytes)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-}
-
 // Decode one `ByKind` structural persisted payload, preserving the explicit
 // null sentinel instead of forcing each wrapper to repeat the same branch.
 fn decode_persisted_structural_slot_payload_by_kind<T>(
@@ -206,11 +188,33 @@ fn decode_persisted_structural_slot_payload_by_kind<T>(
 where
     T: FieldValue,
 {
-    if persisted_slot_payload_is_null(bytes) {
+    let value = if supports_storage_key_binary_kind(kind) {
+        decode_storage_key_binary_value_bytes(bytes, kind)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+            .ok_or_else(|| {
+                InternalError::persisted_row_field_decode_failed(
+                    field_name,
+                    "storage-key binary lane rejected a supported field kind",
+                )
+            })?
+    } else {
+        decode_structural_field_by_kind_bytes(bytes, kind)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+    };
+
+    if matches!(value, Value::Null) {
         return Ok(None);
     }
 
-    decode_persisted_slot_payload_by_kind(bytes, kind, field_name).map(Some)
+    T::from_value(&value).map(Some).ok_or_else(|| {
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!(
+                "value payload does not match {}",
+                std::any::type_name::<T>()
+            ),
+        )
+    })
 }
 
 /// Decode one persisted slot payload using the stricter schema-owned `ByKind`
@@ -223,8 +227,19 @@ pub fn decode_persisted_slot_payload_by_kind<T>(
 where
     T: FieldValue,
 {
-    let value = decode_structural_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
+    let value = if supports_storage_key_binary_kind(kind) {
+        decode_storage_key_binary_value_bytes(bytes, kind)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+            .ok_or_else(|| {
+                InternalError::persisted_row_field_decode_failed(
+                    field_name,
+                    "storage-key binary lane rejected a supported field kind",
+                )
+            })?
+    } else {
+        decode_structural_field_by_kind_bytes(bytes, kind)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+    };
 
     T::from_value(&value).ok_or_else(|| {
         InternalError::persisted_row_field_decode_failed(
@@ -266,6 +281,44 @@ where
     T: FieldValue,
 {
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)
+}
+
+/// Decode one persisted slot payload using the field type's own runtime field
+/// metadata.
+pub fn decode_persisted_slot_payload_by_meta<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<T, InternalError>
+where
+    T: FieldTypeMeta + FieldValue,
+{
+    match T::STORAGE_DECODE {
+        crate::model::field::FieldStorageDecode::ByKind => {
+            decode_persisted_non_null_slot_payload_by_kind(bytes, T::KIND, field_name)
+        }
+        crate::model::field::FieldStorageDecode::Value => {
+            decode_persisted_custom_slot_payload(bytes, field_name)
+        }
+    }
+}
+
+/// Decode one optional persisted slot payload using the inner field type's own
+/// runtime field metadata.
+pub fn decode_persisted_option_slot_payload_by_meta<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    T: FieldTypeMeta + FieldValue,
+{
+    match T::STORAGE_DECODE {
+        crate::model::field::FieldStorageDecode::ByKind => {
+            decode_persisted_option_slot_payload_by_kind(bytes, T::KIND, field_name)
+        }
+        crate::model::field::FieldStorageDecode::Value => {
+            decode_persisted_custom_slot_payload(bytes, field_name)
+        }
+    }
 }
 
 // Decode one persisted `Value` payload, then let a narrow owner-local
@@ -366,6 +419,44 @@ where
     )
 }
 
+/// Encode one persisted slot payload using the field type's own runtime field
+/// metadata.
+pub fn encode_persisted_slot_payload_by_meta<T>(
+    value: &T,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldTypeMeta + FieldValue,
+{
+    match T::STORAGE_DECODE {
+        crate::model::field::FieldStorageDecode::ByKind => {
+            encode_persisted_slot_payload_by_kind(value, T::KIND, field_name)
+        }
+        crate::model::field::FieldStorageDecode::Value => {
+            encode_persisted_custom_slot_payload(value, field_name)
+        }
+    }
+}
+
+/// Encode one optional persisted slot payload using the inner field type's own
+/// runtime field metadata.
+pub fn encode_persisted_option_slot_payload_by_meta<T>(
+    value: &Option<T>,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldTypeMeta + FieldValue,
+{
+    match T::STORAGE_DECODE {
+        crate::model::field::FieldStorageDecode::ByKind => {
+            encode_persisted_slot_payload_by_kind(value, T::KIND, field_name)
+        }
+        crate::model::field::FieldStorageDecode::Value => {
+            encode_persisted_custom_slot_payload(value, field_name)
+        }
+    }
+}
+
 /// Decode one persisted scalar slot payload using the canonical scalar envelope.
 pub fn decode_persisted_scalar_slot_payload<T>(
     bytes: &[u8],
@@ -397,11 +488,6 @@ where
     };
 
     T::decode_scalar_payload(payload, field_name).map(Some)
-}
-
-// Detect the canonical persisted CBOR null payload used by optional structural slots.
-fn persisted_slot_payload_is_null(bytes: &[u8]) -> bool {
-    bytes == CBOR_NULL_PAYLOAD
 }
 
 // Encode one scalar slot value into the canonical prefixed scalar envelope.

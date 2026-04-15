@@ -1,4 +1,4 @@
-use crate::db::reduced_sql::{Keyword, SqlParseError, Token, TokenKind};
+use crate::db::sql_shared::{Keyword, SqlParseError, TokenKind, types::Token};
 
 pub(crate) fn tokenize_sql(sql: &str) -> Result<Vec<Token>, SqlParseError> {
     Lexer::tokenize(sql)

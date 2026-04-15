@@ -1,14 +1,17 @@
 use crate::{
     db::{
         predicate::CompareOp,
-        reduced_sql::{Keyword, SqlParseError, Token, TokenKind, types::parse_number_literal},
+        sql_shared::{
+            Keyword, SqlParseError, TokenKind,
+            types::{Token, parse_number_literal},
+        },
     },
     value::Value,
 };
 
 #[cfg_attr(
     doc,
-    doc = "SqlTokenCursor\n\nShared reduced-SQL token cursor used by standalone predicate parsing and feature-gated statement parsing."
+    doc = "SqlTokenCursor\n\nShared SQL token cursor used by standalone predicate parsing and feature-gated statement parsing."
 )]
 #[derive(Clone, Debug)]
 pub(crate) struct SqlTokenCursor {

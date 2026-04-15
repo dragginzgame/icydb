@@ -1,15 +1,16 @@
-//! Module: db::reduced_sql
-//! Responsibility: reduced SQL tokenization, shared parse errors, and token-cursor primitives.
+//! Module: db::sql_shared
+//! Responsibility: shared SQL tokenization, parse errors, and token-cursor primitives.
 //! Does not own: predicate semantics, statement AST lowering, or executor behavior.
-//! Boundary: predicate parsing and the SQL frontend both build on this shared lexical layer.
+//! Boundary: predicate parsing and the feature-gated SQL frontend both build on
+//! this ungated lexical layer.
 
 mod cursor;
 mod lexer;
-pub(in crate::db::reduced_sql) mod types;
+pub(in crate::db::sql_shared) mod types;
 
 pub(crate) use cursor::SqlTokenCursor;
 pub(crate) use lexer::tokenize_sql;
-pub(crate) use types::{Keyword, SqlParseError, Token, TokenKind};
+pub(crate) use types::{Keyword, SqlParseError, TokenKind};
 
 ///
 /// TESTS

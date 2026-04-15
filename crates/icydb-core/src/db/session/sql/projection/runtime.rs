@@ -906,11 +906,11 @@ fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize>
 #[cfg(feature = "sql")]
 fn decode_hybrid_covering_components(
     component_indices: &[usize],
-    components: Vec<Vec<u8>>,
+    components: std::sync::Arc<[Vec<u8>]>,
 ) -> Result<BTreeMap<usize, Value>, InternalError> {
     let mut decoded = BTreeMap::new();
 
-    for (component_index, component) in component_indices.iter().copied().zip(components) {
+    for (component_index, component) in component_indices.iter().copied().zip(components.iter()) {
         let Some(value) = decode_covering_projection_component(component.as_slice())? else {
             return Err(InternalError::query_executor_invariant(
                 "hybrid SQL projection expected one decodable covering component payload",

@@ -10,7 +10,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_bytes::ByteBuf;
 use std::fmt::{self, Display};
 
@@ -21,9 +21,7 @@ use std::fmt::{self, Display};
 // Display prints a size summary; it does not print content.
 //
 
-#[derive(
-    CandidType, Clone, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
-)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Blob(ByteBuf);
 
 impl Blob {

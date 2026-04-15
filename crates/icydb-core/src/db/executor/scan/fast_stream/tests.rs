@@ -23,14 +23,12 @@ use crate::{
     types::Ulid,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cell::RefCell;
 
 use crate::db::executor::scan::fast_stream::execute_structural_fast_stream_request;
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct FastStreamInvariantEntity {
     id: Ulid,
 }

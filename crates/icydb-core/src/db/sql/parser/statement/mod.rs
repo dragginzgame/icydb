@@ -15,7 +15,6 @@ use crate::db::{
     },
 };
 use crate::db::{
-    reduced_sql::{Keyword, SqlParseError, TokenKind},
     sql::parser::{
         Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlArithmeticProjectionOperand,
         SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
@@ -24,6 +23,7 @@ use crate::db::{
         SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
         SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
     },
+    sql_shared::{Keyword, SqlParseError, TokenKind},
 };
 
 impl Parser {

@@ -15,20 +15,20 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Add, AddAssign, Sub, SubAssign};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fmt::{self, Debug, Display};
 use time::{Date as TimeDate, Duration as TimeDuration, Month};
 
 // Invariant:
 // Date is internally stored as days since Unix epoch (`i32`).
-// API/JSON serialization uses ISO-8601 text (`YYYY-MM-DD`).
+// API/JSON deserialization accepts ISO-8601 text (`YYYY-MM-DD`).
 // Ordering and arithmetic remain numeric and deterministic over day counts.
 
 //
 // Date
 //
 // Stored as days since Unix epoch.
-// API/JSON wire format is ISO-8601 text (`YYYY-MM-DD`).
+// API/JSON decode expects ISO-8601 text (`YYYY-MM-DD`).
 //
 
 #[derive(
@@ -237,15 +237,6 @@ impl SanitizeAuto for Date {}
 
 impl SanitizeCustom for Date {}
 
-impl Serialize for Date {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
 impl<'de> Deserialize<'de> for Date {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -371,54 +362,5 @@ mod tests {
 
         assert!(!min_rendered.is_empty());
         assert!(!max_rendered.is_empty());
-    }
-
-    // API boundary serialization behavior.
-
-    #[test]
-    fn test_json_serializes_as_iso_string() {
-        let date = Date::new_checked(2025, 10, 19).unwrap();
-        let json = serde_json::to_string(&date).unwrap();
-        assert_eq!(json, "\"2025-10-19\"");
-    }
-
-    #[test]
-    fn test_json_deserializes_from_iso_string() {
-        let date: Date = serde_json::from_str("\"2025-10-19\"").unwrap();
-        assert_eq!(date, Date::new_checked(2025, 10, 19).unwrap());
-    }
-
-    #[test]
-    fn test_json_rejects_invalid_iso_string() {
-        let err = serde_json::from_str::<Date>("\"2025-13-40\"").unwrap_err();
-        assert!(err.to_string().contains("invalid date"));
-
-        let err = serde_json::from_str::<Date>("1710013530000").unwrap_err();
-        assert!(err.to_string().contains("string"));
-    }
-
-    #[test]
-    fn test_pre_epoch_date_roundtrip() {
-        let date = Date::new_checked(1960, 1, 1).unwrap();
-        let json = serde_json::to_string(&date).unwrap();
-        let parsed: Date = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, date);
-    }
-
-    #[test]
-    fn test_serde_boundary_uses_iso_string_not_raw_day_count() {
-        let value = Date::new_checked(2025, 10, 19).expect("date should build");
-
-        let bytes = serde_cbor::to_vec(&value).expect("date serialization should succeed");
-        let wire: serde_cbor::Value =
-            serde_cbor::from_slice(&bytes).expect("date cbor decode should succeed");
-        assert_eq!(
-            wire,
-            serde_cbor::Value::Text("2025-10-19".to_string()),
-            "date wire shape must remain ISO text at API boundaries",
-        );
-
-        let decoded: Date = serde_cbor::from_slice(&bytes).expect("date decode should succeed");
-        assert_eq!(decoded, value);
     }
 }

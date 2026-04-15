@@ -12,7 +12,10 @@ use super::{
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        codec::{ROW_FORMAT_VERSION_CURRENT, serialize_row_payload_with_version},
+        codec::{
+            ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes,
+            serialize_row_payload_with_version,
+        },
         commit::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
@@ -26,14 +29,13 @@ use crate::{
         schema::commit_schema_fingerprint_for_entity,
     },
     model::{field::FieldKind, index::IndexModel},
-    serialize::serialize,
     testing::test_memory,
     traits::{EntityKind, Path, Storable, StoreKind},
     types::{EntityTag, Ulid},
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell};
 
 crate::test_canister! {
@@ -64,9 +66,7 @@ impl StoreKind for DiagnosticsStoreA {
     type Canister = DiagnosticsCanister;
 }
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct IntegrityIndexedEntity {
     id: Ulid,
     email: String,
@@ -284,7 +284,10 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let payload = serialize(entity).expect("integrity test entity payload should encode");
+    let row = RawRow::from_entity(entity).expect("integrity test row should encode");
+    let payload = decode_row_payload_bytes(row.as_bytes())
+        .expect("integrity test row payload should decode")
+        .into_owned();
     let encoded = serialize_row_payload_with_version(payload, version)
         .expect("integrity test row envelope should encode");
     let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");

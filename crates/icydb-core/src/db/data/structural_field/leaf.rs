@@ -1,398 +1,371 @@
 //! Module: data::structural_field::leaf
 //! Responsibility: typed wrapper and structured leaf decoding that still has fixed payload semantics.
-//! Does not own: raw CBOR walking, scalar primitive fast paths, or `Value` storage envelopes.
-//! Boundary: sibling modules use this file for typed payloads like account, timestamp, bigint, decimal, and subaccount.
+//! Does not own: scalar primitive fast paths, composite recursion, or `Value` storage envelopes.
+//! Boundary: sibling modules use this file for leaf contracts like decimal, duration, bigint, and date.
 
-use crate::db::data::structural_field::FieldDecodeError;
-use crate::db::data::structural_field::cbor::{
-    cbor_text_literal_eq, decode_cbor_integer, decode_text_scalar_bytes, parse_tagged_cbor_head,
-    payload_bytes, skip_cbor_value, walk_cbor_map_entries,
+use crate::db::data::structural_field::{
+    FieldDecodeError,
+    binary::{
+        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_TEXT, TAG_UINT64,
+        decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
+        payload_bytes as binary_payload_bytes, push_binary_bytes, push_binary_int64,
+        push_binary_list_len, push_binary_null, push_binary_text, push_binary_uint64,
+        skip_binary_value,
+    },
+    storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
 };
-use crate::db::data::structural_field::storage_key::decode_unit_storage_key_bytes;
 use crate::{
-    types::{Account, Date, Decimal, Duration, Int, Nat, Timestamp},
+    error::InternalError,
+    model::field::FieldKind,
+    types::{Date, Decimal, Duration, Int, Nat},
     value::Value,
 };
 use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
-/// Decode one non-recursive `ByKind` field payload.
-///
-/// Leaf decoders never recurse back into the structural-field root. Composite
-/// kinds stay in the composite lane so recursive re-entry has one owner.
+/// Decode one non-recursive leaf `ByKind` field payload through the canonical
+/// Structural Binary v1 leaf lane.
 pub(super) fn decode_leaf_field_by_kind_bytes(
     raw_bytes: &[u8],
-    kind: crate::model::field::FieldKind,
+    kind: FieldKind,
 ) -> Result<Option<Value>, FieldDecodeError> {
     let value = match kind {
-        crate::model::field::FieldKind::Account => decode_account_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Blob
-        | crate::model::field::FieldKind::Bool
-        | crate::model::field::FieldKind::Float32
-        | crate::model::field::FieldKind::Float64
-        | crate::model::field::FieldKind::Int
-        | crate::model::field::FieldKind::Int128
-        | crate::model::field::FieldKind::Text
-        | crate::model::field::FieldKind::Uint
-        | crate::model::field::FieldKind::Uint128
-        | crate::model::field::FieldKind::Ulid => {
+        FieldKind::Account
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Timestamp
+        | FieldKind::Unit => decode_storage_key_binary_value_bytes(raw_bytes, kind)?
+            .expect("storage-key-owned leaf kinds must return a value"),
+        FieldKind::Date => decode_date_value_bytes(raw_bytes)?,
+        FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
+        FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
+        FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes)?,
+        FieldKind::Structured { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
+        FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes)?,
+        FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::Text
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::Ulid => {
             return Err(FieldDecodeError::new(
                 "scalar field unexpectedly bypassed byte-level fast path",
             ));
         }
-        crate::model::field::FieldKind::Date => decode_date_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Principal => decode_principal_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Structured { .. } => Value::Null,
-        crate::model::field::FieldKind::Subaccount => decode_subaccount_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Timestamp => decode_timestamp_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Unit => decode_unit_value_bytes(raw_bytes)?,
-        crate::model::field::FieldKind::Enum { .. }
-        | crate::model::field::FieldKind::List(_)
-        | crate::model::field::FieldKind::Map { .. }
-        | crate::model::field::FieldKind::Relation { .. }
-        | crate::model::field::FieldKind::Set(_) => return Ok(None),
+        FieldKind::Enum { .. }
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Relation { .. }
+        | FieldKind::Set(_) => return Ok(None),
     };
 
     Ok(Some(value))
 }
 
-// Carry the partially decoded account payload while the shared map walker
-// visits account fields.
-type AccountDecodeState = (
-    Option<crate::types::Principal>,
-    Option<crate::types::Subaccount>,
-);
+/// Encode one non-recursive leaf `ByKind` field payload through the canonical
+/// Structural Binary v1 leaf lane.
+pub(super) fn encode_leaf_field_binary_bytes(
+    kind: FieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let encoded = match kind {
+        FieldKind::Account
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Timestamp
+        | FieldKind::Unit => encode_storage_key_binary_value_bytes(kind, value, field_name)?,
+        FieldKind::Date => Some(encode_date_value_bytes(value, field_name)?),
+        FieldKind::Decimal { .. } => Some(encode_decimal_value_bytes(value, field_name)?),
+        FieldKind::Duration => Some(encode_duration_value_bytes(value, field_name)?),
+        FieldKind::IntBig => Some(encode_int_big_value_bytes(value, field_name)?),
+        FieldKind::Structured { .. } => Some(encode_structured_leaf_null_bytes(value, field_name)?),
+        FieldKind::UintBig => Some(encode_uint_big_value_bytes(value, field_name)?),
+        FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::Text
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::Ulid
+        | FieldKind::Enum { .. }
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Relation { .. }
+        | FieldKind::Set(_) => None,
+    };
 
-// Push one decoded account field into the running account payload state.
-//
-// Safety:
-// `context` must be a valid `AccountDecodeState`.
-fn push_account_field(
-    key_bytes: &[u8],
-    value_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), FieldDecodeError> {
-    let state = unsafe { &mut *context.cast::<AccountDecodeState>() };
-    if cbor_text_literal_eq(key_bytes, b"owner")? {
-        state.0 = Some(decode_principal_payload(value_bytes)?);
-    } else if cbor_text_literal_eq(key_bytes, b"subaccount")? {
-        state.1 = decode_optional_subaccount_value(value_bytes)?;
-    }
-
-    Ok(())
+    Ok(encoded)
 }
 
-// Decode one date payload from its persisted CBOR text form.
-pub(super) fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+// Decode the only supported structured leaf `ByKind` case: explicit null.
+fn decode_structured_leaf_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    decode_required_null_payload(raw_bytes, "structured")?;
+
+    Ok(Value::Null)
+}
+
+// Encode the only supported structured leaf `ByKind` case: explicit null.
+fn encode_structured_leaf_null_bytes(
+    value: &Value,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    let Value::Null = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            "structured ByKind field encoding is unsupported",
+        ));
+    };
+
+    let mut encoded = Vec::new();
+    push_binary_null(&mut encoded);
+
+    Ok(encoded)
+}
+
+// Decode one date payload from its canonical binary text form.
+fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let text = decode_required_text_payload(raw_bytes, "date")?;
 
     Date::parse(text)
         .map(Value::Date)
-        .ok_or_else(|| FieldDecodeError::new(format!("typed CBOR: invalid date: {text}")))
+        .ok_or_else(|| FieldDecodeError::new(format!("structural binary: invalid date: {text}")))
 }
 
-// Decode one account payload from its persisted CBOR struct form.
-pub(super) fn decode_account_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_account_payload(raw_bytes).map(Value::Account)
+// Decode one decimal payload from the canonical `(mantissa_bytes, scale)`
+// tuple.
+fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let items = split_binary_tuple_items(raw_bytes, 2, "decimal")?;
+    let mantissa_bytes: [u8; 16] = decode_required_bytes_payload(items[0], "decimal mantissa")?
+        .try_into()
+        .map_err(|_| {
+            FieldDecodeError::new(
+                "structural binary: invalid decimal mantissa length: 16 bytes expected",
+            )
+        })?;
+    let scale = decode_required_u32_payload(items[1], "decimal scale")?;
+
+    Ok(Value::Decimal(decode_decimal_mantissa_scale(
+        i128::from_be_bytes(mantissa_bytes),
+        scale,
+    )?))
 }
 
-// Decode one account payload from its persisted CBOR struct form.
-pub(super) fn decode_account_payload(raw_bytes: &[u8]) -> Result<Account, FieldDecodeError> {
-    let mut state: AccountDecodeState = (None, None);
-    walk_cbor_map_entries(
-        raw_bytes,
-        "expected CBOR map for account payload",
-        "typed CBOR: trailing bytes after account payload",
-        (&raw mut state).cast(),
-        push_account_field,
-    )?;
-
-    let owner = state
-        .0
-        .ok_or_else(|| FieldDecodeError::new("typed CBOR: missing account owner field"))?;
-
-    Ok(Account::from_parts(owner, state.1))
+// Decode one duration payload from its canonical millis form.
+fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    Ok(Value::Duration(Duration::from_millis(
+        decode_required_u64_payload(raw_bytes, "duration millis")?,
+    )))
 }
 
-// Decode one decimal payload from its persisted binary-or-text CBOR form.
-pub(super) fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let (major, _, _) = parse_complete_top_level_payload(raw_bytes, "decimal")?;
-
-    let value = match major {
-        3 => decode_required_text_payload(raw_bytes, "decimal")?
-            .parse::<Decimal>()
-            .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
-        4 => decode_decimal_binary_payload(raw_bytes)?,
-        _ => {
-            return Err(FieldDecodeError::new(
-                "typed CBOR: expected decimal text or binary tuple",
-            ));
-        }
-    };
-
-    Ok(Value::Decimal(value))
-}
-
-// Decode one duration payload from its persisted integer-or-string CBOR form.
-pub(super) fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, "duration")?;
-
-    let value = match major {
-        0 => Duration::from_millis(argument),
-        3 => Duration::parse_flexible(decode_text_scalar_bytes(
-            raw_bytes,
-            argument,
-            payload_start,
-        )?)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
-        _ => {
-            return Err(FieldDecodeError::new(
-                "typed CBOR: expected duration millis or string",
-            ));
-        }
-    };
-
-    Ok(Value::Duration(value))
-}
-
-// Decode one timestamp payload from its persisted integer-or-string CBOR form.
-pub(super) fn decode_timestamp_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_timestamp_payload(raw_bytes).map(Value::Timestamp)
-}
-
-// Decode one timestamp payload from its persisted integer-or-string CBOR form.
-pub(super) fn decode_timestamp_payload(raw_bytes: &[u8]) -> Result<Timestamp, FieldDecodeError> {
-    let (major, argument, payload_start) =
-        parse_complete_top_level_payload(raw_bytes, "timestamp")?;
-
-    let value = match major {
-        0 | 1 => {
-            let millis = i64::try_from(decode_cbor_integer(major, argument)?)
-                .map_err(|_| FieldDecodeError::new("typed CBOR: timestamp out of i64 range"))?;
-            Timestamp::from_millis(millis)
-        }
-        3 => Timestamp::parse_flexible(decode_text_scalar_bytes(
-            raw_bytes,
-            argument,
-            payload_start,
-        )?)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
-        _ => {
-            return Err(FieldDecodeError::new(
-                "typed CBOR: expected unix millis or RFC3339 string",
-            ));
-        }
-    };
-
-    Ok(value)
-}
-
-// Decode one arbitrary-precision signed integer payload from its persisted
-// CBOR `(sign, limbs)` tuple.
-pub(super) fn decode_int_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let (sign, magnitude) = decode_bigint_tuple_payload(raw_bytes)?;
+// Decode one arbitrary-precision signed integer payload from the canonical
+// `(sign, limbs)` tuple.
+fn decode_int_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let items = split_binary_tuple_items(raw_bytes, 2, "bigint")?;
+    let sign = decode_bigint_sign_payload(items[0])?;
+    let magnitude = decode_biguint_payload(items[1])?;
     let wrapped = WrappedInt::from(BigInt::from_biguint(sign, magnitude));
 
     Ok(Value::IntBig(Int::from(wrapped)))
 }
 
-// Decode one arbitrary-precision unsigned integer payload from its persisted
-// CBOR limb sequence.
-pub(super) fn decode_uint_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+// Decode one arbitrary-precision unsigned integer payload from the canonical
+// limb sequence.
+fn decode_uint_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let wrapped = WrappedNat::from(decode_biguint_payload(raw_bytes)?);
 
     Ok(Value::UintBig(Nat::from(wrapped)))
 }
 
-// Decode one principal payload from its persisted CBOR byte-string form.
-pub(super) fn decode_principal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_principal_payload(raw_bytes).map(Value::Principal)
-}
-
-// Decode one principal payload from its persisted CBOR byte-string form.
-pub(super) fn decode_principal_payload(
-    raw_bytes: &[u8],
-) -> Result<crate::types::Principal, FieldDecodeError> {
-    let bytes = decode_required_bytes_payload(raw_bytes, "principal")?;
-    crate::types::Principal::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))
-}
-
-// Decode one subaccount payload from its persisted CBOR sequence or byte-string
-// form.
-pub(super) fn decode_subaccount_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_subaccount_payload(raw_bytes).map(Value::Subaccount)
-}
-
-// Decode one subaccount payload from its persisted CBOR sequence or byte-string
-// form.
-pub(super) fn decode_subaccount_payload(
-    raw_bytes: &[u8],
-) -> Result<crate::types::Subaccount, FieldDecodeError> {
-    let bytes = decode_subaccount_payload_bytes(raw_bytes)?;
-
-    Ok(crate::types::Subaccount::from_array(bytes))
-}
-
-// Decode one optional subaccount field, treating explicit null as absence.
-fn decode_optional_subaccount_value(
-    raw_bytes: &[u8],
-) -> Result<Option<crate::types::Subaccount>, FieldDecodeError> {
-    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, "subaccount")?;
-    if major == 7 && argument == 22 {
-        return Ok(None);
-    }
-
-    decode_subaccount_payload(raw_bytes).map(Some)
-}
-
-// Decode one decimal binary payload tuple `(mantissa_bytes, scale)`.
-fn decode_decimal_binary_payload(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated decimal payload",
+// Encode one date payload into canonical binary text.
+fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::Date(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind Date does not accept runtime value {value:?}"),
         ));
     };
-    if major != 4 || argument != 2 {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: expected decimal binary tuple",
-        ));
-    }
 
-    let mantissa_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    let scale_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after decimal payload",
-        ));
-    }
-
-    let mantissa_bytes: [u8; 16] =
-        decode_required_bytes_payload(&raw_bytes[mantissa_start..scale_start], "decimal mantissa")?
-            .try_into()
-            .map_err(|_| {
-                FieldDecodeError::new(
-                    "typed CBOR: invalid decimal mantissa length: 16 bytes expected",
-                )
-            })?;
-    let scale = decode_required_u32_payload(&raw_bytes[scale_start..cursor], "decimal scale")?;
-
-    decode_decimal_mantissa_scale(i128::from_be_bytes(mantissa_bytes), scale)
+    let mut encoded = Vec::new();
+    push_binary_text(&mut encoded, &value.to_string());
+    Ok(encoded)
 }
 
-// Decode one `(sign, magnitude)` tuple into a `BigInt` construction pair.
-fn decode_bigint_tuple_payload(
-    raw_bytes: &[u8],
-) -> Result<(BigIntSign, BigUint), FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated bigint payload",
+// Encode one decimal payload into the canonical `(mantissa_bytes, scale)`
+// tuple.
+fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::Decimal(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind Decimal does not accept runtime value {value:?}"),
         ));
     };
-    if major != 4 || argument != 2 {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: expected bigint sign/magnitude tuple",
+
+    let parts = value.parts();
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, 2);
+    push_binary_bytes(&mut encoded, &parts.mantissa().to_be_bytes());
+    push_binary_uint64(&mut encoded, u64::from(parts.scale()));
+
+    Ok(encoded)
+}
+
+// Encode one duration payload into canonical millis.
+fn encode_duration_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::Duration(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind Duration does not accept runtime value {value:?}"),
         ));
-    }
+    };
 
-    let sign_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    let magnitude_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after bigint payload",
+    let mut encoded = Vec::new();
+    push_binary_uint64(&mut encoded, value.as_millis());
+    Ok(encoded)
+}
+
+// Encode one arbitrary-precision signed integer payload as `(sign, limbs)`.
+fn encode_int_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::IntBig(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind IntBig does not accept runtime value {value:?}"),
         ));
+    };
+
+    let (is_negative, digits) = value.sign_and_u32_digits();
+    let sign = if digits.is_empty() {
+        0
+    } else if is_negative {
+        -1
+    } else {
+        1
+    };
+
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, 2);
+    push_binary_int64(&mut encoded, sign);
+    push_binary_u32_digit_list(&mut encoded, digits.as_slice());
+
+    Ok(encoded)
+}
+
+// Encode one arbitrary-precision unsigned integer payload as a canonical limb
+// sequence.
+fn encode_uint_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::UintBig(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind UintBig does not accept runtime value {value:?}"),
+        ));
+    };
+
+    let mut encoded = Vec::new();
+    push_binary_u32_digit_list(&mut encoded, value.u32_digits().as_slice());
+
+    Ok(encoded)
+}
+
+// Emit one canonical biguint limb sequence.
+fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
+    push_binary_list_len(out, digits.len());
+    for digit in digits {
+        push_binary_uint64(out, u64::from(*digit));
     }
-
-    let sign = decode_bigint_sign_payload(&raw_bytes[sign_start..magnitude_start])?;
-    let magnitude = decode_biguint_payload(&raw_bytes[magnitude_start..cursor])?;
-
-    Ok((sign, magnitude))
 }
 
 // Decode one bigint sign payload serialized as -1, 0, or 1.
 fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
-    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, "bigint sign")?;
-
-    match decode_cbor_integer(major, argument)? {
+    match decode_required_i64_payload(raw_bytes, "bigint sign")? {
         -1 => Ok(BigIntSign::Minus),
         0 => Ok(BigIntSign::NoSign),
         1 => Ok(BigIntSign::Plus),
         other => Err(FieldDecodeError::new(format!(
-            "typed CBOR: invalid bigint sign {other}"
+            "structural binary: invalid bigint sign {other}"
         ))),
     }
 }
 
-// Decode one biguint payload serialized as a sequence of base-2^32 limbs.
+// Decode one biguint payload serialized as a canonical sequence of base-2^32
+// limbs.
 fn decode_biguint_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "typed CBOR: truncated biguint payload",
+            "structural binary: truncated biguint payload",
         ));
     };
-    if major != 4 {
+    if tag != TAG_LIST {
         return Err(FieldDecodeError::new(
-            "typed CBOR: expected biguint limb sequence",
+            "structural binary: expected biguint limb sequence",
         ));
     }
 
-    let limb_count = usize::try_from(argument)
-        .map_err(|_| FieldDecodeError::new("expected bounded CBOR array length"))?;
-    let mut limbs = Vec::with_capacity(limb_count);
-
-    for _ in 0..limb_count {
+    let mut cursor = payload_start;
+    let mut limbs = Vec::with_capacity(len as usize);
+    for _ in 0..len {
         let limb_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
+        cursor = skip_binary_value(raw_bytes, cursor)?;
         limbs.push(decode_required_u32_payload(
             &raw_bytes[limb_start..cursor],
             "biguint limb",
         )?);
     }
-
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR: trailing bytes after biguint payload",
+            "structural binary: trailing bytes after biguint payload",
         ));
     }
 
     Ok(BigUint::new(limbs))
 }
 
-// Decode one unit payload from its persisted CBOR null form.
-pub(super) fn decode_unit_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_unit_storage_key_bytes(raw_bytes)?;
+// Decode one required top-level `null` payload and enforce full-byte
+// consumption.
+fn decode_required_null_payload(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<(), FieldDecodeError> {
+    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_NULL {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected null for {label}"
+        )));
+    }
 
-    Ok(Value::Unit)
+    Ok(())
 }
 
-// Decode one null payload from its persisted CBOR null form.
-pub(super) fn decode_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_unit_storage_key_bytes(raw_bytes)?;
-
-    Ok(Value::Null)
-}
-
-// Decode one required top-level text payload and enforce full-byte consumption.
+// Decode one required top-level text payload and enforce full-byte
+// consumption.
 fn decode_required_text_payload<'a>(
     raw_bytes: &'a [u8],
     label: &'static str,
 ) -> Result<&'a str, FieldDecodeError> {
-    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
-    if major != 3 {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR: expected a text string for {label}"
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_TEXT {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected text for {label}"
         )));
     }
 
-    decode_text_scalar_bytes(raw_bytes, argument, payload_start)
+    decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)
 }
 
 // Decode one required top-level byte-string payload and enforce full-byte
@@ -401,57 +374,116 @@ fn decode_required_bytes_payload<'a>(
     raw_bytes: &'a [u8],
     label: &'static str,
 ) -> Result<&'a [u8], FieldDecodeError> {
-    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
-    if major != 2 {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR: expected a byte string for {label}"
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_BYTES {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected bytes for {label}"
         )));
     }
 
-    payload_bytes(raw_bytes, argument, payload_start, "byte string")
+    binary_payload_bytes(raw_bytes, len, payload_start, label)
 }
 
-// Decode one required top-level unsigned-32 payload and enforce full-byte
+// Decode one required top-level `u32` payload and enforce full-byte
 // consumption.
 fn decode_required_u32_payload(
     raw_bytes: &[u8],
     label: &'static str,
 ) -> Result<u32, FieldDecodeError> {
-    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, label)?;
-    if major != 0 {
-        return Err(FieldDecodeError::new(format!(
-            "typed CBOR: expected unsigned integer for {label}"
-        )));
-    }
-
-    u32::try_from(argument)
-        .map_err(|_| FieldDecodeError::new(format!("typed CBOR: {label} out of u32 range")))
+    u32::try_from(decode_required_u64_payload(raw_bytes, label)?)
+        .map_err(|_| FieldDecodeError::new(format!("structural binary: {label} out of u32 range")))
 }
 
-// Parse one top-level CBOR payload and enforce that it consumes the whole
-// provided byte slice.
-fn parse_complete_top_level_payload(
+// Decode one required top-level `u64` payload and enforce full-byte
+// consumption.
+fn decode_required_u64_payload(
     raw_bytes: &[u8],
     label: &'static str,
-) -> Result<(u8, u64, usize), FieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+) -> Result<u64, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR: truncated {label} payload"
+            "structural binary: truncated {label} payload"
         )));
     };
-
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_UINT64 || len != 8 {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR: trailing bytes after {label} payload"
+            "structural binary: expected u64 for {label}"
         )));
     }
 
-    Ok((major, argument, payload_start))
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
+
+    Ok(u64::from_be_bytes(bytes))
 }
 
-// Apply Decimal's binary mantissa/scale validation without routing through
-// serde.
+// Decode one required top-level `i64` payload and enforce full-byte
+// consumption.
+fn decode_required_i64_payload(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<i64, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    let end = skip_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_INT64 || len != 8 {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected i64 for {label}"
+        )));
+    }
+
+    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
+
+    Ok(i64::from_be_bytes(bytes))
+}
+
+// Split one fixed-length binary tuple into self-contained item slices.
+fn split_binary_tuple_items<'a>(
+    raw_bytes: &'a [u8],
+    expected_len: u32,
+    label: &'static str,
+) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: truncated {label} payload"
+        )));
+    };
+    if tag != TAG_LIST || len != expected_len {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: expected {label} tuple of length {expected_len}"
+        )));
+    }
+
+    let mut items = Vec::with_capacity(expected_len as usize);
+    let mut cursor = payload_start;
+    for _ in 0..expected_len {
+        let item_start = cursor;
+        cursor = skip_binary_value(raw_bytes, cursor)?;
+        items.push(&raw_bytes[item_start..cursor]);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(format!(
+            "structural binary: trailing bytes after {label} payload"
+        )));
+    }
+
+    Ok(items)
+}
+
+// Apply Decimal's mantissa/scale validation locally so the binary leaf lane
+// does not silently normalize invalid payloads.
 fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, FieldDecodeError> {
     if scale <= Decimal::max_supported_scale() {
         return Ok(Decimal::from_i128_with_scale(mantissa, scale));
@@ -468,7 +500,7 @@ fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, 
         }
         if value % 10 != 0 {
             return Err(FieldDecodeError::new(
-                "typed CBOR: invalid decimal binary payload",
+                "structural binary: invalid decimal payload",
             ));
         }
         value /= 10;
@@ -478,59 +510,132 @@ fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, 
     Ok(Decimal::from_i128_with_scale(value, normalized_scale))
 }
 
-// Decode one subaccount payload as either the derived 32-item byte array shape
-// or an equivalent raw byte string.
-fn decode_subaccount_payload_bytes(raw_bytes: &[u8]) -> Result<[u8; 32], FieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR: truncated subaccount payload",
-        ));
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        TAG_NULL, decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes,
+        push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_null,
+        push_binary_text, push_binary_uint64,
     };
+    use crate::{
+        db::data::structural_field::validate_structural_field_by_kind_bytes,
+        model::field::FieldKind,
+        types::{Date, Decimal, Duration, Int, Nat},
+        value::Value,
+    };
+    use candid::{Int as WrappedInt, Nat as WrappedNat};
 
-    match major {
-        2 => decode_required_bytes_payload(raw_bytes, "subaccount")?
-            .try_into()
-            .map_err(|_| {
-                FieldDecodeError::new("typed CBOR: expected 32 bytes for subaccount payload")
-            }),
-        4 => {
-            if argument != 32 {
-                return Err(FieldDecodeError::new(
-                    "typed CBOR: expected 32-byte array for subaccount payload",
-                ));
-            }
+    #[test]
+    fn leaf_field_binary_roundtrips_supported_leaf_wrappers() {
+        let cases = vec![
+            (
+                FieldKind::Date,
+                Value::Date(Date::new_checked(2025, 10, 19).expect("valid date")),
+            ),
+            (
+                FieldKind::Decimal { scale: 2 },
+                Value::Decimal(Decimal::from_i128_with_scale(12_345, 2)),
+            ),
+            (FieldKind::Duration, Value::Duration(Duration::from_secs(5))),
+            (
+                FieldKind::IntBig,
+                Value::IntBig(Int::from(WrappedInt::from(123_456_789_i64))),
+            ),
+            (
+                FieldKind::UintBig,
+                Value::UintBig(Nat::from(WrappedNat::from(987_654_321_u64))),
+            ),
+            (FieldKind::Structured { queryable: false }, Value::Null),
+        ];
 
-            let mut bytes = [0u8; 32];
-            for byte in &mut bytes {
-                let item_start = cursor;
-                cursor = skip_cbor_value(raw_bytes, cursor)?;
-                let Some((item_major, item_argument, _)) =
-                    parse_tagged_cbor_head(&raw_bytes[item_start..cursor], 0)?
-                else {
-                    return Err(FieldDecodeError::new(
-                        "typed CBOR: truncated subaccount item",
-                    ));
-                };
-                if item_major != 0 {
-                    return Err(FieldDecodeError::new(
-                        "typed CBOR: expected unsigned byte in subaccount payload",
-                    ));
-                }
-                *byte = u8::try_from(item_argument).map_err(|_| {
-                    FieldDecodeError::new("typed CBOR: subaccount byte out of range")
-                })?;
-            }
+        for (kind, value) in cases {
+            let encoded = encode_leaf_field_binary_bytes(kind, &value, "field")
+                .expect("leaf payload should encode")
+                .expect("leaf kind should be owned by the leaf lane");
+            let decoded = decode_leaf_field_by_kind_bytes(encoded.as_slice(), kind)
+                .expect("leaf payload should decode")
+                .expect("leaf kind should decode through the leaf lane");
 
-            if cursor != raw_bytes.len() {
-                return Err(FieldDecodeError::new(
-                    "typed CBOR: trailing bytes after subaccount payload",
-                ));
-            }
+            validate_structural_field_by_kind_bytes(encoded.as_slice(), kind)
+                .expect("leaf payload should validate");
 
-            Ok(bytes)
+            assert_eq!(decoded, value, "leaf roundtrip mismatch for {kind:?}");
         }
-        _ => Err(FieldDecodeError::new(
-            "typed CBOR: expected byte string or byte array for subaccount payload",
-        )),
+    }
+
+    #[test]
+    fn leaf_field_binary_rejects_malformed_decimal_payload() {
+        let mut bytes = Vec::new();
+        push_binary_list_len(&mut bytes, 2);
+        push_binary_bytes(&mut bytes, &1_i128.to_be_bytes());
+        push_binary_uint64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
+
+        let kind = FieldKind::Decimal { scale: 2 };
+
+        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), kind);
+        let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), kind);
+
+        assert!(
+            decode.is_err(),
+            "malformed decimal payload must fail decode"
+        );
+        assert!(
+            validate.is_err(),
+            "malformed decimal payload must fail validate"
+        );
+    }
+
+    #[test]
+    fn leaf_field_binary_rejects_invalid_bigint_sign() {
+        let mut bytes = Vec::new();
+        push_binary_list_len(&mut bytes, 2);
+        push_binary_int64(&mut bytes, 2);
+        push_binary_list_len(&mut bytes, 0);
+
+        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), FieldKind::IntBig);
+        let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::IntBig);
+
+        assert!(decode.is_err(), "invalid bigint sign must fail decode");
+        assert!(validate.is_err(), "invalid bigint sign must fail validate");
+    }
+
+    #[test]
+    fn leaf_field_binary_rejects_non_list_biguint_payload() {
+        let mut bytes = Vec::new();
+        push_binary_text(&mut bytes, "not-a-limb-list");
+
+        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), FieldKind::UintBig);
+        let validate =
+            validate_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::UintBig);
+
+        assert!(decode.is_err(), "non-list biguint payload must fail decode");
+        assert!(
+            validate.is_err(),
+            "non-list biguint payload must fail validate"
+        );
+    }
+
+    #[test]
+    fn leaf_field_binary_rejects_structured_non_null_payload() {
+        let mut bytes = Vec::new();
+        push_binary_null(&mut bytes);
+        bytes.push(TAG_NULL);
+
+        let kind = FieldKind::Structured { queryable: false };
+        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), kind);
+        let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), kind);
+
+        assert!(
+            decode.is_err(),
+            "structured leaf trailing bytes must fail decode"
+        );
+        assert!(
+            validate.is_err(),
+            "structured leaf trailing bytes must fail validate"
+        );
     }
 }

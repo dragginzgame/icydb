@@ -1,6 +1,7 @@
 use crate::{
     db::predicate::{CoercionId, CompareOp, Predicate},
     model::{entity::EntityModel, field::FieldKind},
+    types::Ulid,
     value::Value,
 };
 
@@ -55,10 +56,10 @@ pub(super) fn model_field_kind(model: &'static EntityModel, field: &str) -> Opti
         .map(crate::model::field::FieldModel::kind)
 }
 
-// Keep SQL-only literal widening narrow:
-// - only strict equality-style numeric predicates are eligible
-// - ordering already uses `NumericWiden`
-// - text and expression-wrapped predicates stay untouched
+// Keep SQL-only strict literal canonicalization narrow:
+// - only direct field predicates are eligible
+// - text operators stay on raw text literals
+// - field-kind-owned rewrites stay local to SQL lowering
 fn canonicalize_sql_compare_for_model(
     model: &'static EntityModel,
     cmp: &mut crate::db::predicate::ComparePredicate,
@@ -72,10 +73,13 @@ fn canonicalize_sql_compare_for_model(
     };
 
     match cmp.op {
-        CompareOp::Eq | CompareOp::Ne => {
-            if let Some(value) =
-                canonicalize_strict_sql_numeric_value_for_kind(&field_kind, &cmp.value)
-            {
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte => {
+            if let Some(value) = canonicalize_strict_sql_literal_for_kind(&field_kind, &cmp.value) {
                 cmp.value = value;
             }
         }
@@ -87,33 +91,27 @@ fn canonicalize_sql_compare_for_model(
             let items = items
                 .iter()
                 .map(|item| {
-                    canonicalize_strict_sql_numeric_value_for_kind(&field_kind, item)
+                    canonicalize_strict_sql_literal_for_kind(&field_kind, item)
                         .unwrap_or_else(|| item.clone())
                 })
                 .collect();
             cmp.value = Value::List(items);
         }
-        CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => {}
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {}
     }
 }
 
-// Convert one parsed SQL numeric literal into the exact runtime `Value` variant
+// Convert one parsed strict SQL literal into the exact runtime `Value` variant
 // required by the field kind when that conversion is lossless and unambiguous.
-// This preserves strict equality semantics while still letting SQL express
-// unsigned-width comparisons such as `Nat16`/`u64` fields.
-pub(super) fn canonicalize_strict_sql_numeric_value_for_kind(
+// This keeps SQL string tokens usable for scalar key types like `Ulid` without
+// widening text coercion across the general predicate surface.
+pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
     kind: &FieldKind,
     value: &Value,
 ) -> Option<Value> {
     match kind {
         FieldKind::Relation { key_kind, .. } => {
-            canonicalize_strict_sql_numeric_value_for_kind(key_kind, value)
+            canonicalize_strict_sql_literal_for_kind(key_kind, value)
         }
         FieldKind::Int => match value {
             Value::Int(inner) => Some(Value::Int(*inner)),
@@ -123,6 +121,11 @@ pub(super) fn canonicalize_strict_sql_numeric_value_for_kind(
         FieldKind::Uint => match value {
             Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
             Value::Uint(inner) => Some(Value::Uint(*inner)),
+            _ => None,
+        },
+        FieldKind::Ulid => match value {
+            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            Value::Ulid(inner) => Some(Value::Ulid(*inner)),
             _ => None,
         },
         FieldKind::Account
@@ -146,7 +149,6 @@ pub(super) fn canonicalize_strict_sql_numeric_value_for_kind(
         | FieldKind::Timestamp
         | FieldKind::Uint128
         | FieldKind::UintBig
-        | FieldKind::Ulid
         | FieldKind::Unit => None,
     }
 }

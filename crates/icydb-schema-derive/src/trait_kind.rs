@@ -7,7 +7,7 @@ use std::{collections::HashSet, hash::Hash, str::FromStr, sync::LazyLock};
 // TraitKind
 //
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TraitKind {
     // inherent impl
     Inherent,
@@ -27,7 +27,6 @@ pub enum TraitKind {
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
 
     // math
     Add,
@@ -91,7 +90,6 @@ impl FromStr for TraitKind {
             "Ord" => Ok(Self::Ord),
             "PartialEq" => Ok(Self::PartialEq),
             "PartialOrd" => Ok(Self::PartialOrd),
-            "Serialize" => Ok(Self::Serialize),
             "Add" => Ok(Self::Add),
             "AddAssign" => Ok(Self::AddAssign),
             "Div" => Ok(Self::Div),
@@ -143,7 +141,6 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
         TraitKind::PartialEq,
         TraitKind::SanitizeAuto,
         TraitKind::SanitizeCustom,
-        TraitKind::Serialize,
         TraitKind::ValidateAuto,
         TraitKind::ValidateCustom,
         TraitKind::Visitable,
@@ -194,7 +191,6 @@ impl TraitKind {
             Self::PartialOrd => Some(quote!(PartialOrd)),
             Self::PersistedRow => Some(quote!(::icydb::__reexports::icydb_derive::PersistedRow)),
             Self::Rem => Some(quote!(::icydb::__reexports::icydb_derive::Rem)),
-            Self::Serialize => Some(quote!(::icydb::__reexports::serde::Serialize)),
             Self::Sub => Some(quote!(::icydb::__reexports::icydb_derive::Sub)),
             Self::SubAssign => Some(quote!(::icydb::__reexports::icydb_derive::SubAssign)),
             Self::Sum => Some(quote!(::icydb::__reexports::icydb_derive::Sum)),

@@ -123,7 +123,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 /// StructuralRowDecodeError
 ///
 /// StructuralRowDecodeError captures shape failures after persisted-row bytes
-/// have already decoded successfully through the shared structural CBOR path.
+/// have already decoded successfully through the shared structural path.
 ///
 
 #[derive(Debug, ThisError)]

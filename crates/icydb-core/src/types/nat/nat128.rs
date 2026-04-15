@@ -12,7 +12,7 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Add, AddAssign, Sub, SubAssign, Sum};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     cmp::Ordering,
     fmt,
@@ -166,15 +166,6 @@ impl SanitizeAuto for Nat128 {}
 
 impl SanitizeCustom for Nat128 {}
 
-impl Serialize for Nat128 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.0.to_be_bytes())
-    }
-}
-
 impl<'de> Deserialize<'de> for Nat128 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -197,50 +188,3 @@ impl ValidateAuto for Nat128 {}
 impl ValidateCustom for Nat128 {}
 
 impl Visitable for Nat128 {}
-
-//
-// TESTS
-//
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn roundtrip(v: u128) {
-        let nat128: Nat128 = v.into();
-
-        // serialize
-        let bytes = crate::serialize::serialize(&nat128).expect("serialize failed");
-
-        // must be length-prefixed
-        // so length = 16 + 1/2 bytes overhead, but we just check round-trip.
-        let decoded: Nat128 = crate::serialize::deserialize(&bytes).expect("deserialize failed");
-
-        assert_eq!(decoded, nat128, "roundtrip failed for {v}");
-
-        // sanity check on raw serialization: inner payload must be 16 bytes
-        let raw = nat128.0.to_be_bytes();
-        let encoded_inner = &bytes[bytes.len() - 16..];
-        assert_eq!(encoded_inner, &raw, "encoded inner bytes mismatch");
-    }
-
-    #[test]
-    fn test_roundtrip_basic() {
-        roundtrip(1);
-        roundtrip(1_234_567_890_123_456_789);
-    }
-
-    #[test]
-    fn test_roundtrip_edges() {
-        roundtrip(u128::MIN);
-        roundtrip(u128::MAX);
-    }
-
-    #[test]
-    fn test_manual_encoding() {
-        let v: Nat128 = 42.into();
-        let bytes = crate::serialize::serialize(&v).unwrap();
-        let encoded_inner = &bytes[bytes.len() - 16..];
-        assert_eq!(encoded_inner, &42i128.to_be_bytes());
-    }
-}

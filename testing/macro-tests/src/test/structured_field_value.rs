@@ -11,10 +11,8 @@ mod tests {
     use icydb::{
         db::{
             InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
-            decode_persisted_custom_slot_payload, decode_persisted_slot_payload,
-            encode_persisted_custom_slot_payload,
+            decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
         },
-        deserialize, serialize,
         traits::{EntitySchema, FieldProjection, FieldValue},
         value::Value,
     };
@@ -107,7 +105,7 @@ mod tests {
                 return Ok(None);
             };
 
-            decode_persisted_slot_payload::<Value>(bytes, "test-slot").map(Some)
+            decode_persisted_custom_slot_payload::<Value>(bytes, "test-slot").map(Some)
         }
     }
 
@@ -386,8 +384,10 @@ mod tests {
 
         assert_eq!(value, expected_profile_value());
 
-        let bytes = serialize(&value).expect("serialize structured profile value");
-        let decoded: Value = deserialize(&bytes).expect("deserialize structured profile value");
+        let bytes = encode_persisted_custom_slot_payload(&profile, "profile")
+            .expect("encode structured profile value");
+        let decoded: Value = decode_persisted_custom_slot_payload(&bytes, "profile")
+            .expect("decode structured profile value");
 
         assert_eq!(decoded, expected_profile_value());
     }
@@ -459,13 +459,19 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(required_slot_payload(&slots, 1), "profile")
-                .expect("decode required structured payload"),
+            decode_persisted_custom_slot_payload::<Value>(
+                required_slot_payload(&slots, 1),
+                "profile"
+            )
+            .expect("decode required structured payload"),
             profile_value(&entity.profile),
         );
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(required_slot_payload(&slots, 2), "profile")
-                .expect("decode optional structured payload"),
+            decode_persisted_custom_slot_payload::<Value>(
+                required_slot_payload(&slots, 2),
+                "profile"
+            )
+            .expect("decode optional structured payload"),
             profile_value(
                 entity
                     .opt_profile
@@ -474,7 +480,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(
+            decode_persisted_custom_slot_payload::<Value>(
                 required_slot_payload(&slots, 3),
                 "nested_profile",
             )
@@ -482,7 +488,7 @@ mod tests {
             nested_profile_value(&entity.nested_profile),
         );
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(
+            decode_persisted_custom_slot_payload::<Value>(
                 required_slot_payload(&slots, 4),
                 "profile_history",
             )
@@ -505,19 +511,28 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(required_slot_payload(&slots, 1), "profile")
-                .expect("decode required profile payload"),
+            decode_persisted_custom_slot_payload::<Value>(
+                required_slot_payload(&slots, 1),
+                "profile"
+            )
+            .expect("decode required profile payload"),
             profile_value(&entity.profile),
         );
         assert_ne!(
-            decode_persisted_slot_payload::<Value>(required_slot_payload(&slots, 1), "profile")
-                .expect("decode required profile payload"),
+            decode_persisted_custom_slot_payload::<Value>(
+                required_slot_payload(&slots, 1),
+                "profile"
+            )
+            .expect("decode required profile payload"),
             Value::Null,
             "required record payload must not collapse to null",
         );
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(required_slot_payload(&slots, 2), "profile")
-                .expect("decode optional profile payload"),
+            decode_persisted_custom_slot_payload::<Value>(
+                required_slot_payload(&slots, 2),
+                "profile"
+            )
+            .expect("decode optional profile payload"),
             Value::Null,
             "optional record payload should preserve explicit null",
         );
@@ -567,7 +582,7 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_slot_payload::<Value>(
+            decode_persisted_custom_slot_payload::<Value>(
                 required_slot_payload(&slots, 1),
                 "selected_parts",
             )

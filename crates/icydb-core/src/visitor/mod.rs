@@ -15,7 +15,7 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Deref, DerefMut};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
 
@@ -71,9 +71,7 @@ impl From<VisitorError> for InternalError {
 // may be lifted into an `InternalError` as needed.
 //
 
-#[derive(
-    Clone, Debug, Default, Deserialize, Deref, DerefMut, Serialize, CandidType, Eq, PartialEq,
-)]
+#[derive(CandidType, Clone, Debug, Default, Deref, DerefMut, Deserialize, Eq, PartialEq)]
 pub struct VisitorIssues(BTreeMap<String, Vec<String>>);
 
 impl VisitorIssues {

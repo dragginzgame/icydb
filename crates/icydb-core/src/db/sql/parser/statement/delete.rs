@@ -1,6 +1,6 @@
 use crate::db::{
-    reduced_sql::{Keyword, SqlParseError},
     sql::parser::{Parser, SqlDeleteStatement},
+    sql_shared::{Keyword, SqlParseError},
 };
 
 impl Parser {

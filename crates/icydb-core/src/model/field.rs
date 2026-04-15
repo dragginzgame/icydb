@@ -54,7 +54,7 @@ pub enum ScalarCodec {
 /// LeafCodec
 ///
 /// LeafCodec declares whether one persisted field payload uses a dedicated
-/// scalar codec or falls back to CBOR leaf decoding.
+/// scalar codec or falls back to structural leaf decoding.
 /// The row container consults this metadata before deciding whether a slot can
 /// stay on the scalar fast path.
 ///
@@ -62,7 +62,7 @@ pub enum ScalarCodec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LeafCodec {
     Scalar(ScalarCodec),
-    CborFallback,
+    StructuralFallback,
 }
 
 ///
@@ -71,7 +71,7 @@ pub enum LeafCodec {
 /// EnumVariantModel carries structural decode metadata for one generated enum
 /// variant payload.
 /// Runtime structural decode uses this to stay on the field-kind contract for
-/// enum payloads instead of falling back to generic untyped CBOR decoding.
+/// enum payloads instead of falling back to generic untyped structural decode.
 ///
 
 #[derive(Clone, Copy, Debug)]
@@ -315,10 +315,10 @@ impl FieldModel {
 
 // Resolve the canonical leaf codec from semantic field kind plus storage
 // contract. Fields that intentionally persist as `Value` or that still require
-// recursive payload decoding remain on the shared CBOR fallback.
+// recursive payload decoding remain on the shared structural fallback.
 const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> LeafCodec {
     if matches!(storage_decode, FieldStorageDecode::Value) {
-        return LeafCodec::CborFallback;
+        return LeafCodec::StructuralFallback;
     }
 
     match kind {
@@ -347,7 +347,7 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         | FieldKind::Set(_)
         | FieldKind::Structured { .. }
         | FieldKind::Uint128
-        | FieldKind::UintBig => LeafCodec::CborFallback,
+        | FieldKind::UintBig => LeafCodec::StructuralFallback,
     }
 }
 

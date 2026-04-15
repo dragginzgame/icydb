@@ -10,7 +10,7 @@ use crate::{
     value::Value,
 };
 use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
 
@@ -52,9 +52,7 @@ pub enum PrincipalEncodeError {
 // Principal
 //
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
-)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Principal(WrappedPrincipal);
 

@@ -18,9 +18,9 @@ use crate::{
     value::Value,
 };
 use icydb_derive::FieldProjection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
 struct CacheKeyEntity {
     id: Ulid,
     name: String,

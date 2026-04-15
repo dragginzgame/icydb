@@ -47,6 +47,12 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error(),
     };
 
+    for (field, hints) in &parsed_fields {
+        if let Err(err) = ensure_persisted_field_storage_supported(field, *hints) {
+            return err.to_compile_error();
+        }
+    }
+
     let materializers = parsed_fields
         .iter()
         .enumerate()
@@ -170,6 +176,8 @@ fn classify_field(ty: &Type) -> FieldCardinality {
 #[derive(Clone, Copy, Default)]
 struct PersistedFieldHints {
     decimal_scale: Option<u32>,
+    meta_storage: bool,
+    value_storage: bool,
 }
 
 fn is_path_ident(ty: &Type, ident: &str) -> bool {
@@ -188,6 +196,33 @@ fn persisted_field_decode_expr(
     field_name: &str,
     hints: PersistedFieldHints,
 ) -> TokenStream {
+    if hints.meta_storage {
+        if let Some(inner_ty) = option_inner_type(field_ty) {
+            return quote!(
+                ::icydb::db::decode_persisted_option_slot_payload_by_meta::<#inner_ty>(
+                    bytes,
+                    #field_name,
+                )?
+            );
+        }
+
+        return quote!(
+            ::icydb::db::decode_persisted_slot_payload_by_meta::<#field_ty>(
+                bytes,
+                #field_name,
+            )?
+        );
+    }
+
+    if hints.value_storage {
+        return quote!(
+            ::icydb::db::decode_persisted_custom_slot_payload::<#field_ty>(
+                bytes,
+                #field_name,
+            )?
+        );
+    }
+
     if let Some(inner_ty) = option_inner_scalar_type(field_ty) {
         return quote!(
             ::icydb::db::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
@@ -226,12 +261,7 @@ fn persisted_field_decode_expr(
         );
     }
 
-    quote!(
-        ::icydb::db::decode_persisted_slot_payload::<#field_ty>(
-            bytes,
-            #field_name,
-        )?
-    )
+    unreachable!("validated persisted-row field should not reach implicit structural fallback")
 }
 
 fn persisted_field_encode_expr(
@@ -240,6 +270,33 @@ fn persisted_field_encode_expr(
     field_name: &str,
     hints: PersistedFieldHints,
 ) -> TokenStream {
+    if hints.meta_storage {
+        if let Some(inner_ty) = option_inner_type(field_ty) {
+            return quote!(
+                ::icydb::db::encode_persisted_option_slot_payload_by_meta::<#inner_ty>(
+                    #field_expr,
+                    #field_name,
+                )?
+            );
+        }
+
+        return quote!(
+            ::icydb::db::encode_persisted_slot_payload_by_meta(
+                #field_expr,
+                #field_name,
+            )?
+        );
+    }
+
+    if hints.value_storage {
+        return quote!(
+            ::icydb::db::encode_persisted_custom_slot_payload(
+                #field_expr,
+                #field_name,
+            )?
+        );
+    }
+
     if let Some(inner_ty) = option_inner_scalar_type(field_ty) {
         return quote!(
             ::icydb::db::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
@@ -278,12 +335,7 @@ fn persisted_field_encode_expr(
         );
     }
 
-    quote!(
-        ::icydb::db::encode_persisted_slot_payload(
-            #field_expr,
-            #field_name,
-        )?
-    )
+    unreachable!("validated persisted-row field should not reach implicit structural fallback")
 }
 
 fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize) -> TokenStream {
@@ -425,8 +477,47 @@ fn parse_persisted_field_hints(field: &Field) -> Result<PersistedFieldHints, Err
                 return Ok(());
             }
 
+            if meta.path.is_ident("meta") {
+                if hints.meta_storage {
+                    return Err(meta.error("duplicate meta hint"));
+                }
+
+                hints.meta_storage = true;
+                return Ok(());
+            }
+
+            if meta.path.is_ident("value") {
+                if hints.value_storage {
+                    return Err(meta.error("duplicate value hint"));
+                }
+
+                hints.value_storage = true;
+                return Ok(());
+            }
+
             Err(meta.error("unsupported icydb persisted-row field hint"))
         })?;
+    }
+
+    if hints.meta_storage && hints.value_storage {
+        return Err(Error::new_spanned(
+            &field.ty,
+            "#[icydb(meta)] cannot be combined with #[icydb(value)]",
+        ));
+    }
+
+    if hints.meta_storage && hints.decimal_scale.is_some() {
+        return Err(Error::new_spanned(
+            &field.ty,
+            "#[icydb(meta)] cannot be combined with #[icydb(scale = ...)]",
+        ));
+    }
+
+    if hints.value_storage && hints.decimal_scale.is_some() {
+        return Err(Error::new_spanned(
+            &field.ty,
+            "#[icydb(value)] cannot be combined with #[icydb(scale = ...)]",
+        ));
     }
 
     if hints.decimal_scale.is_some() && !type_contains_decimal(&field.ty) {
@@ -437,6 +528,29 @@ fn parse_persisted_field_hints(field: &Field) -> Result<PersistedFieldHints, Err
     }
 
     Ok(hints)
+}
+
+fn ensure_persisted_field_storage_supported(
+    field: &Field,
+    hints: PersistedFieldHints,
+) -> Result<(), Error> {
+    if hints.meta_storage || hints.value_storage {
+        return Ok(());
+    }
+
+    let field_ty = &field.ty;
+    let supported = option_inner_scalar_type(field_ty).is_some()
+        || option_inner_by_kind_type(field_ty, hints).is_some()
+        || is_scalar_type(field_ty)
+        || inferred_field_kind_expr(field_ty, hints.decimal_scale).is_some();
+    if supported {
+        return Ok(());
+    }
+
+    Err(Error::new_spanned(
+        field_ty,
+        "legacy PersistedRow fields require an explicit structural contract; use #[icydb(meta)], #[icydb(value)], or #[icydb(scale = ...)]",
+    ))
 }
 
 fn type_contains_decimal(ty: &Type) -> bool {

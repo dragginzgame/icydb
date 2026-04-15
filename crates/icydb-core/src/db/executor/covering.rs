@@ -24,6 +24,7 @@ use crate::{
     types::Ulid,
     value::{Value, ValueTag},
 };
+use std::sync::Arc;
 
 const COVERING_BOOL_PAYLOAD_LEN: usize = 1;
 const COVERING_U64_PAYLOAD_LEN: usize = 8;
@@ -33,7 +34,7 @@ const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
-type CoveringComponentValues = Vec<Vec<u8>>;
+type CoveringComponentValues = Arc<[Vec<u8>]>;
 
 pub(in crate::db::executor) type CoveringProjectionComponentRows =
     Vec<(DataKey, IndexEntryExistenceWitness, CoveringComponentValues)>;
@@ -231,11 +232,11 @@ pub(in crate::db) fn decode_covering_projection_component(
 // Decode one ordered component vector into runtime values while keeping
 // unsupported component kinds fail-closed at the caller boundary.
 fn decode_covering_projection_components(
-    components: Vec<Vec<u8>>,
+    components: CoveringComponentValues,
 ) -> Result<Option<Vec<Value>>, InternalError> {
     let mut decoded = Vec::with_capacity(components.len());
-    for component in components {
-        let Some(value) = decode_covering_projection_component(&component)? else {
+    for component in components.iter() {
+        let Some(value) = decode_covering_projection_component(component.as_slice())? else {
             return Ok(None);
         };
         decoded.push(value);

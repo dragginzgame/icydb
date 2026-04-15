@@ -41,7 +41,7 @@ use crate::{
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -123,9 +123,7 @@ fn reset_store() {
 /// TargetEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct TargetEntity {
     id: Ulid,
 }
@@ -147,9 +145,7 @@ crate::test_entity_schema! {
 /// SourceEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SourceEntity {
     id: Ulid,
     target: Ulid,
@@ -186,9 +182,7 @@ crate::test_entity_schema! {
 /// InvalidRelationMetadataEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct InvalidRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -224,9 +218,7 @@ crate::test_entity_schema! {
 /// SourceSetEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SourceSetEntity {
     id: Ulid,
     targets: Vec<Ulid>,
@@ -265,7 +257,7 @@ crate::test_entity_schema! {
 /// during typed writes instead of treating them as predicate literals.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
 struct SaveSelectedPart {
     layer_id: Ulid,
     part_id: Ulid,
@@ -327,7 +319,7 @@ impl FieldValue for SaveSelectedPart {
 /// contract that application entities use for `selected_parts`.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
 struct StructuredSelectionEntity {
     id: Ulid,
     selected_parts: Vec<SaveSelectedPart>,
@@ -417,7 +409,7 @@ fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntit
 /// the same typed save boundary as application entities.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 struct SaveSelectedPartSet(BTreeSet<SaveSelectedPart>);
 
 impl FieldValue for SaveSelectedPartSet {
@@ -453,7 +445,7 @@ impl FieldValue for SaveSelectedPartSet {
 /// as `List<Record>` and `Map<..., Record>`.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, FieldProjection, PartialEq)]
 struct StructuredSelectionSetEntity {
     id: Ulid,
     selected_parts: SaveSelectedPartSet,
@@ -544,7 +536,7 @@ fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionS
 /// with the expected canonical `Value::Map` payload shape.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SaveSelectedPartMap(BTreeMap<Ulid, SaveSelectedPart>);
 
 impl FieldValue for SaveSelectedPartMap {
@@ -590,7 +582,7 @@ impl FieldValue for SaveSelectedPartMap {
 /// persisted `Map<..., ...>` fields.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
 struct StructuredSelectionMapEntity {
     id: Ulid,
     selected_parts_by_layer: SaveSelectedPartMap,
@@ -680,9 +672,7 @@ fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionM
 /// UniqueEmailEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct UniqueEmailEntity {
     id: Ulid,
     email: String,
@@ -767,9 +757,7 @@ fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEn
 /// MismatchedPkEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct MismatchedPkEntity {
     id: Ulid,
     actual_id: Ulid,
@@ -792,9 +780,7 @@ crate::test_entity_schema! {
 /// DecimalScaleEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct DecimalScaleEntity {
     id: Ulid,
     #[icydb(scale = 2)]
@@ -821,9 +807,7 @@ crate::test_entity_schema! {
 /// NullableAccountEventEntity
 ///
 
-#[derive(
-    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct NullableAccountEventEntity {
     id: Ulid,
     from: Option<Account>,

@@ -9,18 +9,12 @@
 //! bounded decode wrappers used beneath it.
 //! All other DB modules must decode via codec helpers.
 
-mod cbor;
 pub(crate) mod cursor;
 mod hash_stream;
-#[cfg(test)]
-mod tests;
 
 use crate::error::InternalError;
-#[cfg(test)]
-use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 
-pub(in crate::db) use cbor::{decode_cbor_bytes, encode_cbor_bytes};
 pub(in crate::db) use hash_stream::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
     write_hash_u32, write_hash_u64,
@@ -50,24 +44,6 @@ const ROW_ENVELOPE_HEADER_LEN: usize = 2 + 1 + 4;
 /// Wrap an already-serialized entity payload in the canonical persisted row envelope.
 pub(in crate::db) fn serialize_row_payload(payload: Vec<u8>) -> Result<Vec<u8>, InternalError> {
     serialize_row_payload_with_version(payload, ROW_FORMAT_VERSION_CURRENT)
-}
-
-/// Deserialize one persisted row payload using the DB row-size policy.
-#[cfg(test)]
-pub(in crate::db) fn deserialize_row<T>(bytes: &[u8]) -> Result<T, InternalError>
-where
-    T: DeserializeOwned,
-{
-    let payload = decode_row_payload_bytes(bytes)?;
-
-    // Phase 1: the row envelope already enforced the row-size budget, so the
-    // remaining work is one bounded CBOR decode under the DB panic barrier.
-    match decode_cbor_bytes(payload.as_ref()) {
-        Ok(value) => Ok(value),
-        Err(_) => Err(InternalError::serialize_corruption(
-            "row decode failed: deserialize",
-        )),
-    }
 }
 
 /// Decode one canonical row envelope into its owned-or-borrowed payload bytes.

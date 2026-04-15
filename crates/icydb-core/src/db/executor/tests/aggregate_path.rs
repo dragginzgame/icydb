@@ -7,7 +7,7 @@ use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        data::{DataKey, PersistedRow},
+        data::{DataKey, PersistedRow, encode_structural_value_storage_bytes},
         executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
@@ -19,7 +19,6 @@ use crate::{
     },
     error::{ErrorClass, InternalError},
     model::entity::resolve_field_slot,
-    serialize::serialized_len,
     traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
@@ -102,7 +101,9 @@ fn serialized_field_payload_bytes_for_pushdown_rows(
             "label" => Value::Text(row.entity_ref().label.clone()),
             other => panic!("pushdown field should resolve for bytes parity: {other}"),
         };
-        let value_len = serialized_len(&value).expect("pushdown field value should encode");
+        let value_len = encode_structural_value_storage_bytes(&value)
+            .expect("pushdown field value should encode")
+            .len();
 
         acc.saturating_add(u64::try_from(value_len).unwrap_or(u64::MAX))
     })

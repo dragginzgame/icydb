@@ -12,7 +12,7 @@ use crate::{
 };
 use candid::CandidType;
 use canic_cdk::types::Account as IcrcAccount;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     fmt::{self, Display},
     str::FromStr,
@@ -23,7 +23,7 @@ use thiserror::Error as ThisError;
 // Account
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq)]
 pub struct Account {
     owner: Principal,
     subaccount: Option<Subaccount>,

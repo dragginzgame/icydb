@@ -30,17 +30,17 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::ops::Bound;
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SqlLowerEntity {
     id: Ulid,
     name: String,
     age: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SqlLowerExpressionEntity {
     id: Ulid,
     name: String,

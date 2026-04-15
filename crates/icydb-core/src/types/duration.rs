@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 use std::{
     fmt,
     ops::{Add, AddAssign, Sub, SubAssign},
@@ -258,15 +258,6 @@ impl SubAssign for Duration {
     }
 }
 
-impl Serialize for Duration {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u64(self.0)
-    }
-}
-
 impl<'de> Deserialize<'de> for Duration {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -455,43 +446,5 @@ mod tests {
 
         let almost_max = Duration::from_millis(u64::MAX - 1);
         assert_eq!(almost_max + Duration::from_millis(10), Duration::MAX);
-    }
-
-    #[test]
-    fn test_json_duration_roundtrip() {
-        let d = Duration::from_secs(5);
-        let json = serde_json::to_string(&d).unwrap();
-        assert_eq!(json, "5000");
-        let parsed: Duration = serde_json::from_str(&json).unwrap();
-        assert_eq!(d, parsed);
-    }
-
-    #[test]
-    fn test_json_duration_string_deserialization() {
-        let from_millis: Duration = serde_json::from_str("\"5000\"").unwrap();
-        assert_eq!(from_millis, Duration::from_millis(5_000));
-
-        let from_seconds: Duration = serde_json::from_str("\"5s\"").unwrap();
-        assert_eq!(from_seconds, Duration::from_secs(5));
-    }
-
-    #[test]
-    fn test_serde_cbor_boundary_uses_integer_millis_not_text_duration() {
-        let d = Duration::from_secs(5);
-
-        let bytes = serde_cbor::to_vec(&d).expect("duration serialization should succeed");
-        let wire: serde_cbor::Value =
-            serde_cbor::from_slice(&bytes).expect("duration cbor decode should succeed");
-
-        match wire {
-            serde_cbor::Value::Integer(millis) => {
-                assert_eq!(millis, 5_000);
-            }
-            other => panic!("duration wire shape must remain integer millis, got {other:?}"),
-        }
-
-        let decoded: Duration =
-            serde_cbor::from_slice(&bytes).expect("duration decode should succeed");
-        assert_eq!(decoded, d);
     }
 }

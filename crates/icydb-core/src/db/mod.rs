@@ -29,8 +29,8 @@ pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod migration;
 pub(in crate::db) mod numeric;
-pub(in crate::db) mod reduced_sql;
 pub(in crate::db) mod relation;
+pub(in crate::db) mod sql_shared;
 
 use crate::{
     db::{
@@ -53,11 +53,12 @@ pub use data::{
     SlotWriter, UpdatePatch, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
     decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
-    decode_persisted_slot_payload_by_kind, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
-    encode_persisted_slot_payload_by_kind,
+    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
+    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
+    encode_persisted_slot_payload_by_meta,
 };
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]

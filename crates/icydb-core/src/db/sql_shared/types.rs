@@ -205,7 +205,7 @@ pub(crate) fn token_kind_label(kind: &TokenKind) -> String {
     }
 }
 
-pub(in crate::db::reduced_sql) fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
+pub(in crate::db::sql_shared) fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
     if raw.contains('.') {
         let decimal =
             Decimal::from_str(raw).map_err(|_| SqlParseError::invalid_numeric_literal(raw))?;

@@ -58,12 +58,7 @@
 // export so things just work in base/
 extern crate self as icydb;
 
-use icydb_core::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::Visitable,
-};
-use serde::{Serialize, de::DeserializeOwned};
-
+use icydb_core::{error::InternalError, traits::Visitable};
 // crates
 pub use icydb_build as build;
 pub use icydb_build::build;
@@ -263,43 +258,5 @@ pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
 pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
     icydb_core::validate::validate(node)
         .map_err(InternalError::from)
-        .map_err(Error::from)
-}
-
-// Serialize a visitable value into bytes.
-//
-// The encoding format is an internal detail of icydb and is only
-// guaranteed to round-trip via `deserialize`.
-pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
-where
-    T: Serialize,
-{
-    icydb_core::serialize::serialize(ty)
-        .map_err(|err| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Serialize,
-                err.to_string(),
-            )
-        })
-        .map_err(Error::from)
-}
-
-// Deserialize bytes into a concrete visitable value.
-//
-// This is intended for testing, tooling, and round-trip verification.
-// It should not be used in hot runtime paths.
-pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
-where
-    T: DeserializeOwned,
-{
-    icydb_core::serialize::deserialize(bytes)
-        .map_err(|err| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Serialize,
-                err.to_string(),
-            )
-        })
         .map_err(Error::from)
 }

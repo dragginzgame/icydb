@@ -1,7 +1,7 @@
 //! Module: db::sql::parser
 //! Responsibility: reduced SQL statement parsing for deterministic frontend normalization.
 //! Does not own: standalone predicate parsing semantics, planner policy, or execution semantics.
-//! Boundary: parses one SQL statement into frontend-neutral statement contracts on top of the shared reduced-SQL token cursor.
+//! Boundary: parses one SQL statement into frontend-neutral statement contracts on top of the shared SQL token cursor.
 
 mod clauses;
 mod model;
@@ -14,12 +14,12 @@ mod tests;
 use crate::{
     db::{
         predicate::{CompareOp, Predicate, parse_predicate_from_cursor},
-        reduced_sql::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
+        sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
     },
     value::Value,
 };
 
-pub(crate) use crate::db::reduced_sql::SqlParseError;
+pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
     SqlArithmeticProjectionOperand, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,

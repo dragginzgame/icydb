@@ -18,7 +18,6 @@ pub mod error;
 pub mod metrics;
 pub mod model;
 pub mod sanitize;
-pub mod serialize;
 pub mod traits;
 pub mod types;
 pub mod validate;
