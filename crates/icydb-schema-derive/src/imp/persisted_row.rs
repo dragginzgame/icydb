@@ -1,4 +1,4 @@
-use crate::{imp::inherent::model::model_kind_from_value, prelude::*};
+use crate::{imp::inherent::model_kind_from_value, prelude::*};
 use syn::{
     AngleBracketedGenericArguments, GenericArgument, PathArguments, Type, parse2 as parse_type,
 };

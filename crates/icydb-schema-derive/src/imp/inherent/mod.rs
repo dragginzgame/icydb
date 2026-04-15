@@ -2,11 +2,10 @@ mod collection;
 mod entity;
 mod model;
 
-use crate::{
-    imp::inherent::model::{
-        model_kind_from_item, model_kind_from_value, model_storage_decode_from_value,
-    },
-    prelude::*,
+use crate::prelude::*;
+
+pub(crate) use model::{
+    model_kind_from_item, model_kind_from_value, model_storage_decode_from_value,
 };
 
 ///
