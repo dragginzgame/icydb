@@ -68,6 +68,7 @@ fn invalid_perf_loop_runs_error() -> icydb::Error {
 fn average_attribution(
     total_compile_local_instructions: u64,
     total_planner_local_instructions: u64,
+    total_store_local_instructions: u64,
     total_executor_local_instructions: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
@@ -85,6 +86,7 @@ fn average_attribution(
     SqlQueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
         planner_local_instructions: total_planner_local_instructions / divisor,
+        store_local_instructions: total_store_local_instructions / divisor,
         executor_local_instructions: total_executor_local_instructions / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
@@ -159,6 +161,7 @@ where
     let mut first_result = None;
     let mut total_compile_local_instructions = 0_u64;
     let mut total_planner_local_instructions = 0_u64;
+    let mut total_store_local_instructions = 0_u64;
     let mut total_executor_local_instructions = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
@@ -182,6 +185,8 @@ where
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
         total_planner_local_instructions =
             total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
+        total_store_local_instructions =
+            total_store_local_instructions.saturating_add(attribution.store_local_instructions);
         total_executor_local_instructions = total_executor_local_instructions
             .saturating_add(attribution.executor_local_instructions);
         total_response_decode_local_instructions = total_response_decode_local_instructions
@@ -209,6 +214,7 @@ where
         attribution: average_attribution(
             total_compile_local_instructions,
             total_planner_local_instructions,
+            total_store_local_instructions,
             total_executor_local_instructions,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
