@@ -171,6 +171,8 @@ where
     let mut total_planner_local_instructions = 0_u64;
     let mut total_store_local_instructions = 0_u64;
     let mut total_executor_local_instructions = 0_u64;
+    let mut total_pure_covering_decode_local_instructions = 0_u64;
+    let mut total_pure_covering_row_assembly_local_instructions = 0_u64;
     let mut total_store_get_calls = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
@@ -198,6 +200,12 @@ where
             total_store_local_instructions.saturating_add(attribution.store_local_instructions);
         total_executor_local_instructions = total_executor_local_instructions
             .saturating_add(attribution.executor_local_instructions);
+        total_pure_covering_decode_local_instructions =
+            total_pure_covering_decode_local_instructions
+                .saturating_add(attribution.pure_covering_decode_local_instructions);
+        total_pure_covering_row_assembly_local_instructions =
+            total_pure_covering_row_assembly_local_instructions
+                .saturating_add(attribution.pure_covering_row_assembly_local_instructions);
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
@@ -226,6 +234,8 @@ where
             total_planner_local_instructions,
             total_store_local_instructions,
             total_executor_local_instructions,
+            total_pure_covering_decode_local_instructions,
+            total_pure_covering_row_assembly_local_instructions,
             total_store_get_calls,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
