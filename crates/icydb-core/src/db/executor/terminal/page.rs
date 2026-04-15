@@ -750,7 +750,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     } = request;
     let payload_mode =
         select_kernel_row_payload_mode(retain_slot_rows, cursor_emission, retained_slot_layout);
-    let predicate_preapplied = plan.has_residual_predicate();
+    let predicate_preapplied = plan.has_residual_predicate() && retained_slot_layout.is_some();
     let defer_retained_slot_distinct_window =
         plan.scalar_plan().distinct && !cursor_emission.enabled() && retain_slot_rows;
 
@@ -989,6 +989,10 @@ fn apply_post_access_to_kernel_rows_dyn(
     // Phase 1: predicate filtering.
     let filtered = if has_residual_predicate {
         if !predicate_preapplied {
+            if rows.is_empty() && predicate_slots.is_none() {
+                return Ok(0);
+            }
+
             let Some(predicate_program) = predicate_slots else {
                 return Err(InternalError::scalar_page_predicate_slots_required());
             };
@@ -1116,6 +1120,7 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
     pub(in crate::db::executor) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 
+#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn execute_kernel_row_scan(
     request: KernelRowScanRequest<'_, '_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
@@ -1139,9 +1144,26 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 scan_data_rows_only_into_kernel(key_stream, consistency, row_keep_cap, row_runtime)
             })
         }
-        (KernelRowPayloadMode::DataRowOnly, true) => Err(InternalError::query_executor_invariant(
-            "data-row-only kernel rows require residual predicates to be absent",
-        )),
+        (KernelRowPayloadMode::DataRowOnly, true) => {
+            // Constant-false and similarly pre-elided residual windows can
+            // reach this lane with no residual predicate program and an empty
+            // key stream. That case is safe on the lightweight data-row-only
+            // path because there is no deferred predicate work left to apply.
+            if predicate_slots.is_none() {
+                execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
+                    scan_data_rows_only_into_kernel(
+                        key_stream,
+                        consistency,
+                        row_keep_cap,
+                        row_runtime,
+                    )
+                })
+            } else {
+                Err(InternalError::query_executor_invariant(
+                    "data-row-only kernel rows require residual predicates to be absent",
+                ))
+            }
+        }
         (KernelRowPayloadMode::FullRowRetained, false) => {
             let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
                 InternalError::query_executor_invariant(

@@ -35,6 +35,10 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
+    model::{
+        entity::{EntityModel, resolve_field_slot},
+        index::IndexKeyItemsRef,
+    },
 };
 
 type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
@@ -95,7 +99,7 @@ impl PreparedExecutionProjection {
         // Phase 3: compile the retained-slot layout only from the effective
         // execution needs, not from the broader pre-optimization mode enum.
         let retained_slot_layout = compile_retained_slot_layout(
-            plan.projected_slot_mask().len(),
+            authority.model(),
             plan,
             compiled_predicate,
             projection_validation_enabled,
@@ -674,14 +678,14 @@ impl<'a> ExecutionInputs<'a> {
 // projection/predicate/order/cursor reachability ad hoc at each execution
 // boundary.
 fn compile_retained_slot_layout(
-    field_count: usize,
+    model: &EntityModel,
     plan: &AccessPlannedQuery,
     compiled_predicate: Option<&PredicateProgram>,
     projection_validation_enabled: bool,
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
-    let mut required_slots = vec![false; field_count];
+    let mut required_slots = vec![false; model.fields().len()];
 
     // Phase 1: projection validation and retained-slot materialization both
     // need one stable slot set for later structural slot reads.
@@ -714,6 +718,31 @@ fn compile_retained_slot_layout(
         }
     }
 
+    // Phase 4: index-range cursor anchors need the complete index key item
+    // slot set, not only the outward order slots. Model-identity projections
+    // no longer force shared validation state, so keep these slots explicit
+    // for cursor-emitting index-range paths.
+    if cursor_emission.enabled()
+        && let Some((index, _, _, _)) = plan.access.as_index_range_path()
+    {
+        match index.key_items() {
+            IndexKeyItemsRef::Fields(fields) => {
+                for field in fields {
+                    if let Some(slot) = resolve_field_slot(model, field) {
+                        required_slots[slot] = true;
+                    }
+                }
+            }
+            IndexKeyItemsRef::Items(items) => {
+                for key_item in items {
+                    if let Some(slot) = resolve_field_slot(model, key_item.field()) {
+                        required_slots[slot] = true;
+                    }
+                }
+            }
+        }
+    }
+
     let required_slots = required_slots
         .into_iter()
         .enumerate()
@@ -724,5 +753,8 @@ fn compile_retained_slot_layout(
         return None;
     }
 
-    Some(RetainedSlotLayout::compile(field_count, required_slots))
+    Some(RetainedSlotLayout::compile(
+        model.fields().len(),
+        required_slots,
+    ))
 }

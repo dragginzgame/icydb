@@ -306,20 +306,21 @@ Commenting quality is a merge gate: code that is correct but under-documented is
 * Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
 * The normal public-doc-comment requirement does not apply to `CandidType` wire surfaces; keep those comments as plain `//` narration unless the docs are explicitly needed for rustdoc-only output.
 * Public `struct`, `enum`, and `trait` definitions MUST be preceded by **at least three consecutive doc comment lines**.
-* Every non-trivial type (public or private), including `struct`, `enum`, `trait`, and tuple/newtype wrappers, MUST be preceded by **at least three consecutive doc comment lines**.
-* For every non-trivial type, use this exact doc-block shape:
+* Every `struct`, `enum`, and `trait` definition (public or private), including tuple/newtype wrappers, MUST be preceded by **at least three consecutive doc comment lines**.
+* For every `struct`, `enum`, or `trait`, use this exact doc-block shape:
   * Line 1: `///`
   * Line 2: `/// <TypeName>`
   * Line 3: `///`
   * Line 4+: one or more descriptive `///` lines
   * Final line: `///`
   * Then one blank source line before the type definition
-* For every non-trivial type, the `<TypeName>` line MUST exactly repeat the declared type name.
-* After the doc comment block for a non-trivial type, there MUST be a blank line before the type definition.
+* For every `struct`, `enum`, or `trait`, the `<TypeName>` line MUST exactly repeat the declared type name.
+* After the doc comment block for a `struct`, `enum`, or `trait`, there MUST be a blank line before the type definition.
 * The multi-line doc-block shape above does not apply to `CandidType` wire surfaces; use concise `//` comments there instead.
 * Every non-trivial private function or type MUST have at least a brief explanatory comment.
-* For non-trivial private helper types, the descriptive lines MUST explain both why the type exists and how it is used by the owning module, not just restate field or variant names.
+* For private `struct`, `enum`, and `trait` helper types, the descriptive lines MUST explain both why the type exists and how it is used by the owning module, not just restate field or variant names.
 * This “why it exists / how it is used” requirement applies across the entire codebase and is especially mandatory for normalization, planning, persistence, cache-key, indexing, and validation helper types.
+* “Trivial type” exemptions apply only to items outside the `struct`/`enum`/`trait` set, such as straightforward type aliases or similarly lightweight declarations.
 * For any function/struct/enum/trait/type with lint/control attributes (`#[expect]`, `#[allow]`, `#[cfg_attr]`, etc.), comments/doc comments for that item MUST come first, then attributes, then the item.
 * Inherent `impl <TypeName>` blocks SHOULD appear immediately after the type definition (after derives/attrs and doc block) and before unrelated items whenever feasible.
 * Functions with multiple logical phases MUST include inline comments separating those phases.

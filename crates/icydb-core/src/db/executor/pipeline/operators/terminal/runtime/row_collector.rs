@@ -74,7 +74,7 @@ impl ExecutionKernel {
         // Phase 1: derive the shared row scan contract from plan-owned
         // consistency and residual-predicate state.
         let consistency = row_read_consistency_for_plan(plan);
-        let predicate_preapplied = plan.has_residual_predicate();
+        let predicate_preapplied = plan.has_residual_predicate() && retained_slot_layout.is_some();
         let _ = continuation;
         let _ = load_order_route_contract;
 
