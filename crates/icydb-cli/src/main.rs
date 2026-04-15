@@ -56,6 +56,23 @@ struct ShellPerfAttribution {
     compiler: u64,
 }
 
+impl ShellPerfAttribution {
+    // Sum the current top-level SQL query perf contract exactly as emitted by
+    // query_with_perf: compiler, planner, executor, then public decode.
+    const fn attributed_total(&self) -> u64 {
+        self.compiler
+            .saturating_add(self.planner)
+            .saturating_add(self.executor)
+            .saturating_add(self.decode)
+    }
+
+    // Preserve one visible fallback bucket for legacy or future payloads whose
+    // total exceeds the current top-level query perf contract.
+    const fn residual_total(&self) -> u64 {
+        self.total.saturating_sub(self.attributed_total())
+    }
+}
+
 impl ShellConfig {
     fn parse(args: Vec<String>) -> Self {
         let mut canister = env::var("SQLQ_CANISTER").unwrap_or_else(|_| "demo_rpg".to_string());
@@ -339,18 +356,12 @@ fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
 
 // Render one compact fixed-order composition bar for compiler/planner/executor/decode shares.
 fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<String> {
-    let named_phase_total = attribution
-        .compiler
-        .saturating_add(attribution.planner)
-        .saturating_add(attribution.executor)
-        .saturating_add(attribution.decode);
-    let other = attribution.total.saturating_sub(named_phase_total);
     let phases = [
         ('c', attribution.compiler),
         ('p', attribution.planner),
         ('e', attribution.executor),
         ('d', attribution.decode),
-        ('?', other),
+        ('?', attribution.residual_total()),
     ];
     let phase_total = phases.iter().map(|(_, value)| *value).sum::<u64>();
     if phase_total == 0 {
@@ -658,6 +669,20 @@ mod tests {
         .expect("large perf attribution should render a footer");
 
         assert_eq!(suffix, "120.0Mi [ccppppeeeeeeeeeeeeedd????]");
+    }
+
+    #[test]
+    fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaustive() {
+        let suffix = render_perf_suffix(&ShellPerfAttribution {
+            total: 10_000_000,
+            planner: 2_000_000,
+            executor: 5_000_000,
+            decode: 2_000_000,
+            compiler: 1_000_000,
+        })
+        .expect("complete perf attribution should render a footer");
+
+        assert_eq!(suffix, "10.0Mi [ccppppeeeeeeeeeedddd]");
     }
 
     #[test]

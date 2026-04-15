@@ -23,10 +23,13 @@ pub(in crate::db::executor) fn finalize_structural_page_for_path(
     execution_trace: &mut Option<ExecutionTrace>,
     execution_time_micros: u64,
 ) -> StructuralCursorPage {
+    let rows_emitted = page.row_count();
+
     finalize_path_outcome_for_path(
         entity_path,
         execution_trace,
         metrics,
+        rows_emitted,
         false,
         execution_time_micros,
     );

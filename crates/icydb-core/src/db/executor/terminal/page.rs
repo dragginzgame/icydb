@@ -1036,8 +1036,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
             execute_scalar_data_row_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_direct(key_stream, consistency, row_runtime)
             })?;
+        // Keep scalar load accounting aligned with the shared kernel path:
+        // `post_access_rows` means rows that survived filtering/cursor checks
+        // before the final offset/limit window is applied.
         let post_access_rows = data_rows.len();
-
         apply_data_row_page_window(plan, &mut data_rows);
 
         return Ok((
@@ -1086,8 +1088,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
                     retained_slot_layout,
                 )
             })?;
+        // Keep scalar load accounting aligned with the shared kernel path:
+        // `post_access_rows` means rows that survived filtering/cursor checks
+        // before the final offset/limit window is applied.
         let post_access_rows = data_rows.len();
-
         apply_data_row_page_window(plan, &mut data_rows);
 
         return Ok((
@@ -1171,8 +1175,8 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
             )?;
         }
 
-        apply_data_row_page_window(plan, &mut data_rows);
         let post_access_rows = data_rows.len();
+        apply_data_row_page_window(plan, &mut data_rows);
 
         return Ok((
             MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(

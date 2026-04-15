@@ -126,6 +126,26 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (delta, result)
 }
 
+// Fold the public SQL response-packaging phase onto the outward top-level perf
+// contract so shell-facing totals remain exhaustive across compile, planner,
+// executor, and decode.
+#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+fn finalize_public_sql_query_attribution(
+    mut attribution: crate::db::SqlQueryExecutionAttribution,
+    response_decode_local_instructions: u64,
+) -> crate::db::SqlQueryExecutionAttribution {
+    attribution.response_decode_local_instructions = response_decode_local_instructions;
+    attribution.execute_local_instructions = attribution
+        .planner_local_instructions
+        .saturating_add(attribution.executor_local_instructions)
+        .saturating_add(response_decode_local_instructions);
+    attribution.total_local_instructions = attribution
+        .compile_local_instructions
+        .saturating_add(attribution.execute_local_instructions);
+
+    attribution
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
     where
@@ -245,13 +265,8 @@ impl<C: CanisterKind> DbSession<C> {
             measure_sql_response_decode_stage(|| {
                 crate::db::sql::sql_query_result_from_statement(result, entity_name)
             });
-        attribution.response_decode_local_instructions = response_decode_local_instructions;
-        attribution.execute_local_instructions = attribution
-            .execute_local_instructions
-            .saturating_add(response_decode_local_instructions);
-        attribution.total_local_instructions = attribution
-            .total_local_instructions
-            .saturating_add(response_decode_local_instructions);
+        attribution =
+            finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
 
         Ok((result, attribution))
     }
@@ -720,5 +735,52 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::mutation_entities(
             self.inner.update_many_non_atomic(entities)?,
         ))
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(all(test, feature = "sql", feature = "perf-attribution"))]
+mod tests {
+    use super::finalize_public_sql_query_attribution;
+    use crate::db::SqlQueryExecutionAttribution;
+
+    #[test]
+    fn public_sql_perf_attribution_total_stays_exhaustive_after_decode_finalize() {
+        let finalized = finalize_public_sql_query_attribution(
+            SqlQueryExecutionAttribution {
+                compile_local_instructions: 11,
+                planner_local_instructions: 13,
+                executor_local_instructions: 17,
+                response_decode_local_instructions: 0,
+                execute_local_instructions: 30,
+                total_local_instructions: 41,
+                sql_compiled_command_cache_hits: 0,
+                sql_compiled_command_cache_misses: 0,
+                sql_select_plan_cache_hits: 0,
+                sql_select_plan_cache_misses: 0,
+                shared_query_plan_cache_hits: 0,
+                shared_query_plan_cache_misses: 0,
+            },
+            19,
+        );
+
+        assert_eq!(
+            finalized.execute_local_instructions,
+            finalized
+                .planner_local_instructions
+                .saturating_add(finalized.executor_local_instructions)
+                .saturating_add(finalized.response_decode_local_instructions),
+            "public SQL execute totals should include planner, executor, and decode work",
+        );
+        assert_eq!(
+            finalized.total_local_instructions,
+            finalized
+                .compile_local_instructions
+                .saturating_add(finalized.execute_local_instructions),
+            "public SQL total instructions should remain exhaustive across compiler, planner, executor, and decode",
+        );
     }
 }

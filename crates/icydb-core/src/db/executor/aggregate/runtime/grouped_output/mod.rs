@@ -107,28 +107,29 @@ pub(in crate::db::executor) fn finalize_path_outcome_for_path(
     entity_path: &'static str,
     execution_trace: &mut Option<ExecutionTrace>,
     metrics: ExecutionOutcomeMetrics,
+    rows_emitted: usize,
     index_only: bool,
     execution_time_micros: u64,
 ) {
     let ExecutionOutcomeMetrics {
         optimization,
         rows_scanned,
-        post_access_rows,
+        post_access_rows: _post_access_rows,
         index_predicate_applied,
         index_predicate_keys_rejected,
         distinct_keys_deduped,
     } = metrics;
     record_rows_scanned_for_path(entity_path, rows_scanned);
-    let rows_filtered = rows_scanned.saturating_sub(post_access_rows);
+    let rows_filtered = rows_scanned.saturating_sub(rows_emitted);
     record_rows_filtered_for_path(entity_path, rows_filtered);
-    record_rows_emitted_for_path(entity_path, post_access_rows);
+    record_rows_emitted_for_path(entity_path, rows_emitted);
 
     if let Some(execution_trace) = execution_trace.as_mut() {
         execution_trace.set_path_outcome(
             optimization,
             rows_scanned,
             rows_scanned,
-            post_access_rows,
+            rows_emitted,
             execution_time_micros,
             index_only,
             index_predicate_applied,
