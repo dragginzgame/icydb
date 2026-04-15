@@ -25,33 +25,36 @@ pub(in crate::db::executor) use guards::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 
-/// Apply paging contracts over generic-free payload artifacts.
-fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState, InternalError> {
-    let execution_mode = state.context.mode;
-    let payload = if execution_mode.is_scalar_page() {
-        match state.payload {
-            state::LoadExecutionPayload::Scalar(payload) => {
-                state::LoadExecutionPayload::Scalar(payload)
-            }
+// Validate that one staged payload shape matches the selected load surface
+// mode before later paging/tracing/materialization phases consume it.
+fn validate_runtime_payload_shape(
+    execution_mode: LoadSurfaceMode,
+    payload: &state::LoadExecutionPayload,
+) -> Result<(), InternalError> {
+    if execution_mode.is_scalar_page() {
+        match payload {
+            state::LoadExecutionPayload::Scalar(_) => Ok(()),
             state::LoadExecutionPayload::Grouped(_) => {
-                return Err(InternalError::load_runtime_scalar_payload_required());
+                Err(InternalError::load_runtime_scalar_payload_required())
             }
         }
     } else {
         debug_assert!(
             execution_mode.is_grouped_page(),
-            "runtime payload paging expects grouped mode for non-scalar load surfaces",
+            "runtime payload validation expects grouped mode for non-scalar load surfaces",
         );
-        match state.payload {
-            state::LoadExecutionPayload::Grouped(page) => {
-                state::LoadExecutionPayload::Grouped(page)
-            }
+        match payload {
+            state::LoadExecutionPayload::Grouped(_) => Ok(()),
             state::LoadExecutionPayload::Scalar(_) => {
-                return Err(InternalError::load_runtime_grouped_payload_required());
+                Err(InternalError::load_runtime_grouped_payload_required())
             }
         }
-    };
-    state.payload = payload;
+    }
+}
+
+/// Apply paging contracts over generic-free payload artifacts.
+fn apply_runtime_paging(state: LoadPayloadState) -> Result<LoadPayloadState, InternalError> {
+    validate_runtime_payload_shape(state.context.mode, &state.payload)?;
 
     Ok(state)
 }
@@ -70,6 +73,8 @@ fn materialize_runtime_surface(
     state: LoadPayloadState,
 ) -> Result<LoadExecutionSurface, InternalError> {
     let execution_mode = state.context.mode;
+    validate_runtime_payload_shape(execution_mode, &state.payload)?;
+
     if execution_mode.is_scalar_page() {
         let state::LoadExecutionPayload::Scalar(page) = state.payload else {
             return Err(InternalError::load_runtime_scalar_surface_payload_required());

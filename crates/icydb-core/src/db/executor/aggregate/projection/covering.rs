@@ -18,19 +18,6 @@ use crate::{
     value::Value,
 };
 
-///
-/// CoveringProjectionValues
-///
-/// Covering projection decoded values emitted by one prepared index-only
-/// projection attempt.
-/// Distinct policy is now resolved earlier during boundary preparation, so
-/// execution only needs the decoded values here.
-///
-
-pub(super) struct CoveringProjectionValues {
-    pub(super) values: Vec<Value>,
-}
-
 // Derive one planner-owned covering projection context from executor plan
 // contracts without duplicating order-shape interpretation in executor code.
 pub(super) fn covering_index_projection_context<K>(

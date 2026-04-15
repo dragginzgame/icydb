@@ -72,10 +72,10 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
     }
 
     let value = match kind {
-        FieldKind::Blob | FieldKind::Int128 | FieldKind::Uint128 => {
+        FieldKind::Blob | FieldKind::Int128 | FieldKind::Uint128 | FieldKind::Ulid => {
             decode_scalar_fast_path_binary_bytes_kind(raw_bytes, kind, tag, len, payload_start)?
         }
-        FieldKind::Text | FieldKind::Ulid => {
+        FieldKind::Text => {
             decode_scalar_fast_path_binary_text_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         FieldKind::Bool
@@ -134,7 +134,9 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         (FieldKind::Uint128, Value::Uint128(value)) => {
             push_binary_bytes(&mut encoded, &value.get().to_be_bytes());
         }
-        (FieldKind::Ulid, Value::Ulid(value)) => push_binary_text(&mut encoded, &value.to_string()),
+        (FieldKind::Ulid, Value::Ulid(value)) => {
+            push_binary_bytes(&mut encoded, &value.to_bytes());
+        }
         _ => {
             return Err(InternalError::persisted_row_field_encode_failed(
                 field_name,
@@ -180,6 +182,14 @@ fn decode_scalar_fast_path_binary_bytes_kind(
 
             Ok(Value::Uint128(Nat128::from(u128::from_be_bytes(bytes))))
         }
+        FieldKind::Ulid => {
+            let bytes: [u8; 16] =
+                binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?
+                    .try_into()
+                    .map_err(|_| FieldDecodeError::new("structural binary: expected 16 bytes"))?;
+
+            Ok(Value::Ulid(Ulid::from_bytes(bytes)))
+        }
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary byte fast-path helper",
         )),
@@ -203,9 +213,6 @@ fn decode_scalar_fast_path_binary_text_kind(
     let text = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
     match kind {
         FieldKind::Text => Ok(Value::Text(text.to_string())),
-        FieldKind::Ulid => Ok(Value::Ulid(Ulid::from_str(text).map_err(|_| {
-            FieldDecodeError::new("structural binary: invalid ulid string")
-        })?)),
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary text fast-path helper",
         )),

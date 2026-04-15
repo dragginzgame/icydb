@@ -245,17 +245,36 @@ fn decode_covering_projection_components(
     Ok(Some(decoded))
 }
 
-// Decode one covering projection stream under the existing-row contract and
-// let the caller map the decoded value vector into its terminal payload.
-pub(in crate::db) fn decode_covering_projection_pairs<T, F>(
+// Decode one single-component vector under the executor invariant that the
+// covering route promised exactly one projection payload per row.
+fn decode_single_covering_projection_value(
+    components: CoveringComponentValues,
+    invariant_message: &'static str,
+) -> Result<Option<Value>, InternalError> {
+    let mut components = components.iter();
+    let Some(component) = components.next() else {
+        return Err(InternalError::query_executor_invariant(invariant_message));
+    };
+    if components.next().is_some() {
+        return Err(InternalError::query_executor_invariant(invariant_message));
+    }
+
+    decode_covering_projection_component(component.as_slice())
+}
+
+// Share one executor-owned decode-and-map contract across the generic
+// multi-component and single-component covering projection lanes.
+fn decode_covering_projection_pairs_with<T, D, Decode, Map>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
-    mut map_decoded: F,
+    mut decode_components: Decode,
+    mut map_decoded: Map,
 ) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
 where
-    F: FnMut(Vec<Value>) -> Result<T, InternalError>,
+    Decode: FnMut(CoveringComponentValues) -> Result<Option<D>, InternalError>,
+    Map: FnMut(D) -> Result<T, InternalError>,
 {
     map_covering_projection_pairs(
         raw_pairs,
@@ -263,12 +282,34 @@ where
         consistency,
         existing_row_mode,
         |components| {
-            let Some(decoded) = decode_covering_projection_components(components)? else {
+            let Some(decoded) = decode_components(components)? else {
                 return Ok(None);
             };
 
             Ok(Some(map_decoded(decoded)?))
         },
+    )
+}
+
+// Decode one covering projection stream under the existing-row contract and
+// let the caller map the decoded value vector into its terminal payload.
+pub(in crate::db) fn decode_covering_projection_pairs<T, F>(
+    raw_pairs: CoveringProjectionComponentRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    map_decoded: F,
+) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+where
+    F: FnMut(Vec<Value>) -> Result<T, InternalError>,
+{
+    decode_covering_projection_pairs_with(
+        raw_pairs,
+        store,
+        consistency,
+        existing_row_mode,
+        decode_covering_projection_components,
+        map_decoded,
     )
 }
 
@@ -280,31 +321,18 @@ pub(in crate::db) fn decode_single_covering_projection_pairs<T, F>(
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
     invariant_message: &'static str,
-    mut map_decoded: F,
+    map_decoded: F,
 ) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
 where
     F: FnMut(Value) -> Result<T, InternalError>,
 {
-    map_covering_projection_pairs(
+    decode_covering_projection_pairs_with(
         raw_pairs,
         store,
         consistency,
         existing_row_mode,
-        |components| {
-            let mut components = components.iter();
-            let Some(component) = components.next() else {
-                return Err(InternalError::query_executor_invariant(invariant_message));
-            };
-            if components.next().is_some() {
-                return Err(InternalError::query_executor_invariant(invariant_message));
-            }
-
-            let Some(value) = decode_covering_projection_component(component.as_slice())? else {
-                return Ok(None);
-            };
-
-            Ok(Some(map_decoded(value)?))
-        },
+        |components| decode_single_covering_projection_value(components, invariant_message),
+        map_decoded,
     )
 }
 
@@ -409,4 +437,50 @@ fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> 
     bytes.copy_from_slice(payload);
 
     Ok(Some(Value::Ulid(Ulid::from_bytes(bytes))))
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{ErrorClass, ErrorOrigin};
+
+    #[test]
+    fn decode_single_covering_projection_value_rejects_multiple_components() {
+        let components: CoveringComponentValues = Arc::from(vec![
+            vec![ValueTag::Bool.to_u8(), 1],
+            vec![ValueTag::Bool.to_u8(), 0],
+        ]);
+
+        let error = decode_single_covering_projection_value(
+            components,
+            "expected one covering component for test",
+        )
+        .expect_err("multi-component vectors must violate the single-component invariant");
+
+        assert_eq!(error.class(), ErrorClass::InvariantViolation);
+        assert_eq!(error.origin(), ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn decode_covering_projection_component_decodes_fast_path_text_payload() {
+        let component = [
+            ValueTag::Text.to_u8(),
+            b't',
+            b'e',
+            b'x',
+            b't',
+            COVERING_TEXT_TERMINATOR,
+            COVERING_TEXT_TERMINATOR,
+        ];
+
+        let decoded = decode_covering_projection_component(component.as_slice())
+            .expect("fast-path text payload should decode")
+            .expect("text payload should remain supported");
+
+        assert_eq!(decoded, Value::Text(String::from("text")));
+    }
 }

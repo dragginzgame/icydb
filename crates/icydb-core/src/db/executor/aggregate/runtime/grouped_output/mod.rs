@@ -7,7 +7,7 @@ use crate::{
     db::{
         GroupedRow,
         executor::{
-            ExecutionTrace,
+            ExecutionOptimization, ExecutionTrace,
             pipeline::contracts::{
                 ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
             },
@@ -119,24 +119,19 @@ pub(in crate::db::executor) fn finalize_path_outcome_for_path(
         index_predicate_keys_rejected,
         distinct_keys_deduped,
     } = metrics;
-    record_rows_scanned_for_path(entity_path, rows_scanned);
     let rows_filtered = rows_scanned.saturating_sub(rows_emitted);
-    record_rows_filtered_for_path(entity_path, rows_filtered);
-    record_rows_emitted_for_path(entity_path, rows_emitted);
-
-    if let Some(execution_trace) = execution_trace.as_mut() {
-        execution_trace.set_path_outcome(
-            optimization,
-            rows_scanned,
-            rows_scanned,
-            rows_emitted,
-            execution_time_micros,
-            index_only,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
-        );
-    }
+    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
+    finalize_execution_trace_path_outcome(
+        execution_trace,
+        optimization,
+        rows_scanned,
+        rows_emitted,
+        execution_time_micros,
+        index_only,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    );
 }
 
 fn finalize_grouped_observability_for_path(
@@ -156,27 +151,64 @@ fn finalize_grouped_observability_for_path(
         distinct_keys_deduped,
     } = metrics;
     record_rows_aggregated_for_path(entity_path, rows_aggregated);
-    record_rows_scanned_for_path(entity_path, rows_scanned);
     let rows_filtered = rows_scanned.saturating_sub(post_access_rows);
-    record_rows_filtered_for_path(entity_path, rows_filtered);
-    record_rows_emitted_for_path(entity_path, post_access_rows);
+    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, post_access_rows);
+    finalize_execution_trace_path_outcome(
+        execution_trace,
+        optimization,
+        rows_scanned,
+        post_access_rows,
+        execution_time_micros,
+        false,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    );
 
+    let mut span = PathSpan::new(ExecKind::Load, entity_path);
+    span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
+}
+
+// Record the shared rows-scanned / rows-filtered / rows-emitted counters used
+// by both scalar and grouped aggregate outcome finalization.
+fn record_path_outcome_counts_for_path(
+    entity_path: &'static str,
+    rows_scanned: usize,
+    rows_filtered: usize,
+    rows_emitted: usize,
+) {
+    record_rows_scanned_for_path(entity_path, rows_scanned);
+    record_rows_filtered_for_path(entity_path, rows_filtered);
+    record_rows_emitted_for_path(entity_path, rows_emitted);
+}
+
+// Finalize the shared execution-trace outcome contract after aggregate output
+// shaping has already determined the final row counts for this path.
+#[expect(clippy::too_many_arguments)]
+fn finalize_execution_trace_path_outcome(
+    execution_trace: &mut Option<ExecutionTrace>,
+    optimization: Option<ExecutionOptimization>,
+    rows_scanned: usize,
+    rows_emitted: usize,
+    execution_time_micros: u64,
+    index_only: bool,
+    index_predicate_applied: bool,
+    index_predicate_keys_rejected: u64,
+    distinct_keys_deduped: u64,
+) {
     if let Some(execution_trace) = execution_trace.as_mut() {
         execution_trace.set_path_outcome(
             optimization,
             rows_scanned,
             rows_scanned,
-            post_access_rows,
+            rows_emitted,
             execution_time_micros,
-            false,
+            index_only,
             index_predicate_applied,
             index_predicate_keys_rejected,
             distinct_keys_deduped,
         );
     }
-
-    let mut span = PathSpan::new(ExecKind::Load, entity_path);
-    span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
 }
 
 // Evaluate grouped projection semantics for each grouped row while preserving

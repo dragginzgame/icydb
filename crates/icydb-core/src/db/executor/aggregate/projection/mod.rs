@@ -27,9 +27,9 @@ use crate::{
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
-                    CoveringProjectionValues, covering_index_adjacent_distinct_eligible,
-                    covering_index_projection_context, dedup_adjacent_values,
-                    dedup_values_preserving_first, scalar_window_for_covering_projection,
+                    covering_index_adjacent_distinct_eligible, covering_index_projection_context,
+                    dedup_adjacent_values, dedup_values_preserving_first,
+                    scalar_window_for_covering_projection,
                 },
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
@@ -222,10 +222,8 @@ where
                 prepared.authority.primary_key_name(),
             )
         {
-            let window = ScalarProjectionWindow {
-                offset: scalar_window_for_covering_projection(prepared.page_spec()).0,
-                limit: scalar_window_for_covering_projection(prepared.page_spec()).1,
-            };
+            let (offset, limit) = scalar_window_for_covering_projection(prepared.page_spec());
+            let window = ScalarProjectionWindow { offset, limit };
             let distinct = match op {
                 PreparedScalarProjectionOp::DistinctValues
                 | PreparedScalarProjectionOp::CountDistinct => {
@@ -275,54 +273,34 @@ where
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
-                if let Some(covering_projection) =
+                if let Some(values) =
                     Self::covering_index_projection_values_with_context_from_prepared(
                         &prepared, context, window,
                     )?
                 {
-                    return Ok(ScalarProjectionBoundaryOutput::Values(
-                        covering_projection.values,
-                    ));
+                    return Ok(ScalarProjectionBoundaryOutput::Values(values));
                 }
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                if let Some(covering_projection) =
+                if let Some(values) =
                     Self::covering_index_projection_values_with_context_from_prepared(
                         &prepared, context, window,
                     )?
                 {
-                    let values = match distinct {
-                        Some(PreparedCoveringDistinctStrategy::Adjacent) => {
-                            dedup_adjacent_values(covering_projection.values)
-                        }
-                        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
-                            dedup_values_preserving_first(covering_projection.values)?
-                        }
-                        None => {
-                            return Err(boundary.op.covering_distinct_strategy_required());
-                        }
-                    };
+                    let values =
+                        apply_covering_distinct_projection_values(values, distinct, boundary.op)?;
 
                     return Ok(ScalarProjectionBoundaryOutput::Values(values));
                 }
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                if let Some(covering_projection) =
+                if let Some(values) =
                     Self::covering_index_projection_values_with_context_from_prepared(
                         &prepared, context, window,
                     )?
                 {
-                    let values = match distinct {
-                        Some(PreparedCoveringDistinctStrategy::Adjacent) => {
-                            dedup_adjacent_values(covering_projection.values)
-                        }
-                        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
-                            dedup_values_preserving_first(covering_projection.values)?
-                        }
-                        None => {
-                            return Err(boundary.op.covering_distinct_strategy_required());
-                        }
-                    };
+                    let values =
+                        apply_covering_distinct_projection_values(values, distinct, boundary.op)?;
 
                     return Ok(ScalarProjectionBoundaryOutput::Count(
                         u32::try_from(values.len()).unwrap_or(u32::MAX),
@@ -339,7 +317,7 @@ where
                 }
             }
             PreparedScalarProjectionOp::TerminalValue { terminal_kind } => {
-                if let Some(covering_projection) =
+                if let Some(values) =
                     Self::covering_index_projection_values_with_context_from_prepared(
                         &prepared, context, window,
                     )?
@@ -347,8 +325,8 @@ where
                     PreparedScalarProjectionOp::TerminalValue { terminal_kind }
                         .validate_terminal_value_kind()?;
                     let value = match terminal_kind {
-                        AggregateKind::First => covering_projection.values.first().cloned(),
-                        AggregateKind::Last => covering_projection.values.last().cloned(),
+                        AggregateKind::First => values.first().cloned(),
+                        AggregateKind::Last => values.last().cloned(),
                         _ => unreachable!(),
                     };
 
@@ -386,14 +364,7 @@ where
                 ]))
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
-                    self,
-                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-                        prepared,
-                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
-                    ),
-                )?
-                .into_exists("projection EXISTS helper result kind mismatch")?;
+                let has_rows = self.constant_projection_has_rows(prepared)?;
                 Ok(ScalarProjectionBoundaryOutput::Values(if has_rows {
                     vec![value]
                 } else {
@@ -401,25 +372,11 @@ where
                 }))
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
-                    self,
-                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-                        prepared,
-                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
-                    ),
-                )?
-                .into_exists("projection EXISTS helper result kind mismatch")?;
+                let has_rows = self.constant_projection_has_rows(prepared)?;
                 Ok(ScalarProjectionBoundaryOutput::Count(u32::from(has_rows)))
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
-                let has_rows = ExecutionKernel::execute_prepared_aggregate_state(
-                    self,
-                    ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-                        prepared,
-                        PreparedAggregateSpec::terminal(AggregateKind::Exists),
-                    ),
-                )?
-                .into_exists("projection EXISTS helper result kind mismatch")?;
+                let has_rows = self.constant_projection_has_rows(prepared)?;
                 Ok(ScalarProjectionBoundaryOutput::TerminalValue(
                     has_rows.then_some(value),
                 ))
@@ -559,6 +516,23 @@ where
         Ok(Some(value))
     }
 
+    // Reuse one canonical EXISTS aggregate probe for constant covering
+    // projection branches that only need to know whether the effective window
+    // is empty before shaping output.
+    fn constant_projection_has_rows(
+        &self,
+        prepared: PreparedAggregateStreamingInputs<'_>,
+    ) -> Result<bool, InternalError> {
+        ExecutionKernel::execute_prepared_aggregate_state(
+            self,
+            ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+                prepared,
+                PreparedAggregateSpec::terminal(AggregateKind::Exists),
+            ),
+        )?
+        .into_exists("projection EXISTS helper result kind mismatch")
+    }
+
     // Project materialized structural rows into structural `(data_key, value)`
     // pairs while preserving the effective response row order.
     fn project_field_values_from_materialized_structural(
@@ -607,19 +581,19 @@ where
         prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
-    ) -> Result<Option<CoveringProjectionValues>, InternalError> {
+    ) -> Result<Option<Vec<Value>>, InternalError> {
         let Some(projected_pairs) =
             Self::covering_index_projection_pairs_from_context(prepared, context, window)?
         else {
             return Ok(None);
         };
 
-        let values = projected_pairs
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-
-        Ok(Some(CoveringProjectionValues { values }))
+        Ok(Some(
+            projected_pairs
+                .into_iter()
+                .map(|(_, value)| value)
+                .collect(),
+        ))
     }
 
     // Resolve one index-covered structural `(data_key, value)` projection
@@ -702,6 +676,22 @@ fn project_distinct_field_values_from_structural_projection(
     }
 
     Ok(distinct_projected_values)
+}
+
+// Apply the prepared covering DISTINCT strategy to one already-windowed
+// projection vector so covering projection terminals share one dedup contract.
+fn apply_covering_distinct_projection_values(
+    values: Vec<Value>,
+    distinct: Option<PreparedCoveringDistinctStrategy>,
+    op: PreparedScalarProjectionOp,
+) -> Result<Vec<Value>, InternalError> {
+    match distinct {
+        Some(PreparedCoveringDistinctStrategy::Adjacent) => Ok(dedup_adjacent_values(values)),
+        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
+            dedup_values_preserving_first(values)
+        }
+        None => Err(op.covering_distinct_strategy_required()),
+    }
 }
 
 // Apply one prepared scalar projection page window in place so covering

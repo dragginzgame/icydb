@@ -5,17 +5,8 @@
 
 use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
-///
-/// MaterializedExecutionPayload
-///
-/// Final materialization payload for one scalar execution attempt.
-/// Shared load lanes always return one structural cursor page, leaving any
-/// surface-specific row shaping to the outer session boundary.
-///
-
-pub(in crate::db::executor) enum MaterializedExecutionPayload {
-    StructuralPage(StructuralCursorPage),
-}
+/// Shared materialization payload for one scalar execution attempt.
+pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursorPage;
 
 ///
 /// MaterializedExecutionAttempt

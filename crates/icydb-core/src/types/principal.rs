@@ -84,9 +84,10 @@ impl Principal {
         self.0.as_slice()
     }
 
-    /// Encode this principal into bytes, enforcing the max-length invariant.
-    pub fn to_bytes(self) -> Result<Vec<u8>, PrincipalEncodeError> {
-        let len = self.as_slice().len();
+    /// Borrow this principal's validated stored bytes without allocating.
+    pub fn stored_bytes(&self) -> Result<&[u8], PrincipalEncodeError> {
+        let bytes = self.as_slice();
+        let len = bytes.len();
         if len > Self::MAX_LENGTH_IN_BYTES as usize {
             return Err(PrincipalEncodeError::TooLarge {
                 len,
@@ -94,7 +95,12 @@ impl Principal {
             });
         }
 
-        Ok(self.as_slice().to_vec())
+        Ok(bytes)
+    }
+
+    /// Encode this principal into bytes, enforcing the max-length invariant.
+    pub fn to_bytes(self) -> Result<Vec<u8>, PrincipalEncodeError> {
+        Ok(self.stored_bytes()?.to_vec())
     }
 
     pub const fn try_from_bytes(bytes: &[u8]) -> Result<Self, PrincipalDecodeError> {

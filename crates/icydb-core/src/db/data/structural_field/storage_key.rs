@@ -5,10 +5,9 @@
 
 use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
-    TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_TEXT, TAG_UINT64, TAG_UNIT,
-    decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
+    TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_UINT64, TAG_UNIT,
     parse_binary_head as parse_structural_binary_head, payload_bytes as binary_payload_bytes,
-    push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_null, push_binary_text,
+    push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_null,
     push_binary_uint64, push_binary_unit, skip_binary_value as skip_structural_binary_value,
     walk_binary_list_items as walk_structural_binary_list_items,
 };
@@ -397,7 +396,7 @@ fn encode_storage_key_field_binary_into(
             Ok(())
         }
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => {
-            push_binary_text(out, &value.to_string());
+            push_binary_int64(out, value.as_millis());
             Ok(())
         }
         (FieldKind::Uint, StorageKey::Uint(value)) => {
@@ -405,7 +404,7 @@ fn encode_storage_key_field_binary_into(
             Ok(())
         }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => {
-            push_binary_text(out, &value.to_string());
+            push_binary_bytes(out, &value.to_bytes());
             Ok(())
         }
         (FieldKind::Unit, StorageKey::Unit) => {
@@ -504,19 +503,18 @@ fn decode_timestamp_storage_key_binary_bytes(
             "structural binary: trailing bytes after timestamp payload",
         ));
     }
-    if tag != TAG_TEXT {
+    if tag != TAG_INT64 || len != 8 {
         return Err(FieldDecodeError::new(
-            "structural binary: expected text timestamp payload",
+            "structural binary: expected i64 timestamp payload",
         ));
     }
+    let payload: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "timestamp")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid timestamp payload"))?;
 
-    crate::types::Timestamp::parse_flexible(decode_binary_text_scalar_bytes(
-        raw_bytes,
-        len,
-        payload_start,
-    )?)
-    .map(StorageKey::Timestamp)
-    .map_err(FieldDecodeError::new)
+    Ok(StorageKey::Timestamp(crate::types::Timestamp::from_millis(
+        i64::from_be_bytes(payload),
+    )))
 }
 
 // Decode one principal relation-key payload from Structural Binary v1.
@@ -580,7 +578,8 @@ fn decode_subaccount_storage_key_binary_bytes(
     ))
 }
 
-// Decode one ULID relation-key payload directly from its Structural Binary text form.
+// Decode one ULID relation-key payload directly from its fixed-width Structural
+// Binary bytes form.
 fn decode_ulid_storage_key_binary_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
@@ -593,19 +592,15 @@ fn decode_ulid_storage_key_binary_bytes(raw_bytes: &[u8]) -> Result<StorageKey, 
             "structural binary: trailing bytes after ulid payload",
         ));
     }
-    if tag != TAG_TEXT {
+    if tag != TAG_BYTES {
         return Err(FieldDecodeError::new(
-            "structural binary: expected text ulid payload",
+            "structural binary: expected bytes ulid payload",
         ));
     }
 
-    Ulid::from_str(decode_binary_text_scalar_bytes(
-        raw_bytes,
-        len,
-        payload_start,
-    )?)
-    .map(StorageKey::Ulid)
-    .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid string"))
+    Ulid::try_from_bytes(binary_payload_bytes(raw_bytes, len, payload_start, "ulid")?)
+        .map(StorageKey::Ulid)
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid payload"))
 }
 
 // Decode one unit relation-key payload from Structural Binary v1.
@@ -910,27 +905,27 @@ mod tests {
     }
 
     #[test]
-    fn storage_key_binary_rejects_invalid_timestamp_and_ulid_text() {
-        let bad_timestamp = encode_text("not-a-timestamp");
-        let bad_ulid = encode_text("not-a-ulid");
+    fn storage_key_binary_rejects_invalid_timestamp_and_ulid_payload() {
+        let bad_timestamp = encode_bytes(&[7_u8; 7]);
+        let bad_ulid = encode_bytes(&[9_u8; 15]);
 
         assert!(
             decode_storage_key_field_binary_bytes(bad_timestamp.as_slice(), FieldKind::Timestamp)
                 .is_err(),
-            "invalid timestamp text must fail decode"
+            "invalid timestamp payload must fail decode"
         );
         assert!(
             validate_storage_key_binary_value_bytes(bad_timestamp.as_slice(), FieldKind::Timestamp)
                 .is_err(),
-            "invalid timestamp text must fail validate"
+            "invalid timestamp payload must fail validate"
         );
         assert!(
             decode_storage_key_field_binary_bytes(bad_ulid.as_slice(), FieldKind::Ulid).is_err(),
-            "invalid ulid text must fail decode"
+            "invalid ulid payload must fail decode"
         );
         assert!(
             validate_storage_key_binary_value_bytes(bad_ulid.as_slice(), FieldKind::Ulid).is_err(),
-            "invalid ulid text must fail validate"
+            "invalid ulid payload must fail validate"
         );
     }
 
@@ -960,7 +955,7 @@ mod tests {
     #[test]
     fn binary_relation_target_storage_key_decode_handles_single_ulid_and_null() {
         let target = Ulid::from_u128(7);
-        let target_bytes = encode_text(&target.to_string());
+        let target_bytes = encode_bytes(&target.to_bytes());
         let null_bytes = encode_null();
 
         let decoded =
@@ -982,9 +977,9 @@ mod tests {
         let left = Ulid::from_u128(8);
         let right = Ulid::from_u128(9);
         let bytes = encode_list(&[
-            encode_text(&left.to_string()),
+            encode_bytes(&left.to_bytes()),
             encode_null(),
-            encode_text(&right.to_string()),
+            encode_bytes(&right.to_bytes()),
         ]);
 
         let decoded =
@@ -1016,7 +1011,7 @@ mod tests {
         );
         assert_eq!(
             decode_storage_key_field_binary_bytes(
-                &encode_text(&Ulid::from_u128(11).to_string()),
+                &encode_bytes(&Ulid::from_u128(11).to_bytes()),
                 FieldKind::Ulid
             )
             .expect("ulid should decode"),
@@ -1040,7 +1035,7 @@ mod tests {
         );
         assert_eq!(
             decode_storage_key_field_binary_bytes(
-                &encode_text(&timestamp.to_string()),
+                &encode_int64(timestamp.as_millis()),
                 FieldKind::Timestamp
             )
             .expect("timestamp should decode"),

@@ -13,7 +13,7 @@ mod tests;
 use crate::{
     db::{
         access::AccessPathKind,
-        data::DataRow,
+        data::{DataRow, RawRow},
         direction::Direction,
         executor::{
             PreparedAggregatePlan, PreparedExecutionPlan,
@@ -37,7 +37,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
-    value::Value,
+    value::{StorageKey, Value},
 };
 
 // Typed boundary request for one numeric field aggregate terminal family call.
@@ -100,8 +100,7 @@ where
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericExecution<'_>, InternalError> {
         // Phase 1: resolve the plan-free numeric boundary exactly once.
-        let boundary =
-            Self::resolve_prepared_scalar_numeric_boundary(&plan, &target_field, request)?;
+        let boundary = Self::resolve_prepared_scalar_numeric_boundary(&target_field, request)?;
 
         // Phase 2: derive the execution payload family from the prepared boundary.
         let payload = self.prepare_scalar_numeric_payload(plan, &boundary, request)?;
@@ -165,16 +164,13 @@ where
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
         for (data_key, raw_row) in rows {
-            let value = RowDecoder::decode_required_slot_value(
+            accumulator.add(Self::decode_numeric_materialized_row_decimal(
                 row_layout,
                 data_key.storage_key(),
                 &raw_row,
-                field_slot.index,
-            )?;
-            let value =
-                extract_numeric_field_decimal_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
-            accumulator.add(value);
+                target_field,
+                field_slot,
+            )?);
         }
 
         finalize_numeric_field_output(accumulator, kind)
@@ -263,7 +259,6 @@ where
     // planner field slot so both aggregate and global-DISTINCT payloads share
     // the same field/op contract.
     fn resolve_prepared_scalar_numeric_boundary(
-        _plan: &PreparedAggregatePlan,
         target_field: &PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericBoundary, InternalError> {
@@ -308,6 +303,25 @@ where
             strategy,
             prepared: Box::new(prepared),
         })
+    }
+
+    // Decode one materialized row slot into a Decimal using the same numeric
+    // field-target contract that the streaming fold path applies per row.
+    fn decode_numeric_materialized_row_decimal(
+        row_layout: &RowLayout,
+        storage_key: StorageKey,
+        raw_row: &RawRow,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Decimal, InternalError> {
+        let value = RowDecoder::decode_required_slot_value(
+            row_layout,
+            storage_key,
+            raw_row,
+            field_slot.index,
+        )?;
+        extract_numeric_field_decimal_from_decoded_slot(target_field, field_slot, value)
+            .map_err(AggregateFieldValueError::into_internal_error)
     }
 }
 

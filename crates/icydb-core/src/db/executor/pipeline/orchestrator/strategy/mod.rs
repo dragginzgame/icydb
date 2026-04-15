@@ -5,7 +5,7 @@
 
 use crate::{
     db::executor::{
-        ExecutionTrace, LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, PreparedLoadPlan,
+        LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, PreparedLoadPlan,
         pipeline::{
             contracts::LoadExecutor,
             entrypoints::{
@@ -54,57 +54,28 @@ impl ExecutionSpec {
     }
 }
 
-///
-/// KernelDispatchOutput
-///
-/// Output emitted by one lane-specific leaf kernel operation.
-/// Carries payload and optional execution trace.
-///
-struct KernelDispatchOutput {
-    payload: LoadExecutionPayload,
-    trace: Option<ExecutionTrace>,
-}
-
-///
-/// KernelState
-///
-/// Full kernel output state emitted by non-generic kernel orchestration.
-/// Preserves execution context with payload and optional trace output.
-///
-struct KernelState {
-    context: LoadExecutionContext,
-    payload: LoadExecutionPayload,
-    trace: Option<ExecutionTrace>,
-}
-
 // Execute one canonical kernel dispatch over one runtime execution descriptor.
 fn execute_kernel(
     context: LoadExecutionContext,
     spec: ExecutionSpec,
-) -> Result<KernelState, InternalError> {
-    let output = match spec {
+) -> Result<LoadPayloadState, InternalError> {
+    let (payload, trace) = match spec {
         ExecutionSpec::Scalar(prepared) => {
             let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
 
-            KernelDispatchOutput {
-                payload: LoadExecutionPayload::Scalar(page),
-                trace,
-            }
+            (LoadExecutionPayload::Scalar(page), trace)
         }
         ExecutionSpec::Grouped(prepared) => {
             let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
 
-            KernelDispatchOutput {
-                payload: LoadExecutionPayload::Grouped(page),
-                trace,
-            }
+            (LoadExecutionPayload::Grouped(page), trace)
         }
     };
 
-    Ok(KernelState {
+    Ok(LoadPayloadState {
         context,
-        payload: output.payload,
-        trace: output.trace,
+        payload,
+        trace,
     })
 }
 
@@ -142,18 +113,8 @@ where
             access_inputs,
         } = state;
         let LoadAccessInputs { execution_spec } = access_inputs;
-        let kernel_state = execute_kernel(context, execution_spec)?;
-        let KernelState {
-            context,
-            payload,
-            trace,
-        } = kernel_state;
 
-        Ok(LoadPayloadState {
-            context,
-            payload,
-            trace,
-        })
+        execute_kernel(context, execution_spec)
     }
 
     // Build one non-generic kernel descriptor from one typed execution context.

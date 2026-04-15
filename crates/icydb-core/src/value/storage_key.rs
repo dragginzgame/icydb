@@ -29,9 +29,6 @@ pub enum StorageKeyEncodeError {
     #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
     AccountOwnerTooLarge { len: usize, max: usize },
 
-    #[error("account payload length mismatch: {len} bytes (expected {expected})")]
-    AccountLengthMismatch { len: usize, expected: usize },
-
     #[error("value kind '{kind}' is not storage-key encodable")]
     UnsupportedValueKind { kind: &'static str },
 
@@ -254,14 +251,10 @@ impl StorageKey {
         // Phase 2: encode variant payload into the normalized fixed-width frame.
         match self {
             Self::Account(v) => {
-                let bytes = v.to_bytes().map_err(Self::from_account_encode_error)?;
-                if bytes.len() != Self::ACCOUNT_MAX_SIZE {
-                    return Err(StorageKeyEncodeError::AccountLengthMismatch {
-                        len: bytes.len(),
-                        expected: Self::ACCOUNT_MAX_SIZE,
-                    });
-                }
-                payload[..bytes.len()].copy_from_slice(&bytes);
+                let bytes = v
+                    .to_stored_bytes()
+                    .map_err(Self::from_account_encode_error)?;
+                payload[..Self::ACCOUNT_MAX_SIZE].copy_from_slice(&bytes);
             }
             Self::Int(v) => {
                 let biased = v.cast_unsigned() ^ (1u64 << 63);
@@ -272,14 +265,16 @@ impl StorageKey {
                 payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.repr().to_be_bytes());
             }
             Self::Principal(v) => {
-                let bytes = v.to_bytes().map_err(Self::from_principal_encode_error)?;
+                let bytes = v
+                    .stored_bytes()
+                    .map_err(Self::from_principal_encode_error)?;
                 let len = bytes.len();
                 payload[0] =
                     u8::try_from(len).map_err(|_| StorageKeyEncodeError::PrincipalTooLarge {
                         len,
                         max: Principal::MAX_LENGTH_IN_BYTES as usize,
                     })?;
-                payload[1..=len].copy_from_slice(&bytes[..len]);
+                payload[1..=len].copy_from_slice(bytes);
             }
             Self::Subaccount(v) => payload[..Self::SUBACCOUNT_SIZE].copy_from_slice(&v.to_array()),
             Self::Ulid(v) => payload[..Self::ULID_SIZE].copy_from_slice(&v.to_bytes()),

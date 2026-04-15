@@ -63,27 +63,20 @@ impl PartialOrd for GroupedPageCandidate {
 }
 
 impl GroupedPageCandidate {
-    // Finalize one single-aggregate grouped state bundle into one candidate row.
-    fn from_single(
-        finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
-        direction: Direction,
-    ) -> Self {
-        let (group_key, aggregate_value) = finalized_group.finalize_single();
-
-        Self {
-            group_key,
-            aggregate_values: vec![aggregate_value],
-            direction,
-        }
-    }
-
-    // Finalize one multi-aggregate grouped state bundle into one candidate row.
-    fn from_many(
+    // Finalize one grouped state bundle into one candidate row while
+    // preserving the single-aggregate fast path's scalar finalize contract.
+    fn from_finalized(
         finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
         aggregate_count: usize,
         direction: Direction,
     ) -> Self {
-        let (group_key, aggregate_values) = finalized_group.finalize(aggregate_count);
+        let (group_key, aggregate_values) = if aggregate_count == 1 {
+            let (group_key, aggregate_value) = finalized_group.finalize_single();
+
+            (group_key, vec![aggregate_value])
+        } else {
+            finalized_group.finalize(aggregate_count)
+        };
 
         Self {
             group_key,
@@ -231,32 +224,26 @@ fn into_grouped_page_candidates(
     sorted: bool,
     direction: Direction,
 ) -> Vec<GroupedPageCandidate> {
-    if grouped_bundle.has_single_aggregate() {
-        let groups = if sorted {
-            grouped_bundle.into_sorted_groups()
-        } else {
-            grouped_bundle.into_groups().collect()
-        };
-
-        return groups
-            .into_iter()
-            .map(|finalized_group| GroupedPageCandidate::from_single(finalized_group, direction))
-            .collect();
-    }
-
     let aggregate_count = grouped_bundle.aggregate_count();
-    let groups = if sorted {
+    into_finalize_groups(grouped_bundle, sorted)
+        .into_iter()
+        .map(|finalized_group| {
+            GroupedPageCandidate::from_finalized(finalized_group, aggregate_count, direction)
+        })
+        .collect()
+}
+
+// Materialize grouped finalize entries in either canonical key order or
+// hash-table iteration order without duplicating the bundle extraction path.
+fn into_finalize_groups(
+    grouped_bundle: GroupedAggregateBundle,
+    sorted: bool,
+) -> Vec<crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup> {
+    if sorted {
         grouped_bundle.into_sorted_groups()
     } else {
         grouped_bundle.into_groups().collect()
-    };
-
-    groups
-        .into_iter()
-        .map(|finalized_group| {
-            GroupedPageCandidate::from_many(finalized_group, aggregate_count, direction)
-        })
-        .collect()
+    }
 }
 
 // Apply grouped candidate selection, filtering, offset, and limit over one

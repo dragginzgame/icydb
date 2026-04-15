@@ -40,6 +40,24 @@ use crate::db::executor::terminal::{
     bytes_page_window_state, saturating_add_payload_len, serialized_value_len,
 };
 
+// Fold one iterator of serialized field lengths through the canonical bytes
+// page window without duplicating the limited and unlimited sum paths.
+fn fold_windowed_value_lens<I>(value_lens: I, offset: usize, limit: Option<usize>) -> u64
+where
+    I: IntoIterator<Item = usize>,
+{
+    let windowed = value_lens.into_iter().skip(offset);
+
+    match limit {
+        Some(limit) => windowed.take(limit).fold(0u64, |total, value_len| {
+            saturating_add_payload_len(total, value_len)
+        }),
+        None => windowed.fold(0u64, |total, value_len| {
+            saturating_add_payload_len(total, value_len)
+        }),
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -273,21 +291,11 @@ where
         reorder_covering_projection_pairs(context.order_contract, projected_rows.as_mut_slice());
 
         let (offset, limit) = bytes_page_window_state(prepared.page_spec());
-        let total = match limit {
-            Some(limit) => projected_rows
-                .into_iter()
-                .skip(offset)
-                .take(limit)
-                .fold(0u64, |total, (_, value_len)| {
-                    saturating_add_payload_len(total, value_len)
-                }),
-            None => projected_rows
-                .into_iter()
-                .skip(offset)
-                .fold(0u64, |total, (_, value_len)| {
-                    saturating_add_payload_len(total, value_len)
-                }),
-        };
+        let total = fold_windowed_value_lens(
+            projected_rows.into_iter().map(|(_, value_len)| value_len),
+            offset,
+            limit,
+        );
 
         Ok(Some(total))
     }

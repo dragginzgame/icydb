@@ -43,8 +43,8 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
         Predicate::Or(children) => normalize_or(children),
         Predicate::Not(inner) => normalize_not(inner),
 
-        Predicate::Compare(cmp) => Predicate::Compare(normalize_compare(cmp)),
-        Predicate::CompareFields(cmp) => Predicate::CompareFields(normalize_compare_fields(cmp)),
+        Predicate::Compare(cmp) => Predicate::Compare(cmp.clone()),
+        Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp.clone()),
 
         Predicate::IsNull { field } => Predicate::IsNull {
             field: field.clone(),
@@ -137,30 +137,6 @@ pub(in crate::db) fn normalize_enum_literals(
             value: value.clone(),
         }),
     }
-}
-
-/// Normalize a comparison predicate by cloning its components.
-///
-/// This function exists primarily for symmetry and future-proofing
-/// (e.g. if comparison-level rewrites are introduced later).
-fn normalize_compare(cmp: &ComparePredicate) -> ComparePredicate {
-    ComparePredicate {
-        field: cmp.field.clone(),
-        op: cmp.op,
-        value: cmp.value.clone(),
-        coercion: cmp.coercion.clone(),
-    }
-}
-
-fn normalize_compare_fields(
-    cmp: &crate::db::predicate::CompareFieldsPredicate,
-) -> crate::db::predicate::CompareFieldsPredicate {
-    crate::db::predicate::CompareFieldsPredicate::with_coercion(
-        cmp.left_field.clone(),
-        cmp.op,
-        cmp.right_field.clone(),
-        cmp.coercion.id,
-    )
 }
 
 fn normalize_compare_with_schema(
@@ -261,12 +237,7 @@ fn normalize_compare_value_for_kind(
                 return Ok(value.clone());
             };
 
-            let mut normalized = Vec::with_capacity(values.len());
-            for item in values {
-                normalized.push(normalize_value_for_kind(field, item, field_kind)?);
-            }
-
-            Ok(Value::List(normalized))
+            normalize_list_value_for_kind(field, values.as_slice(), field_kind)
         }
         CompareOp::Contains => {
             let element_kind = match field_kind {
@@ -293,22 +264,18 @@ fn normalize_value_for_kind(
                 return Ok(value.clone());
             };
 
-            let mut normalized = Vec::with_capacity(values.len());
-            for item in values {
-                normalized.push(normalize_value_for_kind(field, item, inner)?);
-            }
-
-            Ok(Value::List(normalized))
+            normalize_list_value_for_kind(field, values.as_slice(), inner)
         }
         FieldKind::Set(inner) => {
             let Value::List(values) = value else {
                 return Ok(value.clone());
             };
 
-            let mut normalized = Vec::with_capacity(values.len());
-            for item in values {
-                normalized.push(normalize_value_for_kind(field, item, inner)?);
-            }
+            let Value::List(mut normalized) =
+                normalize_list_value_for_kind(field, values.as_slice(), inner)?
+            else {
+                unreachable!("normalized list kind should always return list value");
+            };
 
             // Canonical set literal normalization must match the same
             // deterministic sort + dedup rule used by access planning.
@@ -355,6 +322,21 @@ fn normalize_value_for_kind(
         | FieldKind::Unit
         | FieldKind::Structured { .. } => Ok(value.clone()),
     }
+}
+
+// Normalize one list-shaped literal by recursively rewriting each item against
+// the expected element kind while preserving list cardinality and order.
+fn normalize_list_value_for_kind(
+    field: &str,
+    values: &[Value],
+    expected_kind: &FieldKind,
+) -> Result<Value, ValidateError> {
+    let mut normalized = Vec::with_capacity(values.len());
+    for item in values {
+        normalized.push(normalize_value_for_kind(field, item, expected_kind)?);
+    }
+
+    Ok(Value::List(normalized))
 }
 
 fn normalize_enum_value(
@@ -608,7 +590,11 @@ fn sort_key(predicate: &Predicate) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
+        db::predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate, normalize,
+            normalize::normalize_value_for_kind,
+        },
+        model::field::FieldKind,
         value::Value,
     };
 
@@ -888,5 +874,28 @@ mod tests {
         };
 
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn normalize_value_for_set_kind_canonicalizes_members() {
+        let normalized = normalize_value_for_kind(
+            "tags",
+            &Value::List(vec![
+                Value::Text("beta".to_string()),
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ]),
+            &FieldKind::Set(&FieldKind::Text),
+        )
+        .expect("set literal normalization should succeed");
+
+        assert_eq!(
+            normalized,
+            Value::List(vec![
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ]),
+            "set literal normalization should sort and deduplicate members",
+        );
     }
 }

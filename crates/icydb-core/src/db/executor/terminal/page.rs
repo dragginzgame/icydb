@@ -1296,9 +1296,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
-            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
-                data_rows, None,
-            )),
+            StructuralCursorPage::new(data_rows, None),
             rows_scanned,
             post_access_rows,
         ));
@@ -1388,9 +1386,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
-            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
-                data_rows, None,
-            )),
+            StructuralCursorPage::new(data_rows, None),
             rows_scanned,
             post_access_rows,
         ));
@@ -1544,9 +1540,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
         return Ok((
-            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
-                data_rows, None,
-            )),
+            StructuralCursorPage::new(data_rows, None),
             rows_scanned,
             post_access_rows,
         ));
@@ -1770,17 +1764,13 @@ fn finalize_kernel_rows_payload(
     let _ = plan;
 
     match finalize_mode {
-        KernelRowFinalizeMode::StructuralDataRows { next_cursor } => {
-            Ok(MaterializedExecutionPayload::StructuralPage(
-                StructuralCursorPage::new(collect_kernel_data_rows(rows)?, next_cursor),
-            ))
-        }
+        KernelRowFinalizeMode::StructuralDataRows { next_cursor } => Ok(StructuralCursorPage::new(
+            collect_kernel_data_rows(rows)?,
+            next_cursor,
+        )),
         #[cfg(feature = "sql")]
         KernelRowFinalizeMode::StructuralSlotRows { next_cursor } => Ok(
-            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new_with_slot_rows(
-                collect_kernel_slot_rows(rows)?,
-                next_cursor,
-            )),
+            StructuralCursorPage::new_with_slot_rows(collect_kernel_slot_rows(rows)?, next_cursor),
         ),
     }
 }

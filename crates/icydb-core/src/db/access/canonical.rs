@@ -47,16 +47,6 @@ fn dedup_sorted_access_plans(plans: &mut Vec<AccessPlan<Value>>) {
     plans.truncate(write);
 }
 
-/// Canonicalize a list of key values for deterministic ByKeys plans.
-fn canonicalize_key_values(keys: &mut Vec<Value>) {
-    canonicalize_value_set(keys);
-}
-
-/// Canonicalize a list of index literal values for deterministic set semantics.
-fn canonicalize_index_literal_values(values: &mut Vec<Value>) {
-    canonicalize_value_set(values);
-}
-
 /// Canonicalize one value set with deterministic order + dedup semantics.
 pub(in crate::db) fn canonicalize_value_set(values: &mut Vec<Value>) {
     values.sort_by(Value::canonical_cmp);
@@ -95,6 +85,14 @@ fn canonical_cmp_access_path_value(
     right: &AccessPath<Value>,
 ) -> Ordering {
     left.canonical_cmp(right)
+}
+
+// Return the single value from one canonicalized value-set shape.
+fn single_canonical_value(values: &[Value]) -> Option<&Value> {
+    match values {
+        [value] => Some(value),
+        _ => None,
+    }
 }
 
 impl AccessPlan<Value> {
@@ -211,23 +209,19 @@ impl AccessPath<Value> {
     fn normalize_for_access(self) -> Self {
         match self {
             Self::ByKeys(mut keys) => {
-                canonicalize_key_values(&mut keys);
-                if let Some(first) = keys.first()
-                    && keys.len() == 1
-                {
-                    return Self::ByKey(first.clone());
+                canonicalize_value_set(&mut keys);
+                if let Some(key) = single_canonical_value(keys.as_slice()) {
+                    return Self::ByKey(key.clone());
                 }
 
                 Self::ByKeys(keys)
             }
             Self::IndexMultiLookup { index, mut values } => {
-                canonicalize_index_literal_values(&mut values);
-                if let Some(first) = values.first()
-                    && values.len() == 1
-                {
+                canonicalize_value_set(&mut values);
+                if let Some(value) = single_canonical_value(values.as_slice()) {
                     return Self::IndexPrefix {
                         index,
-                        values: vec![first.clone()],
+                        values: vec![value.clone()],
                     };
                 }
 

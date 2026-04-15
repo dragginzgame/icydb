@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.83.x] 🧱 - 2026-04-15 - Serialization Boundary Cleanup
 
+- `0.83.3` follows the binary cutover by removing ambient `Serialize` policy from core and schema generation, hardening the new structural binary owners with broader malformed-payload coverage, cleaning a few remaining query encode/decode redundancies, and tightening several type-local codecs so `Ulid`, `Date`, `Timestamp`, `Principal`, and `Account` use smaller or less allocation-heavy runtime byte paths.
+- `0.83.2` is the hard cut that replaces the last CBOR-shaped structural field contracts with engine-owned structural binary codecs, deletes the generic `serde_cbor` and `crate::serialize` layers from `icydb-core`, removes the final persisted-row CBOR semantics and stale CBOR naming, and tightens legacy `PersistedRow` so old-style derives must use explicit storage hints instead of silently falling back to CBOR.
 - `0.83.1` continues the serialization cleanup by moving migration state onto an explicit binary codec, simplifying `Value` decoding and structural encoding ownership, teaching the legacy `PersistedRow` derive more exact field kinds plus explicit decimal scale hints so more old-style typed rows can avoid the CBOR fallback seam, and making executor `bytes()` sizing use the same owner-local value-storage encoding as the rest of the runtime instead of counting CBOR bytes separately.
 - `0.83.0` starts the line by moving cursor tokens and several DB-owned persisted-value paths off the generic serializer, centralizing the remaining runtime CBOR helper behind one DB codec boundary, and proving that more of the storage runtime can use explicit engine-owned codecs instead of generic CBOR-by-default plumbing.
 

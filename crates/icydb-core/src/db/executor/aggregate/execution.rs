@@ -304,8 +304,6 @@ impl PreparedAggregateStreamingInputs<'_> {
     }
 }
 
-impl PreparedAggregateStreamingInputsCore {}
-
 ///
 /// PreparedScalarNumericOp
 ///
@@ -321,6 +319,13 @@ pub(in crate::db::executor) enum PreparedScalarNumericOp {
 }
 
 impl PreparedScalarNumericOp {
+    // Route one numeric-op-specific invariant through the shared query
+    // executor error taxonomy without repeating the constructor at each call
+    // site in this enum.
+    fn invariant(message: impl Into<String>) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
     /// Return the aggregate kind represented by this numeric terminal.
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_kind(self) -> AggregateKind {
@@ -346,7 +351,7 @@ impl PreparedScalarNumericOp {
             Self::Sum => "AVG divisor conversion invariant is only valid for AVG numeric ops",
         };
 
-        InternalError::query_executor_invariant(message)
+        Self::invariant(message)
     }
 
     // Build the canonical grouped DISTINCT numeric output mismatch invariant.
@@ -354,7 +359,7 @@ impl PreparedScalarNumericOp {
         self,
         value: &Value,
     ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
+        Self::invariant(format!(
             "global {}(DISTINCT field) grouped output type mismatch: {value:?}",
             self.aggregate_name(),
         ))
@@ -439,6 +444,13 @@ pub(in crate::db::executor) enum PreparedScalarProjectionOp {
 }
 
 impl PreparedScalarProjectionOp {
+    // Route one prepared projection-op invariant through the shared query
+    // executor error taxonomy without repeating the constructor in each
+    // branch-specific helper below.
+    fn invariant(message: impl Into<String>) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
     // Build the canonical prepared-op invariant for missing covering DISTINCT strategy.
     pub(in crate::db::executor) fn covering_distinct_strategy_required(self) -> InternalError {
         let message = match self {
@@ -453,7 +465,7 @@ impl PreparedScalarProjectionOp {
             }
         };
 
-        InternalError::query_executor_invariant(message)
+        Self::invariant(message)
     }
 
     // Build the canonical prepared-op invariant for unsupported constant covering values-with-ids.
@@ -470,7 +482,7 @@ impl PreparedScalarProjectionOp {
             }
         };
 
-        InternalError::query_executor_invariant(message)
+        Self::invariant(message)
     }
 
     // Build the canonical prepared-op invariant for terminal-value late materialization.
@@ -484,7 +496,7 @@ impl PreparedScalarProjectionOp {
             }
         };
 
-        InternalError::query_executor_invariant(message)
+        Self::invariant(message)
     }
 
     // Validate that one terminal-value projection op only carries FIRST/LAST kinds.
@@ -493,7 +505,7 @@ impl PreparedScalarProjectionOp {
             Self::TerminalValue { terminal_kind }
                 if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) =>
             {
-                Err(InternalError::query_executor_invariant(
+                Err(Self::invariant(
                     "terminal value projection requires FIRST/LAST aggregate kind",
                 ))
             }
@@ -558,8 +570,6 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
     pub(in crate::db::executor) op: PreparedScalarProjectionOp,
 }
 
-impl PreparedAggregateStreamingInputs<'_> {}
-
 ///
 /// PreparedScalarTerminalOp
 ///
@@ -584,6 +594,13 @@ pub(in crate::db::executor) enum PreparedScalarTerminalOp {
 }
 
 impl PreparedScalarTerminalOp {
+    // Route one prepared terminal-op invariant through the shared query
+    // executor error taxonomy without rebuilding the constructor in each
+    // validation branch.
+    fn invariant(message: impl Into<String>) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
     /// Return the aggregate kind represented by this prepared scalar terminal.
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_kind(&self) -> AggregateKind {
@@ -610,10 +627,10 @@ impl PreparedScalarTerminalOp {
                 kind: AggregateKind::Min | AggregateKind::Max,
                 ..
             } => Ok(()),
-            Self::IdTerminal { .. } => Err(InternalError::query_executor_invariant(
+            Self::IdTerminal { .. } => Err(Self::invariant(
                 "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
             )),
-            Self::IdBySlot { .. } => Err(InternalError::query_executor_invariant(
+            Self::IdBySlot { .. } => Err(Self::invariant(
                 "id-by-slot aggregate request requires MIN/MAX kind",
             )),
         }

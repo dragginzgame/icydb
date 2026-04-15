@@ -65,6 +65,19 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
 }
 
 impl GroupedPathRuntimeCore {
+    // Build the grouped runtime spine once from one recovered store handle and
+    // its resolved structural entity authority.
+    fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
+        Self {
+            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
+            row_store: store,
+            authority,
+            output_observer: GroupedOutputRuntimeObserverBindings::for_path(
+                authority.entity_path(),
+            ),
+        }
+    }
+
     /// Build one grouped execution stream for an already resolved route.
     fn build_grouped_stream(
         &self,
@@ -106,6 +119,23 @@ impl GroupedPathRuntimeCore {
             folded,
             execution_time_micros,
         )
+    }
+}
+
+impl PreparedGroupedRouteRuntime {
+    // Build one prepared grouped runtime bundle from one resolved route and
+    // one structural grouped runtime core without duplicating plan prep logic.
+    fn new(route: GroupedRouteStage, runtime: GroupedPathRuntimeCore) -> Self {
+        let execution_preparation = ExecutionPreparation::from_runtime_plan(
+            route.plan(),
+            route.plan().slot_map().map(<[usize]>::to_vec),
+        );
+
+        Self {
+            route,
+            runtime,
+            execution_preparation,
+        }
     }
 }
 
@@ -215,23 +245,11 @@ where
         crate::db::cursor::GroupedPlannedCursor::none(),
         debug,
     )?;
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(
-        route.plan(),
-        route.plan().slot_map().map(<[usize]>::to_vec),
-    );
     let store = db.recovered_store(authority.store_path())?;
-    let prepared = PreparedGroupedRouteRuntime {
+    let prepared = PreparedGroupedRouteRuntime::new(
         route,
-        runtime: GroupedPathRuntimeCore {
-            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
-            row_store: store,
-            authority,
-            output_observer: GroupedOutputRuntimeObserverBindings::for_path(
-                authority.entity_path(),
-            ),
-        },
-        execution_preparation,
-    };
+        GroupedPathRuntimeCore::from_store(store, authority),
+    );
 
     // Phase 2: execute one grouped page and return the grouped cursor payload
     // directly so the outer surface can format the outward cursor as needed.
@@ -248,14 +266,7 @@ where
         let authority = EntityAuthority::for_type::<E>();
         let store = self.db.recovered_store(authority.store_path())?;
 
-        Ok(GroupedPathRuntimeCore {
-            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
-            row_store: store,
-            authority,
-            output_observer: GroupedOutputRuntimeObserverBindings::for_path(
-                authority.entity_path(),
-            ),
-        })
+        Ok(GroupedPathRuntimeCore::from_store(store, authority))
     }
 
     // Resolve grouped route metadata and structural runtime authority once at
@@ -264,16 +275,10 @@ where
         &self,
         route: GroupedRouteStage,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
-        let execution_preparation = ExecutionPreparation::from_runtime_plan(
-            route.plan(),
-            route.plan().slot_map().map(<[usize]>::to_vec),
-        );
-
-        Ok(PreparedGroupedRouteRuntime {
+        Ok(PreparedGroupedRouteRuntime::new(
             route,
-            runtime: self.grouped_path_runtime()?,
-            execution_preparation,
-        })
+            self.grouped_path_runtime()?,
+        ))
     }
 
     // Execute one traced paged grouped load and materialize grouped output.

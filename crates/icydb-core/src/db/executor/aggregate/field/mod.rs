@@ -98,6 +98,51 @@ pub(in crate::db::executor) struct FieldSlot {
     pub(in crate::db::executor) kind: FieldKind,
 }
 
+// Build the canonical unknown-field error for aggregate field-slot resolution.
+fn unknown_aggregate_target_field(target_field: &str) -> AggregateFieldValueError {
+    AggregateFieldValueError::UnknownField {
+        field: target_field.to_string(),
+    }
+}
+
+// Resolve one final field slot from already-known index/kind metadata and
+// optionally enforce one capability gate over the declared field kind.
+fn resolve_aggregate_target_slot(
+    index: usize,
+    target_field: &str,
+    kind: FieldKind,
+    supports_kind: Option<fn(&FieldKind) -> bool>,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    if let Some(supports_kind) = supports_kind
+        && !supports_kind(&kind)
+    {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind,
+        });
+    }
+
+    Ok(FieldSlot { index, kind })
+}
+
+// Coerce one already-validated aggregate field payload into Decimal while
+// preserving the canonical type-mismatch error shape for numeric terminals.
+fn coerce_numeric_field_decimal_owned(
+    target_field: &str,
+    field_slot: FieldSlot,
+    value: Value,
+) -> Result<Decimal, AggregateFieldValueError> {
+    let Some(decimal) = coerce_numeric_decimal(&value) else {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: field_slot.kind,
+            value: Box::new(value),
+        });
+    };
+
+    Ok(decimal)
+}
+
 // Return true when one runtime value matches the declared field kind shape.
 fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
     match (kind, value) {
@@ -176,21 +221,15 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_fiel
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
-    if !field_kind_supports_aggregate_ordering(&field.kind()) {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind: field.kind(),
-        });
-    }
 
-    Ok(FieldSlot {
+    resolve_aggregate_target_slot(
         index,
-        kind: field.kind(),
-    })
+        target_field,
+        field.kind(),
+        Some(field_kind_supports_aggregate_ordering),
+    )
 }
 
 /// Resolve one planner field slot into one orderable aggregate projection slot using planner-frozen field metadata.
@@ -199,21 +238,15 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_plan
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
     let Some(kind) = field_slot.kind() else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
-    if !field_kind_supports_aggregate_ordering(&kind) {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind,
-        });
-    }
 
-    Ok(FieldSlot {
-        index: field_slot.index(),
+    resolve_aggregate_target_slot(
+        field_slot.index(),
+        target_field,
         kind,
-    })
+        Some(field_kind_supports_aggregate_ordering),
+    )
 }
 
 /// Resolve one aggregate target field into a stable projection slot using structural model data.
@@ -223,15 +256,10 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_fields(
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
 
-    Ok(FieldSlot {
-        index,
-        kind: field.kind(),
-    })
+    resolve_aggregate_target_slot(index, target_field, field.kind(), None)
 }
 
 /// Resolve one planner field slot into one aggregate projection slot using planner-frozen field metadata.
@@ -240,15 +268,10 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_sl
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
     let Some(kind) = field_slot.kind() else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
 
-    Ok(FieldSlot {
-        index: field_slot.index(),
-        kind,
-    })
+    resolve_aggregate_target_slot(field_slot.index(), target_field, kind, None)
 }
 
 /// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
@@ -258,21 +281,15 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_fields
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let Some((index, field)) = field_model_with_index(fields, target_field) else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
-    if !field_kind_supports_numeric_aggregation(&field.kind()) {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind: field.kind(),
-        });
-    }
 
-    Ok(FieldSlot {
+    resolve_aggregate_target_slot(
         index,
-        kind: field.kind(),
-    })
+        target_field,
+        field.kind(),
+        Some(field_kind_supports_numeric_aggregation),
+    )
 }
 
 /// Resolve one planner field slot into one numeric aggregate projection slot using planner-frozen field metadata.
@@ -281,21 +298,15 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planne
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
     let Some(kind) = field_slot.kind() else {
-        return Err(AggregateFieldValueError::UnknownField {
-            field: target_field.to_string(),
-        });
+        return Err(unknown_aggregate_target_field(target_field));
     };
-    if !field_kind_supports_numeric_aggregation(&kind) {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind,
-        });
-    }
 
-    Ok(FieldSlot {
-        index: field_slot.index(),
+    resolve_aggregate_target_slot(
+        field_slot.index(),
+        target_field,
         kind,
-    })
+        Some(field_kind_supports_numeric_aggregation),
+    )
 }
 
 /// Extract one field value from a slot reader and enforce the declared runtime field kind.
@@ -367,15 +378,8 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
 ) -> Result<Decimal, AggregateFieldValueError> {
     let value =
         extract_orderable_field_value_with_slot_reader(target_field, field_slot, read_slot)?;
-    let Some(decimal) = coerce_numeric_decimal(&value) else {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value),
-        });
-    };
 
-    Ok(decimal)
+    coerce_numeric_field_decimal_owned(target_field, field_slot, value)
 }
 
 /// Extract one numeric field value as `Decimal` from a borrowed slot reader
@@ -387,15 +391,8 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_ref_reade
 ) -> Result<Decimal, AggregateFieldValueError> {
     let value =
         extract_orderable_field_value_with_slot_ref_reader(target_field, field_slot, read_slot)?;
-    let Some(decimal) = coerce_numeric_decimal(value) else {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value.clone()),
-        });
-    };
 
-    Ok(decimal)
+    coerce_numeric_field_decimal_owned(target_field, field_slot, value.clone())
 }
 
 // Extract one numeric field value as `Decimal` from one already-decoded
@@ -408,15 +405,8 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_from_decoded_slot(
 ) -> Result<Decimal, AggregateFieldValueError> {
     let value =
         extract_orderable_field_value_from_decoded_slot(target_field, field_slot, decoded_value)?;
-    let Some(decimal) = coerce_numeric_decimal(&value) else {
-        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-            value: Box::new(value),
-        });
-    };
 
-    Ok(decimal)
+    coerce_numeric_field_decimal_owned(target_field, field_slot, value)
 }
 
 /// Compare two extracted field values using shared numeric ordering semantics

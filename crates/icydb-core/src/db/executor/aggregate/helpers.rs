@@ -6,7 +6,7 @@
 use crate::{
     db::{
         cursor::{ContinuationRuntime, LoopAction},
-        data::{DataKey, DataRow},
+        data::{DataKey, DataRow, RawRow},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
@@ -35,6 +35,40 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Select one key from an already ordered `(storage_key, value)` projection
+    // by caller-provided ordinal policy.
+    fn select_ordered_field_projection_key(
+        ordered_rows: Vec<(StorageKey, Value)>,
+        select_index: impl FnOnce(usize) -> Option<usize>,
+    ) -> Option<StorageKey> {
+        let selected_index = select_index(ordered_rows.len())?;
+
+        ordered_rows
+            .into_iter()
+            .nth(selected_index)
+            .map(|(id, _)| id)
+    }
+
+    // Decode one retained slot and project it into the canonical aggregate
+    // field value surface used by both materialized helper paths and single-row
+    // aggregate lookups.
+    fn decode_projected_field_value(
+        row_layout: &RowLayout,
+        storage_key: StorageKey,
+        raw_row: &RawRow,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Value, InternalError> {
+        let value = RowDecoder::decode_required_slot_value(
+            row_layout,
+            storage_key,
+            raw_row,
+            field_slot.index,
+        )?;
+        extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+            .map_err(AggregateFieldValueError::into_internal_error)
+    }
+
     // Canonical precedence predicate for field projections under deterministic
     // field ordering with primary-key ascending tie-break.
     fn field_projection_candidate_precedes(
@@ -118,13 +152,11 @@ where
             target_field,
             field_slot,
         )?;
-
         // Phase 2: project the requested ordinal position.
-        if nth >= ordered_rows.len() {
-            return Ok(None);
-        }
-
-        Ok(ordered_rows.into_iter().nth(nth).map(|(id, _)| id))
+        Ok(Self::select_ordered_field_projection_key(
+            ordered_rows,
+            |len| (nth < len).then_some(nth),
+        ))
     }
 
     // Reduce one materialized response into `median(field)` using deterministic
@@ -142,17 +174,15 @@ where
             target_field,
             field_slot,
         )?;
-        if ordered_rows.is_empty() {
-            return Ok(None);
-        }
 
-        let median_index = if ordered_rows.len() % 2 == 0 {
-            ordered_rows.len() / 2 - 1
-        } else {
-            ordered_rows.len() / 2
-        };
-
-        Ok(ordered_rows.into_iter().nth(median_index).map(|(id, _)| id))
+        Ok(Self::select_ordered_field_projection_key(
+            ordered_rows,
+            |len| match len {
+                0 => None,
+                len if len % 2 == 0 => Some(len / 2 - 1),
+                len => Some(len / 2),
+            },
+        ))
     }
 
     // Reduce one materialized response into `(min_by(field), max_by(field))`
@@ -257,15 +287,13 @@ where
 
         for (data_key, raw_row) in rows {
             let storage_key = data_key.storage_key();
-            let value = RowDecoder::decode_required_slot_value(
+            let value = Self::decode_projected_field_value(
                 row_layout,
                 storage_key,
                 &raw_row,
-                field_slot.index,
+                target_field,
+                field_slot,
             )?;
-            let value =
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
             projected.push((storage_key, value));
         }
 
@@ -301,15 +329,13 @@ where
         let Some(row) = read_data_row_with_consistency_from_store(store, key, consistency)? else {
             return Ok(None);
         };
-        let value = RowDecoder::decode_required_slot_value(
+        let value = Self::decode_projected_field_value(
             row_layout,
             key.storage_key(),
             &row.1,
-            field_slot.index,
+            target_field,
+            field_slot,
         )?;
-        let value =
-            extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Some(value))
     }

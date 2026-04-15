@@ -141,7 +141,7 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
         Value::Account(value) => push_binary_account_value(out, *value)?,
         Value::Date(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DATE, |out| {
-            push_binary_text(out, &value.to_string());
+            push_binary_int64(out, i64::from(value.as_days_since_epoch()));
             Ok(())
         })?,
         Value::Decimal(value) => push_binary_decimal_value(out, *value)?,
@@ -175,8 +175,8 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_PRINCIPAL, |out| {
                 push_binary_bytes(
                     out,
-                    &value
-                        .to_bytes()
+                    value
+                        .stored_bytes()
                         .map_err(InternalError::persisted_row_encode_failed)?,
                 );
                 Ok(())
@@ -202,7 +202,7 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         }
         Value::UintBig(value) => push_binary_uint_big_value(out, value)?,
         Value::Ulid(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ULID, |out| {
-            push_binary_text(out, &value.to_string());
+            push_binary_bytes(out, &value.to_bytes());
             Ok(())
         })?,
     }
@@ -254,12 +254,10 @@ where
 // contract instead of routing through the general `Value` lane.
 fn push_binary_account_value(out: &mut Vec<u8>, value: Account) -> Result<(), InternalError> {
     push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ACCOUNT, |out| {
-        push_binary_bytes(
-            out,
-            &value
-                .to_bytes()
-                .map_err(InternalError::persisted_row_encode_failed)?,
-        );
+        let bytes = value
+            .to_stored_bytes()
+            .map_err(InternalError::persisted_row_encode_failed)?;
+        push_binary_bytes(out, &bytes);
 
         Ok(())
     })
@@ -720,24 +718,12 @@ fn decode_binary_account_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErr
     Ok(Value::Account(account))
 }
 
-// Decode one local date payload from canonical text.
+// Decode one local date payload from canonical signed day-count form.
 fn decode_binary_date_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DATE, "date")?;
-    let Some((tag, len, payload_start)) = parse_binary_head(payload, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated date payload",
-        ));
-    };
-    if tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected date text",
-        ));
-    }
-
-    let text = decode_binary_text_scalar_bytes(payload, len, payload_start)?;
-    Date::parse(text)
+    Date::try_from_i64(decode_binary_required_i64(payload, "date days")?)
         .map(Value::Date)
-        .ok_or_else(|| FieldDecodeError::new(format!("structural binary: invalid date: {text}")))
+        .ok_or_else(|| FieldDecodeError::new("structural binary: date day count out of range"))
 }
 
 // Decode one local decimal payload from `(mantissa_bytes, scale)`.
@@ -902,14 +888,14 @@ fn decode_binary_uint_big_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeEr
     Ok(Value::UintBig(Nat::from(wrapped)))
 }
 
-// Decode one local ULID payload from canonical text.
+// Decode one local ULID payload from canonical fixed-width bytes.
 fn decode_binary_ulid_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ULID, "ulid")?;
-    let text = decode_binary_required_text(payload, "ulid text")?;
-    let value = Ulid::from_str(text)
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid string"))?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "ulid bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid length"))?;
 
-    Ok(Value::Ulid(value))
+    Ok(Value::Ulid(Ulid::from_bytes(bytes)))
 }
 
 // Decode one binary list payload recursively from raw item bytes.

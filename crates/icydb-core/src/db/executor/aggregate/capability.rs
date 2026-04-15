@@ -92,6 +92,25 @@ pub(in crate::db::executor) struct AggregateFieldExtremaEligibility {
         Option<AggregateFieldExtremaIneligibilityReason>,
 }
 
+impl AggregateFieldExtremaEligibility {
+    // Build the canonical ineligible field-extrema policy shape from one
+    // aggregate-owned rejection reason.
+    const fn ineligible(reason: AggregateFieldExtremaIneligibilityReason) -> Self {
+        Self {
+            eligible: false,
+            ineligibility_reason: Some(reason),
+        }
+    }
+
+    // Build the canonical eligible field-extrema policy shape.
+    const fn eligible() -> Self {
+        Self {
+            eligible: true,
+            ineligibility_reason: None,
+        }
+    }
+}
+
 ///
 /// AggregateExecutionPolicyInputs
 ///
@@ -211,86 +230,60 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility(
     extrema_kind: AggregateKind,
 ) -> AggregateFieldExtremaEligibility {
     let Some(aggregate) = aggregate_shape else {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(AggregateFieldExtremaIneligibilityReason::SpecMissing),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::SpecMissing,
+        );
     };
     if aggregate.kind() != extrema_kind {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::AggregateKindMismatch,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::AggregateKindMismatch,
+        );
     }
     let Some(_target_field) = aggregate.target_field() else {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::TargetFieldMissing,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::TargetFieldMissing,
+        );
     };
     if !aggregate.target_field_known() {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::UnknownTargetField,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::UnknownTargetField,
+        );
     }
     if !aggregate.target_field_orderable() {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::UnsupportedFieldType,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::UnsupportedFieldType,
+        );
     }
     if plan.scalar_plan().distinct {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::DistinctNotSupported,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::DistinctNotSupported,
+        );
     }
     let offset = usize::try_from(crate::db::cursor::effective_page_offset_for_window(
         plan, false,
     ))
     .unwrap_or(usize::MAX);
     if offset > 0 {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::OffsetNotSupported,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::OffsetNotSupported,
+        );
     }
 
     let access_class = plan.access_strategy().class();
     if access_class.composite() {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::CompositePathNotSupported,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::CompositePathNotSupported,
+        );
     }
     if !field_extrema_target_has_matching_index(plan, aggregate) {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(AggregateFieldExtremaIneligibilityReason::NoMatchingIndex),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::NoMatchingIndex,
+        );
     }
     if matches!(direction, Direction::Desc) && !access_class.reverse_supported() {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::DescReverseTraversalNotSupported,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::DescReverseTraversalNotSupported,
+        );
     }
     if plan
         .scalar_plan()
@@ -298,18 +291,12 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility(
         .as_ref()
         .is_some_and(|page| page.limit.is_some())
     {
-        return AggregateFieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(
-                AggregateFieldExtremaIneligibilityReason::PageLimitNotSupported,
-            ),
-        };
+        return AggregateFieldExtremaEligibility::ineligible(
+            AggregateFieldExtremaIneligibilityReason::PageLimitNotSupported,
+        );
     }
 
-    AggregateFieldExtremaEligibility {
-        eligible: true,
-        ineligibility_reason: None,
-    }
+    AggregateFieldExtremaEligibility::eligible()
 }
 
 fn field_extrema_target_has_matching_index(

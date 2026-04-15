@@ -82,7 +82,7 @@ impl<K> AccessPlan<K> {
         let mut out = Vec::new();
         let mut saw_explicit_empty = false;
         for child in children {
-            Self::append_union_flattened(&mut out, child);
+            Self::append_flattened_child(&mut out, child, true);
         }
         out.retain(|child| {
             let is_empty = child.is_explicit_empty();
@@ -109,7 +109,7 @@ impl<K> AccessPlan<K> {
     pub(crate) fn intersection(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
         for child in children {
-            Self::append_intersection_flattened(&mut out, child);
+            Self::append_flattened_child(&mut out, child, false);
         }
         if let Some(empty_child) = out.iter().position(Self::is_explicit_empty) {
             return out.remove(empty_child);
@@ -205,24 +205,17 @@ impl<K> AccessPlan<K> {
         }
     }
 
-    // Append one child into a flattened union accumulator.
-    fn append_union_flattened(out: &mut Vec<Self>, child: Self) {
+    // Append one child into the requested flattened composite accumulator.
+    fn append_flattened_child(out: &mut Vec<Self>, child: Self, flatten_union: bool) {
         match child {
-            Self::Union(children) => {
+            Self::Union(children) if flatten_union => {
                 for child in children {
-                    Self::append_union_flattened(out, child);
+                    Self::append_flattened_child(out, child, flatten_union);
                 }
             }
-            other => out.push(other),
-        }
-    }
-
-    // Append one child into a flattened intersection accumulator.
-    fn append_intersection_flattened(out: &mut Vec<Self>, child: Self) {
-        match child {
-            Self::Intersection(children) => {
+            Self::Intersection(children) if !flatten_union => {
                 for child in children {
-                    Self::append_intersection_flattened(out, child);
+                    Self::append_flattened_child(out, child, flatten_union);
                 }
             }
             other => out.push(other),
@@ -237,22 +230,28 @@ impl<K> AccessPlan<K> {
         match self {
             Self::Path(path) => Ok(AccessPlan::path(path.map_keys(map_key)?)),
             Self::Union(children) => {
-                let mut out = Vec::with_capacity(children.len());
-                for child in children {
-                    out.push(child.map_keys_with(map_key)?);
-                }
-
-                Ok(AccessPlan::union(out))
+                Ok(AccessPlan::union(Self::map_child_plans(children, map_key)?))
             }
-            Self::Intersection(children) => {
-                let mut out = Vec::with_capacity(children.len());
-                for child in children {
-                    out.push(child.map_keys_with(map_key)?);
-                }
-
-                Ok(AccessPlan::intersection(out))
-            }
+            Self::Intersection(children) => Ok(AccessPlan::intersection(Self::map_child_plans(
+                children, map_key,
+            )?)),
         }
+    }
+
+    // Map one child-plan list with one shared mutable key-mapping closure.
+    fn map_child_plans<T, E, F>(
+        children: Vec<Self>,
+        map_key: &mut F,
+    ) -> Result<Vec<AccessPlan<T>>, E>
+    where
+        F: FnMut(K) -> Result<T, E>,
+    {
+        let mut out = Vec::with_capacity(children.len());
+        for child in children {
+            out.push(child.map_keys_with(map_key)?);
+        }
+
+        Ok(out)
     }
 }
 

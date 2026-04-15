@@ -189,12 +189,6 @@ impl GroupedAggregateBundle {
         }
     }
 
-    /// Return true when this bundle carries exactly one aggregate slot.
-    #[must_use]
-    pub(super) const fn has_single_aggregate(&self) -> bool {
-        self.aggregate_specs.len() == 1
-    }
-
     // Return true when one canonical grouped key matches the borrowed grouped
     // slot values from this row under the grouped executor equality contract.
     fn group_key_matches_row_view(

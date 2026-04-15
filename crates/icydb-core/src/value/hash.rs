@@ -152,7 +152,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
     match value {
         Value::Account(a) => {
             let bytes = a
-                .to_bytes()
+                .to_stored_bytes()
                 .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
             feed_bytes(h, &bytes);
         }
@@ -228,10 +228,10 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         }
         Value::Principal(p) => {
             let raw = p
-                .to_bytes()
+                .stored_bytes()
                 .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
             feed_u32(h, raw.len() as u32);
-            feed_bytes(h, &raw);
+            feed_bytes(h, raw);
         }
         Value::Subaccount(s) => {
             feed_bytes(h, &s.to_bytes());

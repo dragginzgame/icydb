@@ -6,11 +6,9 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_TEXT, TAG_UINT64,
-        decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
+        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_UINT64, parse_binary_head,
         payload_bytes as binary_payload_bytes, push_binary_bytes, push_binary_int64,
-        push_binary_list_len, push_binary_null, push_binary_text, push_binary_uint64,
-        skip_binary_value,
+        push_binary_list_len, push_binary_null, push_binary_uint64, skip_binary_value,
     },
     storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
 };
@@ -130,13 +128,11 @@ fn encode_structured_leaf_null_bytes(
     Ok(encoded)
 }
 
-// Decode one date payload from its canonical binary text form.
+// Decode one date payload from its canonical signed day-count form.
 fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let text = decode_required_text_payload(raw_bytes, "date")?;
-
-    Date::parse(text)
+    Date::try_from_i64(decode_required_i64_payload(raw_bytes, "date days")?)
         .map(Value::Date)
-        .ok_or_else(|| FieldDecodeError::new(format!("structural binary: invalid date: {text}")))
+        .ok_or_else(|| FieldDecodeError::new("structural binary: date day count out of range"))
 }
 
 // Decode one decimal payload from the canonical `(mantissa_bytes, scale)`
@@ -184,7 +180,7 @@ fn decode_uint_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErr
     Ok(Value::UintBig(Nat::from(wrapped)))
 }
 
-// Encode one date payload into canonical binary text.
+// Encode one date payload into canonical signed day-count form.
 fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
     let Value::Date(value) = value else {
         return Err(InternalError::persisted_row_field_encode_failed(
@@ -194,7 +190,7 @@ fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, I
     };
 
     let mut encoded = Vec::new();
-    push_binary_text(&mut encoded, &value.to_string());
+    push_binary_int64(&mut encoded, i64::from(value.as_days_since_epoch()));
     Ok(encoded)
 }
 
@@ -345,27 +341,6 @@ fn decode_required_null_payload(
     }
 
     Ok(())
-}
-
-// Decode one required top-level text payload and enforce full-byte
-// consumption.
-fn decode_required_text_payload<'a>(
-    raw_bytes: &'a [u8],
-    label: &'static str,
-) -> Result<&'a str, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label} payload"
-        )));
-    };
-    let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected text for {label}"
-        )));
-    }
-
-    decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)
 }
 
 // Decode one required top-level byte-string payload and enforce full-byte
@@ -519,10 +494,12 @@ mod tests {
     use super::{
         TAG_NULL, decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes,
         push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_null,
-        push_binary_text, push_binary_uint64,
+        push_binary_uint64,
     };
     use crate::{
-        db::data::structural_field::validate_structural_field_by_kind_bytes,
+        db::data::structural_field::{
+            binary::push_binary_text, validate_structural_field_by_kind_bytes,
+        },
         model::field::FieldKind,
         types::{Date, Decimal, Duration, Int, Nat},
         value::Value,

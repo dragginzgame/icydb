@@ -43,6 +43,17 @@ struct GlobalDistinctFieldAggregateDispatcher {
     needs_numeric: bool,
 }
 
+// Resolve one grouped DISTINCT aggregate kind or report the caller-owned
+// invariant when the planner strategy omitted that field-target aggregate.
+fn global_distinct_aggregate_kind(
+    execution_strategy: &GroupedDistinctExecutionStrategy,
+    missing_message: &'static str,
+) -> Result<AggregateKind, InternalError> {
+    execution_strategy
+        .global_distinct_aggregate_kind()
+        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
+}
+
 impl GlobalDistinctFieldAggregateDispatcher {
     // Resolve one grouped global DISTINCT field reducer from the planner-frozen
     // grouped DISTINCT strategy contract.
@@ -56,13 +67,10 @@ impl GlobalDistinctFieldAggregateDispatcher {
                     "grouped DISTINCT dispatcher requires a global field-target strategy",
                 )
             })?;
-        let reducer_kind = execution_strategy
-            .global_distinct_aggregate_kind()
-            .ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "grouped DISTINCT dispatcher requires a global field-target aggregate kind",
-                )
-            })?;
+        let reducer_kind = global_distinct_aggregate_kind(
+            execution_strategy,
+            "grouped DISTINCT dispatcher requires a global field-target aggregate kind",
+        )?;
         let (field_slot, needs_numeric) = match reducer_kind {
             AggregateKind::Count => (
                 resolve_any_aggregate_target_slot_from_planner_slot(target_slot)
@@ -136,11 +144,10 @@ impl DistinctReducerSpec {
     fn from_strategy(
         execution_strategy: &GroupedDistinctExecutionStrategy,
     ) -> Result<Self, InternalError> {
-        let Some(reducer_kind) = execution_strategy.global_distinct_aggregate_kind() else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped DISTINCT reducer requires a global field-target aggregate kind",
-            ));
-        };
+        let reducer_kind = global_distinct_aggregate_kind(
+            execution_strategy,
+            "grouped DISTINCT reducer requires a global field-target aggregate kind",
+        )?;
 
         let reducer_spec = match reducer_kind {
             AggregateKind::Count => Self {

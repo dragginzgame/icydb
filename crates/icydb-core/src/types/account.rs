@@ -95,9 +95,26 @@ impl Account {
         Self::new(p, Some(s))
     }
 
+    /// Encode the account into its fixed-size stored form without heap allocation.
+    pub fn to_stored_bytes(self) -> Result<[u8; Self::STORED_SIZE as usize], AccountEncodeError> {
+        let mut out = [0u8; Self::STORED_SIZE as usize];
+        self.write_stored_bytes(&mut out)?;
+
+        Ok(out)
+    }
+
     /// Convert the account into a deterministic, fixed-size byte representation.
     pub fn to_bytes(self) -> Result<Vec<u8>, AccountEncodeError> {
-        let principal_bytes = self.owner.to_bytes()?;
+        Ok(self.to_stored_bytes()?.to_vec())
+    }
+
+    // Encode the fixed-size stored account form directly into a caller-owned buffer
+    // so row/index code can avoid the intermediate `Vec<u8>` allocation.
+    fn write_stored_bytes(
+        self,
+        out: &mut [u8; Self::STORED_SIZE as usize],
+    ) -> Result<(), AccountEncodeError> {
+        let principal_bytes = self.owner.stored_bytes()?;
         let len = principal_bytes.len();
         if len > Self::PRINCIPAL_MAX_LEN {
             return Err(AccountEncodeError::OwnerTooLarge {
@@ -106,7 +123,7 @@ impl Account {
             });
         }
 
-        let mut out = vec![0u8; Self::STORED_SIZE as usize];
+        out.fill(0);
 
         // Encode principal length and subaccount presence in the tag byte.
         let mut tag = u8::try_from(len).map_err(|_| AccountEncodeError::OwnerTooLarge {
@@ -120,7 +137,7 @@ impl Account {
 
         // Principal bytes (padded to fixed length).
         if len > 0 {
-            out[1..=len].copy_from_slice(&principal_bytes);
+            out[1..=len].copy_from_slice(principal_bytes);
         }
 
         // Subaccount bytes (fixed length).
@@ -128,7 +145,7 @@ impl Account {
         let sub_offset = 1 + Self::PRINCIPAL_MAX_LEN;
         out[sub_offset..sub_offset + Self::SUBACCOUNT_LEN].copy_from_slice(&subaccount_bytes);
 
-        Ok(out)
+        Ok(())
     }
 
     /// Construct the maximum possible account for storage sizing tests.
@@ -202,11 +219,11 @@ impl EntityKeyBytes for Account {
 
     fn write_bytes(&self, out: &mut [u8]) {
         assert_eq!(out.len(), Self::BYTE_LEN);
-        let encoded = self
-            .to_bytes()
+        let out: &mut [u8; Self::BYTE_LEN] = out
+            .try_into()
+            .expect("account primary key output must match stored width");
+        self.write_stored_bytes(out)
             .expect("account primary key encoding must remain valid");
-
-        out.copy_from_slice(&encoded);
     }
 }
 

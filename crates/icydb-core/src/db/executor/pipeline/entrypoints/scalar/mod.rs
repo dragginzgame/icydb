@@ -186,6 +186,51 @@ impl PreparedScalarMaterializedBoundary<'_> {
     }
 }
 
+// Build the shared scalar runtime bundle once after the caller has already
+// resolved the store, route plan, continuation policy, and output mode for
+// this scalar execution family.
+#[expect(clippy::too_many_arguments)]
+fn build_prepared_scalar_route_runtime(
+    store: StoreHandle,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+    route_plan: ExecutionPlan,
+    index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    resolved_continuation: ScalarContinuationContext,
+    unpaged_rows_mode: bool,
+    cursor_emission: CursorEmissionMode,
+    projection_runtime_mode: ScalarProjectionRuntimeMode,
+    debug: bool,
+) -> PreparedScalarRouteRuntime {
+    let slot_map = slot_map_for_model_plan(&plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
+    let prepared_projection = PreparedExecutionProjection::compile(
+        authority,
+        &plan,
+        execution_preparation.compiled_predicate(),
+        projection_runtime_mode,
+        cursor_emission,
+        route_plan.load_terminal_fast_path(),
+    );
+
+    PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan,
+        route_plan,
+        execution_preparation,
+        prepared_projection,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation,
+        unpaged_rows_mode,
+        cursor_emission,
+        projection_runtime_mode,
+        debug,
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: PersistedRow + EntityValue,
@@ -311,11 +356,10 @@ fn execute_prepared_scalar_path_execution(
 // Finalize one scalar runtime tuple when the payload must be a structural page.
 fn finalize_scalar_structural_path_execution(
     entity_path: &'static str,
-    _structural_payload_error: &'static str,
     execution: ScalarPathExecution,
 ) -> (StructuralCursorPage, Option<ExecutionTrace>) {
     let (payload, metrics, mut trace, execution_time_micros) = execution;
-    let MaterializedExecutionPayload::StructuralPage(page) = payload;
+    let page = payload;
     let page = finalize_structural_page_for_path(
         entity_path,
         page,
@@ -327,16 +371,24 @@ fn finalize_scalar_structural_path_execution(
     (page, trace)
 }
 
+// Execute one prepared scalar runtime bundle and finalize the shared
+// structural page boundary in the common non-attributed path.
+fn execute_prepared_scalar_structural_page(
+    prepared: PreparedScalarRouteRuntime,
+) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
+    let entity_path = prepared.authority.entity_path();
+
+    Ok(finalize_scalar_structural_path_execution(
+        entity_path,
+        execute_prepared_scalar_path_execution(prepared)?,
+    ))
+}
+
 /// Execute one prepared scalar runtime bundle and finalize the structural page.
 pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
-    let entity_path = prepared.authority.entity_path();
-    Ok(finalize_scalar_structural_path_execution(
-        entity_path,
-        "shared scalar route runtime must finalize one structural cursor page",
-        execute_prepared_scalar_path_execution(prepared)?,
-    ))
+    execute_prepared_scalar_structural_page(prepared)
 }
 
 /// Execute one prepared scalar runtime bundle while reporting the internal
@@ -364,11 +416,7 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
     // Phase 2: finalize the structural page and observability payload.
     let (finalize_local_instructions, finalized) = measure_scalar_execute_phase(|| {
         Ok::<(StructuralCursorPage, Option<ExecutionTrace>), InternalError>(
-            finalize_scalar_structural_path_execution(
-                entity_path,
-                "shared scalar route runtime must finalize one structural cursor page",
-                execution,
-            ),
+            finalize_scalar_structural_path_execution(entity_path, execution),
         )
     });
     let (page, trace) = finalized?;
@@ -425,34 +473,22 @@ where
         &resolved_continuation,
         None,
     )?;
-    let slot_map = slot_map_for_model_plan(&logical_plan);
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
-    let prepared_projection = PreparedExecutionProjection::compile(
-        authority,
-        &logical_plan,
-        execution_preparation.compiled_predicate(),
-        ScalarProjectionRuntimeMode::SharedValidation,
-        CursorEmissionMode::Emit,
-        route_plan.load_terminal_fast_path(),
-    );
 
     // Phase 2: hand off the generic-free runtime bundle to scalar kernel
     // dispatch.
-    Ok(PreparedScalarRouteRuntime {
+    Ok(build_prepared_scalar_route_runtime(
         store,
         authority,
-        plan: logical_plan,
+        logical_plan,
         route_plan,
-        execution_preparation,
-        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
-        cursor_emission: CursorEmissionMode::Emit,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
+        CursorEmissionMode::Emit,
+        ScalarProjectionRuntimeMode::SharedValidation,
         debug,
-    })
+    ))
 }
 
 // Prepare one initial scalar runtime bundle for unpaged canister rows without
@@ -476,41 +512,21 @@ where
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let route_plan = build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
-    let slot_map = slot_map_for_model_plan(&logical_plan);
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
-    let prepared_projection = PreparedExecutionProjection::compile(
-        authority,
-        &logical_plan,
-        execution_preparation.compiled_predicate(),
-        // This surface only materializes canonical data rows for the outer
-        // canister/entity boundary. It does not consume shared projection
-        // validation or retained-slot output, so keep projection
-        // materialization disabled and let retained-slot layout exist only
-        // when later executor phases still need predicate/order support.
-        ScalarProjectionRuntimeMode::None,
-        CursorEmissionMode::Suppress,
-        route_plan.load_terminal_fast_path(),
-    );
 
     // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
-    Ok(PreparedScalarRouteRuntime {
+    Ok(build_prepared_scalar_route_runtime(
         store,
         authority,
-        plan: logical_plan,
+        logical_plan,
         route_plan,
-        execution_preparation,
-        prepared_projection,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation: ScalarContinuationContext::for_runtime(
-            PlannedCursor::none(),
-            continuation_signature,
-        ),
-        unpaged_rows_mode: true,
-        cursor_emission: CursorEmissionMode::Suppress,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature),
+        true,
+        CursorEmissionMode::Suppress,
+        ScalarProjectionRuntimeMode::None,
         debug,
-    })
+    ))
 }
 
 // Execute one unpaged scalar rows path once per canister and return the
@@ -589,36 +605,24 @@ where
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let route_plan = build_initial_execution_route_plan_for_load(authority, &plan, None)?;
-    let slot_map = slot_map_for_model_plan(&plan);
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(&plan, slot_map);
-    let prepared_projection = PreparedExecutionProjection::compile(
-        authority,
-        &plan,
-        execution_preparation.compiled_predicate(),
-        ScalarProjectionRuntimeMode::RetainSlotRows,
-        CursorEmissionMode::Suppress,
-        route_plan.load_terminal_fast_path(),
-    );
 
     // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
-    let prepared = PreparedScalarRouteRuntime {
+    let prepared = build_prepared_scalar_route_runtime(
         store,
         authority,
         plan,
         route_plan,
-        execution_preparation,
-        prepared_projection,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation: ScalarContinuationContext::for_runtime(
+        ScalarContinuationContext::for_runtime(
             PlannedCursor::none(),
             continuation_contract.continuation_signature(),
         ),
-        unpaged_rows_mode: true,
-        cursor_emission: CursorEmissionMode::Suppress,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
+        true,
+        CursorEmissionMode::Suppress,
+        ScalarProjectionRuntimeMode::RetainSlotRows,
         debug,
-    };
+    );
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
@@ -650,8 +654,6 @@ where
     );
 
     // Phase 1: resolve structural execution preparation once at the boundary.
-    let slot_map = slot_map_for_model_plan(&logical_plan);
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
     let mut route_plan =
         build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
 
@@ -660,42 +662,22 @@ where
     // executor-local materialized shortcuts.
     route_plan.scan_hints.physical_fetch_hint = None;
     route_plan.scan_hints.load_scan_budget_hint = None;
-    let prepared_projection = PreparedExecutionProjection::compile(
-        authority,
-        &logical_plan,
-        execution_preparation.compiled_predicate(),
-        // Shared materialized scalar boundaries emit canonical data rows for
-        // downstream bytes/ranking/materialized consumers. Those consumers do
-        // not need executor-owned projection validation or retained-slot row
-        // output, so disable projection materialization here and keep any
-        // remaining retained-slot layout strictly about predicate/order needs.
-        ScalarProjectionRuntimeMode::None,
-        CursorEmissionMode::Suppress,
-        route_plan.load_terminal_fast_path(),
-    );
-
     // Phase 3: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.
-    let prepared = PreparedScalarRouteRuntime {
+    let prepared = build_prepared_scalar_route_runtime(
         store,
         authority,
-        plan: logical_plan,
+        logical_plan,
         route_plan,
-        execution_preparation,
-        prepared_projection,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
-        unpaged_rows_mode: false,
-        cursor_emission: CursorEmissionMode::Suppress,
-        projection_runtime_mode: ScalarProjectionRuntimeMode::None,
-        debug: executor.debug,
-    };
-    let (page, _) = finalize_scalar_structural_path_execution(
-        authority.entity_path(),
-        "shared scalar materialized boundary must emit one structural page",
-        execute_prepared_scalar_path_execution(prepared)?,
+        false,
+        CursorEmissionMode::Suppress,
+        ScalarProjectionRuntimeMode::None,
+        executor.debug,
     );
+    let (page, _) = execute_prepared_scalar_structural_page(prepared)?;
 
     Ok(page)
 }

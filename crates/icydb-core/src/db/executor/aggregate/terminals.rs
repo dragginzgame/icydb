@@ -433,6 +433,38 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Build the canonical rejection for requests that do not belong on the
+    // scalar COUNT/EXISTS/id terminal boundary.
+    fn scalar_terminal_boundary_request_unsupported() -> InternalError {
+        InternalError::query_executor_invariant(
+            "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
+        )
+    }
+
+    // Build the canonical rejection for requests that do not belong on the
+    // order-sensitive first/last/nth/median/min-max terminal boundary.
+    fn order_sensitive_terminal_boundary_request_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "order-sensitive terminal boundary requires first/last/nth/median/min-max request",
+        )
+    }
+
+    // Resolve one planner field slot and package it into the shared
+    // order-sensitive field-order terminal boundary shape.
+    fn prepare_field_order_sensitive_terminal_boundary(
+        target_field: PlannedFieldSlot,
+        op: PreparedFieldOrderSensitiveTerminalOp,
+    ) -> Result<PreparedOrderSensitiveTerminalBoundary, InternalError> {
+        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+
+        Ok(PreparedOrderSensitiveTerminalBoundary::FieldOrder {
+            target_field_name: target_field.field().to_string(),
+            field_slot,
+            op,
+        })
+    }
+
     // Execute one scalar aggregate terminal family request from the typed API
     // boundary, lower plan-derived policy into one prepared terminal contract,
     // and then execute that prepared contract.
@@ -543,9 +575,7 @@ where
             ScalarTerminalBoundaryRequest::NthBySlot { .. }
             | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
             | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => {
-                return Err(InternalError::query_executor_invariant(
-                    "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
-                ));
+                return Err(Self::scalar_terminal_boundary_request_unsupported());
             }
         };
 
@@ -566,50 +596,31 @@ where
                     PreparedOrderSensitiveTerminalBoundary::ResponseOrder { kind }
                 }
                 _ => {
-                    return Err(InternalError::query_executor_invariant(
-                        "order-sensitive terminal boundary requires first/last/nth/median/min-max request",
-                    ));
+                    return Err(Self::order_sensitive_terminal_boundary_request_required());
                 }
             },
             ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth } => {
-                let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
-                        .map_err(AggregateFieldValueError::into_internal_error)?;
-
-                PreparedOrderSensitiveTerminalBoundary::FieldOrder {
-                    target_field_name: target_field.field().to_string(),
-                    field_slot,
-                    op: PreparedFieldOrderSensitiveTerminalOp::Nth { nth },
-                }
+                Self::prepare_field_order_sensitive_terminal_boundary(
+                    target_field,
+                    PreparedFieldOrderSensitiveTerminalOp::Nth { nth },
+                )?
             }
             ScalarTerminalBoundaryRequest::MedianBySlot { target_field } => {
-                let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
-                        .map_err(AggregateFieldValueError::into_internal_error)?;
-
-                PreparedOrderSensitiveTerminalBoundary::FieldOrder {
-                    target_field_name: target_field.field().to_string(),
-                    field_slot,
-                    op: PreparedFieldOrderSensitiveTerminalOp::Median,
-                }
+                Self::prepare_field_order_sensitive_terminal_boundary(
+                    target_field,
+                    PreparedFieldOrderSensitiveTerminalOp::Median,
+                )?
             }
             ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field } => {
-                let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
-                        .map_err(AggregateFieldValueError::into_internal_error)?;
-
-                PreparedOrderSensitiveTerminalBoundary::FieldOrder {
-                    target_field_name: target_field.field().to_string(),
-                    field_slot,
-                    op: PreparedFieldOrderSensitiveTerminalOp::MinMax,
-                }
+                Self::prepare_field_order_sensitive_terminal_boundary(
+                    target_field,
+                    PreparedFieldOrderSensitiveTerminalOp::MinMax,
+                )?
             }
             ScalarTerminalBoundaryRequest::Count
             | ScalarTerminalBoundaryRequest::Exists
             | ScalarTerminalBoundaryRequest::IdBySlot { .. } => {
-                return Err(InternalError::query_executor_invariant(
-                    "order-sensitive terminal boundary requires first/last/nth/median/min-max request",
-                ));
+                return Err(Self::order_sensitive_terminal_boundary_request_required());
             }
         };
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;

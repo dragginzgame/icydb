@@ -269,20 +269,20 @@ fn finalize_cursorless_row_collector_payload(
     retain_slot_rows: bool,
 ) -> Result<MaterializedExecutionPayload, InternalError> {
     if retain_slot_rows {
-        return Ok(MaterializedExecutionPayload::StructuralPage(
+        return Ok(
             crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
                 collect_cursorless_slot_rows(rows)?,
                 None,
             ),
-        ));
+        );
     }
 
-    Ok(MaterializedExecutionPayload::StructuralPage(
+    Ok(
         crate::db::executor::pipeline::contracts::StructuralCursorPage::new(
             collect_cursorless_data_rows(rows)?,
             None,
         ),
-    ))
+    )
 }
 
 fn collect_cursorless_slot_rows(
