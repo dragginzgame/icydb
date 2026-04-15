@@ -291,7 +291,7 @@ where
         consistency,
         existing_row_mode,
         |components| {
-            let mut components = components.into_iter();
+            let mut components = components.iter();
             let Some(component) = components.next() else {
                 return Err(InternalError::query_executor_invariant(invariant_message));
             };
