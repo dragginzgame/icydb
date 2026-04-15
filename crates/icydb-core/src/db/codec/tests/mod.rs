@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    MAX_ROW_BYTES, ROW_FORMAT_VERSION_CURRENT, deserialize_persisted_payload, deserialize_row,
-    serialize_row_payload, serialize_row_payload_with_version,
+    MAX_ROW_BYTES, ROW_FORMAT_VERSION_CURRENT, deserialize_row, serialize_row_payload,
+    serialize_row_payload_with_version,
 };
 
 #[test]
@@ -108,14 +108,14 @@ fn map_deserialize_error_uses_stable_kind_labels() {
 
 #[test]
 fn shared_deserialize_failures_are_classified_by_decode_boundary_context() {
-    let malformed = [0xFF_u8];
-
-    let persisted_err = deserialize_persisted_payload::<u8>(&malformed, 64, "row")
-        .expect_err("persisted malformed payload must fail closed as corruption");
-    assert_eq!(persisted_err.class, ErrorClass::Corruption);
-    assert_eq!(persisted_err.origin, ErrorOrigin::Serialize);
+    let bytes =
+        serialize_row_payload(vec![0xFF_u8]).expect("row envelope encode should accept raw bytes");
+    let row_err =
+        deserialize_row::<u8>(&bytes).expect_err("row malformed payload must fail closed");
+    assert_eq!(row_err.class, ErrorClass::Corruption);
+    assert_eq!(row_err.origin, ErrorOrigin::Serialize);
     assert!(
-        persisted_err.message.ends_with(": deserialize"),
-        "persisted decode should map malformed payloads via stable deserialize label: {persisted_err:?}",
+        row_err.message.ends_with(": deserialize"),
+        "row decode should map malformed payloads via stable deserialize label: {row_err:?}",
     );
 }

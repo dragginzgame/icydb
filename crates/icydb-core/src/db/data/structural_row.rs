@@ -8,7 +8,6 @@ use crate::{
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
 };
-use serde_cbor::Value as CborValue;
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
@@ -150,14 +149,12 @@ impl StructuralRowDecodeError {
 /// Decode one persisted row through the structural row-envelope validation path.
 ///
 /// The only supported persisted row shape is the slot-framed payload envelope,
-/// so this helper returns the validated slot payload bytes as `CborValue::Bytes`.
-pub(in crate::db) fn decode_structural_row_cbor(
+/// so this helper returns the validated enclosed payload bytes directly.
+pub(in crate::db) fn decode_structural_row_payload(
     raw_row: &RawRow,
-) -> Result<CborValue, InternalError> {
-    let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())
-        .map_err(StructuralRowDecodeError::into_internal_error)?;
-
-    Ok(CborValue::Bytes(payload.into_owned()))
+) -> Result<Cow<'_, [u8]>, InternalError> {
+    decode_structural_row_payload_bytes(raw_row.as_bytes())
+        .map_err(StructuralRowDecodeError::into_internal_error)
 }
 
 // Decode one persisted row envelope into the enclosed slot payload bytes.

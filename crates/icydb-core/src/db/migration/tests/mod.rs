@@ -3,6 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use super::{
+    PersistedMigrationState, decode_persisted_migration_state, encode_persisted_migration_state,
+};
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
@@ -242,6 +245,37 @@ fn migration_plan_contract_rejects_empty_labels_and_steps() {
         MigrationStep::new("empty_ops", Vec::new()).expect_err("empty step row ops must fail");
     assert_eq!(empty_step_ops.class, ErrorClass::Unsupported);
     assert_eq!(empty_step_ops.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn migration_state_binary_codec_round_trips_and_rejects_trailing_bytes() {
+    // Phase 1: round-trip one in-progress migration-state payload.
+    let state = PersistedMigrationState {
+        migration_id: "migration_binary_codec".to_string(),
+        migration_version: 7,
+        step_index: 3,
+        last_applied_row_key: Some(vec![1, 2, 3, 4, 5]),
+    };
+    let bytes = encode_persisted_migration_state(&state)
+        .expect("migration state payload should encode with the binary codec");
+    let decoded = decode_persisted_migration_state(&bytes)
+        .expect("migration state payload should decode with the binary codec");
+    assert_eq!(
+        decoded, state,
+        "migration state binary codec must round-trip the full persisted state",
+    );
+
+    // Phase 2: reject trailing bytes so the payload stays exact and single-version.
+    let mut trailing = bytes;
+    trailing.push(0xAA);
+    let err = decode_persisted_migration_state(&trailing)
+        .expect_err("trailing bytes must fail migration state decode");
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert!(
+        err.message.contains("trailing bytes"),
+        "decode error should explain the exact migration state codec failure: {err:?}",
+    );
 }
 
 #[test]

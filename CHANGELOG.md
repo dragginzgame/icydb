@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.83.x] 🧱 - 2026-04-15 - Serialization Boundary Cleanup
+
+- `0.83.1` continues the serialization cleanup by moving migration state onto an explicit binary codec, simplifying `Value` decoding and structural encoding ownership, teaching the legacy `PersistedRow` derive more exact field kinds plus explicit decimal scale hints so more old-style typed rows can avoid the CBOR fallback seam, and making executor `bytes()` sizing use the same owner-local value-storage encoding as the rest of the runtime instead of counting CBOR bytes separately.
+- `0.83.0` starts the line by moving cursor tokens and several DB-owned persisted-value paths off the generic serializer, centralizing the remaining runtime CBOR helper behind one DB codec boundary, and proving that more of the storage runtime can use explicit engine-owned codecs instead of generic CBOR-by-default plumbing.
+
+See detailed breakdown:
+[docs/changelog/0.83.md](docs/changelog/0.83.md)
+
+---
+
 ## [0.82.x] 🧭 - 2026-04-15 - Deterministic Compiled Query Reuse
 
 - `0.82.10` makes the new covering SQL read path easier to trust and cheaper to inspect: the local SQL shell now separates engine work from shell render time, pure covering queries now show how much executor time is spent decoding covered values versus assembling rows, and several narrow covering-query cuts trim more overhead from ordered `SELECT id ...` and `SELECT id, name ...` rows without reopening row-store fetches.

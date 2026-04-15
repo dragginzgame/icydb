@@ -178,8 +178,12 @@ fn structural_row_decoder_rejects_raw_cbor_scalar_slot_payloads() {
     let id_bytes = crate::db::data::encode_persisted_scalar_slot_payload(&entity.id, "id")
         .expect("id payload should encode");
     let raw_title = serialize(&entity.title).expect("raw scalar title should encode");
-    let tags_bytes = crate::db::data::encode_persisted_slot_payload(&entity.tags, "tags")
-        .expect("tags payload should encode");
+    let tags_bytes = crate::db::data::encode_persisted_slot_payload_by_kind(
+        &entity.tags,
+        crate::model::field::FieldKind::List(&crate::model::field::FieldKind::Text),
+        "tags",
+    )
+    .expect("tags payload should encode");
     let portrait_bytes =
         crate::db::data::encode_persisted_scalar_slot_payload(&entity.portrait, "portrait")
             .expect("portrait payload should encode");

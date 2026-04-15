@@ -43,7 +43,33 @@ const F64_SAFE_I64: i64 = 1i64 << 53;
 const F64_SAFE_U64: u64 = 1u64 << 53;
 const F64_SAFE_I128: i128 = 1i128 << 53;
 const F64_SAFE_U128: u128 = 1u128 << 53;
-const VALUE_WIRE_TYPE_NAME: &str = "Value";
+pub(crate) const VALUE_WIRE_TYPE_NAME: &str = "Value";
+pub(crate) const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
+    "Account",
+    "Blob",
+    "Bool",
+    "Date",
+    "Decimal",
+    "Duration",
+    "Enum",
+    "Float32",
+    "Float64",
+    "Int",
+    "Int128",
+    "IntBig",
+    "List",
+    "Map",
+    "Null",
+    "Principal",
+    "Subaccount",
+    "Text",
+    "Timestamp",
+    "Uint",
+    "Uint128",
+    "UintBig",
+    "Ulid",
+    "Unit",
+];
 
 //
 // NumericRepr
@@ -57,7 +83,7 @@ enum NumericRepr {
 
 // Name and discriminant owner for the stable `Value` serde wire shape.
 #[derive(Clone, Copy)]
-enum ValueWireVariant {
+pub(crate) enum ValueWireVariant {
     Account,
     Blob,
     Bool,
@@ -86,7 +112,7 @@ enum ValueWireVariant {
 
 impl ValueWireVariant {
     // Return the stable serde discriminant index for this `Value` variant.
-    const fn index(self) -> u32 {
+    pub(crate) const fn index(self) -> u32 {
         match self {
             Self::Account => 0,
             Self::Blob => 1,
@@ -116,7 +142,7 @@ impl ValueWireVariant {
     }
 
     // Return the stable serde variant label for this `Value` variant.
-    const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Account => "Account",
             Self::Blob => "Blob",
@@ -142,6 +168,37 @@ impl ValueWireVariant {
             Self::UintBig => "UintBig",
             Self::Ulid => "Ulid",
             Self::Unit => "Unit",
+        }
+    }
+
+    // Resolve one stable serde variant label back to its runtime discriminant.
+    pub(crate) fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "Account" => Some(Self::Account),
+            "Blob" => Some(Self::Blob),
+            "Bool" => Some(Self::Bool),
+            "Date" => Some(Self::Date),
+            "Decimal" => Some(Self::Decimal),
+            "Duration" => Some(Self::Duration),
+            "Enum" => Some(Self::Enum),
+            "Float32" => Some(Self::Float32),
+            "Float64" => Some(Self::Float64),
+            "Int" => Some(Self::Int),
+            "Int128" => Some(Self::Int128),
+            "IntBig" => Some(Self::IntBig),
+            "List" => Some(Self::List),
+            "Map" => Some(Self::Map),
+            "Null" => Some(Self::Null),
+            "Principal" => Some(Self::Principal),
+            "Subaccount" => Some(Self::Subaccount),
+            "Text" => Some(Self::Text),
+            "Timestamp" => Some(Self::Timestamp),
+            "Uint" => Some(Self::Uint),
+            "Uint128" => Some(Self::Uint128),
+            "UintBig" => Some(Self::UintBig),
+            "Ulid" => Some(Self::Ulid),
+            "Unit" => Some(Self::Unit),
+            _ => None,
         }
     }
 }

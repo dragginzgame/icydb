@@ -1,15 +1,19 @@
 //! Module: value::wire
-//! Defines serde-only wire helpers that rebuild public runtime value wrappers
-//! from persisted payload shapes.
+//! Defines serde-only decode helpers that rebuild public runtime value wrappers
+//! from the stable `Value` enum wire shape.
 
 use crate::{
     types::*,
-    value::{MapValueError, Value, ValueEnum},
+    value::{VALUE_WIRE_TYPE_NAME, VALUE_WIRE_VARIANT_LABELS, Value, ValueWireVariant},
 };
 use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
-use serde::{Deserialize, Deserializer, de};
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, EnumAccess, VariantAccess, Visitor},
+};
 use serde_bytes::ByteBuf;
+use std::{fmt, marker::PhantomData};
 
 ///
 /// IntBigWire
@@ -74,78 +78,83 @@ impl<'de> Deserialize<'de> for UintBigWire {
 }
 
 ///
-/// ValueWire
-/// Serde decode shape used to re-check Value::Map invariants during deserialization.
+/// ValueWireVisitor
+///
+/// ValueWireVisitor decodes the stable externally tagged `Value` wire shape
+/// directly through serde enum access and re-applies runtime map invariants.
 ///
 
-#[derive(Deserialize)]
-enum ValueWire {
-    Account(Account),
-    Blob(ByteBuf),
-    Bool(bool),
-    Date(Date),
-    Decimal(Decimal),
-    Duration(Duration),
-    Enum(ValueEnum),
-    Float32(Float32),
-    Float64(Float64),
-    Int(i64),
-    Int128(Int128),
-    IntBig(IntBigWire),
-    List(Vec<Self>),
-    Map(Vec<(Self, Self)>),
-    Null,
-    Principal(Principal),
-    Subaccount(Subaccount),
-    Text(String),
-    Timestamp(Timestamp),
-    Uint(u64),
-    Uint128(Nat128),
-    UintBig(UintBigWire),
-    Ulid(Ulid),
-    Unit,
+struct ValueWireVisitor(PhantomData<()>);
+
+impl ValueWireVisitor {
+    fn decode_map_entries<E>(entries: Vec<(Value, Value)>) -> Result<Value, E>
+    where
+        E: de::Error,
+    {
+        Value::from_map(entries).map_err(E::custom)
+    }
 }
 
-impl ValueWire {
-    // Decode recursively while enforcing runtime map invariants.
-    fn into_value(self) -> Result<Value, MapValueError> {
-        match self {
-            Self::Account(v) => Ok(Value::Account(v)),
-            Self::Blob(v) => Ok(Value::Blob(v.into_vec())),
-            Self::Bool(v) => Ok(Value::Bool(v)),
-            Self::Date(v) => Ok(Value::Date(v)),
-            Self::Decimal(v) => Ok(Value::Decimal(v)),
-            Self::Duration(v) => Ok(Value::Duration(v)),
-            Self::Enum(v) => Ok(Value::Enum(v)),
-            Self::Float32(v) => Ok(Value::Float32(v)),
-            Self::Float64(v) => Ok(Value::Float64(v)),
-            Self::Int(v) => Ok(Value::Int(v)),
-            Self::Int128(v) => Ok(Value::Int128(v)),
-            Self::IntBig(v) => Ok(Value::IntBig(v.into_inner())),
-            Self::List(items) => {
-                let items = items
-                    .into_iter()
-                    .map(Self::into_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(Value::List(items))
+impl<'de> Visitor<'de> for ValueWireVisitor {
+    type Value = Value;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the stable Value enum wire shape")
+    }
+
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+    where
+        A: EnumAccess<'de>,
+    {
+        let (variant, payload) = data.variant::<String>()?;
+
+        let Some(variant_tag) = ValueWireVariant::from_label(variant.as_str()) else {
+            return Err(de::Error::unknown_variant(
+                variant.as_str(),
+                VALUE_WIRE_VARIANT_LABELS,
+            ));
+        };
+
+        match variant_tag {
+            ValueWireVariant::Account => Ok(Value::Account(payload.newtype_variant()?)),
+            ValueWireVariant::Blob => Ok(Value::Blob(
+                payload.newtype_variant::<ByteBuf>()?.into_vec(),
+            )),
+            ValueWireVariant::Bool => Ok(Value::Bool(payload.newtype_variant()?)),
+            ValueWireVariant::Date => Ok(Value::Date(payload.newtype_variant()?)),
+            ValueWireVariant::Decimal => Ok(Value::Decimal(payload.newtype_variant()?)),
+            ValueWireVariant::Duration => Ok(Value::Duration(payload.newtype_variant()?)),
+            ValueWireVariant::Enum => Ok(Value::Enum(payload.newtype_variant()?)),
+            ValueWireVariant::Float32 => Ok(Value::Float32(payload.newtype_variant()?)),
+            ValueWireVariant::Float64 => Ok(Value::Float64(payload.newtype_variant()?)),
+            ValueWireVariant::Int => Ok(Value::Int(payload.newtype_variant()?)),
+            ValueWireVariant::Int128 => Ok(Value::Int128(payload.newtype_variant()?)),
+            ValueWireVariant::IntBig => Ok(Value::IntBig(
+                payload.newtype_variant::<IntBigWire>()?.into_inner(),
+            )),
+            ValueWireVariant::List => Ok(Value::List(payload.newtype_variant()?)),
+            ValueWireVariant::Map => {
+                let entries = payload.newtype_variant::<Vec<(Value, Value)>>()?;
+                Self::decode_map_entries(entries)
             }
-            Self::Map(entries) => {
-                let entries = entries
-                    .into_iter()
-                    .map(|(key, value)| Ok((key.into_value()?, value.into_value()?)))
-                    .collect::<Result<Vec<_>, MapValueError>>()?;
-                Value::from_map(entries)
+            ValueWireVariant::Null => {
+                payload.unit_variant()?;
+                Ok(Value::Null)
             }
-            Self::Null => Ok(Value::Null),
-            Self::Principal(v) => Ok(Value::Principal(v)),
-            Self::Subaccount(v) => Ok(Value::Subaccount(v)),
-            Self::Text(v) => Ok(Value::Text(v)),
-            Self::Timestamp(v) => Ok(Value::Timestamp(v)),
-            Self::Uint(v) => Ok(Value::Uint(v)),
-            Self::Uint128(v) => Ok(Value::Uint128(v)),
-            Self::UintBig(v) => Ok(Value::UintBig(v.into_inner())),
-            Self::Ulid(v) => Ok(Value::Ulid(v)),
-            Self::Unit => Ok(Value::Unit),
+            ValueWireVariant::Principal => Ok(Value::Principal(payload.newtype_variant()?)),
+            ValueWireVariant::Subaccount => Ok(Value::Subaccount(payload.newtype_variant()?)),
+            ValueWireVariant::Text => Ok(Value::Text(payload.newtype_variant()?)),
+            ValueWireVariant::Timestamp => Ok(Value::Timestamp(payload.newtype_variant()?)),
+            ValueWireVariant::Uint => Ok(Value::Uint(payload.newtype_variant()?)),
+            ValueWireVariant::Uint128 => Ok(Value::Uint128(payload.newtype_variant()?)),
+            ValueWireVariant::UintBig => Ok(Value::UintBig(
+                payload.newtype_variant::<UintBigWire>()?.into_inner(),
+            )),
+            ValueWireVariant::Ulid => Ok(Value::Ulid(payload.newtype_variant()?)),
+            ValueWireVariant::Unit => {
+                payload.unit_variant()?;
+                Ok(Value::Unit)
+            }
         }
     }
 }
@@ -155,7 +164,10 @@ impl<'de> Deserialize<'de> for Value {
     where
         D: Deserializer<'de>,
     {
-        let wire = ValueWire::deserialize(deserializer)?;
-        wire.into_value().map_err(serde::de::Error::custom)
+        deserializer.deserialize_enum(
+            VALUE_WIRE_TYPE_NAME,
+            VALUE_WIRE_VARIANT_LABELS,
+            ValueWireVisitor(PhantomData),
+        )
     }
 }

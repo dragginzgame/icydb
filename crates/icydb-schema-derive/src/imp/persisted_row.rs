@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::inherent::model::model_kind_from_value, prelude::*};
 use syn::{
     AngleBracketedGenericArguments, GenericArgument, PathArguments, Type, parse2 as parse_type,
 };
@@ -33,7 +33,7 @@ impl Imp<Entity> for PersistedRowTrait {
                 persisted_custom_field_decode_expr(field, field_name.as_str())
             } else {
                 let field_ty = field.value.type_expr();
-                persisted_field_decode_expr(&field_ty, field_name.as_str())
+                persisted_field_decode_expr(field, &field_ty, field_name.as_str())
             };
 
             quote! {
@@ -52,7 +52,12 @@ impl Imp<Entity> for PersistedRowTrait {
                 persisted_custom_field_encode_expr(field, quote!(&self.#ident), field_name.as_str())
             } else {
                 let field_ty = field.value.type_expr();
-                persisted_field_encode_expr(&field_ty, quote!(&self.#ident), field_name.as_str())
+                persisted_field_encode_expr(
+                    field,
+                    &field_ty,
+                    quote!(&self.#ident),
+                    field_name.as_str(),
+                )
             };
 
             quote! {
@@ -130,7 +135,13 @@ fn persisted_custom_field_encode_expr(
     }
 }
 
-fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> TokenStream {
+fn persisted_field_decode_expr(
+    field: &Field,
+    field_ty: &TokenStream,
+    field_name: &str,
+) -> TokenStream {
+    let kind = model_kind_from_value(&field.value);
+
     match classify_persisted_field_type(field_ty) {
         PersistedFieldType::OptionScalar(inner_ty) => quote!(
             ::icydb::db::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
@@ -139,8 +150,9 @@ fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> Toke
             )?
         ),
         PersistedFieldType::OptionStructural(inner_ty) => quote!(
-            ::icydb::db::decode_persisted_option_slot_payload::<#inner_ty>(
+            ::icydb::db::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
                 bytes,
+                #kind,
                 #field_name,
             )?
         ),
@@ -151,8 +163,9 @@ fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> Toke
             )?
         ),
         PersistedFieldType::Structural(parsed) => quote!(
-            ::icydb::db::decode_persisted_non_null_slot_payload::<#parsed>(
+            ::icydb::db::decode_persisted_non_null_slot_payload_by_kind::<#parsed>(
                 bytes,
+                #kind,
                 #field_name,
             )?
         ),
@@ -160,10 +173,13 @@ fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> Toke
 }
 
 fn persisted_field_encode_expr(
+    field: &Field,
     field_ty: &TokenStream,
     field_expr: TokenStream,
     field_name: &str,
 ) -> TokenStream {
+    let kind = model_kind_from_value(&field.value);
+
     match classify_persisted_field_type(field_ty) {
         PersistedFieldType::OptionScalar(inner_ty) => quote!(
             ::icydb::db::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
@@ -172,8 +188,9 @@ fn persisted_field_encode_expr(
             )?
         ),
         PersistedFieldType::OptionStructural(_) | PersistedFieldType::Structural(_) => quote!(
-            ::icydb::db::encode_persisted_slot_payload(
+            ::icydb::db::encode_persisted_slot_payload_by_kind(
                 #field_expr,
+                #kind,
                 #field_name,
             )?
         ),

@@ -9,19 +9,18 @@
 //! bounded decode wrappers used beneath it.
 //! All other DB modules must decode via codec helpers.
 
+mod cbor;
 pub(crate) mod cursor;
 mod hash_stream;
 #[cfg(test)]
 mod tests;
 
 use crate::error::InternalError;
+#[cfg(test)]
 use serde::de::DeserializeOwned;
-use serde_cbor::from_slice;
-use std::{
-    borrow::Cow,
-    panic::{AssertUnwindSafe, catch_unwind},
-};
+use std::borrow::Cow;
 
+pub(in crate::db) use cbor::{decode_cbor_bytes, encode_cbor_bytes};
 pub(in crate::db) use hash_stream::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
     write_hash_u32, write_hash_u64,
@@ -48,6 +47,11 @@ const ROW_ENVELOPE_HEADER_LEN: usize = 2 + 1 + 4;
 /// through the generic serializer.
 ///
 
+/// Wrap an already-serialized entity payload in the canonical persisted row envelope.
+pub(in crate::db) fn serialize_row_payload(payload: Vec<u8>) -> Result<Vec<u8>, InternalError> {
+    serialize_row_payload_with_version(payload, ROW_FORMAT_VERSION_CURRENT)
+}
+
 /// Deserialize one persisted row payload using the DB row-size policy.
 #[cfg(test)]
 pub(in crate::db) fn deserialize_row<T>(bytes: &[u8]) -> Result<T, InternalError>
@@ -56,28 +60,14 @@ where
 {
     let payload = decode_row_payload_bytes(bytes)?;
 
-    deserialize_persisted_payload(payload.as_ref(), MAX_ROW_BYTES as usize, "row")
-}
-
-/// Wrap an already-serialized entity payload in the canonical persisted row envelope.
-pub(in crate::db) fn serialize_row_payload(payload: Vec<u8>) -> Result<Vec<u8>, InternalError> {
-    serialize_row_payload_with_version(payload, ROW_FORMAT_VERSION_CURRENT)
-}
-
-/// Deserialize one DB-owned persisted payload under an explicit size policy.
-///
-/// This is the canonical DB boundary for persisted payload decoding.
-/// Engine modules should use this helper instead of calling
-/// `serialize::deserialize_bounded` directly.
-pub(in crate::db) fn deserialize_persisted_payload<T>(
-    bytes: &[u8],
-    max_bytes: usize,
-    payload_label: &'static str,
-) -> Result<T, InternalError>
-where
-    T: DeserializeOwned,
-{
-    decode_bounded_persisted_cbor_payload(bytes, max_bytes, payload_label)
+    // Phase 1: the row envelope already enforced the row-size budget, so the
+    // remaining work is one bounded CBOR decode under the DB panic barrier.
+    match decode_cbor_bytes(payload.as_ref()) {
+        Ok(value) => Ok(value),
+        Err(_) => Err(InternalError::serialize_corruption(
+            "row decode failed: deserialize",
+        )),
+    }
 }
 
 /// Decode one canonical row envelope into its owned-or-borrowed payload bytes.
@@ -133,38 +123,6 @@ pub(in crate::db) fn decode_row_payload_bytes(
     }
 
     Ok(Cow::Borrowed(&bytes[payload_start..payload_end]))
-}
-
-// Decode one DB-owned persisted CBOR payload under an explicit byte limit.
-//
-// This keeps the bounded persisted decode contract local to `db::codec`
-// instead of routing engine-owned payloads back through the generic
-// serialize facade.
-fn decode_bounded_persisted_cbor_payload<T>(
-    bytes: &[u8],
-    max_bytes: usize,
-    payload_label: &'static str,
-) -> Result<T, InternalError>
-where
-    T: DeserializeOwned,
-{
-    // Phase 1: reject oversized persisted payloads before CBOR decode begins.
-    if bytes.len() > max_bytes {
-        return Err(InternalError::serialize_corruption(format!(
-            "{payload_label} decode failed: payload size {} exceeds limit {max_bytes}",
-            bytes.len(),
-        )));
-    }
-
-    // Phase 2: decode under a panic boundary so persisted bytes never unwind
-    // through the database runtime.
-    let result = catch_unwind(AssertUnwindSafe(|| from_slice(bytes)));
-    match result {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(_)) | Err(_) => Err(InternalError::serialize_corruption(format!(
-            "{payload_label} decode failed: deserialize"
-        ))),
-    }
 }
 
 // Validate persisted row format version against the single supported slot format.

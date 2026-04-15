@@ -30,11 +30,12 @@ pub(in crate::db) use persisted_row::{
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     UpdatePatch, decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    decode_persisted_non_null_slot_payload, decode_persisted_option_scalar_slot_payload,
-    decode_persisted_option_slot_payload, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+    decode_persisted_non_null_slot_payload_by_kind, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload, decode_persisted_slot_payload_by_kind,
+    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload, encode_persisted_slot_payload_by_kind,
 };
 pub(in crate::db) use row::{CanonicalRow, SelectiveRowRead};
 pub(crate) use row::{DataRow, RawRow};
@@ -47,7 +48,7 @@ pub(in crate::db) use structural_field::{
 };
 pub(in crate::db) use structural_row::{
     StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
-    decode_structural_row_cbor,
+    decode_structural_row_payload,
 };
 
 #[cfg(test)]

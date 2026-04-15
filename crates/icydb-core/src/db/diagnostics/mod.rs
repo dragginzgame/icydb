@@ -11,7 +11,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         commit::CommitRowOp,
-        data::{DataKey, StorageKey, decode_structural_row_cbor},
+        data::{DataKey, StorageKey, decode_structural_row_payload},
         index::{IndexKey, IndexState},
         registry::StoreHandle,
     },
@@ -881,7 +881,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 
             // Validate the outer row envelope before typed preparation so
             // hard-cut persisted-format mismatches count as corruption.
-            if let Err(err) = decode_structural_row_cbor(&entry.value()) {
+            if let Err(err) = decode_structural_row_payload(&entry.value()) {
                 classify_scan_error(err, snapshot)?;
                 continue;
             }

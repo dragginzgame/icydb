@@ -11,12 +11,13 @@ mod row_decode;
 mod tests;
 
 use crate::{
-    db::{executor::saturating_row_len, query::plan::PageSpec},
+    db::{
+        data::encode_structural_value_storage_bytes, executor::saturating_row_len,
+        query::plan::PageSpec,
+    },
     error::InternalError,
     value::Value,
 };
-use serde_cbor::to_writer;
-use std::io;
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use page::KernelRow;
@@ -30,36 +31,6 @@ pub use page::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lan
 pub(crate) use page::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 pub(in crate::db::executor) use row_decode::RowDecoder;
 pub(in crate::db) use row_decode::RowLayout;
-
-///
-/// ByteCountWriter
-///
-/// Minimal `io::Write` sink that counts emitted bytes without allocating a
-/// payload buffer for `bytes(field)` estimation.
-///
-
-#[derive(Default)]
-struct ByteCountWriter {
-    len: usize,
-}
-
-impl ByteCountWriter {
-    #[must_use]
-    const fn into_len(self) -> usize {
-        self.len
-    }
-}
-
-impl io::Write for ByteCountWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.len = self.len.saturating_add(buf.len());
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.
@@ -111,12 +82,13 @@ pub(in crate::db::executor::terminal) const fn bytes_window_accept_row(
     true
 }
 
-// Serialize one value using the canonical runtime codec and return payload len.
+// Encode one value using the owner-local structural storage codec and return
+// its payload length.
 pub(in crate::db::executor::terminal) fn serialized_value_len(
     value: &Value,
 ) -> Result<usize, InternalError> {
-    let mut writer = ByteCountWriter::default();
-    to_writer(&mut writer, value).map_err(InternalError::bytes_field_value_encode_failed)?;
+    let encoded = encode_structural_value_storage_bytes(value)
+        .map_err(InternalError::bytes_field_value_encode_failed)?;
 
-    Ok(writer.into_len())
+    Ok(encoded.len())
 }

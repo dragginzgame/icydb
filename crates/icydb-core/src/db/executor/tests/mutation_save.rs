@@ -14,7 +14,7 @@ use crate::{
         data::{
             DataKey, DataStore, RawRow, UpdatePatch, decode_persisted_custom_many_slot_payload,
             decode_persisted_scalar_slot_payload, encode_persisted_custom_many_slot_payload,
-            encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+            encode_persisted_scalar_slot_payload,
         },
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -797,6 +797,7 @@ crate::test_entity_schema! {
 )]
 struct DecimalScaleEntity {
     id: Ulid,
+    #[icydb(scale = 2)]
     amount: Decimal,
 }
 
@@ -2157,8 +2158,12 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
         .expect("decimal entity raw key should encode");
     let id_payload =
         encode_persisted_scalar_slot_payload(&id, "id").expect("id slot payload should encode");
-    let amount_payload = encode_persisted_slot_payload(&Decimal::new(1234, 3), "amount")
-        .expect("amount slot payload should encode");
+    let amount_payload = crate::db::data::encode_structural_field_by_kind_bytes(
+        crate::model::field::FieldKind::Decimal { scale: 3 },
+        &crate::value::Value::Decimal(Decimal::new(1234, 3)),
+        "amount",
+    )
+    .expect("amount slot payload should encode");
     let slot_payloads = [id_payload, amount_payload];
     let mut row_payload = Vec::new();
     let slot_count = u16::try_from(slot_payloads.len()).expect("slot count should fit in u16");

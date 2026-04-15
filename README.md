@@ -65,6 +65,28 @@ scripts/dev/sql.sh --reset    # destructive: erase fixtures + reload defaults
 scripts/dev/sql.sh --init     # deploy + destructive reset + reload
 ```
 
+8. Run the Rust CLI directly:
+
+```bash
+cargo run -q -p icydb-cli -- --canister demo_rpg
+cargo run -q -p icydb-cli -- --canister demo_rpg --sql "select count(*) from character"
+cargo run -q -p icydb-cli -- --canister demo_rpg --history-file .cache/sql_history.demo
+```
+
+`scripts/dev/sql.sh` is the repo convenience wrapper. It can deploy/reset the
+demo canister, then forwards either one-shot SQL or interactive shell mode into
+`icydb-cli`, which is the actual local SQL shell binary.
+
+CLI/runtime notes:
+
+- `--canister` selects the DFX canister name (`demo_rpg` by default)
+- `--history-file` overrides the interactive readline history file
+- `--sql` runs one statement without entering the interactive shell
+- positional SQL after the flags is also accepted
+- interactive statements terminate with `;`
+- `?`, `help`, `\?`, and `\help` print shell help
+- `\q`, `quit`, `exit`, and `Ctrl-D` leave the shell
+
 ---
 
 ## What Is IcyDB?
@@ -85,19 +107,20 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.82.1`
-- Latest tagged release in this repo: `v0.82.1`
-- Current branch work in progress: `0.82.2`
+- Workspace version in Cargo manifests: `0.83.0`
+- Latest tagged release in this repo: `v0.83.0`
+- Current branch work in progress: `0.83.1`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.82.x` notes: `docs/changelog/0.82.md`
+- Detailed `0.83.x` notes: `docs/changelog/0.83.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- `0.82.2` keeps SQL `COUNT(*)` on the same shared count-terminal route as fluent `count()`, and adds a small fast-path inventory plus tripwire so those route-owner boundaries are easier to maintain without regressions.
-- `0.82.1` version-locks the shared and SQL cache keys, fixes the local Rust SQL shell so grouped queries render again when the grouped cursor is empty, and widens the reduced SQL global aggregate lane so bounded queries like `SELECT MIN(age), MAX(age) ...` now return one row instead of failing closed.
+- `0.83.1` continues the serialization cleanup by moving migration state onto an explicit binary codec, simplifying `Value` decoding ownership, and making executor `bytes()` sizing use the same owner-local value-storage encoding as the rest of the runtime.
+- `0.83.0` starts the current line by moving cursor tokens and more DB-owned persisted-value paths off the generic serializer, while centralizing the remaining runtime DB CBOR helpers behind one explicit codec boundary.
+- `0.82.10` makes the local SQL shell easier to trust and inspect by separating engine work from shell render time, surfacing pure-covering executor sub-costs, and trimming more narrow covering-query overhead from ordered key-only and small projected reads.
 - `0.81.2` lets reduced SQL use bounded direct computed order terms like `ORDER BY age + 1`, `ORDER BY age + rank`, and `ORDER BY ROUND(age / 3, 2)` on the same canonical computed-order path instead of restricting that slice to aliases only.
 - `0.80.x` introduces explicit SQL compile/execute caching, then moves the reusable lower query-plan identity onto one shared structural cache key so repeated SQL and fluent reads can reuse the same lower planning work.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
@@ -130,14 +153,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.82.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.83.0" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.82.1", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.83.0", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*` and the reduced SQL session
@@ -320,7 +343,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.77 Line)
+## Reduced SQL Scope
 
 Executable SQL entrypoints:
 
@@ -365,6 +388,7 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
+- `crates/icydb-cli` — local Rust SQL shell and repo CLI tooling.
 - `canisters/audit/*` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
 - `canisters/demo/rpg` — the Character fixture/demo canister surface.
 - `canisters/test/sql` — the lightweight SQL fixture smoke-test canister surface.

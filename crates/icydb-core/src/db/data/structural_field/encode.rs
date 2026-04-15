@@ -9,15 +9,15 @@
 use crate::db::data::structural_field::value_storage::encode_structural_value_storage_bytes;
 use crate::{
     db::data::structural_field::cbor::{
-        push_array_len, push_bool, push_byte_string, push_float32, push_float64, push_map_len,
-        push_null, push_signed_integer, push_text, push_unsigned_integer,
+        push_account_payload, push_array_len, push_bool, push_byte_string, push_decimal_payload,
+        push_float32, push_float64, push_int_big_payload, push_map_len, push_null,
+        push_signed_integer, push_subaccount_payload, push_text, push_timestamp_payload,
+        push_uint_big_payload, push_unsigned_integer,
     },
     error::InternalError,
     model::field::{EnumVariantModel, FieldKind, FieldStorageDecode},
-    types::{Int, Nat},
     value::{Value, ValueEnum},
 };
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 /// Encode one `ByKind` field payload into the raw CBOR shape expected by the
 /// structural field decoder.
@@ -98,82 +98,6 @@ fn encode_structural_field_by_kind_into(
             ));
         }
     }
-
-    Ok(())
-}
-
-// Encode one account payload using the stable two-field CBOR struct shape.
-fn push_account_payload(out: &mut Vec<u8>, value: crate::types::Account) {
-    push_map_len(out, 2);
-
-    push_text(out, "owner");
-    push_byte_string(out, value.owner().as_slice());
-
-    push_text(out, "subaccount");
-    match value.subaccount() {
-        Some(subaccount) => push_subaccount_payload(out, subaccount),
-        None => push_null(out),
-    }
-}
-
-// Encode one decimal payload using the persisted binary `(mantissa, scale)`
-// tuple shape.
-fn push_decimal_payload(out: &mut Vec<u8>, value: crate::types::Decimal) {
-    push_array_len(out, 2);
-    push_byte_string(out, &value.mantissa().to_be_bytes());
-    push_unsigned_integer(out, u128::from(value.scale()));
-}
-
-// Encode one arbitrary-precision signed integer as `(sign, limbs)`.
-fn push_int_big_payload(out: &mut Vec<u8>, value: &Int) {
-    let (negative, digits) = value.sign_and_u32_digits();
-    let sign = if digits.is_empty() {
-        0
-    } else if negative {
-        -1
-    } else {
-        1
-    };
-
-    push_array_len(out, 2);
-    push_signed_integer(out, sign);
-    push_uint_big_digits(out, digits.as_slice());
-}
-
-// Encode one arbitrary-precision unsigned integer as its base-2^32 limb array.
-fn push_uint_big_payload(out: &mut Vec<u8>, value: &Nat) {
-    let digits = value.u32_digits();
-    push_uint_big_digits(out, digits.as_slice());
-}
-
-// Encode one base-2^32 limb sequence as the persisted CBOR array shape.
-fn push_uint_big_digits(out: &mut Vec<u8>, digits: &[u32]) {
-    push_array_len(out, digits.len());
-    for digit in digits {
-        push_unsigned_integer(out, u128::from(*digit));
-    }
-}
-
-// Encode one subaccount using the stable derived `[u8; 32]` CBOR array shape.
-fn push_subaccount_payload(out: &mut Vec<u8>, value: crate::types::Subaccount) {
-    push_array_len(out, 32);
-    for byte in value.as_slice() {
-        push_unsigned_integer(out, u128::from(*byte));
-    }
-}
-
-// Encode one timestamp payload using the persisted RFC3339 text form.
-fn push_timestamp_payload(
-    out: &mut Vec<u8>,
-    value: crate::types::Timestamp,
-) -> Result<(), InternalError> {
-    let nanos = i128::from(value.as_millis()).saturating_mul(1_000_000);
-    let dt = OffsetDateTime::from_unix_timestamp_nanos(nanos)
-        .map_err(InternalError::persisted_row_encode_failed)?;
-    let rendered = dt
-        .format(&Rfc3339)
-        .map_err(InternalError::persisted_row_encode_failed)?;
-    push_text(out, &rendered);
 
     Ok(())
 }

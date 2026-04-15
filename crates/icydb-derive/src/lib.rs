@@ -74,7 +74,7 @@ pub fn derive_field_projection(input: TokenStream) -> TokenStream {
 }
 
 /// Derive persisted-row slot materialization and projection helpers.
-#[proc_macro_derive(PersistedRow)]
+#[proc_macro_derive(PersistedRow, attributes(icydb))]
 pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
     persisted_row::derive_persisted_row(input.into()).into()
 }

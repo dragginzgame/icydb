@@ -9,7 +9,6 @@ mod tests;
 use crate::{
     db::{
         Db,
-        codec::deserialize_persisted_payload,
         commit::{
             CommitMarker, CommitRowOp, begin_commit_with_migration_state,
             clear_migration_state_bytes, finish_commit, load_migration_state_bytes,
@@ -18,10 +17,12 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use serde::{Deserialize, Serialize};
-use serde_cbor::to_vec;
 
 const MAX_MIGRATION_STATE_BYTES: usize = 64 * 1024;
+const MIGRATION_STATE_MAGIC: [u8; 2] = *b"MS";
+const MIGRATION_STATE_VERSION_CURRENT: u8 = 1;
+const MIGRATION_STATE_NONE_ROW_KEY_TAG: u8 = 0;
+const MIGRATION_STATE_SOME_ROW_KEY_TAG: u8 = 1;
 
 ///
 /// MigrationCursor
@@ -73,8 +74,7 @@ impl MigrationCursor {
 /// migration step for diagnostics and recovery observability.
 ///
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct PersistedMigrationState {
     migration_id: String,
     migration_version: u64,
@@ -454,17 +454,201 @@ fn encode_durable_cursor_state(
 fn decode_persisted_migration_state(
     bytes: &[u8],
 ) -> Result<PersistedMigrationState, InternalError> {
-    deserialize_persisted_payload::<PersistedMigrationState>(
-        bytes,
-        MAX_MIGRATION_STATE_BYTES,
-        "migration state",
-    )
+    // Phase 1: reject oversized payloads before any structural decode work.
+    if bytes.len() > MAX_MIGRATION_STATE_BYTES {
+        return Err(InternalError::serialize_corruption(format!(
+            "migration state decode failed: payload size {} exceeds limit {MAX_MIGRATION_STATE_BYTES}",
+            bytes.len(),
+        )));
+    }
+
+    // Phase 2: validate the fixed header and read the fixed-width fields.
+    let mut cursor = bytes;
+    decode_migration_state_magic(&mut cursor)?;
+    let format_version = decode_migration_state_u8(&mut cursor, "format version")?;
+    validate_migration_state_format_version(format_version)?;
+    let migration_id = decode_migration_state_string(&mut cursor, "migration_id")?;
+    let migration_version = decode_migration_state_u64(&mut cursor, "migration_version")?;
+    let step_index = decode_migration_state_u64(&mut cursor, "step_index")?;
+    let last_applied_row_key =
+        decode_migration_state_optional_bytes(&mut cursor, "last_applied_row_key")?;
+
+    // Phase 3: reject trailing bytes so the codec stays single-version and exact.
+    if !cursor.is_empty() {
+        return Err(InternalError::serialize_corruption(
+            "migration state decode failed: trailing bytes",
+        ));
+    }
+
+    Ok(PersistedMigrationState {
+        migration_id,
+        migration_version,
+        step_index,
+        last_applied_row_key,
+    })
 }
 
 fn encode_persisted_migration_state(
     state: &PersistedMigrationState,
 ) -> Result<Vec<u8>, InternalError> {
-    to_vec(state).map_err(InternalError::migration_state_serialize_failed)
+    // Phase 1: pre-compute the bounded payload size so overflow and policy
+    // violations fail before any bytes are emitted.
+    let row_key_len = state.last_applied_row_key.as_ref().map_or(0usize, Vec::len);
+    let encoded_len = MIGRATION_STATE_MAGIC
+        .len()
+        .saturating_add(1)
+        .saturating_add(4)
+        .saturating_add(state.migration_id.len())
+        .saturating_add(8)
+        .saturating_add(8)
+        .saturating_add(1)
+        .saturating_add(if state.last_applied_row_key.is_some() {
+            4usize.saturating_add(row_key_len)
+        } else {
+            0
+        });
+    if encoded_len > MAX_MIGRATION_STATE_BYTES {
+        return Err(InternalError::migration_state_serialize_failed(format!(
+            "payload size {encoded_len} exceeds limit {MAX_MIGRATION_STATE_BYTES}",
+        )));
+    }
+
+    let migration_id_len = u32::try_from(state.migration_id.len()).map_err(|_| {
+        InternalError::migration_state_serialize_failed("migration_id exceeds u32 length")
+    })?;
+    let row_key_len_u32 = u32::try_from(row_key_len).map_err(|_| {
+        InternalError::migration_state_serialize_failed("last_applied_row_key exceeds u32 length")
+    })?;
+
+    // Phase 2: write the fixed binary payload in one exact stable order.
+    let mut encoded = Vec::with_capacity(encoded_len);
+    encoded.extend_from_slice(&MIGRATION_STATE_MAGIC);
+    encoded.push(MIGRATION_STATE_VERSION_CURRENT);
+    encoded.extend_from_slice(&migration_id_len.to_be_bytes());
+    encoded.extend_from_slice(state.migration_id.as_bytes());
+    encoded.extend_from_slice(&state.migration_version.to_be_bytes());
+    encoded.extend_from_slice(&state.step_index.to_be_bytes());
+
+    match state.last_applied_row_key.as_ref() {
+        Some(row_key) => {
+            encoded.push(MIGRATION_STATE_SOME_ROW_KEY_TAG);
+            encoded.extend_from_slice(&row_key_len_u32.to_be_bytes());
+            encoded.extend_from_slice(row_key);
+        }
+        None => encoded.push(MIGRATION_STATE_NONE_ROW_KEY_TAG),
+    }
+
+    Ok(encoded)
+}
+
+// Decode and validate the fixed migration-state magic prefix.
+fn decode_migration_state_magic(bytes: &mut &[u8]) -> Result<(), InternalError> {
+    let magic = take_migration_state_bytes(bytes, MIGRATION_STATE_MAGIC.len(), "magic")?;
+    if magic != MIGRATION_STATE_MAGIC {
+        return Err(InternalError::serialize_corruption(
+            "migration state decode failed: invalid magic",
+        ));
+    }
+
+    Ok(())
+}
+
+// Decode one fixed-width u8 field from the migration-state payload.
+fn decode_migration_state_u8(bytes: &mut &[u8], label: &'static str) -> Result<u8, InternalError> {
+    Ok(take_migration_state_bytes(bytes, 1, label)?[0])
+}
+
+// Decode one fixed-width u64 field from the migration-state payload.
+fn decode_migration_state_u64(
+    bytes: &mut &[u8],
+    label: &'static str,
+) -> Result<u64, InternalError> {
+    let raw = take_migration_state_bytes(bytes, 8, label)?;
+
+    Ok(u64::from_be_bytes([
+        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+    ]))
+}
+
+// Decode one length-prefixed UTF-8 string field from the migration-state payload.
+fn decode_migration_state_string(
+    bytes: &mut &[u8],
+    label: &'static str,
+) -> Result<String, InternalError> {
+    let raw = decode_migration_state_length_prefixed_bytes(bytes, label)?;
+
+    String::from_utf8(raw.to_vec()).map_err(|_| {
+        InternalError::serialize_corruption(format!(
+            "migration state decode failed: {label} is not valid UTF-8",
+        ))
+    })
+}
+
+// Decode one tagged optional byte vector from the migration-state payload.
+fn decode_migration_state_optional_bytes(
+    bytes: &mut &[u8],
+    label: &'static str,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let tag = decode_migration_state_u8(bytes, label)?;
+
+    match tag {
+        MIGRATION_STATE_NONE_ROW_KEY_TAG => Ok(None),
+        MIGRATION_STATE_SOME_ROW_KEY_TAG => Ok(Some(
+            decode_migration_state_length_prefixed_bytes(bytes, label)?.to_vec(),
+        )),
+        _ => Err(InternalError::serialize_corruption(format!(
+            "migration state decode failed: invalid {label} tag {tag}",
+        ))),
+    }
+}
+
+// Decode one length-prefixed byte slice from the migration-state payload.
+fn decode_migration_state_length_prefixed_bytes<'a>(
+    bytes: &mut &'a [u8],
+    label: &'static str,
+) -> Result<&'a [u8], InternalError> {
+    let raw_len = take_migration_state_bytes(bytes, 4, label)?;
+    let len = usize::try_from(u32::from_be_bytes([
+        raw_len[0], raw_len[1], raw_len[2], raw_len[3],
+    ]))
+    .map_err(|_| {
+        InternalError::serialize_corruption(format!(
+            "migration state decode failed: {label} length out of range",
+        ))
+    })?;
+
+    take_migration_state_bytes(bytes, len, label)
+}
+
+// Borrow one exact byte span from the migration-state payload.
+fn take_migration_state_bytes<'a>(
+    bytes: &mut &'a [u8],
+    len: usize,
+    label: &'static str,
+) -> Result<&'a [u8], InternalError> {
+    if bytes.len() < len {
+        return Err(InternalError::serialize_corruption(format!(
+            "migration state decode failed: truncated {label}",
+        )));
+    }
+
+    let (head, tail) = bytes.split_at(len);
+    *bytes = tail;
+
+    Ok(head)
+}
+
+// Validate the single supported migration-state format version.
+fn validate_migration_state_format_version(format_version: u8) -> Result<(), InternalError> {
+    if format_version == MIGRATION_STATE_VERSION_CURRENT {
+        return Ok(());
+    }
+
+    Err(InternalError::serialize_incompatible_persisted_format(
+        format!(
+            "migration state format version {format_version} is unsupported by runtime version {MIGRATION_STATE_VERSION_CURRENT}",
+        ),
+    ))
 }
 
 fn execute_migration_step<C: CanisterKind>(

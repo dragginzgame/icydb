@@ -730,7 +730,7 @@ impl<T: FieldValue> FieldValue for Box<T> {
     }
 }
 
-impl<T: FieldValue> FieldValue for Vec<Box<T>> {
+impl<T: FieldValue> FieldValue for Vec<T> {
     fn kind() -> FieldValueKind {
         FieldValueKind::Structured { queryable: true }
     }
@@ -740,16 +740,57 @@ impl<T: FieldValue> FieldValue for Vec<Box<T>> {
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        let Value::List(items) = value else {
-            return None;
-        };
+        field_value_vec_from_value(value)
+    }
+}
 
-        let mut out = Self::with_capacity(items.len());
-        for item in items {
-            out.push(Box::new(T::from_value(item)?));
+impl<T> FieldValue for BTreeSet<T>
+where
+    T: FieldValue + Ord,
+{
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
+    }
+
+    fn to_value(&self) -> Value {
+        Value::List(self.iter().map(FieldValue::to_value).collect())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        field_value_btree_set_from_value(value)
+    }
+}
+
+impl<K, V> FieldValue for BTreeMap<K, V>
+where
+    K: FieldValue + Ord,
+    V: FieldValue,
+{
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
+    }
+
+    fn to_value(&self) -> Value {
+        let mut entries: Vec<(Value, Value)> = self
+            .iter()
+            .map(|(key, value)| (FieldValue::to_value(key), FieldValue::to_value(value)))
+            .collect();
+
+        if let Err(err) = Value::validate_map_entries(entries.as_slice()) {
+            debug_assert!(
+                false,
+                "invalid map field value for {}: {err}",
+                std::any::type_name::<Self>()
+            );
+            return Value::Map(entries);
         }
 
-        Some(out)
+        Value::sort_map_entries_in_place(entries.as_mut_slice());
+        Value::Map(entries)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        field_value_btree_map_from_value(value)
     }
 }
 

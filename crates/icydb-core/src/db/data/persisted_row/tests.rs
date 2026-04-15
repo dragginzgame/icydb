@@ -3,12 +3,11 @@ use super::{
     SerializedFieldUpdate, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
     UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
     canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
-    decode_persisted_option_slot_payload, decode_persisted_slot_payload,
-    decode_slot_value_by_contract, decode_slot_value_from_bytes,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
-    encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
-    materialize_entity_from_serialized_update_patch,
+    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
+    decode_persisted_option_slot_payload_by_kind, decode_slot_value_by_contract,
+    decode_slot_value_from_bytes, encode_persisted_custom_many_slot_payload,
+    encode_persisted_custom_slot_payload, encode_scalar_slot_value, encode_slot_payload_from_parts,
+    encode_slot_value_from_value, materialize_entity_from_serialized_update_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
     with_structural_read_metrics,
 };
@@ -65,6 +64,23 @@ struct PersistedRowPatchBridgeEntity {
     name: String,
 }
 
+///
+/// PersistedRowDecimalHintEntity
+///
+/// PersistedRowDecimalHintEntity proves that the metadata-free
+/// `PersistedRow` derive can leave the CBOR compatibility seam for decimal
+/// fields when the caller supplies an explicit scale hint.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct PersistedRowDecimalHintEntity {
+    id: crate::types::Ulid,
+    #[icydb(scale = 2)]
+    amount: Decimal,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct PersistedRowProfileValue {
     bio: String,
@@ -116,6 +132,22 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text),
+    ],
+    indexes = [],
+    store = PersistedRowPatchBridgeStore,
+    canister = PersistedRowPatchBridgeCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PersistedRowDecimalHintEntity,
+    id = crate::types::Ulid,
+    id_field = id,
+    entity_name = "PersistedRowDecimalHintEntity",
+    entity_tag = SIMPLE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("amount", FieldKind::Decimal { scale: 2 }),
     ],
     indexes = [],
     store = PersistedRowPatchBridgeStore,
@@ -653,7 +685,7 @@ fn custom_slot_payload_roundtrips_structured_field_value() {
 
     assert_eq!(decoded, profile);
     assert_eq!(
-        decode_persisted_slot_payload::<Value>(payload.as_slice(), "profile")
+        decode_structural_value_storage_bytes(payload.as_slice())
             .expect("decode raw value payload"),
         profile.to_value(),
     );
@@ -682,9 +714,12 @@ fn custom_many_slot_payload_roundtrips_structured_value_lists() {
 
 #[test]
 fn decode_persisted_non_null_slot_payload_rejects_null_for_required_structured_fields() {
-    let err =
-        decode_persisted_non_null_slot_payload::<PersistedRowProfileValue>(&[0xF6], "profile")
-            .expect_err("required structured payload must reject null");
+    let err = decode_persisted_non_null_slot_payload_by_kind::<PersistedRowProfileValue>(
+        &[0xF6],
+        FieldKind::Structured { queryable: false },
+        "profile",
+    )
+    .expect_err("required structured payload must reject null");
 
     assert!(
         err.message
@@ -695,9 +730,12 @@ fn decode_persisted_non_null_slot_payload_rejects_null_for_required_structured_f
 
 #[test]
 fn decode_persisted_option_slot_payload_treats_cbor_null_as_none() {
-    let decoded =
-        decode_persisted_option_slot_payload::<PersistedRowProfileValue>(&[0xF6], "profile")
-            .expect("optional structured payload should decode");
+    let decoded = decode_persisted_option_slot_payload_by_kind::<PersistedRowProfileValue>(
+        &[0xF6],
+        FieldKind::Structured { queryable: false },
+        "profile",
+    )
+    .expect("optional structured payload should decode");
 
     assert_eq!(decoded, None);
 }
@@ -1318,6 +1356,70 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
     );
     assert_eq!(old_decoded, old_entity);
     assert_eq!(decoded, new_entity);
+}
+
+#[test]
+fn legacy_persisted_row_decimal_scale_hint_uses_by_kind_slot_codec() {
+    let entity = PersistedRowDecimalHintEntity {
+        id: crate::types::Ulid::from_u128(77),
+        amount: Decimal::new(123, 2),
+    };
+    let expected_amount = crate::db::data::encode_structural_field_by_kind_bytes(
+        FieldKind::Decimal { scale: 2 },
+        &Value::Decimal(entity.amount),
+        "amount",
+    )
+    .expect("decimal slot bytes should encode through by-kind contract");
+    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowDecimalHintEntity::MODEL)
+        .expect("raw row should decode structurally");
+
+    assert_eq!(
+        reader.get_bytes(1),
+        Some(expected_amount.as_slice()),
+        "legacy derive decimal hint should emit the same by-kind bytes as schema-owned decimal storage",
+    );
+}
+
+#[test]
+fn legacy_decimal_scale_hint_decodes_matching_by_kind_payload() {
+    let id = crate::types::Ulid::from_u128(78);
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let amount_payload = crate::db::data::encode_structural_field_by_kind_bytes(
+        FieldKind::Decimal { scale: 2 },
+        &Value::Decimal(Decimal::new(123, 2)),
+        "amount",
+    )
+    .expect("matching decimal slot bytes should encode");
+    let payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
+                u32::try_from(amount_payload.len()).expect("amount slot length should fit in u32"),
+            ),
+        ],
+        &[id_payload.as_slice(), amount_payload.as_slice()].concat(),
+    )
+    .expect("test row payload should encode");
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
+            .expect("test row should encode");
+    let decoded = raw_row
+        .try_decode::<PersistedRowDecimalHintEntity>()
+        .expect("legacy derive decimal hint should decode matching by-kind payload");
+
+    assert_eq!(
+        decoded,
+        PersistedRowDecimalHintEntity {
+            id,
+            amount: Decimal::new(123, 2),
+        }
+    );
 }
 
 #[test]
