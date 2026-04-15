@@ -12,6 +12,7 @@ use crate::{
             SqlTextFunction, SqlTextFunctionCall,
         },
     },
+    model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 
@@ -321,6 +322,7 @@ pub(super) fn lower_grouped_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
     group_by: &[String],
+    model: &'static EntityModel,
 ) -> Result<ProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::unsupported_select_group_by());
@@ -355,8 +357,15 @@ pub(super) fn lower_grouped_projection_selection(
         )?);
     }
 
-    if !seen_aggregate || projected_group_fields.as_slice() != group_by {
+    if !seen_aggregate {
         return Err(SqlLoweringError::unsupported_select_group_by());
+    }
+    if projected_group_fields.as_slice() != group_by {
+        return Err(grouped_projection_shape_mismatch_error(
+            model,
+            projected_group_fields.as_slice(),
+            group_by,
+        ));
     }
 
     if projection_aliases.iter().all(Option::is_none) {
@@ -364,6 +373,24 @@ pub(super) fn lower_grouped_projection_selection(
     }
 
     Ok(ProjectionSelection::Exprs(fields))
+}
+
+// Prefer one precise unknown-field error when grouped projection shape
+// mismatch is caused by a misspelled projection or GROUP BY identifier.
+fn grouped_projection_shape_mismatch_error(
+    model: &EntityModel,
+    projected_group_fields: &[String],
+    group_by: &[String],
+) -> SqlLoweringError {
+    if let Some(field) = projected_group_fields
+        .iter()
+        .chain(group_by.iter())
+        .find(|field| resolve_field_slot(model, field.as_str()).is_none())
+    {
+        return SqlLoweringError::unknown_field(field.clone());
+    }
+
+    SqlLoweringError::unsupported_select_group_by()
 }
 
 pub(super) fn direct_scalar_field_selection(

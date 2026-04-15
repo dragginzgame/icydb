@@ -59,7 +59,8 @@ pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
-    OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
+    OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
+    compare_orderable_row_with_boundary,
 };
 #[cfg(feature = "perf-attribution")]
 pub(in crate::db) use pipeline::ScalarExecutePhaseAttribution;
@@ -111,6 +112,12 @@ pub(in crate::db::executor) use stream::key::{
 pub(in crate::db) use terminal::KernelRow;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
+#[cfg(feature = "structural-read-metrics")]
+pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+pub(crate) use terminal::{
+    ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
+};
 pub(in crate::db::executor) use util::saturating_row_len;
 
 ///

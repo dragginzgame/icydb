@@ -645,7 +645,27 @@ pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
 
 fn render_result_row_count_line(row_count: u32) -> String {
     let noun = if row_count == 1 { "row" } else { "rows" };
-    format!("{row_count} {noun} in set")
+    format!("{} {noun},", render_grouped_decimal_u32(row_count))
+}
+
+// Render one `u32` with ASCII thousands separators so shell row-count footers
+// remain easy to scan on large result sets.
+fn render_grouped_decimal_u32(value: u32) -> String {
+    let digits = value.to_string();
+    let mut rendered = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
+    let leading_group_len = digits.len().rem_euclid(3);
+
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0
+            && (index == leading_group_len
+                || (index > leading_group_len && (index - leading_group_len).rem_euclid(3) == 0))
+        {
+            rendered.push(',');
+        }
+        rendered.push(ch);
+    }
+
+    rendered
 }
 
 fn render_table_separator(widths: &[usize]) -> String {
@@ -840,7 +860,7 @@ mod tests {
                 "| alice |".to_string(),
                 "+-------+".to_string(),
                 String::new(),
-                "1 row in set".to_string(),
+                "1 row,".to_string(),
             ],
             "projection query-result rendering must remain contract-stable across release lines",
         );
@@ -867,7 +887,7 @@ mod tests {
                 "| name | hit_points | strength |".to_string(),
                 "+------+------------+----------+".to_string(),
                 String::new(),
-                "0 rows in set".to_string(),
+                "0 rows,".to_string(),
             ],
             "empty projection tables should stop after the header separator instead of rendering a duplicate closing border",
         );
@@ -898,9 +918,26 @@ mod tests {
                 "| 31  | 2        |".to_string(),
                 "+-----+----------+".to_string(),
                 String::new(),
-                "2 rows in set".to_string(),
+                "2 rows,".to_string(),
             ],
             "grouped query-result rendering must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_row_count_footer_uses_grouped_decimal_formatting() {
+        let projection = SqlQueryRowsOutput {
+            entity: "User".to_string(),
+            columns: vec!["name".to_string()],
+            rows: Vec::new(),
+            row_count: 1_234,
+        };
+        let result = SqlQueryResult::Projection(projection);
+
+        assert_eq!(
+            result.render_lines().last(),
+            Some(&"1,234 rows,".to_string()),
+            "row-count footers should use grouped decimal formatting for large result sets",
         );
     }
 

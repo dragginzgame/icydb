@@ -733,7 +733,7 @@ impl<C: CanisterKind> DbSession<C> {
         let lowered = lower_sql_command_from_prepared_statement(
             prepare_sql_statement(parsed, E::MODEL.name())
                 .map_err(QueryError::from_sql_lowering_error)?,
-            E::MODEL.primary_key.name,
+            E::MODEL,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let Some(query) = lowered.query().cloned() else {

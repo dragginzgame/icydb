@@ -11,8 +11,9 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, EntityAuthority, ExecutionKernel, ExecutorError,
             OrderReadableRow, OrderedKeyStream, ScalarContinuationContext,
-            apply_structural_order_window, compare_orderable_row_with_boundary,
-            exact_output_key_count_hint, key_stream_budget_is_redundant,
+            apply_structural_order_window, apply_structural_order_window_to_data_rows,
+            compare_orderable_row_with_boundary, exact_output_key_count_hint,
+            key_stream_budget_is_redundant,
             order::cursor_boundary_from_orderable_row,
             pipeline::contracts::{
                 CursorEmissionMode, MaterializedExecutionPayload, PageCursor, StructuralCursorPage,
@@ -30,6 +31,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+#[cfg(any(test, feature = "structural-read-metrics"))]
+use std::cell::RefCell;
 use std::{borrow::Cow, sync::Arc};
 
 use crate::db::executor::terminal::{RowDecoder, RowLayout};
@@ -117,6 +120,121 @@ impl RetainedSlotLayout {
 
 pub(in crate::db) struct RetainedSlotRow {
     storage: RetainedSlotRowStorage,
+}
+
+///
+/// ScalarMaterializationLaneMetrics
+///
+/// ScalarMaterializationLaneMetrics aggregates one test-scoped or
+/// metrics-scoped view of which shared scalar materialization lane actually
+/// executed for one workload.
+/// This keeps lane attribution explicit so runtime work can be tied back to
+/// the executor contract instead of inferred indirectly from instruction
+/// totals alone.
+///
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg_attr(
+    all(test, not(feature = "structural-read-metrics")),
+    allow(unreachable_pub)
+)]
+#[expect(clippy::struct_field_names)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ScalarMaterializationLaneMetrics {
+    pub direct_data_row_path_hits: u64,
+    pub direct_filtered_data_row_path_hits: u64,
+    pub kernel_data_row_path_hits: u64,
+    pub kernel_full_row_retained_path_hits: u64,
+    pub kernel_slots_only_path_hits: u64,
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+std::thread_local! {
+    static SCALAR_MATERIALIZATION_LANE_METRICS: RefCell<Option<ScalarMaterializationLaneMetrics>> = const {
+        RefCell::new(None)
+    };
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn update_scalar_materialization_lane_metrics(
+    update: impl FnOnce(&mut ScalarMaterializationLaneMetrics),
+) {
+    SCALAR_MATERIALIZATION_LANE_METRICS.with(|metrics| {
+        let mut metrics = metrics.borrow_mut();
+        let Some(metrics) = metrics.as_mut() else {
+            return;
+        };
+
+        update(metrics);
+    });
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn record_direct_data_row_path_hit() {
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.direct_data_row_path_hits = metrics.direct_data_row_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn record_direct_filtered_data_row_path_hit() {
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.direct_filtered_data_row_path_hits =
+            metrics.direct_filtered_data_row_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn record_kernel_data_row_path_hit() {
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.kernel_data_row_path_hits = metrics.kernel_data_row_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn record_kernel_full_row_retained_path_hit() {
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.kernel_full_row_retained_path_hits =
+            metrics.kernel_full_row_retained_path_hits.saturating_add(1);
+    });
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn record_kernel_slots_only_path_hit() {
+    update_scalar_materialization_lane_metrics(|metrics| {
+        metrics.kernel_slots_only_path_hits = metrics.kernel_slots_only_path_hits.saturating_add(1);
+    });
+}
+
+///
+/// with_scalar_materialization_lane_metrics
+///
+/// Run one closure while collecting executor-owned scalar materialization lane
+/// metrics on the current thread, then return the closure result plus the
+/// aggregated snapshot.
+///
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg_attr(
+    all(test, not(feature = "structural-read-metrics")),
+    allow(unreachable_pub)
+)]
+pub fn with_scalar_materialization_lane_metrics<T>(
+    f: impl FnOnce() -> T,
+) -> (T, ScalarMaterializationLaneMetrics) {
+    SCALAR_MATERIALIZATION_LANE_METRICS.with(|metrics| {
+        debug_assert!(
+            metrics.borrow().is_none(),
+            "scalar materialization lane metrics captures should not nest"
+        );
+        *metrics.borrow_mut() = Some(ScalarMaterializationLaneMetrics::default());
+    });
+
+    let result = f();
+    let metrics = SCALAR_MATERIALIZATION_LANE_METRICS
+        .with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
+
+    (result, metrics)
 }
 
 ///
@@ -501,11 +619,55 @@ impl ScalarRowRuntimeState {
         consistency: MissingRowPolicy,
         key: DataKey,
     ) -> Result<Option<KernelRow>, InternalError> {
+        let Some(data_row) = self.read_data_row(consistency, key)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(KernelRow::new_data_row_only(data_row)))
+    }
+
+    // Read one canonical structural data row without constructing one
+    // intermediate kernel-row envelope.
+    fn read_data_row(
+        &self,
+        consistency: MissingRowPolicy,
+        key: DataKey,
+    ) -> Result<Option<DataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
 
-        Ok(Some(KernelRow::new_data_row_only((key, row))))
+        Ok(Some((key, row)))
+    }
+
+    // Read one canonical structural data row and drop it early when the
+    // residual predicate rejects the retained slot values needed by scan-time
+    // filtering.
+    fn read_data_row_with_predicate(
+        &self,
+        consistency: MissingRowPolicy,
+        key: DataKey,
+        predicate_program: &PredicateProgram,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<DataRow>, InternalError> {
+        let Some(row) = self.read_row(consistency, &key)? else {
+            return Ok(None);
+        };
+        let retained_values = RowDecoder::decode_indexed_slot_values(
+            &self.row_layout,
+            key.storage_key(),
+            &row,
+            retained_slot_layout,
+        )?;
+        if !predicate_matches_retained_values(
+            predicate_program,
+            retained_slot_layout,
+            retained_values.as_slice(),
+        ) {
+            return Ok(None);
+        }
+
+        Ok(Some((key, row)))
     }
 
     // Decode one full structural row while retaining only one caller-declared
@@ -542,17 +704,27 @@ impl ScalarRowRuntimeState {
         predicate_program: &PredicateProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(kernel_row) =
-            self.read_full_row_retained(consistency, key, retained_slot_layout)?
-        else {
+        let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        if !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| kernel_row.slot_ref(slot))
-        {
+        let retained_values = RowDecoder::decode_indexed_slot_values(
+            &self.row_layout,
+            key.storage_key(),
+            &row,
+            retained_slot_layout,
+        )?;
+        if !predicate_matches_retained_values(
+            predicate_program,
+            retained_slot_layout,
+            retained_values.as_slice(),
+        ) {
             return Ok(None);
         }
 
-        Ok(Some(kernel_row))
+        Ok(Some(KernelRow::new_with_retained_slots(
+            (key, row),
+            RetainedSlotRow::from_indexed_values(retained_slot_layout, retained_values),
+        )))
     }
 
     // Decode one compact slot-only structural row under the shared retained layout.
@@ -584,15 +756,26 @@ impl ScalarRowRuntimeState {
         predicate_program: &PredicateProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(kernel_row) = self.read_slot_only(consistency, key, retained_slot_layout)? else {
+        let Some(row) = self.read_row(consistency, key)? else {
             return Ok(None);
         };
-        if !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| kernel_row.slot_ref(slot))
-        {
+        let retained_values = RowDecoder::decode_indexed_slot_values(
+            &self.row_layout,
+            key.storage_key(),
+            &row,
+            retained_slot_layout,
+        )?;
+        if !predicate_matches_retained_values(
+            predicate_program,
+            retained_slot_layout,
+            retained_values.as_slice(),
+        ) {
             return Ok(None);
         }
 
-        Ok(Some(kernel_row))
+        Ok(Some(KernelRow::new_slot_only(
+            RetainedSlotRow::from_indexed_values(retained_slot_layout, retained_values),
+        )))
     }
 }
 
@@ -634,6 +817,13 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         Self { state }
     }
 
+    /// Borrow the authority-owned row layout used by raw-row materialization
+    /// and direct raw-row order caching.
+    #[must_use]
+    pub(in crate::db::executor) const fn row_layout(&self) -> RowLayout {
+        self.state.row_layout
+    }
+
     /// Read one structural data row without decoding any slot payload.
     pub(in crate::db::executor) fn read_data_row_only(
         &self,
@@ -641,6 +831,33 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         key: DataKey,
     ) -> Result<Option<KernelRow>, InternalError> {
         self.state.read_data_row_only(consistency, key)
+    }
+
+    /// Read one canonical structural data row without constructing one
+    /// intermediate kernel-row envelope.
+    pub(in crate::db::executor) fn read_data_row(
+        &self,
+        consistency: MissingRowPolicy,
+        key: DataKey,
+    ) -> Result<Option<DataRow>, InternalError> {
+        self.state.read_data_row(consistency, key)
+    }
+
+    /// Read one canonical structural data row and apply the residual
+    /// predicate before the row enters shared kernel control flow.
+    pub(in crate::db::executor) fn read_data_row_with_predicate(
+        &self,
+        consistency: MissingRowPolicy,
+        key: DataKey,
+        predicate_program: &PredicateProgram,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<DataRow>, InternalError> {
+        self.state.read_data_row_with_predicate(
+            consistency,
+            key,
+            predicate_program,
+            retained_slot_layout,
+        )
     }
 
     /// Read one full structural row while retaining only one shared compact
@@ -727,7 +944,50 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) direction: Direction,
 }
 
+///
+/// ResidualPredicateScanMode
+///
+/// ResidualPredicateScanMode keeps the scan-owned residual predicate contract
+/// explicit instead of overloading a boolean with both logical presence and
+/// execution timing. The scalar kernel only needs to know whether no residual
+/// predicate exists, whether scan must evaluate it while slot reads are
+/// available, or whether post-access must evaluate it later.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum ResidualPredicateScanMode {
+    Absent,
+    AppliedDuringScan,
+    DeferredPostAccess,
+}
+
+impl ResidualPredicateScanMode {
+    /// Select the executor scan contract from the logical residual-predicate
+    /// presence plus the row payload capabilities already chosen for this lane.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_plan_and_layout(
+        has_residual_predicate: bool,
+        retained_slot_layout: Option<&RetainedSlotLayout>,
+    ) -> Self {
+        if !has_residual_predicate {
+            Self::Absent
+        } else if retained_slot_layout.is_some() {
+            Self::AppliedDuringScan
+        } else {
+            Self::DeferredPostAccess
+        }
+    }
+
+    /// Return whether the post-access coordinator still owns residual
+    /// predicate filtering after the structural scan finishes.
+    #[must_use]
+    const fn requires_post_access_filtering(self) -> bool {
+        matches!(self, Self::DeferredPostAccess)
+    }
+}
+
 /// Materialize one ordered key stream into one execution payload.
+#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
@@ -750,9 +1010,178 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     } = request;
     let payload_mode =
         select_kernel_row_payload_mode(retain_slot_rows, cursor_emission, retained_slot_layout);
-    let predicate_preapplied = plan.has_residual_predicate() && retained_slot_layout.is_some();
+    let residual_predicate_scan_mode = ResidualPredicateScanMode::from_plan_and_layout(
+        plan.has_residual_predicate(),
+        retained_slot_layout,
+    );
     let defer_retained_slot_distinct_window =
         plan.scalar_plan().distinct && !cursor_emission.enabled() && retain_slot_rows;
+
+    // Phase 0: the plain cursorless data-row lane can bypass `KernelRow`
+    // envelopes entirely when no later phase needs slot reads, retained rows,
+    // cursor anchors, or post-access ordering/filtering.
+    if data_row_only_direct_path_eligible(
+        plan,
+        validate_projection,
+        retain_slot_rows,
+        retained_slot_layout,
+        cursor_emission,
+        residual_predicate_scan_mode,
+    ) {
+        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+        #[cfg(any(test, feature = "structural-read-metrics"))]
+        record_direct_data_row_path_hit();
+
+        let (mut data_rows, rows_scanned) =
+            execute_scalar_data_row_read_loop(key_stream, scan_budget_hint, |key_stream| {
+                scan_data_rows_direct(key_stream, consistency, row_runtime)
+            })?;
+        let post_access_rows = data_rows.len();
+
+        apply_data_row_page_window(plan, &mut data_rows);
+
+        return Ok((
+            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
+                data_rows, None,
+            )),
+            rows_scanned,
+            post_access_rows,
+        ));
+    }
+
+    // Phase 0b: filtered cursorless data-row loads can stay on the same raw
+    // structural row path when scan-time predicate evaluation already has the
+    // retained-slot layout it needs. This avoids building transient
+    // `KernelRow` and `RetainedSlotRow` wrappers for filtered no-cursor loads.
+    if data_row_only_predicate_direct_path_eligible(
+        plan,
+        validate_projection,
+        retain_slot_rows,
+        retained_slot_layout,
+        cursor_emission,
+        residual_predicate_scan_mode,
+    ) {
+        let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "direct filtered data-row path requires one retained-slot layout",
+            )
+        })?;
+        let predicate_program = predicate_slots.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "direct filtered data-row path requires one compiled residual predicate",
+            )
+        })?;
+
+        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+        #[cfg(any(test, feature = "structural-read-metrics"))]
+        record_direct_filtered_data_row_path_hit();
+
+        let (mut data_rows, rows_scanned) =
+            execute_scalar_data_row_read_loop(key_stream, scan_budget_hint, |key_stream| {
+                scan_data_rows_direct_with_predicate(
+                    key_stream,
+                    consistency,
+                    row_runtime,
+                    predicate_program,
+                    retained_slot_layout,
+                )
+            })?;
+        let post_access_rows = data_rows.len();
+
+        apply_data_row_page_window(plan, &mut data_rows);
+
+        return Ok((
+            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
+                data_rows, None,
+            )),
+            rows_scanned,
+            post_access_rows,
+        ));
+    }
+
+    // Phase 0c: non-cursor materialized ordering can also stay on the raw
+    // `DataRow` path when the only remaining structural work is an optional
+    // scan-time residual predicate, in-memory order caching, and the final
+    // page window.
+    if data_row_only_materialized_order_direct_path_eligible(
+        plan,
+        validate_projection,
+        retain_slot_rows,
+        retained_slot_layout,
+        predicate_slots,
+        cursor_emission,
+        residual_predicate_scan_mode,
+    ) {
+        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+        #[cfg(any(test, feature = "structural-read-metrics"))]
+        match residual_predicate_scan_mode {
+            ResidualPredicateScanMode::Absent => record_direct_data_row_path_hit(),
+            ResidualPredicateScanMode::AppliedDuringScan => {
+                record_direct_filtered_data_row_path_hit();
+            }
+            ResidualPredicateScanMode::DeferredPostAccess => {
+                return Err(InternalError::query_executor_invariant(
+                    "materialized-order direct data-row path cannot defer residual filtering",
+                ));
+            }
+        }
+
+        let resolved_order = resolved_order_required(plan)?;
+        let (mut data_rows, rows_scanned) = execute_scalar_data_row_read_loop(
+            key_stream,
+            scan_budget_hint,
+            |key_stream| match residual_predicate_scan_mode {
+                ResidualPredicateScanMode::Absent => {
+                    scan_data_rows_direct(key_stream, consistency, row_runtime)
+                }
+                ResidualPredicateScanMode::AppliedDuringScan => {
+                    let predicate_program = predicate_slots.ok_or_else(|| {
+                        InternalError::query_executor_invariant(
+                            "scan-time residual filtering requires one compiled predicate program",
+                        )
+                    })?;
+                    let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
+                        InternalError::query_executor_invariant(
+                            "scan-time residual filtering requires one retained-slot layout",
+                        )
+                    })?;
+
+                    scan_data_rows_direct_with_predicate(
+                        key_stream,
+                        consistency,
+                        row_runtime,
+                        predicate_program,
+                        retained_slot_layout,
+                    )
+                }
+                ResidualPredicateScanMode::DeferredPostAccess => {
+                    Err(InternalError::query_executor_invariant(
+                        "materialized-order direct data-row path cannot defer residual filtering",
+                    ))
+                }
+            },
+        )?;
+
+        if data_rows.len() > 1 {
+            apply_structural_order_window_to_data_rows(
+                &mut data_rows,
+                row_runtime.row_layout(),
+                resolved_order,
+                ExecutionKernel::bounded_order_keep_count(plan, None),
+            )?;
+        }
+
+        apply_data_row_page_window(plan, &mut data_rows);
+        let post_access_rows = data_rows.len();
+
+        return Ok((
+            MaterializedExecutionPayload::StructuralPage(StructuralCursorPage::new(
+                data_rows, None,
+            )),
+            rows_scanned,
+            post_access_rows,
+        ));
+    }
 
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
     let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(ScalarPageKernelRequest {
@@ -762,7 +1191,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         consistency,
         payload_mode,
         predicate_slots,
-        predicate_preapplied,
+        residual_predicate_scan_mode,
         retained_slot_layout,
         continuation,
         row_runtime,
@@ -776,7 +1205,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
         &mut rows,
         continuation.post_access_cursor_boundary(),
         predicate_slots,
-        predicate_preapplied,
+        residual_predicate_scan_mode,
         defer_retained_slot_distinct_window,
     )?;
     if validate_projection {
@@ -817,6 +1246,87 @@ const fn select_kernel_row_payload_mode(
     } else {
         KernelRowPayloadMode::DataRowOnly
     }
+}
+
+// Return whether the shared scalar materializer can stay on the direct
+// `DataRow` path without constructing transient kernel rows at all.
+fn data_row_only_direct_path_eligible(
+    plan: &AccessPlannedQuery,
+    validate_projection: bool,
+    retain_slot_rows: bool,
+    retained_slot_layout: Option<&RetainedSlotLayout>,
+    cursor_emission: CursorEmissionMode,
+    residual_predicate_scan_mode: ResidualPredicateScanMode,
+) -> bool {
+    let logical = plan.scalar_plan();
+
+    logical.mode.is_load()
+        && !logical.distinct
+        && !validate_projection
+        && !retain_slot_rows
+        && retained_slot_layout.is_none()
+        && !cursor_emission.enabled()
+        && matches!(
+            residual_predicate_scan_mode,
+            ResidualPredicateScanMode::Absent
+        )
+        && access_order_satisfied_by_route_contract(plan)
+}
+
+// Return whether the shared scalar materializer can stay on the direct
+// `DataRow` path while still evaluating one residual predicate during scan.
+fn data_row_only_predicate_direct_path_eligible(
+    plan: &AccessPlannedQuery,
+    validate_projection: bool,
+    retain_slot_rows: bool,
+    retained_slot_layout: Option<&RetainedSlotLayout>,
+    cursor_emission: CursorEmissionMode,
+    residual_predicate_scan_mode: ResidualPredicateScanMode,
+) -> bool {
+    let logical = plan.scalar_plan();
+
+    logical.mode.is_load()
+        && !logical.distinct
+        && !validate_projection
+        && !retain_slot_rows
+        && retained_slot_layout.is_some()
+        && !cursor_emission.enabled()
+        && matches!(
+            residual_predicate_scan_mode,
+            ResidualPredicateScanMode::AppliedDuringScan
+        )
+        && access_order_satisfied_by_route_contract(plan)
+}
+
+// Return whether the shared scalar materializer can stay on raw `DataRow`
+// payloads while still applying one materialized in-memory order window.
+fn data_row_only_materialized_order_direct_path_eligible(
+    plan: &AccessPlannedQuery,
+    validate_projection: bool,
+    retain_slot_rows: bool,
+    retained_slot_layout: Option<&RetainedSlotLayout>,
+    predicate_slots: Option<&PredicateProgram>,
+    cursor_emission: CursorEmissionMode,
+    residual_predicate_scan_mode: ResidualPredicateScanMode,
+) -> bool {
+    let logical = plan.scalar_plan();
+
+    logical.mode.is_load()
+        && !logical.distinct
+        && logical
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty())
+        && !validate_projection
+        && !retain_slot_rows
+        && retained_slot_layout.is_some()
+        && !cursor_emission.enabled()
+        && match residual_predicate_scan_mode {
+            ResidualPredicateScanMode::Absent => true,
+            ResidualPredicateScanMode::AppliedDuringScan => predicate_slots.is_some(),
+            ResidualPredicateScanMode::DeferredPostAccess => false,
+        }
+        && !access_order_satisfied_by_route_contract(plan)
 }
 
 // Resolve the optional scalar page cursor once from the post-access rows.
@@ -980,15 +1490,16 @@ fn apply_post_access_to_kernel_rows_dyn(
     rows: &mut Vec<KernelRow>,
     cursor: Option<&CursorBoundary>,
     predicate_slots: Option<&PredicateProgram>,
-    predicate_preapplied: bool,
+    residual_predicate_scan_mode: ResidualPredicateScanMode,
     defer_retained_slot_distinct_window: bool,
 ) -> Result<usize, InternalError> {
     let logical = plan.scalar_plan();
-    let has_residual_predicate = plan.has_residual_predicate();
 
     // Phase 1: predicate filtering.
-    let filtered = if has_residual_predicate {
-        if !predicate_preapplied {
+    let filtered = match residual_predicate_scan_mode {
+        ResidualPredicateScanMode::Absent => false,
+        ResidualPredicateScanMode::AppliedDuringScan => true,
+        ResidualPredicateScanMode::DeferredPostAccess => {
             if rows.is_empty() && predicate_slots.is_none() {
                 return Ok(0);
             }
@@ -1001,11 +1512,9 @@ fn apply_post_access_to_kernel_rows_dyn(
                 let mut read_slot = |slot| row.slot_ref(slot);
                 predicate_program.eval_with_slot_value_ref_reader(&mut read_slot)
             });
-        }
 
-        true
-    } else {
-        false
+            true
+        }
     };
 
     // Phase 2: ordering.
@@ -1014,7 +1523,7 @@ fn apply_post_access_to_kernel_rows_dyn(
     if let Some(order) = logical.order.as_ref()
         && !order.fields.is_empty()
     {
-        if has_residual_predicate && !filtered {
+        if residual_predicate_scan_mode.requires_post_access_filtering() && !filtered {
             return Err(InternalError::scalar_page_ordering_after_filtering_required());
         }
 
@@ -1092,7 +1601,7 @@ struct ScalarPageKernelRequest<'a, 'r> {
     consistency: MissingRowPolicy,
     payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&'a PredicateProgram>,
-    predicate_preapplied: bool,
+    residual_predicate_scan_mode: ResidualPredicateScanMode,
     retained_slot_layout: Option<&'a RetainedSlotLayout>,
     continuation: &'a ScalarContinuationContext,
     row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
@@ -1114,7 +1623,7 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) payload_mode: KernelRowPayloadMode,
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
-    pub(in crate::db::executor) predicate_preapplied: bool,
+    pub(in crate::db::executor) residual_predicate_scan_mode: ResidualPredicateScanMode,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
     pub(in crate::db::executor) row_keep_cap: Option<usize>,
     pub(in crate::db::executor) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
@@ -1130,7 +1639,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         consistency,
         payload_mode,
         predicate_slots,
-        predicate_preapplied,
+        residual_predicate_scan_mode,
         retained_slot_layout,
         row_keep_cap,
         row_runtime,
@@ -1138,33 +1647,27 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
 
     // Phase 1: select the concrete row-read kernel once so the inner scan
     // loop does not branch on payload shape or predicate mode per row.
-    match (payload_mode, predicate_preapplied) {
-        (KernelRowPayloadMode::DataRowOnly, false) => {
+    match (payload_mode, residual_predicate_scan_mode) {
+        (
+            KernelRowPayloadMode::DataRowOnly,
+            ResidualPredicateScanMode::Absent | ResidualPredicateScanMode::DeferredPostAccess,
+        ) => {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_kernel_data_row_path_hit();
+
             execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
                 scan_data_rows_only_into_kernel(key_stream, consistency, row_keep_cap, row_runtime)
             })
         }
-        (KernelRowPayloadMode::DataRowOnly, true) => {
-            // Constant-false and similarly pre-elided residual windows can
-            // reach this lane with no residual predicate program and an empty
-            // key stream. That case is safe on the lightweight data-row-only
-            // path because there is no deferred predicate work left to apply.
-            if predicate_slots.is_none() {
-                execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
-                    scan_data_rows_only_into_kernel(
-                        key_stream,
-                        consistency,
-                        row_keep_cap,
-                        row_runtime,
-                    )
-                })
-            } else {
-                Err(InternalError::query_executor_invariant(
-                    "data-row-only kernel rows require residual predicates to be absent",
-                ))
-            }
+        (KernelRowPayloadMode::DataRowOnly, ResidualPredicateScanMode::AppliedDuringScan) => {
+            Err(InternalError::query_executor_invariant(
+                "data-row-only kernel rows must not apply residual predicates during scan",
+            ))
         }
-        (KernelRowPayloadMode::FullRowRetained, false) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::Absent) => {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_kernel_full_row_retained_path_hit();
+
             let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
                 InternalError::query_executor_invariant(
                     "retained full-row kernel rows require one retained-slot layout",
@@ -1181,7 +1684,10 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 )
             })
         }
-        (KernelRowPayloadMode::FullRowRetained, true) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::AppliedDuringScan) => {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_kernel_full_row_retained_path_hit();
+
             let predicate_program =
                 predicate_slots.ok_or_else(InternalError::scalar_page_predicate_slots_required)?;
             let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
@@ -1201,7 +1707,15 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 )
             })
         }
-        (KernelRowPayloadMode::SlotsOnly, false) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::DeferredPostAccess) => {
+            Err(InternalError::query_executor_invariant(
+                "retained full-row kernel rows must apply residual predicates during scan",
+            ))
+        }
+        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::Absent) => {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_kernel_slots_only_path_hit();
+
             let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
                 InternalError::query_executor_invariant(
                     "slot-only kernel rows require one retained-slot layout",
@@ -1218,7 +1732,10 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 )
             })
         }
-        (KernelRowPayloadMode::SlotsOnly, true) => {
+        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::AppliedDuringScan) => {
+            #[cfg(any(test, feature = "structural-read-metrics"))]
+            record_kernel_slots_only_path_hit();
+
             let predicate_program =
                 predicate_slots.ok_or_else(InternalError::scalar_page_predicate_slots_required)?;
             let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
@@ -1238,6 +1755,11 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 )
             })
         }
+        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::DeferredPostAccess) => {
+            Err(InternalError::query_executor_invariant(
+                "slot-only kernel rows must apply residual predicates during scan",
+            ))
+        }
     }
 }
 
@@ -1251,7 +1773,7 @@ fn execute_scalar_page_kernel_dyn(
         consistency,
         payload_mode,
         predicate_slots,
-        predicate_preapplied,
+        residual_predicate_scan_mode,
         retained_slot_layout,
         continuation,
         row_runtime,
@@ -1266,7 +1788,7 @@ fn execute_scalar_page_kernel_dyn(
         consistency,
         payload_mode,
         predicate_slots,
-        predicate_preapplied,
+        residual_predicate_scan_mode,
         retained_slot_layout,
         row_keep_cap: None,
         row_runtime,
@@ -1282,6 +1804,24 @@ fn execute_scalar_page_read_loop(
         &mut dyn OrderedKeyStream,
     ) -> Result<(Vec<KernelRow>, usize), InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    if let Some(scan_budget) = scan_budget_hint
+        && !key_stream_budget_is_redundant(key_stream, scan_budget)
+    {
+        let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
+
+        return scan_rows(&mut budgeted);
+    }
+
+    scan_rows(key_stream)
+}
+
+// Run one direct data-row read loop with one optional scan budget without
+// paying the structural kernel-row envelope cost.
+fn execute_scalar_data_row_read_loop(
+    key_stream: &mut dyn OrderedKeyStream,
+    scan_budget_hint: Option<usize>,
+    mut scan_rows: impl FnMut(&mut dyn OrderedKeyStream) -> Result<(Vec<DataRow>, usize), InternalError>,
+) -> Result<(Vec<DataRow>, usize), InternalError> {
     if let Some(scan_budget) = scan_budget_hint
         && !key_stream_budget_is_redundant(key_stream, scan_budget)
     {
@@ -1319,6 +1859,72 @@ fn scan_kernel_rows_with(
     }
 
     Ok((rows, rows_scanned))
+}
+
+// Evaluate one residual predicate against compact retained-slot values before
+// the executor commits to a retained-row wrapper for the surviving row.
+fn predicate_matches_retained_values(
+    predicate_program: &PredicateProgram,
+    retained_slot_layout: &RetainedSlotLayout,
+    retained_values: &[Option<Value>],
+) -> bool {
+    predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
+        let index = retained_slot_layout.value_index_for_slot(slot)?;
+
+        retained_values.get(index).and_then(Option::as_ref)
+    })
+}
+
+// Scan one ordered key stream directly into canonical data rows when the
+// caller already proved no later phase needs a kernel-row wrapper.
+fn scan_data_rows_direct(
+    key_stream: &mut dyn OrderedKeyStream,
+    consistency: MissingRowPolicy,
+    row_runtime: &ScalarRowRuntimeHandle<'_>,
+) -> Result<(Vec<DataRow>, usize), InternalError> {
+    let mut rows_scanned = 0usize;
+    let staged_capacity = exact_output_key_count_hint(key_stream, None).unwrap_or(0);
+    let mut data_rows = Vec::with_capacity(staged_capacity);
+
+    while let Some(key) = key_stream.next_key()? {
+        rows_scanned = rows_scanned.saturating_add(1);
+        let Some(data_row) = row_runtime.read_data_row(consistency, key)? else {
+            continue;
+        };
+        data_rows.push(data_row);
+    }
+
+    Ok((data_rows, rows_scanned))
+}
+
+// Scan one ordered key stream directly into canonical data rows while
+// applying the residual predicate during scan-time retained-slot decoding.
+fn scan_data_rows_direct_with_predicate(
+    key_stream: &mut dyn OrderedKeyStream,
+    consistency: MissingRowPolicy,
+    row_runtime: &ScalarRowRuntimeHandle<'_>,
+    predicate_program: &PredicateProgram,
+    retained_slot_layout: &RetainedSlotLayout,
+) -> Result<(Vec<DataRow>, usize), InternalError> {
+    let mut rows_scanned = 0usize;
+    let staged_capacity = exact_output_key_count_hint(key_stream, None).unwrap_or(0);
+    let mut data_rows = Vec::with_capacity(staged_capacity);
+
+    while let Some(key) = key_stream.next_key()? {
+        rows_scanned = rows_scanned.saturating_add(1);
+        let Some(data_row) = row_runtime.read_data_row_with_predicate(
+            consistency,
+            key,
+            predicate_program,
+            retained_slot_layout,
+        )?
+        else {
+            continue;
+        };
+        data_rows.push(data_row);
+    }
+
+    Ok((data_rows, rows_scanned))
 }
 
 fn scan_data_rows_only_into_kernel(
@@ -1410,6 +2016,39 @@ fn apply_delete_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
         let limit = usize::min(rows.len(), limit as usize);
         rows.truncate(limit);
     }
+}
+
+// Apply one simple cursorless load page window directly on canonical data
+// rows when route order is already final and no later slot-aware phase exists.
+fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut Vec<DataRow>) {
+    let Some(page) = plan.scalar_plan().page.as_ref() else {
+        return;
+    };
+
+    let total = rows.len();
+    let start = usize::try_from(page.offset)
+        .unwrap_or(usize::MAX)
+        .min(total);
+    let end = match page.limit {
+        Some(limit) => start
+            .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+            .min(total),
+        None => total,
+    };
+    if start == 0 {
+        rows.truncate(end);
+        return;
+    }
+
+    let mut kept = 0usize;
+    for read_index in start..end {
+        if kept != read_index {
+            rows.swap(kept, read_index);
+        }
+        kept = kept.saturating_add(1);
+    }
+
+    rows.truncate(kept);
 }
 
 // Compact kernel rows in place under one keep predicate so row filtering stays
@@ -1568,6 +2207,57 @@ mod tests {
         assert_eq!(row.slot_ref(1), None);
         assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
         assert_eq!(row.into_dense_slots()[5], Some(Value::Uint(7)));
+    }
+
+    #[test]
+    fn residual_predicate_scan_mode_fails_closed_by_row_capability() {
+        assert_eq!(
+            ResidualPredicateScanMode::from_plan_and_layout(false, None),
+            ResidualPredicateScanMode::Absent
+        );
+        assert_eq!(
+            ResidualPredicateScanMode::from_plan_and_layout(true, None),
+            ResidualPredicateScanMode::DeferredPostAccess
+        );
+        assert_eq!(
+            ResidualPredicateScanMode::from_plan_and_layout(
+                true,
+                Some(&RetainedSlotLayout::compile(2, vec![0]))
+            ),
+            ResidualPredicateScanMode::AppliedDuringScan
+        );
+    }
+
+    #[test]
+    fn scalar_materialization_lane_metrics_capture_direct_and_kernel_paths() {
+        let ((), metrics) = with_scalar_materialization_lane_metrics(|| {
+            record_direct_data_row_path_hit();
+            record_direct_filtered_data_row_path_hit();
+            record_kernel_data_row_path_hit();
+            record_kernel_full_row_retained_path_hit();
+            record_kernel_slots_only_path_hit();
+        });
+
+        assert_eq!(
+            metrics.direct_data_row_path_hits, 1,
+            "direct data-row lane should increment once",
+        );
+        assert_eq!(
+            metrics.direct_filtered_data_row_path_hits, 1,
+            "direct filtered data-row lane should increment once",
+        );
+        assert_eq!(
+            metrics.kernel_data_row_path_hits, 1,
+            "kernel data-row lane should increment once",
+        );
+        assert_eq!(
+            metrics.kernel_full_row_retained_path_hits, 1,
+            "kernel retained full-row lane should increment once",
+        );
+        assert_eq!(
+            metrics.kernel_slots_only_path_hits, 1,
+            "kernel slot-only lane should increment once",
+        );
     }
 
     #[test]

@@ -1344,6 +1344,23 @@ fn execute_sql_statement_grouped_rejects_computed_text_projection_widening() {
 }
 
 #[test]
+fn execute_sql_statement_grouped_projection_unknown_field_stays_specific() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT agge, AVG(age) FROM SessionSqlEntity GROUP BY age",
+    )
+    .expect_err("grouped projection typo should fail field resolution");
+
+    assert!(
+        err.to_string().contains("unknown field 'agge'"),
+        "grouped projection typo should stay a field-resolution error: {err}",
+    );
+}
+
+#[test]
 fn grouped_select_helper_equivalent_row_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();

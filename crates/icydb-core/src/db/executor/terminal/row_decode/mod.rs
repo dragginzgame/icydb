@@ -151,25 +151,12 @@ impl RowDecoder {
         row: &RawRow,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<RetainedSlotRow, InternalError> {
-        // Phase 1: let dense retained-slot callers reuse the dedicated direct
-        // full-row decode path instead of constructing the sparse reader first.
-        if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
-            return Ok(RetainedSlotRow::from_dense_slots(
-                decode_dense_raw_row_with_contract(row, layout.contract, expected_key)?,
-            ));
-        }
-
-        // Phase 2: reuse the canonical row-open validation boundary once, then
-        // retain only the caller-declared slot/value pairs in compact layout
-        // order for the retained-row wrapper.
+        // Reuse the canonical indexed retained-slot decode for both sparse and
+        // dense layouts so the retained row always stays on the shared indexed
+        // representation instead of rebuilding a separate sparse wrapper.
         Ok(RetainedSlotRow::from_indexed_values(
             retained_slot_layout,
-            decode_sparse_indexed_raw_row_with_contract(
-                row,
-                layout.contract,
-                expected_key,
-                retained_slot_layout.required_slots(),
-            )?,
+            Self::decode_indexed_slot_values(layout, expected_key, row, retained_slot_layout)?,
         ))
     }
 

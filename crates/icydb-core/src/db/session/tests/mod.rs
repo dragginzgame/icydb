@@ -19,6 +19,7 @@ mod filtered_expression;
 mod filtered_prefix;
 mod indexed_covering;
 mod indexed_prefix;
+mod lane_metrics;
 mod prefix_offsets;
 mod query_lowering;
 mod range_choice_offsets;
@@ -241,7 +242,7 @@ where
     let lowered = lower_sql_command_from_prepared_statement(
         prepare_sql_statement(statement, E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?,
-        E::MODEL.primary_key.name,
+        E::MODEL,
     )
     .map_err(QueryError::from_sql_lowering_error)?;
     let Some(query) = lowered.query().cloned() else {
@@ -2193,7 +2194,7 @@ where
     let lowered = lower_sql_command_from_prepared_statement(
         prepare_sql_statement(statement, E::MODEL.name())
             .expect("store-backed execution descriptor sql should prepare"),
-        E::MODEL.primary_key.name,
+        E::MODEL,
     )
     .expect("store-backed execution descriptor sql should lower");
     let LoweredSqlQuery::Select(select) = lowered

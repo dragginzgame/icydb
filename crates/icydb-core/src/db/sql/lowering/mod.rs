@@ -190,6 +190,9 @@ pub(crate) enum SqlLoweringError {
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
 
+    #[error("unknown field '{field}'")]
+    UnknownField { field: String },
+
     #[error("ORDER BY alias '{alias}' does not resolve to a supported order target")]
     UnsupportedOrderByAlias { alias: String },
 
@@ -229,6 +232,13 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
+    }
+
+    /// Construct one unknown-field SQL lowering error.
+    fn unknown_field(field: impl Into<String>) -> Self {
+        Self::UnknownField {
+            field: field.into(),
+        }
     }
 
     /// Construct one unsupported ORDER BY alias SQL lowering error.
@@ -305,7 +315,7 @@ pub(crate) fn compile_sql_command_from_prepared_statement<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
-    let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL.primary_key.name)?;
+    let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)?;
 
     bind_lowered_sql_command::<E>(lowered, consistency)
 }

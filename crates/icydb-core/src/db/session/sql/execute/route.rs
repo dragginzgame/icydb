@@ -19,13 +19,12 @@ use crate::{
 // runtime path.
 fn lower_sql_query_lane_for_entity(
     statement: &SqlStatement,
-    expected_entity: &'static str,
-    primary_key_field: &str,
+    authority: EntityAuthority,
 ) -> Result<LoweredSqlCommand, QueryError> {
     let lowered = lower_sql_command_from_prepared_statement(
-        prepare_sql_statement(statement.clone(), expected_entity)
+        prepare_sql_statement(statement.clone(), authority.model().name())
             .map_err(QueryError::from_sql_lowering_error)?,
-        primary_key_field,
+        authority.model(),
     )
     .map_err(|err| match err {
         SqlLoweringError::UnexpectedQueryLaneStatement => QueryError::invariant(
@@ -70,11 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
                 })
             }
             SqlStatement::Select(_) => {
-                let lowered = lower_sql_query_lane_for_entity(
-                    statement,
-                    authority.model().name(),
-                    authority.model().primary_key.name,
-                )?;
+                let lowered = lower_sql_query_lane_for_entity(statement, authority)?;
                 let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
                     return Err(QueryError::invariant(
                         "compiled SQL SELECT lane must lower to lowered SQL SELECT",
@@ -95,11 +90,9 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Delete(_) => {
                 let prepared = Self::prepare_sql_statement_for_authority(statement, authority)?;
                 let normalized_statement = prepared.clone().into_statement();
-                let lowered = lower_sql_command_from_prepared_statement(
-                    prepared,
-                    authority.model().primary_key.name,
-                )
-                .map_err(QueryError::from_sql_lowering_error)?;
+                let lowered =
+                    lower_sql_command_from_prepared_statement(prepared, authority.model())
+                        .map_err(QueryError::from_sql_lowering_error)?;
                 let Some(LoweredSqlQuery::Delete(query)) = lowered.into_query() else {
                     return Err(QueryError::invariant(
                         "compiled SQL DELETE lane must lower to lowered SQL DELETE",
@@ -135,11 +128,9 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlStatement::Explain(_) => {
                 let prepared = Self::prepare_sql_statement_for_authority(statement, authority)?;
-                let lowered = lower_sql_command_from_prepared_statement(
-                    prepared,
-                    authority.model().primary_key.name,
-                )
-                .map_err(QueryError::from_sql_lowering_error)?;
+                let lowered =
+                    lower_sql_command_from_prepared_statement(prepared, authority.model())
+                        .map_err(QueryError::from_sql_lowering_error)?;
 
                 Ok(CompiledSqlCommand::Explain(lowered))
             }

@@ -18,7 +18,7 @@ fn main() {
         Some(sql) => {
             let output = execute_sql(config.canister.as_str(), sql.as_str())
                 .unwrap_or_else(|err| panic!("execute SQL statement: {err}"));
-            println!("{output}");
+            print!("{}", finalize_successful_command_output(output.as_str()));
         }
         None => {
             run_interactive_shell(&config)
@@ -132,7 +132,7 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
             .map_err(|err| err.to_string())?;
 
         match execute_sql(config.canister.as_str(), sql.as_str()) {
-            Ok(output) => println!("{output}"),
+            Ok(output) => print!("{}", finalize_successful_command_output(output.as_str())),
             Err(err) => println!("ERROR: {err}"),
         }
     }
@@ -289,6 +289,17 @@ fn render_grouped_shell_text(
     lines.join("\n")
 }
 
+// Keep successful command output visually isolated so the next prompt or shell
+// continuation appears after one blank separator line.
+fn finalize_successful_command_output(rendered: &str) -> String {
+    let mut finalized = String::with_capacity(rendered.len().saturating_add(2));
+    finalized.push_str(rendered);
+    finalized.push('\n');
+    finalized.push('\n');
+
+    finalized
+}
+
 fn uppercase_null_cells(rows: &mut [Vec<String>]) {
     for row in rows {
         for cell in row {
@@ -310,42 +321,138 @@ fn append_perf_suffix(lines: &mut [String], attribution: Option<&ShellPerfAttrib
         return;
     };
 
-    *last = format!("{last} ({perf_suffix})");
+    *last = format!("{last} {perf_suffix}");
 }
 
 fn render_perf_suffix(attribution: &ShellPerfAttribution) -> Option<String> {
-    let mut parts = Vec::new();
-
-    if attribution.total > 0 {
-        parts.push(format_instructions(attribution.total));
-    }
-    if attribution.compiler > 0 {
-        parts.push(format!(
-            "{} comp",
-            format_instructions(attribution.compiler)
-        ));
-    }
-    if attribution.planner > 0 {
-        parts.push(format!("{} plan", format_instructions(attribution.planner)));
-    }
-    if attribution.executor > 0 {
-        parts.push(format!(
-            "{} exec",
-            format_instructions(attribution.executor)
-        ));
-    }
-    if attribution.decode > 0 {
-        parts.push(format!(
-            "{} decode",
-            format_instructions(attribution.decode)
-        ));
-    }
-
-    if parts.is_empty() {
+    if attribution.total == 0 {
         return None;
     }
 
-    Some(parts.join(", "))
+    let total = format_instructions(attribution.total);
+    let Some(bar) = render_perf_composition_bar(attribution) else {
+        return Some(total);
+    };
+
+    Some(format!("{total} {bar}"))
+}
+
+// Render one compact fixed-order composition bar for compiler/planner/executor/decode shares.
+fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<String> {
+    let named_phase_total = attribution
+        .compiler
+        .saturating_add(attribution.planner)
+        .saturating_add(attribution.executor)
+        .saturating_add(attribution.decode);
+    let other = attribution.total.saturating_sub(named_phase_total);
+    let phases = [
+        ('c', attribution.compiler),
+        ('p', attribution.planner),
+        ('e', attribution.executor),
+        ('d', attribution.decode),
+        ('?', other),
+    ];
+    let phase_total = phases.iter().map(|(_, value)| *value).sum::<u64>();
+    if phase_total == 0 {
+        return None;
+    }
+
+    let width = perf_composition_bar_width(attribution.total);
+    let mut allocated = phases
+        .iter()
+        .map(|(label, value)| PerfBarBucket::new(*label, *value, width, phase_total))
+        .collect::<Vec<_>>();
+    let assigned = allocated.iter().map(PerfBarBucket::count).sum::<usize>();
+    let mut remaining = width.saturating_sub(assigned);
+
+    // Phase 1: distribute the largest rounding remainders first so the bar
+    // stays stable while still summing to the configured width exactly.
+    allocated.sort_by(|left, right| {
+        right
+            .remainder
+            .cmp(&left.remainder)
+            .then_with(|| right.value.cmp(&left.value))
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    for bucket in &mut allocated {
+        if remaining == 0 {
+            break;
+        }
+        if bucket.value == 0 {
+            continue;
+        }
+
+        bucket.count = bucket.count.saturating_add(1);
+        remaining = remaining.saturating_sub(1);
+    }
+
+    // Phase 2: restore the canonical c/p/e/d order in the rendered shell surface.
+    allocated.sort_by_key(|bucket| match bucket.label {
+        'c' => 0,
+        'p' => 1,
+        'e' => 2,
+        'd' => 3,
+        '?' => 4,
+        _ => 5,
+    });
+
+    let mut rendered = String::with_capacity(width.saturating_add(2));
+    rendered.push('[');
+    for bucket in allocated {
+        for _ in 0..bucket.count {
+            rendered.push(bucket.label);
+        }
+    }
+    rendered.push(']');
+
+    Some(rendered)
+}
+
+// Scale the composition bar by powers of ten so larger queries get a little
+// more resolution without letting the footer sprawl indefinitely.
+fn perf_composition_bar_width(total_instructions: u64) -> usize {
+    let mut width = 10usize;
+    let mut threshold = 1_000_000u64;
+    while total_instructions >= threshold && width < 50 {
+        width = width.saturating_add(5).min(50);
+        threshold = threshold.saturating_mul(10);
+    }
+
+    width
+}
+
+///
+/// PerfBarBucket
+///
+/// Rounded per-phase allocation bucket used while building one shell perf
+/// composition bar.
+/// This keeps width allocation explicit so the final `[cped...]` footer stays
+/// deterministic even when integer rounding leaves leftover cells.
+///
+
+struct PerfBarBucket {
+    label: char,
+    value: u64,
+    count: usize,
+    remainder: u128,
+}
+
+impl PerfBarBucket {
+    fn new(label: char, value: u64, width: usize, total: u64) -> Self {
+        let scaled = u128::from(value).saturating_mul(width as u128);
+        let total = u128::from(total);
+
+        Self {
+            label,
+            value,
+            count: usize::try_from(scaled / total).unwrap_or(usize::MAX),
+            remainder: scaled % total,
+        }
+    }
+
+    const fn count(&self) -> usize {
+        self.count
+    }
 }
 
 fn format_instructions(instructions: u64) -> String {
@@ -455,9 +562,10 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ShellPerfAttribution, normalize_grouped_next_cursor_json, parse_perf_result,
-        render_perf_suffix,
+        ShellPerfAttribution, finalize_successful_command_output,
+        normalize_grouped_next_cursor_json, parse_perf_result, render_perf_suffix,
     };
+    use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
     use serde_json::json;
 
     #[test]
@@ -520,7 +628,7 @@ mod tests {
         })
         .expect("non-zero perf attribution should render a footer");
 
-        assert_eq!(suffix, "2.4Ki, 500i comp, 1.9Ki exec");
+        assert_eq!(suffix, "2.4Ki [cceeeeeeee]");
     }
 
     #[test]
@@ -535,6 +643,79 @@ mod tests {
             })
             .is_none(),
             "all-zero perf attribution should not render a footer",
+        );
+    }
+
+    #[test]
+    fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
+        let suffix = render_perf_suffix(&ShellPerfAttribution {
+            total: 120_000_000,
+            planner: 20_000_000,
+            executor: 60_000_000,
+            decode: 10_000_000,
+            compiler: 10_000_000,
+        })
+        .expect("large perf attribution should render a footer");
+
+        assert_eq!(suffix, "120.0Mi [ccppppeeeeeeeeeeeeedd????]");
+    }
+
+    #[test]
+    fn render_perf_suffix_surfaces_unattributed_remainder_as_unknown_bucket() {
+        let suffix = render_perf_suffix(&ShellPerfAttribution {
+            total: 10_000_000,
+            planner: 1_000_000,
+            executor: 4_000_000,
+            decode: 1_000_000,
+            compiler: 1_000_000,
+        })
+        .expect("residual perf attribution should render a footer");
+
+        assert_eq!(suffix, "10.0Mi [ccppeeeeeeeedd??????]");
+    }
+
+    #[test]
+    fn successful_command_output_keeps_one_blank_separator_line() {
+        assert_eq!(
+            finalize_successful_command_output("surface=explain"),
+            "surface=explain\n\n",
+        );
+    }
+
+    #[test]
+    fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
+        let rendered = super::render_projection_shell_text(
+            SqlQueryRowsOutput {
+                entity: "Character".to_string(),
+                columns: vec!["name".to_string()],
+                rows: vec![vec!["alice".to_string()]],
+                row_count: 1,
+            },
+            None,
+        );
+
+        assert!(
+            rendered.ends_with("1 row,"),
+            "projection shell output should leave footer formatting to the command boundary: {rendered:?}",
+        );
+    }
+
+    #[test]
+    fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
+        let rendered = super::render_grouped_shell_text(
+            SqlGroupedRowsOutput {
+                entity: "Character".to_string(),
+                columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+                rows: vec![vec!["Bard".to_string(), "5".to_string()]],
+                row_count: 1,
+                next_cursor: None,
+            },
+            None,
+        );
+
+        assert!(
+            rendered.ends_with("1 row,"),
+            "grouped shell output should leave footer formatting to the command boundary: {rendered:?}",
         );
     }
 }

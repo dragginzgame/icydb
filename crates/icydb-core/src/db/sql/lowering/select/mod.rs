@@ -68,6 +68,7 @@ pub(crate) struct LoweredBaseQueryShape {
 #[inline(never)]
 pub(in crate::db::sql::lowering) fn lower_select_shape(
     statement: SqlSelectStatement,
+    model: &'static EntityModel,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
@@ -90,6 +91,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
             projection.clone(),
             projection_aliases.as_slice(),
             group_by.as_slice(),
+            model,
         )?;
         let grouped_projection_aggregates =
             grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;

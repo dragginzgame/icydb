@@ -1756,6 +1756,20 @@ fn compile_sql_command_rejects_grouped_projection_expression_widening_in_current
 }
 
 #[test]
+fn compile_sql_command_grouped_projection_unknown_field_stays_specific() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT agge, AVG(age) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped projection typo should stay a field-resolution error");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::UnknownField { ref field } if field == "agge"
+    ));
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_arithmetic_projection_in_current_slice() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, age + 1, COUNT(*) FROM SqlLowerEntity GROUP BY age",

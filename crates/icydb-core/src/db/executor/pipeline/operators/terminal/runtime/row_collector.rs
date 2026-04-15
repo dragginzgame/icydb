@@ -18,8 +18,8 @@ use crate::{
             terminal::{
                 RetainedSlotRow,
                 page::{
-                    KernelRow, KernelRowPayloadMode, KernelRowScanRequest, ScalarRowRuntimeHandle,
-                    execute_kernel_row_scan,
+                    KernelRow, KernelRowPayloadMode, KernelRowScanRequest,
+                    ResidualPredicateScanMode, ScalarRowRuntimeHandle, execute_kernel_row_scan,
                 },
             },
             traversal::row_read_consistency_for_plan,
@@ -74,7 +74,10 @@ impl ExecutionKernel {
         // Phase 1: derive the shared row scan contract from plan-owned
         // consistency and residual-predicate state.
         let consistency = row_read_consistency_for_plan(plan);
-        let predicate_preapplied = plan.has_residual_predicate() && retained_slot_layout.is_some();
+        let residual_predicate_scan_mode = ResidualPredicateScanMode::from_plan_and_layout(
+            plan.has_residual_predicate(),
+            retained_slot_layout,
+        );
         let _ = continuation;
         let _ = load_order_route_contract;
 
@@ -86,7 +89,7 @@ impl ExecutionKernel {
             consistency,
             payload_mode,
             predicate_slots,
-            predicate_preapplied,
+            residual_predicate_scan_mode,
             retained_slot_layout,
             row_keep_cap,
             row_runtime,

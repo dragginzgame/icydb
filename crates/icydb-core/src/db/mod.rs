@@ -79,6 +79,14 @@ pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
+#[cfg(feature = "structural-read-metrics")]
+#[doc(hidden)]
+pub use executor::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[expect(unused_imports)]
+pub(crate) use executor::{
+    ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
+};
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
 pub use migration::{

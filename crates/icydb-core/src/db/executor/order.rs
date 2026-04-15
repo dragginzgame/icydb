@@ -7,12 +7,15 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
+        data::{CanonicalSlotReader, DataRow},
         executor::projection::eval_scalar_projection_expr_with_value_reader,
+        executor::terminal::RowLayout,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
     },
+    error::InternalError,
     value::Value,
 };
-use std::{array, borrow::Cow, cmp::Ordering};
+use std::{array, borrow::Cow, cmp::Ordering, mem};
 
 const INLINE_ORDER_VALUE_CAPACITY: usize = 2;
 
@@ -147,6 +150,56 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
     rows.extend(cached_rows.into_iter().map(|(row, _)| row));
 }
 
+/// Apply canonical in-memory ordering with an optional bounded top-k window
+/// directly over canonical `DataRow` payloads.
+pub(in crate::db::executor) fn apply_structural_order_window_to_data_rows(
+    rows: &mut Vec<DataRow>,
+    row_layout: RowLayout,
+    resolved_order: &ResolvedOrder,
+    keep_count: Option<usize>,
+) -> Result<(), InternalError> {
+    if let Some(keep_count) = keep_count
+        && keep_count == 0
+    {
+        rows.clear();
+        return Ok(());
+    }
+
+    if rows.len() <= 1 {
+        return Ok(());
+    }
+
+    // Phase 1: cache resolved order values once per raw row so the direct
+    // `DataRow` lane can reuse the same bounded selection and final sort
+    // logic without forcing retained-slot kernel rows first.
+    let source_rows = mem::take(rows);
+    let mut cached_rows = Vec::with_capacity(source_rows.len());
+    for row in source_rows {
+        let cached_values = cache_order_values_from_data_row(&row, row_layout, resolved_order)?;
+
+        cached_rows.push((row, cached_values));
+    }
+
+    // Phase 2: retain only the bounded canonical window when pagination
+    // exposes one, using the cached order keys instead of live row reads.
+    if let Some(keep_count) = keep_count
+        && cached_rows.len() > keep_count
+    {
+        cached_rows.select_nth_unstable_by(keep_count - 1, |left, right| {
+            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
+        });
+        cached_rows.truncate(keep_count);
+    }
+
+    // Phase 3: sort the retained rows into final canonical order using the
+    // precomputed key values.
+    cached_rows
+        .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
+    rows.extend(cached_rows.into_iter().map(|(row, _)| row));
+
+    Ok(())
+}
+
 /// Compare one structural row against one cursor boundary under the canonical order contract.
 pub(in crate::db::executor) fn compare_orderable_row_with_boundary<R>(
     row: &R,
@@ -250,6 +303,35 @@ where
     }
 
     cached_values
+}
+
+// Cache one raw row's order values once so materialized raw-row sort/select
+// can avoid building retained-slot kernel rows only to feed the order cache.
+fn cache_order_values_from_data_row(
+    row: &DataRow,
+    row_layout: RowLayout,
+    resolved_order: &ResolvedOrder,
+) -> Result<CachedOrderValues, InternalError> {
+    let slots = row_layout.open_raw_row(&row.1)?;
+    let mut cached_values = CachedOrderValues::with_capacity(resolved_order.fields().len());
+
+    for field in resolved_order.fields() {
+        let value = match field.source() {
+            ResolvedOrderValueSource::DirectField(slot) => {
+                Some(slots.required_value_by_contract(*slot)?)
+            }
+            ResolvedOrderValueSource::Expression(expr) => {
+                eval_scalar_projection_expr_with_value_reader(expr, &mut |slot| {
+                    slots.required_value_by_contract(slot).ok()
+                })
+                .ok()
+            }
+        };
+
+        cached_values.push(value);
+    }
+
+    Ok(cached_values)
 }
 
 // Compare two already-materialized ordering tuples by walking their cached

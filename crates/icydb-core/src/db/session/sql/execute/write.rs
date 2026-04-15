@@ -564,9 +564,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let prepared = prepare_sql_statement(SqlStatement::Select(source.clone()), E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?;
-        let lowered =
-            lower_sql_command_from_prepared_statement(prepared, E::MODEL.primary_key.name)
-                .map_err(QueryError::from_sql_lowering_error)?;
+        let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)
+            .map_err(QueryError::from_sql_lowering_error)?;
         let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
             return Err(QueryError::invariant(
                 "INSERT SELECT source lowering must stay on the scalar SELECT query lane",

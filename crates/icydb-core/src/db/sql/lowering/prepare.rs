@@ -14,6 +14,7 @@ use crate::db::sql::parser::{
     SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlInsertSource,
     SqlInsertStatement, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
 };
+use crate::model::entity::EntityModel;
 
 /// Prepare one parsed SQL statement for one expected entity route.
 #[inline(never)]
@@ -30,9 +31,9 @@ pub(crate) fn prepare_sql_statement(
 #[inline(never)]
 pub(crate) fn lower_sql_command_from_prepared_statement(
     prepared: PreparedSqlStatement,
-    primary_key_field: &str,
+    model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    lower_prepared_statement(prepared.statement, primary_key_field)
+    lower_prepared_statement(prepared.statement, model)
 }
 
 #[inline(never)]
@@ -169,11 +170,11 @@ fn prepare_insert_select_source(
 #[inline(never)]
 fn lower_prepared_statement(
     statement: SqlStatement,
-    primary_key_field: &str,
+    model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     match statement {
         SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Select(lower_select_shape(statement)?),
+            LoweredSqlQuery::Select(lower_select_shape(statement, model)?),
         ))),
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
             LoweredSqlQuery::Delete(lower_delete_shape(statement)),
@@ -181,7 +182,7 @@ fn lower_prepared_statement(
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
         }
-        SqlStatement::Explain(statement) => lower_explain_prepared(statement, primary_key_field),
+        SqlStatement::Explain(statement) => lower_explain_prepared(statement, model),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
@@ -197,13 +198,13 @@ fn lower_prepared_statement(
 
 fn lower_explain_prepared(
     statement: SqlExplainStatement,
-    primary_key_field: &str,
+    model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let mode = statement.mode;
 
     match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared(select_statement, mode, primary_key_field)
+            lower_explain_select_prepared(select_statement, mode, model)
         }
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
@@ -217,9 +218,9 @@ fn lower_explain_prepared(
 fn lower_explain_select_prepared(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
-    _primary_key_field: &str,
+    model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    match lower_select_shape(statement.clone()) {
+    match lower_select_shape(statement.clone(), model) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             query: LoweredSqlQuery::Select(query),
