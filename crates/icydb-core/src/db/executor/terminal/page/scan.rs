@@ -20,7 +20,6 @@ use crate::db::executor::terminal::page::{
 use super::metrics::{
     measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
     record_direct_data_row_row_read_local_instructions,
-    record_direct_data_row_scan_local_instructions,
 };
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use super::metrics::{
