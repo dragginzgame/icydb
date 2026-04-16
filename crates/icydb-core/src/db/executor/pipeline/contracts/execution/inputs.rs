@@ -881,7 +881,7 @@ impl RetainedSlotRequirements {
 
     // Borrow the raw bitset when an existing helper already knows how to mark
     // referenced slots in place.
-    fn flags_mut(&mut self) -> &mut [bool] {
+    const fn flags_mut(&mut self) -> &mut [bool] {
         self.flags.as_mut_slice()
     }
 

@@ -161,7 +161,7 @@ struct CursorlessRowCollectorStrategy<'a> {
     final_payload_strategy: StructuralCursorPayloadStrategy,
 }
 
-impl<'a> CursorlessRowCollectorStrategy<'a> {
+impl CursorlessRowCollectorStrategy<'_> {
     // Apply the remaining cursorless post-access work after the kernel scan.
     fn apply_post_access(
         &self,
