@@ -120,11 +120,12 @@ pub(in crate::db::executor) fn finalize_path_outcome_for_path(
         distinct_keys_deduped,
     } = metrics;
     let rows_filtered = rows_scanned.saturating_sub(rows_emitted);
-    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
-    finalize_execution_trace_path_outcome(
+    finalize_path_observability_for_path(
+        entity_path,
         execution_trace,
         optimization,
         rows_scanned,
+        rows_filtered,
         rows_emitted,
         execution_time_micros,
         index_only,
@@ -152,11 +153,12 @@ fn finalize_grouped_observability_for_path(
     } = metrics;
     record_rows_aggregated_for_path(entity_path, rows_aggregated);
     let rows_filtered = rows_scanned.saturating_sub(post_access_rows);
-    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, post_access_rows);
-    finalize_execution_trace_path_outcome(
+    finalize_path_observability_for_path(
+        entity_path,
         execution_trace,
         optimization,
         rows_scanned,
+        rows_filtered,
         post_access_rows,
         execution_time_micros,
         false,
@@ -167,6 +169,36 @@ fn finalize_grouped_observability_for_path(
 
     let mut span = PathSpan::new(ExecKind::Load, entity_path);
     span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
+}
+
+// Apply the shared path-level row counters and execution-trace outcome update
+// once the caller has decided which row count should be treated as emitted.
+#[expect(clippy::too_many_arguments)]
+fn finalize_path_observability_for_path(
+    entity_path: &'static str,
+    execution_trace: &mut Option<ExecutionTrace>,
+    optimization: Option<ExecutionOptimization>,
+    rows_scanned: usize,
+    rows_filtered: usize,
+    rows_emitted: usize,
+    execution_time_micros: u64,
+    index_only: bool,
+    index_predicate_applied: bool,
+    index_predicate_keys_rejected: u64,
+    distinct_keys_deduped: u64,
+) {
+    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
+    finalize_execution_trace_path_outcome(
+        execution_trace,
+        optimization,
+        rows_scanned,
+        rows_emitted,
+        execution_time_micros,
+        index_only,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    );
 }
 
 // Record the shared rows-scanned / rows-filtered / rows-emitted counters used

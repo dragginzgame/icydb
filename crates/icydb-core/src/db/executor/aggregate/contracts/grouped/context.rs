@@ -84,22 +84,22 @@ impl ExecutionBudget {
             self.groups
         };
         if next_groups > config.max_groups() {
-            return Err(GroupError::MemoryLimitExceeded {
-                resource: "groups",
-                attempted: next_groups,
-                limit: config.max_groups(),
-            });
+            return Err(GroupError::memory_limit_exceeded(
+                "groups",
+                next_groups,
+                config.max_groups(),
+            ));
         }
 
         let bytes_delta =
             estimated_new_group_bytes(group_count_before_insert, group_capacity_before_insert);
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
-            return Err(GroupError::MemoryLimitExceeded {
-                resource: "estimated_bytes",
-                attempted: next_bytes,
-                limit: config.max_group_bytes(),
-            });
+            return Err(GroupError::memory_limit_exceeded(
+                "estimated_bytes",
+                next_bytes,
+                config.max_group_bytes(),
+            ));
         }
 
         self.groups = next_groups;
@@ -112,11 +112,11 @@ impl ExecutionBudget {
     const fn record_distinct_value(&mut self, config: &ExecutionConfig) -> Result<(), GroupError> {
         let attempted = self.distinct_values.saturating_add(1);
         if attempted > config.max_distinct_values_total() {
-            return Err(GroupError::DistinctBudgetExceeded {
-                resource: "distinct_values_total",
+            return Err(GroupError::distinct_budget_exceeded(
+                "distinct_values_total",
                 attempted,
-                limit: config.max_distinct_values_total(),
-            });
+                config.max_distinct_values_total(),
+            ));
         }
 
         self.distinct_values = attempted;
@@ -382,22 +382,22 @@ impl ExecutionContext {
         // then enforce per-group cap, before mutating key state.
         let attempted_total = self.budget.distinct_values().saturating_add(1);
         if attempted_total > self.config.max_distinct_values_total() {
-            return Err(GroupError::DistinctBudgetExceeded {
-                resource: "distinct_values_total",
-                attempted: attempted_total,
-                limit: self.config.max_distinct_values_total(),
-            });
+            return Err(GroupError::distinct_budget_exceeded(
+                "distinct_values_total",
+                attempted_total,
+                self.config.max_distinct_values_total(),
+            ));
         }
 
         let attempted_per_group = u64::try_from(distinct_keys.len())
             .unwrap_or(u64::MAX)
             .saturating_add(1);
         if attempted_per_group > max_distinct_values_per_group {
-            return Err(GroupError::DistinctBudgetExceeded {
-                resource: "distinct_values_per_group",
-                attempted: attempted_per_group,
-                limit: max_distinct_values_per_group,
-            });
+            return Err(GroupError::distinct_budget_exceeded(
+                "distinct_values_per_group",
+                attempted_per_group,
+                max_distinct_values_per_group,
+            ));
         }
 
         let inserted = distinct_keys.insert_key(key);

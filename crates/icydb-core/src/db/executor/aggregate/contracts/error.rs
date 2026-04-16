@@ -37,6 +37,34 @@ pub(in crate::db::executor) enum GroupError {
 }
 
 impl GroupError {
+    /// Construct one grouped execution memory-limit failure.
+    #[must_use]
+    pub(in crate::db::executor) const fn memory_limit_exceeded(
+        resource: &'static str,
+        attempted: u64,
+        limit: u64,
+    ) -> Self {
+        Self::MemoryLimitExceeded {
+            resource,
+            attempted,
+            limit,
+        }
+    }
+
+    /// Construct one grouped DISTINCT budget failure.
+    #[must_use]
+    pub(in crate::db::executor) const fn distinct_budget_exceeded(
+        resource: &'static str,
+        attempted: u64,
+        limit: u64,
+    ) -> Self {
+        Self::DistinctBudgetExceeded {
+            resource,
+            attempted,
+            limit,
+        }
+    }
+
     /// Construct one grouped runtime invariant for missing numeric ingest
     /// payloads in grouped global DISTINCT SUM/AVG reduction.
     #[must_use]

@@ -45,6 +45,19 @@ pub(in crate::db::executor) struct GroupedBudgetObservability {
 }
 
 impl GroupedBudgetObservability {
+    /// Build one grouped budget snapshot from the current execution context.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_context(context: &ExecutionContext) -> Self {
+        Self {
+            groups: context.budget().groups(),
+            aggregate_states: context.budget().aggregate_states(),
+            estimated_bytes: context.budget().estimated_bytes(),
+            distinct_values: context.budget().distinct_values(),
+            max_groups: context.config().max_groups(),
+            max_group_bytes: context.config().max_group_bytes(),
+        }
+    }
+
     /// Return observed group-count usage.
     #[must_use]
     pub(in crate::db::executor) const fn groups(self) -> u64 {
@@ -128,12 +141,5 @@ pub(in crate::db::executor) fn grouped_execution_context_from_planner_config(
 pub(in crate::db::executor) const fn grouped_budget_observability(
     context: &ExecutionContext,
 ) -> GroupedBudgetObservability {
-    GroupedBudgetObservability {
-        groups: context.budget().groups(),
-        aggregate_states: context.budget().aggregate_states(),
-        estimated_bytes: context.budget().estimated_bytes(),
-        distinct_values: context.budget().distinct_values(),
-        max_groups: context.config().max_groups(),
-        max_group_bytes: context.config().max_group_bytes(),
-    }
+    GroupedBudgetObservability::from_context(context)
 }

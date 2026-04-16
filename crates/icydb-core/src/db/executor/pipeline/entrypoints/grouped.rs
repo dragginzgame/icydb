@@ -236,6 +236,37 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
     execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)
 }
 
+// Prepare one initial grouped runtime bundle from a structural load plan so
+// SQL and perf-attributed canister entrypoints share the same grouped route
+// resolution and structural runtime ownership handoff.
+#[cfg(feature = "sql")]
+fn prepare_initial_grouped_route_runtime<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> Result<PreparedGroupedRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let plan = PreparedLoadPlan::from_plan(authority, plan);
+    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
+    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
+    let route = resolve_grouped_route_for_plan(
+        plan,
+        crate::db::cursor::GroupedPlannedCursor::none(),
+        debug,
+    )?;
+    let store = db.recovered_store(authority.store_path())?;
+
+    Ok(PreparedGroupedRouteRuntime::new(
+        route,
+        GroupedPathRuntimeCore::from_store(store, authority),
+        prepared_execution_preparation,
+        prepared_grouped_slot_layout,
+    ))
+}
+
 /// Execute one prepared grouped runtime bundle while reporting the internal
 /// stream/fold/finalize split for perf-only grouped attribution surfaces.
 #[cfg(feature = "perf-attribution")]
@@ -316,21 +347,7 @@ where
 {
     // Phase 1: finalize one generic-free grouped route from the initial
     // continuation state and structural authority.
-    let plan = PreparedLoadPlan::from_plan(authority, plan);
-    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
-    let route = resolve_grouped_route_for_plan(
-        plan,
-        crate::db::cursor::GroupedPlannedCursor::none(),
-        debug,
-    )?;
-    let store = db.recovered_store(authority.store_path())?;
-    let prepared = PreparedGroupedRouteRuntime::new(
-        route,
-        GroupedPathRuntimeCore::from_store(store, authority),
-        prepared_execution_preparation,
-        prepared_grouped_slot_layout,
-    );
+    let prepared = prepare_initial_grouped_route_runtime(db, debug, authority, plan)?;
 
     // Phase 2: execute one grouped page and return the grouped cursor payload
     // directly so the outer surface can format the outward cursor as needed.
@@ -351,21 +368,7 @@ pub(in crate::db) fn execute_initial_grouped_rows_for_canister_with_phase_attrib
 where
     C: CanisterKind,
 {
-    let plan = PreparedLoadPlan::from_plan(authority, plan);
-    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
-    let route = resolve_grouped_route_for_plan(
-        plan,
-        crate::db::cursor::GroupedPlannedCursor::none(),
-        debug,
-    )?;
-    let store = db.recovered_store(authority.store_path())?;
-    let prepared = PreparedGroupedRouteRuntime::new(
-        route,
-        GroupedPathRuntimeCore::from_store(store, authority),
-        prepared_execution_preparation,
-        prepared_grouped_slot_layout,
-    );
+    let prepared = prepare_initial_grouped_route_runtime(db, debug, authority, plan)?;
 
     let (page, _, phase_attribution) =
         execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)?;
