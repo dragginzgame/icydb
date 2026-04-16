@@ -6,60 +6,18 @@
 //! assembly inside executor-owned structural contracts.
 
 use crate::{
-    db::{
-        executor::{
-            ExecutionKernel, OrderedKeyStream, ScalarContinuationContext,
-            pipeline::contracts::{
-                MaterializedExecutionPayload, RowCollectorMaterializationRequest,
-            },
-            route::LoadOrderRouteContract,
-            terminal::page::{
-                KernelRow, KernelRowScanRequest, KernelRowScanStrategy, ScalarRowRuntimeHandle,
-                execute_kernel_row_scan, resolve_cursorless_short_path_plan,
-            },
-            traversal::row_read_consistency_for_plan,
+    db::executor::{
+        ExecutionKernel,
+        pipeline::contracts::{MaterializedExecutionPayload, RowCollectorMaterializationRequest},
+        terminal::page::{
+            ScalarRowRuntimeHandle, execute_kernel_row_scan, resolve_cursorless_short_path_plan,
         },
-        query::plan::AccessPlannedQuery,
+        traversal::row_read_consistency_for_plan,
     },
     error::InternalError,
 };
 
 impl ExecutionKernel {
-    // Run one row-collector stream over the already decorated key stream and
-    // stage structural kernel rows only.
-    pub(in crate::db::executor::pipeline::operators::terminal) fn run_row_collector_stream(
-        request: RowCollectorStreamRequest<'_, '_>,
-    ) -> Result<(Vec<KernelRow>, usize), InternalError> {
-        let RowCollectorStreamRequest {
-            plan,
-            scan_budget_hint,
-            load_order_route_contract,
-            continuation,
-            row_keep_cap,
-            scan_strategy,
-            key_stream,
-            row_runtime,
-        } = request;
-
-        // Phase 1: derive the shared row scan contract from plan-owned
-        // consistency only. Scan strategy is already resolved by the short
-        // path owner before this runtime boundary executes.
-        let consistency = row_read_consistency_for_plan(plan);
-        let _ = continuation;
-        let _ = load_order_route_contract;
-
-        // Phase 2: reuse the canonical structural row scan boundary and only
-        // add the retained-slot keep cap needed by cursorless materialization.
-        execute_kernel_row_scan(KernelRowScanRequest {
-            key_stream,
-            scan_budget_hint,
-            consistency,
-            scan_strategy,
-            row_keep_cap,
-            row_runtime,
-        })
-    }
-
     // Materialize one cursorless short-path load through the structural row
     // runtime under the same continuation and bounded-scan contract as the
     // canonical scalar page kernel.
@@ -85,45 +43,26 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
+        // Phase 2: validate the shared continuation/budget contract once
+        // before the short path builds its canonical scan request.
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
+        let _ = continuation;
+        let _ = load_order_route_contract;
 
-        let (mut rows, keys_scanned) = Self::run_row_collector_stream(RowCollectorStreamRequest {
-            plan,
-            scan_budget_hint,
-            load_order_route_contract,
-            continuation,
-            row_keep_cap: short_path_plan.row_keep_cap(),
-            scan_strategy: short_path_plan.scan_strategy(),
+        // Phase 3: derive the shared scan contract from plan-owned
+        // consistency only, then let the resolved short-path plan build the
+        // exact kernel request it wants to run.
+        let consistency = row_read_consistency_for_plan(plan);
+        let (rows, keys_scanned) = execute_kernel_row_scan(short_path_plan.scan_request(
             key_stream,
+            scan_budget_hint,
+            consistency,
             row_runtime,
-        })?;
+        ))?;
 
-        short_path_plan.apply_post_access(plan, &mut rows)?;
-
-        let post_access_rows = rows.len();
-        let payload = short_path_plan.finalize_payload(rows)?;
-
+        // Phase 4: the short-path plan owns post-access shaping and final
+        // payload selection from here onward.
+        let (payload, post_access_rows) = short_path_plan.materialize_rows(plan, rows)?;
         Ok(Some((payload, keys_scanned, post_access_rows)))
     }
-}
-
-///
-/// RowCollectorStreamRequest
-///
-/// RowCollectorStreamRequest keeps the structural row-collector scan contract
-/// explicit while avoiding another wide helper signature in the terminal
-/// runtime. The slot-only payload mode belongs to the same boundary as the
-/// scan budget, continuation contract, and decorated key stream.
-///
-
-pub(in crate::db::executor::pipeline::operators::terminal) struct RowCollectorStreamRequest<'a, 'r>
-{
-    plan: &'a AccessPlannedQuery,
-    scan_budget_hint: Option<usize>,
-    load_order_route_contract: LoadOrderRouteContract,
-    continuation: &'a ScalarContinuationContext,
-    row_keep_cap: Option<usize>,
-    scan_strategy: KernelRowScanStrategy<'a>,
-    key_stream: &'a mut dyn OrderedKeyStream,
-    row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }

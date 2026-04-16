@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.85.x] 🧮 - 2026-04-16 - Grouped Post-Aggregate Projection Expressions
 
+- `0.85.3` keeps the executor cleanup moving by making prepared execution inputs own stream resolution and single-attempt materialization more directly, so the kernel is now mostly just retry policy while the fast-path and scalar read boundaries read as clearer, more deliberate owners.
+- `0.85.2` follows through on the grouped and executor cleanup by consolidating grouped aggregate/projection ownership, moving the compiled grouped projection contract back under the projection boundary, and tightening the scalar retry/materialization split so the post-`0.85.0` executor seams read as deliberate owners instead of fallout patches.
 - `0.85.1` merges the old perf-attribution and structural-read feature flags into one gated `diagnostics` surface, so local attribution, read diagnostics, and perf harness builds now opt into one explicit instrumentation feature instead of two overlapping ones.
 - `0.85.0` widens grouped SQL `SELECT` projection so you can now compute bounded scalar expressions over grouped keys and finished aggregate results, including forms like `COUNT(*) + MAX(age)` and `ROUND(AVG(age), 2)`, and it also breaks the scalar page materializer into focused planning, scan, post-scan, retained-slot, and metrics modules so the executor keeps the same behavior through clearer internal boundaries.
 

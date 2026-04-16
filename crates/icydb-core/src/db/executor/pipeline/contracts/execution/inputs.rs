@@ -10,11 +10,15 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         direction::Direction,
-        executor::pipeline::contracts::{FastPathKeyResult, MaterializedExecutionPayload},
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutableAccess, ExecutionKernel,
             ExecutionPlan, ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox,
             ScalarContinuationContext,
+            pipeline::contracts::{
+                FastPathKeyResult, MaterializedExecutionAttempt, MaterializedExecutionPayload,
+                ResolvedExecutionKeyStream,
+            },
+            pipeline::operators::decorate_resolved_execution_key_stream,
             projection::PreparedSlotProjectionValidation,
             route::LoadOrderRouteContract,
             route::access_order_satisfied_by_route_contract,
@@ -30,7 +34,7 @@ use crate::{
             },
             traversal::row_read_consistency_for_plan,
         },
-        index::predicate::IndexPredicateExecution,
+        index::{IndexCompilePolicy, predicate::IndexPredicateExecution},
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
@@ -336,6 +340,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
 /// re-spell the same predicate/projection/retained-slot contract fields.
 ///
 
+#[derive(Clone, Copy)]
 struct ExecutionMaterializationContract<'a> {
     plan: &'a AccessPlannedQuery,
     predicate_slots: Option<&'a PredicateProgram>,
@@ -348,10 +353,37 @@ struct ExecutionMaterializationContract<'a> {
 }
 
 impl<'a> ExecutionMaterializationContract<'a> {
+    // Materialize one resolved scalar key stream through the aligned
+    // row-collector or canonical page runtime lane without rebuilding the
+    // shared predicate/projection/retained-slot contract twice.
+    fn materialize_resolved_execution_stream(
+        &self,
+        runtime: &'a ExecutionRuntimeAdapter<'a>,
+        emit_cursor: bool,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut dyn OrderedKeyStream,
+    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+        if let Some(materialized) = runtime.try_materialize_load_via_row_collector(
+            self.row_collector_request(continuation, key_stream),
+        )? {
+            return Ok(materialized);
+        }
+
+        runtime.materialize_key_stream_into_structural_page(self.runtime_page_request(
+            emit_cursor,
+            consistency,
+            continuation,
+            direction,
+            key_stream,
+        ))
+    }
+
     // Build the cursorless row-collector materialization request from one
     // already-aligned scalar materialization contract.
     fn row_collector_request(
-        self,
+        &self,
         continuation: &'a ScalarContinuationContext,
         key_stream: &'a mut dyn OrderedKeyStream,
     ) -> RowCollectorMaterializationRequest<'a> {
@@ -376,7 +408,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
     // Build the canonical scalar page materialization request from one
     // already-aligned scalar materialization contract.
     fn runtime_page_request(
-        self,
+        &self,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
@@ -737,35 +769,69 @@ impl<'a> ExecutionInputs<'a> {
         }
     }
 
-    /// Build the cursorless row-collector materialization request owned by
-    /// this execution-input boundary so kernel callers do not reconstruct the
-    /// same projection and predicate contract ad hoc.
-    pub(in crate::db::executor) fn row_collector_materialization_request<'req>(
+    /// Materialize one resolved scalar key stream through the aligned
+    /// row-collector or canonical page runtime lane owned by this execution
+    /// input boundary.
+    pub(in crate::db::executor) fn materialize_resolved_execution_stream<'req>(
         &'req self,
         route_plan: &ExecutionPlan,
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut dyn OrderedKeyStream,
-    ) -> RowCollectorMaterializationRequest<'req> {
+    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         self.materialization_contract(route_plan)
-            .row_collector_request(continuation, key_stream)
-    }
-
-    /// Build the canonical scalar page materialization request from the
-    /// already-prepared execution inputs and route-owned scan hints.
-    pub(in crate::db::executor) fn runtime_page_materialization_request<'req>(
-        &'req self,
-        route_plan: &ExecutionPlan,
-        continuation: &'req ScalarContinuationContext,
-        key_stream: &'req mut dyn OrderedKeyStream,
-    ) -> RuntimePageMaterializationRequest<'req> {
-        self.materialization_contract(route_plan)
-            .runtime_page_request(
+            .materialize_resolved_execution_stream(
+                self.runtime(),
                 self.emit_cursor(),
                 self.consistency(),
                 continuation,
                 route_plan.direction(),
                 key_stream,
             )
+    }
+
+    /// Resolve one execution key stream under the canonical DISTINCT
+    /// decoration contract for this prepared execution-input boundary.
+    pub(in crate::db::executor) fn resolve_execution_key_stream(
+        &self,
+        route_plan: &ExecutionPlan,
+        predicate_compile_mode: IndexCompilePolicy,
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
+        let resolved =
+            self.resolve_execution_key_stream_without_distinct(route_plan, predicate_compile_mode)?;
+
+        Ok(decorate_resolved_execution_key_stream(
+            resolved,
+            self.plan(),
+            self.stream_bindings().direction(),
+        ))
+    }
+
+    /// Materialize one route-plan candidate end to end from resolved key
+    /// stream decoration through structural page materialization.
+    pub(in crate::db::executor) fn materialize_route_attempt(
+        &self,
+        route_plan: &ExecutionPlan,
+        continuation: &ScalarContinuationContext,
+        predicate_compile_mode: IndexCompilePolicy,
+    ) -> Result<MaterializedExecutionAttempt, InternalError> {
+        let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
+        let (payload, keys_scanned, post_access_rows) = self
+            .materialize_resolved_execution_stream(
+                route_plan,
+                continuation,
+                resolved.key_stream_mut(),
+            )?;
+        let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
+
+        Ok(MaterializedExecutionAttempt {
+            payload,
+            rows_scanned,
+            post_access_rows,
+            optimization: resolved.optimization(),
+            index_predicate_applied: resolved.index_predicate_applied(),
+            index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
+            distinct_keys_deduped: resolved.distinct_keys_deduped(),
+        })
     }
 }
 

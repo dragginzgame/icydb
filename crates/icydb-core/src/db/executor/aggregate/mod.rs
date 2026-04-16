@@ -293,8 +293,7 @@ impl ExecutionKernel {
         );
 
         // Resolve the ordered key stream using canonical routing logic.
-        let mut resolved = Self::resolve_execution_key_stream(
-            &execution_inputs,
+        let mut resolved = execution_inputs.resolve_execution_key_stream(
             &descriptor.route_plan,
             IndexCompilePolicy::StrictAllOrNone,
         )?;

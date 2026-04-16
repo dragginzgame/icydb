@@ -55,7 +55,7 @@ pub(in crate::db) use retained::RetainedSlotRow;
 pub(in crate::db::executor) use row_runtime::{
     KernelRowPayloadMode, ResidualPredicateScanMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
 };
-pub(in crate::db::executor) use scan::{KernelRowScanRequest, execute_kernel_row_scan};
+pub(in crate::db::executor) use scan::execute_kernel_row_scan;
 
 ///
 /// KernelRow

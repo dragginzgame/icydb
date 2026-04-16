@@ -13,11 +13,12 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                FieldSlot, GroupedAggregateExecutionSpec,
+                FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
                 expr::{BinaryOp, Expr, Function, ProjectionField, ProjectionSpec},
             },
         },
     },
+    error::InternalError,
     value::Value,
 };
 
@@ -118,6 +119,93 @@ pub(in crate::db::executor) struct GroupedProjectionField {
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct GroupedProjectionAggregate {
     index: usize,
+}
+
+///
+/// CompiledGroupedProjectionPlan
+///
+/// Executor-owned grouped projection compilation contract.
+/// This keeps the grouped identity short-circuit and compiled projection
+/// carriage under the projection boundary so grouped runtime lanes consume one
+/// shared compiled evaluator contract instead of open-coding it.
+///
+
+#[derive(Clone)]
+pub(in crate::db::executor) struct CompiledGroupedProjectionPlan<'a> {
+    compiled_projection: Vec<GroupedProjectionExpr>,
+    projection_layout: &'a PlannedProjectionLayout,
+    group_fields: &'a [FieldSlot],
+    aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
+}
+
+impl<'a> CompiledGroupedProjectionPlan<'a> {
+    /// Build one compiled grouped projection contract from already-compiled expressions.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db::executor) fn from_parts_for_test(
+        compiled_projection: Vec<GroupedProjectionExpr>,
+        projection_layout: &'a PlannedProjectionLayout,
+        group_fields: &'a [FieldSlot],
+        aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
+    ) -> Self {
+        Self {
+            compiled_projection,
+            projection_layout,
+            group_fields,
+            aggregate_execution_specs,
+        }
+    }
+
+    /// Borrow the compiled grouped projection expression slice.
+    #[must_use]
+    pub(in crate::db::executor) const fn compiled_projection(&self) -> &[GroupedProjectionExpr] {
+        self.compiled_projection.as_slice()
+    }
+
+    /// Borrow the planner-owned grouped projection layout.
+    #[must_use]
+    pub(in crate::db::executor) const fn projection_layout(&self) -> &'a PlannedProjectionLayout {
+        self.projection_layout
+    }
+
+    /// Borrow grouped key field slots used by grouped projection evaluation.
+    #[must_use]
+    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
+        self.group_fields
+    }
+
+    /// Borrow grouped aggregate execution specs used by grouped projection evaluation.
+    #[must_use]
+    pub(in crate::db::executor) const fn aggregate_execution_specs(
+        &self,
+    ) -> &'a [GroupedAggregateExecutionSpec] {
+        self.aggregate_execution_specs
+    }
+}
+
+/// Compile one grouped projection contract only when the planner has not
+/// already proved the grouped output projection is row-identical.
+pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
+    projection: &ProjectionSpec,
+    projection_is_identity: bool,
+    projection_layout: &'a PlannedProjectionLayout,
+    group_fields: &'a [FieldSlot],
+    aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
+) -> Result<Option<CompiledGroupedProjectionPlan<'a>>, InternalError> {
+    if projection_is_identity {
+        return Ok(None);
+    }
+
+    let compiled_projection =
+        compile_grouped_projection_plan(projection, group_fields, aggregate_execution_specs)
+            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
+
+    Ok(Some(CompiledGroupedProjectionPlan {
+        compiled_projection,
+        projection_layout,
+        group_fields,
+        aggregate_execution_specs,
+    }))
 }
 
 /// Compile one grouped projection spec into direct grouped field/aggregate lookups.

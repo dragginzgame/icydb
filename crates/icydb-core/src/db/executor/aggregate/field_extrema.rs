@@ -273,11 +273,8 @@ impl ExecutionKernel {
             PreparedExecutionProjection::empty(),
             false,
         );
-        let mut resolved = Self::resolve_execution_key_stream(
-            &execution_inputs,
-            route_plan,
-            IndexCompilePolicy::StrictAllOrNone,
-        )?;
+        let mut resolved = execution_inputs
+            .resolve_execution_key_stream(route_plan, IndexCompilePolicy::StrictAllOrNone)?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(
             prepared.store,
             &row_layout,

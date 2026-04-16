@@ -19,8 +19,7 @@ use crate::{
         contracts::canonical_value_compare,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
-            ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
                 bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
                 page_finalize::finalize_grouped_page,
@@ -659,8 +658,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         true,
     );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
-    let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
-        &execution_inputs,
+    let resolved = execution_inputs.resolve_execution_key_stream_without_distinct(
         route.grouped_route_plan(),
         IndexCompilePolicy::ConservativeSubset,
     )?;

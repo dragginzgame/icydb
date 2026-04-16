@@ -14,7 +14,7 @@ use crate::{
                     StructuralPostScanTailStrategy, required_prepared_projection_validation,
                 },
                 resolved_order_required,
-                scan::ScalarPageKernelRequest,
+                scan::{KernelRowScanRequest, ScalarPageKernelRequest},
             },
             window::compute_page_keep_count,
         },
@@ -118,35 +118,39 @@ pub(in crate::db::executor) struct CursorlessShortPathPlan<'a> {
 }
 
 impl<'a> CursorlessShortPathPlan<'a> {
-    // Return the bounded keep-cap already frozen into this cursorless short
-    // path plan.
-    pub(in crate::db::executor) const fn row_keep_cap(&self) -> Option<usize> {
-        self.row_keep_cap
+    // Build the canonical structural scan request for this cursorless short
+    // path so row-collector execution does not rebuild the same request
+    // envelope from separate keep-cap and scan-strategy fields.
+    pub(in crate::db::executor) fn scan_request<'r>(
+        &self,
+        key_stream: &'a mut dyn OrderedKeyStream,
+        scan_budget_hint: Option<usize>,
+        consistency: MissingRowPolicy,
+        row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
+    ) -> KernelRowScanRequest<'a, 'r> {
+        KernelRowScanRequest {
+            key_stream,
+            scan_budget_hint,
+            consistency,
+            scan_strategy: self.scan_strategy,
+            row_keep_cap: self.row_keep_cap,
+            row_runtime,
+        }
     }
 
-    // Return the structural scan strategy already selected for this short
-    // path plan.
-    pub(in crate::db::executor) const fn scan_strategy(&self) -> KernelRowScanStrategy<'a> {
-        self.scan_strategy
-    }
-
-    // Apply the remaining cursorless post-access work after the shared kernel
-    // scan completes.
-    pub(in crate::db::executor) fn apply_post_access(
+    // Materialize one already-scanned cursorless short-path row set through
+    // the shared post-access tail and outward payload family.
+    pub(in crate::db::executor) fn materialize_rows(
         &self,
         plan: &AccessPlannedQuery,
-        rows: &mut Vec<KernelRow>,
-    ) -> Result<(), InternalError> {
-        self.post_scan_tail.apply(plan, rows)
-    }
+        mut rows: Vec<KernelRow>,
+    ) -> Result<(MaterializedExecutionPayload, usize), InternalError> {
+        self.post_scan_tail.apply(plan, &mut rows)?;
 
-    // Finalize the cursorless row-collector rows onto the outward structural
-    // payload family already chosen for this short path.
-    pub(in crate::db::executor) fn finalize_payload(
-        &self,
-        rows: Vec<KernelRow>,
-    ) -> Result<MaterializedExecutionPayload, InternalError> {
-        self.post_scan_tail.finalize_payload(rows, None)
+        let post_access_rows = rows.len();
+        let payload = self.post_scan_tail.finalize_payload(rows, None)?;
+
+        Ok((payload, post_access_rows))
     }
 }
 

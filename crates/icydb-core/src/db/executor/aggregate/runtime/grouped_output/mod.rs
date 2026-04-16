@@ -253,26 +253,21 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     rows: Vec<GroupedRow>,
 ) -> Result<Vec<GroupedRow>, InternalError> {
-    // Phase 1: short-circuit the common grouped identity shape.
-    // Grouped logical plans currently lower to canonical `group fields +
-    // aggregate terminals` projection order, so paying the generic grouped
-    // projection evaluator here only rebuilds rows we already have.
-    if projection_is_identity {
+    let Some(compiled_projection) = compile_grouped_projection_plan_if_needed(
+        projection,
+        projection_is_identity,
+        projection_layout,
+        group_fields,
+        aggregate_execution_specs,
+    )?
+    else {
         return Ok(rows);
-    }
+    };
 
-    // Phase 2: retain the generic grouped projection evaluator for any future
-    // additive grouped projection shape that is not already row-identical.
-    let compiled_projection =
-        compile_grouped_projection_plan(projection, group_fields, aggregate_execution_specs)
-            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
     let mut projected_rows = Vec::with_capacity(rows.len());
     for row in rows {
-        projected_rows.push(project_grouped_values_from_projection(
-            compiled_projection.as_slice(),
-            projection_layout,
-            group_fields,
-            aggregate_execution_specs,
+        projected_rows.push(project_grouped_values_from_compiled_projection(
+            &compiled_projection,
             row.group_key(),
             row.aggregate_values(),
         )?);
@@ -283,32 +278,45 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
 
 // Evaluate one grouped projection expression row and convert grouped key +
 // aggregate slices directly into grouped output vectors.
-pub(in crate::db::executor) fn project_grouped_values_from_projection(
-    compiled_projection: &[GroupedProjectionExpr],
-    projection_layout: &PlannedProjectionLayout,
-    group_fields: &[FieldSlot],
-    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
+pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
+    compiled_projection: &CompiledGroupedProjectionPlan<'_>,
     group_key_values: &[Value],
     aggregate_values: &[Value],
 ) -> Result<GroupedRow, InternalError> {
     let grouped_row = GroupedRowView::new(
         group_key_values,
         aggregate_values,
-        group_fields,
-        aggregate_execution_specs,
+        compiled_projection.group_fields(),
+        compiled_projection.aggregate_execution_specs(),
     );
-    let mut projected_group_key =
-        Vec::with_capacity(projection_layout.group_field_positions().len());
-    let mut projected_aggregate_values =
-        Vec::with_capacity(projection_layout.aggregate_positions().len());
-    let mut next_group_position = projection_layout.group_field_positions().iter().copied();
-    let mut next_aggregate_position = projection_layout.aggregate_positions().iter().copied();
+    let mut projected_group_key = Vec::with_capacity(
+        compiled_projection
+            .projection_layout()
+            .group_field_positions()
+            .len(),
+    );
+    let mut projected_aggregate_values = Vec::with_capacity(
+        compiled_projection
+            .projection_layout()
+            .aggregate_positions()
+            .len(),
+    );
+    let mut next_group_position = compiled_projection
+        .projection_layout()
+        .group_field_positions()
+        .iter()
+        .copied();
+    let mut next_aggregate_position = compiled_projection
+        .projection_layout()
+        .aggregate_positions()
+        .iter()
+        .copied();
     let mut expected_group_position = next_group_position.next();
     let mut expected_aggregate_position = next_aggregate_position.next();
 
     // Phase 1: evaluate each compiled projection expression once and route the
     // resulting value directly into the final grouped output buffers.
-    for (projection_index, expr) in compiled_projection.iter().enumerate() {
+    for (projection_index, expr) in compiled_projection.compiled_projection().iter().enumerate() {
         let projected_value = eval_grouped_projection_expr(expr, &grouped_row)
             .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
 
@@ -329,14 +337,14 @@ pub(in crate::db::executor) fn project_grouped_values_from_projection(
         return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
             "group-field",
             position,
-            compiled_projection.len(),
+            compiled_projection.compiled_projection().len(),
         ));
     }
     if let Some(position) = expected_aggregate_position {
         return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
             "aggregate",
             position,
-            compiled_projection.len(),
+            compiled_projection.compiled_projection().len(),
         ));
     }
 

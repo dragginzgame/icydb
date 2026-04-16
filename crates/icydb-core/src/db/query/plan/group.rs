@@ -68,6 +68,65 @@ pub(in crate::db) struct GroupedAggregateProjectionSpec {
     distinct: bool,
 }
 
+///
+/// GroupedProjectionAggregateScan
+///
+/// Planner-local grouped projection aggregate scan result.
+/// This keeps aggregate-bearing expression classification and first-seen
+/// grouped aggregate slot introduction under one helper so grouped projection
+/// handoff does not walk the same expression tree twice.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GroupedProjectionAggregateScan {
+    contains_aggregate: bool,
+    introduced_aggregate_count: usize,
+}
+
+impl GroupedProjectionAggregateScan {
+    /// Build one empty grouped aggregate scan result.
+    #[must_use]
+    const fn none() -> Self {
+        Self {
+            contains_aggregate: false,
+            introduced_aggregate_count: 0,
+        }
+    }
+
+    /// Build one grouped aggregate scan result for a discovered aggregate leaf.
+    #[must_use]
+    const fn found_aggregate(introduced_aggregate_count: usize) -> Self {
+        Self {
+            contains_aggregate: true,
+            introduced_aggregate_count,
+        }
+    }
+
+    /// Merge two grouped aggregate scan results while preserving first-seen
+    /// introduction counts across one projection expression walk.
+    #[must_use]
+    const fn combine(self, other: Self) -> Self {
+        Self {
+            contains_aggregate: self.contains_aggregate || other.contains_aggregate,
+            introduced_aggregate_count: self
+                .introduced_aggregate_count
+                .saturating_add(other.introduced_aggregate_count),
+        }
+    }
+
+    /// Return whether the scanned expression references at least one grouped aggregate leaf.
+    #[must_use]
+    const fn contains_aggregate(self) -> bool {
+        self.contains_aggregate
+    }
+
+    /// Return how many new grouped aggregate slots this expression introduced.
+    #[must_use]
+    const fn introduced_aggregate_count(self) -> usize {
+        self.introduced_aggregate_count
+    }
+}
+
 impl GroupedAggregateProjectionSpec {
     /// Build one grouped aggregate projection spec from one semantic aggregate expression.
     #[must_use]
@@ -673,6 +732,9 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
 
     for (index, field) in projection_spec.fields().enumerate() {
         let root_expr = expression_without_alias(projection_field_expr(field));
+        let aggregate_scan =
+            collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_projection_specs);
+
         match root_expr {
             Expr::Field(field_id) => {
                 group_field_positions.push(index);
@@ -692,22 +754,14 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
                         .is_some_and(|aggregate| {
                             aggregate_projection_spec.matches_semantic_aggregate(aggregate)
                         });
-                next_aggregate_index = next_aggregate_index.saturating_add(
-                    push_unique_grouped_projection_aggregate_spec(
-                        &mut aggregate_projection_specs,
-                        aggregate_projection_spec,
-                    ),
-                );
+                next_aggregate_index = next_aggregate_index
+                    .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
-            _ if grouped_projection_expr_contains_aggregate(root_expr) => {
+            _ if aggregate_scan.contains_aggregate() => {
                 aggregate_positions.push(index);
                 projection_is_identity = false;
-                next_aggregate_index = next_aggregate_index.saturating_add(
-                    collect_grouped_projection_aggregate_specs(
-                        root_expr,
-                        &mut aggregate_projection_specs,
-                    ),
-                );
+                next_aggregate_index = next_aggregate_index
+                    .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
             _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
                 group_field_positions.push(index);
@@ -813,27 +867,41 @@ fn grouped_projection_expression_preserves_identity(
         )
 }
 
-fn grouped_projection_expr_contains_aggregate(expr: &Expr) -> bool {
+fn collect_grouped_projection_aggregate_scan(
+    expr: &Expr,
+    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+) -> GroupedProjectionAggregateScan {
     match expr {
-        Expr::Aggregate(_) => true,
-        Expr::Field(_) | Expr::Literal(_) => false,
+        Expr::Aggregate(aggregate_expr) => GroupedProjectionAggregateScan::found_aggregate(
+            push_unique_grouped_projection_aggregate_spec(
+                aggregate_projection_specs,
+                GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
+            ),
+        ),
+        Expr::Field(_) | Expr::Literal(_) => GroupedProjectionAggregateScan::none(),
         Expr::FunctionCall { args, .. } => {
-            args.iter().any(grouped_projection_expr_contains_aggregate)
+            args.iter()
+                .fold(GroupedProjectionAggregateScan::none(), |scan, arg| {
+                    scan.combine(collect_grouped_projection_aggregate_scan(
+                        arg,
+                        aggregate_projection_specs,
+                    ))
+                })
         }
         Expr::Binary { left, right, .. } => {
-            grouped_projection_expr_contains_aggregate(left.as_ref())
-                || grouped_projection_expr_contains_aggregate(right.as_ref())
+            collect_grouped_projection_aggregate_scan(left.as_ref(), aggregate_projection_specs)
+                .combine(collect_grouped_projection_aggregate_scan(
+                    right.as_ref(),
+                    aggregate_projection_specs,
+                ))
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
-            grouped_projection_expr_contains_aggregate(expr.as_ref())
+            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_projection_specs)
         }
     }
 }
 
-// Collect grouped aggregate leaves from one projection expression in
-// declaration order so grouped executor handoff can resolve aggregate leaves
-// inside post-aggregate grouped projection expressions.
 // Keep grouped aggregate projection specs on one stable first-seen unique
 // order so repeated aggregate leaves reuse the same grouped execution slot.
 fn push_unique_grouped_projection_aggregate_spec(
@@ -849,36 +917,6 @@ fn push_unique_grouped_projection_aggregate_spec(
     }
 
     0
-}
-
-fn collect_grouped_projection_aggregate_specs(
-    expr: &Expr,
-    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
-) -> usize {
-    match expr {
-        Expr::Aggregate(aggregate_expr) => push_unique_grouped_projection_aggregate_spec(
-            aggregate_projection_specs,
-            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
-        ),
-        Expr::Field(_) | Expr::Literal(_) => 0,
-        Expr::FunctionCall { args, .. } => args.iter().fold(0usize, |count, arg| {
-            count.saturating_add(collect_grouped_projection_aggregate_specs(
-                arg,
-                aggregate_projection_specs,
-            ))
-        }),
-        Expr::Binary { left, right, .. } => {
-            collect_grouped_projection_aggregate_specs(left.as_ref(), aggregate_projection_specs)
-                .saturating_add(collect_grouped_projection_aggregate_specs(
-                    right.as_ref(),
-                    aggregate_projection_specs,
-                ))
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
-            collect_grouped_projection_aggregate_specs(expr.as_ref(), aggregate_projection_specs)
-        }
-    }
 }
 
 // Keep the grouped projection-layout rejection text under one helper so the
