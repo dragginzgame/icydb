@@ -14,8 +14,9 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHavingSymbol, ExplainGrouping,
-                ExplainOrderBy, ExplainPagination, ExplainPlan,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHavingExpr,
+                ExplainGroupHavingValueExpr, ExplainGrouping, ExplainOrderBy, ExplainPagination,
+                ExplainPlan,
             },
             fingerprint::aggregate_hash::{
                 AggregateHashShape, hash_group_aggregate_structural_fingerprint,
@@ -23,9 +24,11 @@ use crate::{
             fingerprint::projection_hash::hash_projection_structural_fingerprint,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupAggregateSpec,
-                GroupHavingSymbol, OrderDirection, OrderSpec, PageSpec, QueryMode,
-                expr::ProjectionSpec, grouped_plan_aggregate_family, grouped_plan_strategy,
-                project_access_plan, project_explain_access_path,
+                GroupHavingExpr, GroupHavingValueExpr, OrderDirection, OrderSpec, PageSpec,
+                QueryMode,
+                expr::{BinaryOp, ProjectionSpec},
+                grouped_plan_aggregate_family, grouped_plan_strategy, project_access_plan,
+                project_explain_access_path,
             },
         },
     },
@@ -69,8 +72,13 @@ const GROUPING_STRATEGY_HASH_TAG: u8 = 0x72;
 const GROUPING_STRATEGY_ORDERED_TAG: u8 = 0x73;
 const GROUP_HAVING_ABSENT_TAG: u8 = 0x74;
 const GROUP_HAVING_PRESENT_TAG: u8 = 0x75;
-const GROUP_HAVING_GROUP_FIELD_TAG: u8 = 0x76;
-const GROUP_HAVING_AGGREGATE_INDEX_TAG: u8 = 0x77;
+const GROUP_HAVING_COMPARE_TAG: u8 = 0x76;
+const GROUP_HAVING_AND_TAG: u8 = 0x77;
+const GROUP_HAVING_VALUE_GROUP_FIELD_TAG: u8 = 0x78;
+const GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG: u8 = 0x79;
+const GROUP_HAVING_VALUE_LITERAL_TAG: u8 = 0x7A;
+const GROUP_HAVING_VALUE_FUNCTION_TAG: u8 = 0x7B;
+const GROUP_HAVING_VALUE_BINARY_TAG: u8 = 0x7C;
 
 const HASH_VALUE_ERROR_TAG: u8 = 0xEE;
 
@@ -797,7 +805,7 @@ struct GroupedFingerprintShape<'a> {
     aggregate_family_code: Option<&'a str>,
     group_fields: Vec<(u32, &'a str)>,
     aggregates: Vec<AggregateHashShape<'a>>,
-    having: Option<Vec<GroupHavingFingerprintClause<'a>>>,
+    having: Option<GroupHavingFingerprintSource<'a>>,
     max_groups: u64,
     max_group_bytes: u64,
 }
@@ -808,19 +816,10 @@ enum ProjectedGroupingShape<'a> {
     Grouped(GroupedFingerprintShape<'a>),
 }
 
-/// Canonical grouped HAVING clause projection shared by plan and explain hashing.
-enum GroupHavingFingerprintClause<'a> {
-    GroupField {
-        slot_index: u32,
-        field: &'a str,
-        op_tag: u8,
-        value: &'a Value,
-    },
-    AggregateIndex {
-        index: u32,
-        op_tag: u8,
-        value: &'a Value,
-    },
+/// Canonical grouped HAVING expression source shared by plan and explain hashing.
+enum GroupHavingFingerprintSource<'a> {
+    Explain(&'a ExplainGroupHavingExpr),
+    Plan(&'a GroupHavingExpr),
 }
 
 impl<'a> ProjectedGroupingShape<'a> {
@@ -864,29 +863,9 @@ impl<'a> ProjectedGroupingShape<'a> {
                             )
                         })
                         .collect(),
-                    having: having.as_ref().map(|having| {
-                        having
-                            .clauses()
-                            .iter()
-                            .map(|clause| match clause.symbol() {
-                                ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
-                                    GroupHavingFingerprintClause::GroupField {
-                                        slot_index: *slot_index as u32,
-                                        field,
-                                        op_tag: clause.op().tag(),
-                                        value: clause.value(),
-                                    }
-                                }
-                                ExplainGroupHavingSymbol::AggregateIndex { index } => {
-                                    GroupHavingFingerprintClause::AggregateIndex {
-                                        index: *index as u32,
-                                        op_tag: clause.op().tag(),
-                                        value: clause.value(),
-                                    }
-                                }
-                            })
-                            .collect()
-                    }),
+                    having: having
+                        .as_ref()
+                        .map(|having| GroupHavingFingerprintSource::Explain(having.expr())),
                     max_groups: *max_groups,
                     max_group_bytes: *max_group_bytes,
                 })
@@ -922,29 +901,17 @@ impl<'a> ProjectedGroupingShape<'a> {
                     )
                 })
                 .collect(),
-            having: grouped.having.as_ref().map(|having| {
-                having
-                    .clauses
-                    .iter()
-                    .map(|clause| match &clause.symbol {
-                        GroupHavingSymbol::GroupField(field_slot) => {
-                            GroupHavingFingerprintClause::GroupField {
-                                slot_index: field_slot.index as u32,
-                                field: &field_slot.field,
-                                op_tag: clause.op.tag(),
-                                value: &clause.value,
-                            }
-                        }
-                        GroupHavingSymbol::AggregateIndex(index) => {
-                            GroupHavingFingerprintClause::AggregateIndex {
-                                index: *index as u32,
-                                op_tag: clause.op.tag(),
-                                value: &clause.value,
-                            }
-                        }
-                    })
-                    .collect()
-            }),
+            having: grouped
+                .having_expr
+                .as_ref()
+                .map(GroupHavingFingerprintSource::Plan)
+                .or_else(|| {
+                    grouped
+                        .having
+                        .as_ref()
+                        .map(GroupHavingExpr::from_legacy_spec)
+                        .map(|expr| GroupHavingFingerprintSource::Plan(Box::leak(Box::new(expr))))
+                }),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
         })
@@ -1035,7 +1002,7 @@ fn hash_projected_grouping_shape_v1(
                 grouped.aggregates.len(),
                 grouped.aggregates.iter().copied(),
             );
-            hash_group_having_projection(hasher, grouped.having.as_deref());
+            hash_group_having_projection(hasher, grouped.having.as_ref());
 
             write_hash_u64(hasher, grouped.max_groups);
             write_hash_u64(hasher, grouped.max_group_bytes);
@@ -1083,50 +1050,131 @@ fn hash_grouped_strategy_projection(
     }
 }
 
-// Hash one grouped HAVING clause after the caller has already projected it onto
-// the canonical grouped symbol/op/value shape.
-fn hash_group_having_projection_clause(
-    hasher: &mut Sha256,
-    clause: &GroupHavingFingerprintClause<'_>,
-) {
-    match clause {
-        GroupHavingFingerprintClause::GroupField {
-            slot_index,
-            field,
-            op_tag,
-            value,
-        } => {
-            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
-            write_u32(hasher, *slot_index);
+fn hash_group_having_value_expr_explain(hasher: &mut Sha256, expr: &ExplainGroupHavingValueExpr) {
+    match expr {
+        ExplainGroupHavingValueExpr::GroupField { slot_index, field } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
+            write_u32(hasher, *slot_index as u32);
             write_str(hasher, field);
-            write_tag(hasher, *op_tag);
+        }
+        ExplainGroupHavingValueExpr::AggregateIndex { index } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
+            write_u32(hasher, *index as u32);
+        }
+        ExplainGroupHavingValueExpr::Literal(value) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
             write_value(hasher, value);
         }
-        GroupHavingFingerprintClause::AggregateIndex {
-            index,
-            op_tag,
-            value,
-        } => {
-            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, *index);
-            write_tag(hasher, *op_tag);
+        ExplainGroupHavingValueExpr::FunctionCall { function, args } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
+            write_str(hasher, function);
+            write_u32(hasher, args.len() as u32);
+            for arg in args {
+                hash_group_having_value_expr_explain(hasher, arg);
+            }
+        }
+        ExplainGroupHavingValueExpr::Binary { op, left, right } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_BINARY_TAG);
+            write_str(hasher, op);
+            hash_group_having_value_expr_explain(hasher, left);
+            hash_group_having_value_expr_explain(hasher, right);
+        }
+    }
+}
+
+fn hash_group_having_value_expr_plan(hasher: &mut Sha256, expr: &GroupHavingValueExpr) {
+    match expr {
+        GroupHavingValueExpr::GroupField(field_slot) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
+            write_u32(hasher, field_slot.index() as u32);
+            write_str(hasher, field_slot.field());
+        }
+        GroupHavingValueExpr::AggregateIndex(index) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
+            write_u32(hasher, *index as u32);
+        }
+        GroupHavingValueExpr::Literal(value) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
             write_value(hasher, value);
         }
+        GroupHavingValueExpr::FunctionCall { function, args } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
+            write_str(hasher, function.sql_label());
+            write_u32(hasher, args.len() as u32);
+            for arg in args {
+                hash_group_having_value_expr_plan(hasher, arg);
+            }
+        }
+        GroupHavingValueExpr::Binary { op, left, right } => {
+            write_tag(hasher, GROUP_HAVING_VALUE_BINARY_TAG);
+            write_tag(hasher, grouped_having_binary_op_tag(*op));
+            hash_group_having_value_expr_plan(hasher, left);
+            hash_group_having_value_expr_plan(hasher, right);
+        }
+    }
+}
+
+fn hash_group_having_expr_explain(hasher: &mut Sha256, expr: &ExplainGroupHavingExpr) {
+    match expr {
+        ExplainGroupHavingExpr::Compare { left, op, right } => {
+            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
+            hash_group_having_value_expr_explain(hasher, left);
+            write_tag(hasher, op.tag());
+            hash_group_having_value_expr_explain(hasher, right);
+        }
+        ExplainGroupHavingExpr::And(children) => {
+            write_tag(hasher, GROUP_HAVING_AND_TAG);
+            write_u32(hasher, children.len() as u32);
+            for child in children {
+                hash_group_having_expr_explain(hasher, child);
+            }
+        }
+    }
+}
+
+fn hash_group_having_expr_plan(hasher: &mut Sha256, expr: &GroupHavingExpr) {
+    match expr {
+        GroupHavingExpr::Compare { left, op, right } => {
+            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
+            hash_group_having_value_expr_plan(hasher, left);
+            write_tag(hasher, op.tag());
+            hash_group_having_value_expr_plan(hasher, right);
+        }
+        GroupHavingExpr::And(children) => {
+            write_tag(hasher, GROUP_HAVING_AND_TAG);
+            write_u32(hasher, children.len() as u32);
+            for child in children {
+                hash_group_having_expr_plan(hasher, child);
+            }
+        }
+    }
+}
+
+const fn grouped_having_binary_op_tag(op: BinaryOp) -> u8 {
+    match op {
+        BinaryOp::Add => 0x01,
+        BinaryOp::Sub => 0x02,
+        BinaryOp::Mul => 0x03,
+        BinaryOp::Div => 0x04,
+        #[cfg(test)]
+        BinaryOp::And => 0x05,
+        #[cfg(test)]
+        BinaryOp::Eq => 0x06,
     }
 }
 
 fn hash_group_having_projection(
     hasher: &mut Sha256,
-    clauses: Option<&[GroupHavingFingerprintClause<'_>]>,
+    expr: Option<&GroupHavingFingerprintSource<'_>>,
 ) {
-    let Some(clauses) = clauses else {
+    let Some(expr) = expr else {
         write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
         return;
     };
 
     write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    write_u32(hasher, clauses.len() as u32);
-    for clause in clauses {
-        hash_group_having_projection_clause(hasher, clause);
+    match expr {
+        GroupHavingFingerprintSource::Explain(expr) => hash_group_having_expr_explain(hasher, expr),
+        GroupHavingFingerprintSource::Plan(expr) => hash_group_having_expr_plan(hasher, expr),
     }
 }

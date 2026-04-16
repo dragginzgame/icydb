@@ -226,6 +226,21 @@ struct SingleGroupedSlotDecode {
 }
 
 ///
+/// GroupedRowDecodePath
+///
+/// GroupedRowDecodePath freezes how one grouped row should be decoded from
+/// persisted row bytes at the structural grouped runtime boundary.
+/// It keeps the common single-slot fast path and the indexed retained-layout
+/// path under one local owner instead of reselecting that decode policy at
+/// each grouped row read callsite.
+///
+
+enum GroupedRowDecodePath<'a> {
+    Single(&'a SingleGroupedSlotDecode),
+    Indexed,
+}
+
+///
 /// StructuralGroupedRowRuntime
 ///
 /// StructuralGroupedRowRuntime keeps grouped row reads on store-handle and
@@ -282,25 +297,27 @@ impl StructuralGroupedRowRuntime {
     // Decode one persisted data row straight into the structural slot view
     // consumed by grouped fold/runtime stages without building a full kernel row.
     fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
-        if let Some(single_grouped_slot_decode) = &self.single_grouped_slot_decode {
-            return self.single_slot_row_view_from_data_row(
-                key.storage_key(),
-                row,
-                single_grouped_slot_decode,
-            );
+        match self.row_decode_path() {
+            GroupedRowDecodePath::Single(single_grouped_slot_decode) => self
+                .single_slot_row_view_from_data_row(
+                    key.storage_key(),
+                    row,
+                    single_grouped_slot_decode,
+                ),
+            GroupedRowDecodePath::Indexed => {
+                let values = RowDecoder::decode_indexed_slot_values(
+                    &self.row_layout,
+                    key.storage_key(),
+                    &row,
+                    &self.grouped_slot_layout,
+                )?;
+
+                Ok(RowView::from_indexed_values(
+                    &self.grouped_slot_layout,
+                    values,
+                ))
+            }
         }
-
-        let values = RowDecoder::decode_indexed_slot_values(
-            &self.row_layout,
-            key.storage_key(),
-            &row,
-            &self.grouped_slot_layout,
-        )?;
-
-        Ok(RowView::from_indexed_values(
-            &self.grouped_slot_layout,
-            values,
-        ))
     }
 
     // Decode one grouped row view for the common single-slot shape without
@@ -350,6 +367,25 @@ impl StructuralGroupedRowRuntime {
         )
     }
 
+    // Resolve the grouped row decode path once from the retained-slot runtime
+    // metadata before row decode begins.
+    fn row_decode_path(&self) -> GroupedRowDecodePath<'_> {
+        self.single_grouped_slot_decode
+            .as_ref()
+            .map_or(GroupedRowDecodePath::Indexed, GroupedRowDecodePath::Single)
+    }
+
+    // Return the single-slot decode contract only when the caller-selected
+    // required slot matches the runtime-frozen single grouped slot path.
+    fn matching_single_grouped_slot_decode(
+        &self,
+        required_slot: usize,
+    ) -> Option<&SingleGroupedSlotDecode> {
+        self.single_grouped_slot_decode
+            .as_ref()
+            .filter(|single_grouped_slot_decode| single_grouped_slot_decode.slot == required_slot)
+    }
+
     // Read one persisted row under the grouped consistency contract while
     // preserving fail-closed executor corruption handling.
     fn read_data_row(
@@ -382,8 +418,8 @@ impl StructuralGroupedRowRuntime {
             return Ok(None);
         };
 
-        if let Some(single_grouped_slot_decode) = &self.single_grouped_slot_decode
-            && single_grouped_slot_decode.slot == required_slot
+        if let Some(single_grouped_slot_decode) =
+            self.matching_single_grouped_slot_decode(required_slot)
         {
             return self.decode_single_grouped_slot_value_from_raw_row(
                 key.storage_key(),

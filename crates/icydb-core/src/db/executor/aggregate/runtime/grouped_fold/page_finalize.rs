@@ -161,9 +161,6 @@ pub(super) fn finalize_grouped_page(
     grouped_bundle: GroupedAggregateBundle,
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError> {
-    let grouped_having = route.grouped_having();
-    let grouped_having_expr = route.grouped_having_expr();
-    let group_fields = route.group_fields();
     let compiled_projection = compile_grouped_projection_plan_if_needed(
         grouped_projection_spec,
         route.projection_is_identity(),
@@ -171,32 +168,14 @@ pub(super) fn finalize_grouped_page(
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),
     )?;
-    let selection_bound = route.grouped_selection_bound();
-    let resume_boundary = route.grouped_resume_boundary();
-    let (page_rows, next_cursor_boundary) = if let Some(selection_bound) = selection_bound {
-        finalize_bounded_grouped_page_rows(
-            route.direction(),
-            grouped_having,
-            grouped_having_expr,
-            grouped_bundle,
-            group_fields,
-            pagination_window,
-            resume_boundary,
-            selection_bound,
-            compiled_projection,
-        )?
-    } else {
-        finalize_unbounded_grouped_page_rows(
-            route.direction(),
-            grouped_having,
-            grouped_having_expr,
-            grouped_bundle,
-            group_fields,
-            pagination_window,
-            resume_boundary,
-            compiled_projection,
-        )?
-    };
+    let selection =
+        GroupedPageFinalizeSelection::new(route, pagination_window, compiled_projection);
+    let (page_rows, next_cursor_boundary) =
+        if let Some(selection_bound) = route.grouped_selection_bound() {
+            selection.finalize_bounded(grouped_bundle, selection_bound)?
+        } else {
+            selection.finalize_unbounded(grouped_bundle)?
+        };
     let next_cursor = next_cursor_boundary
         .map(|last_group_key| route.grouped_next_cursor(last_group_key))
         .transpose()?;
@@ -234,119 +213,158 @@ fn into_finalize_groups(
     }
 }
 
-// Apply grouped candidate selection, filtering, offset, and limit over one
-// bounded grouped page window without sorting every finalized group first.
-//
-// This helper intentionally carries the full bounded grouped page-finalize
-// contract in one place so direction-aware selection, HAVING filtering,
-// continuation boundaries, and optional projection shaping stay synchronized.
-#[expect(clippy::too_many_arguments)]
-fn finalize_bounded_grouped_page_rows(
-    direction: Direction,
-    grouped_having: Option<&GroupHavingSpec>,
-    grouped_having_expr: Option<&GroupHavingExpr>,
-    grouped_bundle: GroupedAggregateBundle,
-    group_fields: &[crate::db::query::plan::FieldSlot],
-    pagination_window: &GroupedPaginationWindow,
-    resume_boundary: Option<&Value>,
-    selection_bound: usize,
-    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
-) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
-    let selected_candidates = retain_smallest_grouped_page_candidates(
-        into_grouped_page_candidates(grouped_bundle, false, direction).into_iter(),
-        grouped_having,
-        grouped_having_expr,
-        group_fields,
-        resume_boundary,
-        selection_bound,
-    )?;
+///
+/// GroupedPageFinalizeSelection
+///
+/// GroupedPageFinalizeSelection freezes the route-owned finalize-time page
+/// selection contract for one grouped output page.
+/// It keeps direction, HAVING filters, continuation boundary, pagination, and
+/// optional compiled projection under one local owner so bounded and
+/// unbounded finalize paths stop rethreading the same inputs separately.
+///
 
-    finalize_grouped_page_rows_from_candidates(
-        selected_candidates.into_iter(),
-        pagination_window.limit(),
-        pagination_window.initial_offset_for_page(),
-        |_| Ok(true),
-        compiled_projection,
-    )
+struct GroupedPageFinalizeSelection<'a> {
+    direction: Direction,
+    grouped_having: Option<&'a GroupHavingSpec>,
+    grouped_having_expr: Option<&'a GroupHavingExpr>,
+    group_fields: &'a [crate::db::query::plan::FieldSlot],
+    pagination_window: &'a GroupedPaginationWindow,
+    resume_boundary: Option<&'a Value>,
+    compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
 }
 
-// Apply grouped filtering, offset, and limit over the common grouped shape
-// when no bounded grouped page window is active.
-// This helper keeps the full grouped page-finalize contract explicit instead of
-// hiding route-owned inputs behind a temporary parameter struct.
-#[expect(clippy::too_many_arguments)]
-fn finalize_unbounded_grouped_page_rows(
-    direction: Direction,
-    grouped_having: Option<&GroupHavingSpec>,
-    grouped_having_expr: Option<&GroupHavingExpr>,
-    grouped_bundle: GroupedAggregateBundle,
-    group_fields: &[crate::db::query::plan::FieldSlot],
-    pagination_window: &GroupedPaginationWindow,
-    resume_boundary: Option<&Value>,
-    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
-) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
-    finalize_grouped_page_rows_from_candidates(
-        into_grouped_page_candidates(grouped_bundle, true, direction).into_iter(),
-        pagination_window.limit(),
-        pagination_window.initial_offset_for_page(),
-        |candidate| {
-            candidate.matches_window(
-                grouped_having,
-                grouped_having_expr,
-                group_fields,
-                resume_boundary,
-            )
-        },
-        compiled_projection,
-    )
-}
-
-// Retain only the smallest canonical grouped rows needed for one bounded page
-// window after grouped HAVING and resume filtering.
-fn retain_smallest_grouped_page_candidates<I>(
-    finalized_candidates: I,
-    grouped_having: Option<&GroupHavingSpec>,
-    grouped_having_expr: Option<&GroupHavingExpr>,
-    group_fields: &[crate::db::query::plan::FieldSlot],
-    resume_boundary: Option<&Value>,
-    selection_bound: usize,
-) -> Result<Vec<GroupedPageCandidate>, InternalError>
-where
-    I: Iterator<Item = GroupedPageCandidate>,
-{
-    let mut retained = BinaryHeap::<GroupedPageCandidate>::new();
-
-    // Phase 1: keep only the smallest `selection_bound` qualifying groups so
-    // bounded grouped pages do not sort every finalized group up front.
-    for candidate in finalized_candidates {
-        if !candidate.matches_window(
-            grouped_having,
-            grouped_having_expr,
-            group_fields,
-            resume_boundary,
-        )? {
-            continue;
-        }
-        if retained.len() < selection_bound {
-            retained.push(candidate);
-            continue;
-        }
-
-        if retained
-            .peek()
-            .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
-        {
-            retained.pop();
-            retained.push(candidate);
+impl<'a> GroupedPageFinalizeSelection<'a> {
+    // Build one grouped page-finalize selection contract from the grouped
+    // route and one already-resolved grouped projection plan.
+    const fn new(
+        route: &'a GroupedRouteStage,
+        pagination_window: &'a GroupedPaginationWindow,
+        compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
+    ) -> Self {
+        Self {
+            direction: route.direction(),
+            grouped_having: route.grouped_having(),
+            grouped_having_expr: route.grouped_having_expr(),
+            group_fields: route.group_fields(),
+            pagination_window,
+            resume_boundary: route.grouped_resume_boundary(),
+            compiled_projection,
         }
     }
 
-    // Phase 2: restore grouped-key order across the retained bounded window
-    // only, respecting the active grouped execution direction.
-    let mut out = retained.into_vec();
-    out.sort();
+    // Finalize one bounded grouped page window without sorting every
+    // finalized group up front.
+    fn finalize_bounded(
+        &self,
+        grouped_bundle: GroupedAggregateBundle,
+        selection_bound: usize,
+    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
+        let selected_candidates = self.retain_smallest_candidates(
+            into_grouped_page_candidates(grouped_bundle, false, self.direction).into_iter(),
+            selection_bound,
+        )?;
 
-    Ok(out)
+        self.finalize_rows_from_candidates(selected_candidates.into_iter(), |_| Ok(true))
+    }
+
+    // Finalize the common grouped page shape when no bounded grouped window
+    // is active.
+    fn finalize_unbounded(
+        &self,
+        grouped_bundle: GroupedAggregateBundle,
+    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
+        self.finalize_rows_from_candidates(
+            into_grouped_page_candidates(grouped_bundle, true, self.direction).into_iter(),
+            |candidate| self.matches_window(candidate),
+        )
+    }
+
+    // Return true when one finalized grouped candidate survives grouped
+    // HAVING and continuation resume-boundary filtering.
+    fn matches_window(&self, candidate: &GroupedPageCandidate) -> Result<bool, InternalError> {
+        candidate.matches_window(
+            self.grouped_having,
+            self.grouped_having_expr,
+            self.group_fields,
+            self.resume_boundary,
+        )
+    }
+
+    // Retain only the smallest canonical grouped rows needed for one bounded
+    // page window after grouped HAVING and resume filtering.
+    fn retain_smallest_candidates<I>(
+        &self,
+        finalized_candidates: I,
+        selection_bound: usize,
+    ) -> Result<Vec<GroupedPageCandidate>, InternalError>
+    where
+        I: Iterator<Item = GroupedPageCandidate>,
+    {
+        let mut retained = BinaryHeap::<GroupedPageCandidate>::new();
+
+        // Phase 1: keep only the smallest `selection_bound` qualifying groups
+        // so bounded grouped pages do not sort every finalized group up front.
+        for candidate in finalized_candidates {
+            if !self.matches_window(&candidate)? {
+                continue;
+            }
+            if retained.len() < selection_bound {
+                retained.push(candidate);
+                continue;
+            }
+
+            if retained
+                .peek()
+                .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+            {
+                retained.pop();
+                retained.push(candidate);
+            }
+        }
+
+        // Phase 2: restore grouped-key order across the retained bounded
+        // window only, respecting the active grouped execution direction.
+        let mut out = retained.into_vec();
+        out.sort();
+
+        Ok(out)
+    }
+
+    // Apply grouped filtering, offset/limit, and final row shaping over one
+    // ordered grouped-candidate stream in a single pass.
+    fn finalize_rows_from_candidates<I, FilterFn>(
+        &self,
+        selected_candidates: I,
+        mut filter_candidate: FilterFn,
+    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
+    where
+        I: Iterator<Item = GroupedPageCandidate>,
+        FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
+    {
+        if let Some(compiled_projection) = &self.compiled_projection {
+            return finalize_grouped_page_rows_with_shaper(
+                selected_candidates,
+                self.pagination_window.limit(),
+                self.pagination_window.initial_offset_for_page(),
+                &mut filter_candidate,
+                |candidate| {
+                    project_grouped_values_from_compiled_projection(
+                        compiled_projection,
+                        candidate.group_key_values()?,
+                        candidate.aggregate_values.as_slice(),
+                    )
+                },
+            );
+        }
+
+        finalize_grouped_page_rows_with_shaper(
+            selected_candidates,
+            self.pagination_window.limit(),
+            self.pagination_window.initial_offset_for_page(),
+            filter_candidate,
+            GroupedPageCandidate::into_row,
+        )
+    }
 }
 
 // Compare grouped boundary values in the active grouped execution direction.
@@ -365,44 +383,6 @@ fn grouped_resume_boundary_allows_candidate(
     resume_boundary: &Value,
 ) -> bool {
     compare_grouped_boundary_values(direction, candidate_key, resume_boundary).is_gt()
-}
-
-// Apply grouped filtering, offset/limit, and final row shaping over one
-// ordered grouped-candidate stream in a single pass.
-fn finalize_grouped_page_rows_from_candidates<I, FilterFn>(
-    selected_candidates: I,
-    limit: Option<usize>,
-    initial_offset_for_page: usize,
-    mut filter_candidate: FilterFn,
-    compiled_projection: Option<CompiledGroupedProjectionPlan<'_>>,
-) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
-where
-    I: Iterator<Item = GroupedPageCandidate>,
-    FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
-{
-    if let Some(compiled_projection) = compiled_projection {
-        return finalize_grouped_page_rows_with_shaper(
-            selected_candidates,
-            limit,
-            initial_offset_for_page,
-            &mut filter_candidate,
-            |candidate| {
-                project_grouped_values_from_compiled_projection(
-                    &compiled_projection,
-                    candidate.group_key_values()?,
-                    candidate.aggregate_values.as_slice(),
-                )
-            },
-        );
-    }
-
-    finalize_grouped_page_rows_with_shaper(
-        selected_candidates,
-        limit,
-        initial_offset_for_page,
-        filter_candidate,
-        GroupedPageCandidate::into_row,
-    )
 }
 
 // Accumulate one grouped page directly from one ordered candidate stream using
@@ -457,7 +437,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{GroupedPageCandidate, finalize_grouped_page_rows_from_candidates};
+    use super::{GroupedPageCandidate, finalize_grouped_page_rows_with_shaper};
     use crate::{
         db::{
             GroupedRow,
@@ -531,12 +511,18 @@ mod tests {
             direction: crate::db::direction::Direction::Asc,
         }];
 
-        let (rows, next_cursor_boundary) = finalize_grouped_page_rows_from_candidates(
+        let (rows, next_cursor_boundary) = finalize_grouped_page_rows_with_shaper(
             candidates.into_iter(),
             None,
             0,
             |_| Ok(true),
-            Some(grouped_projection),
+            |candidate| {
+                crate::db::executor::aggregate::runtime::grouped_output::project_grouped_values_from_compiled_projection(
+                    &grouped_projection,
+                    candidate.group_key_values()?,
+                    candidate.aggregate_values.as_slice(),
+                )
+            },
         )
         .expect("candidate projection should succeed");
 

@@ -13,8 +13,8 @@ use crate::{
         query::{
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
-                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupedPlanFallbackReason, LogicalPlan,
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingExpr,
+                GroupHavingSpec, GroupHavingValueExpr, GroupedPlanFallbackReason, LogicalPlan,
                 OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy,
             },
         },
@@ -178,6 +178,7 @@ impl ExplainPlan {
 /// Grouped-shape annotation for deterministic explain/fingerprint surfaces.
 ///
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainGrouping {
     None,
@@ -259,60 +260,60 @@ impl ExplainGroupAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHaving {
-    pub(crate) clauses: Vec<ExplainGroupHavingClause>,
+    pub(crate) expr: ExplainGroupHavingExpr,
 }
 
 impl ExplainGroupHaving {
-    /// Borrow grouped HAVING clauses.
+    /// Borrow widened grouped HAVING expression.
     #[must_use]
-    pub const fn clauses(&self) -> &[ExplainGroupHavingClause] {
-        self.clauses.as_slice()
+    pub const fn expr(&self) -> &ExplainGroupHavingExpr {
+        &self.expr
     }
 }
 
 ///
-/// ExplainGroupHavingClause
+/// ExplainGroupHavingExpr
 ///
-/// Stable explain-surface projection for one grouped HAVING clause.
+/// Stable explain-surface projection for widened grouped HAVING boolean
+/// expressions.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainGroupHavingClause {
-    pub(crate) symbol: ExplainGroupHavingSymbol,
-    pub(crate) op: CompareOp,
-    pub(crate) value: Value,
-}
-
-impl ExplainGroupHavingClause {
-    /// Borrow grouped HAVING symbol.
-    #[must_use]
-    pub const fn symbol(&self) -> &ExplainGroupHavingSymbol {
-        &self.symbol
-    }
-
-    /// Return grouped HAVING comparison operator.
-    #[must_use]
-    pub const fn op(&self) -> CompareOp {
-        self.op
-    }
-
-    /// Borrow grouped HAVING literal value.
-    #[must_use]
-    pub const fn value(&self) -> &Value {
-        &self.value
-    }
+pub enum ExplainGroupHavingExpr {
+    Compare {
+        left: ExplainGroupHavingValueExpr,
+        op: CompareOp,
+        right: ExplainGroupHavingValueExpr,
+    },
+    And(Vec<Self>),
 }
 
 ///
-/// ExplainGroupHavingSymbol
+/// ExplainGroupHavingValueExpr
 ///
-/// Stable explain-surface identity for grouped HAVING symbols.
+/// Stable explain-surface projection for grouped HAVING value expressions.
+/// Leaves remain restricted to grouped keys, aggregate outputs, and literals.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplainGroupHavingSymbol {
-    GroupField { slot_index: usize, field: String },
-    AggregateIndex { index: usize },
+pub enum ExplainGroupHavingValueExpr {
+    GroupField {
+        slot_index: usize,
+        field: String,
+    },
+    AggregateIndex {
+        index: usize,
+    },
+    Literal(Value),
+    FunctionCall {
+        function: String,
+        args: Vec<Self>,
+    },
+    Binary {
+        op: String,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
 }
 
 ///
@@ -545,7 +546,10 @@ impl AccessPlannedQuery {
                                 distinct: aggregate.distinct,
                             })
                             .collect(),
-                        having: explain_group_having(logical.having.as_ref()),
+                        having: explain_group_having(
+                            logical.having.as_ref(),
+                            logical.having_expr.as_ref(),
+                        ),
                         max_groups: logical.group.execution.max_groups(),
                         max_group_bytes: logical.group.execution.max_group_bytes(),
                     },
@@ -558,35 +562,67 @@ impl AccessPlannedQuery {
     }
 }
 
-fn explain_group_having(having: Option<&GroupHavingSpec>) -> Option<ExplainGroupHaving> {
-    let having = having?;
+fn explain_group_having(
+    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
+) -> Option<ExplainGroupHaving> {
+    let expr = match having_expr {
+        Some(expr) => explain_group_having_expr(expr),
+        None => explain_group_having_expr(&GroupHavingExpr::from_legacy_spec(having?)),
+    };
 
-    Some(ExplainGroupHaving {
-        clauses: having
-            .clauses()
-            .iter()
-            .map(explain_group_having_clause)
-            .collect(),
-    })
+    Some(ExplainGroupHaving { expr })
 }
 
-fn explain_group_having_clause(clause: &GroupHavingClause) -> ExplainGroupHavingClause {
-    ExplainGroupHavingClause {
-        symbol: explain_group_having_symbol(clause.symbol()),
-        op: clause.op(),
-        value: clause.value().clone(),
+fn explain_group_having_expr(expr: &GroupHavingExpr) -> ExplainGroupHavingExpr {
+    match expr {
+        GroupHavingExpr::Compare { left, op, right } => ExplainGroupHavingExpr::Compare {
+            left: explain_group_having_value_expr(left),
+            op: *op,
+            right: explain_group_having_value_expr(right),
+        },
+        GroupHavingExpr::And(children) => {
+            ExplainGroupHavingExpr::And(children.iter().map(explain_group_having_expr).collect())
+        }
     }
 }
 
-fn explain_group_having_symbol(symbol: &GroupHavingSymbol) -> ExplainGroupHavingSymbol {
-    match symbol {
-        GroupHavingSymbol::GroupField(field_slot) => ExplainGroupHavingSymbol::GroupField {
+fn explain_group_having_value_expr(expr: &GroupHavingValueExpr) -> ExplainGroupHavingValueExpr {
+    match expr {
+        GroupHavingValueExpr::GroupField(field_slot) => ExplainGroupHavingValueExpr::GroupField {
             slot_index: field_slot.index(),
             field: field_slot.field().to_string(),
         },
-        GroupHavingSymbol::AggregateIndex(index) => {
-            ExplainGroupHavingSymbol::AggregateIndex { index: *index }
+        GroupHavingValueExpr::AggregateIndex(index) => {
+            ExplainGroupHavingValueExpr::AggregateIndex { index: *index }
         }
+        GroupHavingValueExpr::Literal(value) => ExplainGroupHavingValueExpr::Literal(value.clone()),
+        GroupHavingValueExpr::FunctionCall { function, args } => {
+            ExplainGroupHavingValueExpr::FunctionCall {
+                function: function.sql_label().to_string(),
+                args: args.iter().map(explain_group_having_value_expr).collect(),
+            }
+        }
+        GroupHavingValueExpr::Binary { op, left, right } => ExplainGroupHavingValueExpr::Binary {
+            op: explain_group_having_binary_op_label(*op).to_string(),
+            left: Box::new(explain_group_having_value_expr(left)),
+            right: Box::new(explain_group_having_value_expr(right)),
+        },
+    }
+}
+
+const fn explain_group_having_binary_op_label(
+    op: crate::db::query::plan::expr::BinaryOp,
+) -> &'static str {
+    match op {
+        crate::db::query::plan::expr::BinaryOp::Add => "+",
+        crate::db::query::plan::expr::BinaryOp::Sub => "-",
+        crate::db::query::plan::expr::BinaryOp::Mul => "*",
+        crate::db::query::plan::expr::BinaryOp::Div => "/",
+        #[cfg(test)]
+        crate::db::query::plan::expr::BinaryOp::And => "AND",
+        #[cfg(test)]
+        crate::db::query::plan::expr::BinaryOp::Eq => "=",
     }
 }
 

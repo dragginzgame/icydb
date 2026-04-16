@@ -66,40 +66,77 @@ impl GroupedOutputRuntimeObserverBindings {
     }
 }
 
+///
+/// FinalizedGroupedOutput
+///
+/// FinalizedGroupedOutput keeps the grouped output page plus optional trace
+/// together after grouped observability finalization runs.
+/// It lets grouped output finalization compute one owner-local result bundle
+/// instead of mixing observability mutation with the final return surface.
+///
+
+struct FinalizedGroupedOutput {
+    page: GroupedCursorPage,
+    trace: Option<ExecutionTrace>,
+}
+
+impl FinalizedGroupedOutput {
+    // Finalize one grouped fold output into the grouped page + trace surface
+    // after grouped observability has already updated counters and trace state.
+    fn from_folded(
+        observer: &GroupedOutputRuntimeObserverBindings,
+        mut route: GroupedRouteStage,
+        folded: GroupedFoldStage,
+        execution_time_micros: u64,
+    ) -> Self {
+        let rows_returned = folded.rows_returned();
+        let rows_aggregated = folded.filtered_rows();
+        let metrics = ExecutionOutcomeMetrics {
+            optimization: folded.optimization(),
+            rows_scanned: folded.rows_scanned(),
+            post_access_rows: rows_returned,
+            index_predicate_applied: folded.index_predicate_applied(),
+            index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
+            distinct_keys_deduped: folded.distinct_keys_deduped(),
+        };
+        observer.finalize_grouped_observability(
+            route.execution_trace_mut(),
+            metrics,
+            rows_aggregated,
+            rows_returned,
+            execution_time_micros,
+        );
+
+        if folded.should_check_filtered_rows_upper_bound() {
+            debug_assert!(
+                folded.filtered_rows() >= rows_returned,
+                "grouped pagination must return at most filtered row cardinality",
+            );
+        }
+
+        Self {
+            page: folded.into_page(),
+            trace: route.into_execution_trace(),
+        }
+    }
+
+    // Consume this finalized grouped output into the public grouped page plus
+    // optional execution-trace tuple.
+    fn into_surface(self) -> (GroupedCursorPage, Option<ExecutionTrace>) {
+        (self.page, self.trace)
+    }
+}
+
 // Finalize grouped output payloads and observability after grouped fold
 // execution using a non-generic grouped page/fold contract.
 pub(in crate::db::executor) fn finalize_grouped_output_with_observer(
     observer: &GroupedOutputRuntimeObserverBindings,
-    mut route: GroupedRouteStage,
+    route: GroupedRouteStage,
     folded: GroupedFoldStage,
     execution_time_micros: u64,
 ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-    let rows_returned = folded.rows_returned();
-    let rows_aggregated = folded.filtered_rows();
-    let metrics = ExecutionOutcomeMetrics {
-        optimization: folded.optimization(),
-        rows_scanned: folded.rows_scanned(),
-        post_access_rows: rows_returned,
-        index_predicate_applied: folded.index_predicate_applied(),
-        index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
-        distinct_keys_deduped: folded.distinct_keys_deduped(),
-    };
-    observer.finalize_grouped_observability(
-        route.execution_trace_mut(),
-        metrics,
-        rows_aggregated,
-        rows_returned,
-        execution_time_micros,
-    );
-
-    if folded.should_check_filtered_rows_upper_bound() {
-        debug_assert!(
-            folded.filtered_rows() >= rows_returned,
-            "grouped pagination must return at most filtered row cardinality",
-        );
-    }
-
-    (folded.into_page(), route.into_execution_trace())
+    FinalizedGroupedOutput::from_folded(observer, route, folded, execution_time_micros)
+        .into_surface()
 }
 
 // Record shared observability outcome for scalar/grouped execution paths.

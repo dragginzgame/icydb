@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::query::explain::{ExplainGroupHavingExpr, ExplainGroupHavingValueExpr};
 
 #[test]
 fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
@@ -459,16 +460,83 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                clauses: vec![ExplainGroupHavingClause {
-                    symbol: ExplainGroupHavingSymbol::AggregateIndex { index: 0 },
+                expr: ExplainGroupHavingExpr::Compare {
+                    left: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
                     op: CompareOp::Gt,
-                    value: Value::Uint(1),
-                }],
+                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(1)),
+                },
             }),
             max_groups: 12,
             max_group_bytes: 4096,
         },
         "ordered grouped HAVING explain projection must remain stable",
+    );
+}
+
+#[test]
+fn explain_grouped_having_expression_projection_is_reported() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having_expr(
+        GroupSpec {
+            group_fields: vec![group_field.clone()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+        },
+        None,
+        Some(crate::db::query::plan::GroupHavingExpr::Compare {
+            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
+                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                    Value::Uint(1),
+                )),
+            },
+            op: CompareOp::Gt,
+            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+        }),
+    );
+
+    assert_eq!(
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
+            strategy: "ordered_group",
+            fallback_reason: None,
+            group_fields: vec![ExplainGroupField {
+                slot_index: group_field.index(),
+                field: group_field.field().to_string(),
+            }],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            having: Some(ExplainGroupHaving {
+                expr: ExplainGroupHavingExpr::Compare {
+                    left: ExplainGroupHavingValueExpr::Binary {
+                        op: "+".to_string(),
+                        left: Box::new(ExplainGroupHavingValueExpr::AggregateIndex { index: 0 }),
+                        right: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Uint(1))),
+                    },
+                    op: CompareOp::Gt,
+                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(5)),
+                },
+            }),
+            max_groups: 12,
+            max_group_bytes: 4096,
+        },
+        "widened grouped HAVING explain projection must preserve the post-aggregate expression tree",
     );
 }
 
@@ -553,7 +621,7 @@ access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
+grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { expr: Compare { left: AggregateIndex { index: 0 }, op: Gt, right: Literal(Uint(1)) } }), max_groups: 12, max_group_bytes: 4096 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None

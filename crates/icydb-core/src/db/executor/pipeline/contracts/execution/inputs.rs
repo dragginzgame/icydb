@@ -365,19 +365,14 @@ impl<'a> ExecutionMaterializationContract<'a> {
         direction: Direction,
         key_stream: &'a mut dyn OrderedKeyStream,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
-        if let Some(materialized) = runtime.try_materialize_load_via_row_collector(
-            self.row_collector_request(continuation, key_stream),
-        )? {
-            return Ok(materialized);
-        }
-
-        runtime.materialize_key_stream_into_structural_page(self.runtime_page_request(
+        runtime.materialize_resolved_execution_stream(
+            self,
             emit_cursor,
             consistency,
             continuation,
             direction,
             key_stream,
-        ))
+        )
     }
 
     // Build the cursorless row-collector materialization request from one
@@ -516,6 +511,33 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
         run(&mut row_runtime)
     }
 
+    // Materialize one resolved scalar key stream through the aligned
+    // row-collector or canonical page runtime lane owned by this runtime
+    // adapter.
+    fn materialize_resolved_execution_stream(
+        &'a self,
+        contract: &ExecutionMaterializationContract<'a>,
+        emit_cursor: bool,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut dyn OrderedKeyStream,
+    ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
+        if let Some(materialized) = self.try_materialize_load_via_row_collector(
+            contract.row_collector_request(continuation, key_stream),
+        )? {
+            return Ok(materialized);
+        }
+
+        self.materialize_key_stream_into_structural_page(contract.runtime_page_request(
+            emit_cursor,
+            consistency,
+            continuation,
+            direction,
+            key_stream,
+        ))
+    }
+
     /// Resolve one primary-key fast path when the route is already verified.
     pub(in crate::db::executor) fn try_execute_pk_order_stream(
         &self,
@@ -606,7 +628,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     }
 
     /// Attempt the cursorless row-collector short path and erase the typed page result.
-    pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'req>(
+    fn try_materialize_load_via_row_collector<'req>(
         &'req self,
         request: RowCollectorMaterializationRequest<'req>,
     ) -> Result<Option<MaterializedExecutionPayloadResult>, InternalError> {
@@ -616,7 +638,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     }
 
     /// Materialize one ordered key stream into one structural scalar page payload.
-    pub(in crate::db::executor) fn materialize_key_stream_into_structural_page(
+    fn materialize_key_stream_into_structural_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {

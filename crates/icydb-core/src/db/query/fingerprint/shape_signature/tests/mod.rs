@@ -887,7 +887,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                 }),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
-    let expected = "a5e069a168698bd8e37ce3060c348256cd2ca70a86f60fc2970c721d65041ff2".to_string();
+    let expected = "2c6c8ee4abfc7651a78e700e2839a7b8c37677445274f54480ecf28635483d23".to_string();
 
     assert_eq!(
         signature, expected,

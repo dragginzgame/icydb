@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.86.x] 🧪 - 2026-04-16 - Grouped HAVING Expression Widening
 
+- `0.86.2` closes the main `0.86` fallout pass by updating the new grouped `HAVING` continuation-signature snapshot, cleaning the small clippy follow-through exposed by the explain/fingerprint widening, and proving the grouped-focused `icydb-core` sweep is green again.
+- `0.86.1` follows the grouped `HAVING` widening through the remaining observability seams, so `EXPLAIN` now shows grouped `HAVING` as the real expression tree instead of the old clause-only shape, and grouped continuation signatures now distinguish widened `HAVING` expression structure correctly.
 - `0.86.0` widens grouped SQL `HAVING` from simple symbol-to-literal checks to bounded post-aggregate expressions like `ROUND(AVG(strength), 2) >= 10` and `COUNT(*) + 1 > 5`, and it also fixes grouped query cache identity so those widened `HAVING` shapes do not collide in the shared query cache.
 
 See detailed breakdown:

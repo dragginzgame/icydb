@@ -823,11 +823,11 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                clauses: vec![ExplainGroupHavingClause {
-                    symbol: ExplainGroupHavingSymbol::AggregateIndex { index: 0 },
+                expr: ExplainGroupHavingExpr::Compare {
+                    left: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
                     op: CompareOp::Gt,
-                    value: Value::Uint(1),
-                }],
+                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(1)),
+                },
             }),
             max_groups: 17,
             max_group_bytes: 8192,

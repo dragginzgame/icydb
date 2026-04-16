@@ -40,3 +40,66 @@ fn grouped_fingerprint_identity_projection_remains_stable() {
         "grouped fingerprint identity must stay stable across plan-owned and explain-owned grouped projection seams",
     );
 }
+
+#[test]
+fn grouped_continuation_signature_distinguishes_widened_having_expression_shape() {
+    let left = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having_expr(
+            GroupSpec {
+                group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            },
+            None,
+            Some(crate::db::query::plan::GroupHavingExpr::Compare {
+                left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
+                    right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                        Value::Uint(1),
+                    )),
+                },
+                op: CompareOp::Gt,
+                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+            }),
+        );
+    let right = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having_expr(
+            GroupSpec {
+                group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            },
+            None,
+            Some(crate::db::query::plan::GroupHavingExpr::Compare {
+                left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
+                    right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                        Value::Uint(2),
+                    )),
+                },
+                op: CompareOp::Gt,
+                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+            }),
+        );
+
+    assert_eq!(
+        left.fingerprint(),
+        right.fingerprint(),
+        "semantic fingerprint should remain blind to grouped continuation-shape-only HAVING changes",
+    );
+    assert_ne!(
+        left.continuation_signature("tests::Entity"),
+        right.continuation_signature("tests::Entity"),
+        "grouped continuation signature must distinguish widened HAVING expression trees with different arithmetic leaves",
+    );
+}

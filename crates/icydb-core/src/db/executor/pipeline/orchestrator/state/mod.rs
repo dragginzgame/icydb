@@ -7,8 +7,8 @@
 use crate::db::executor::{
     ExecutionTrace,
     pipeline::contracts::{GroupedCursorPage, StructuralCursorPage},
-    pipeline::orchestrator::LoadSurfaceMode,
     pipeline::orchestrator::strategy::ExecutionSpec,
+    pipeline::orchestrator::{LoadExecutionSurface, LoadSurfaceMode},
 };
 use crate::error::InternalError;
 
@@ -62,6 +62,51 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState {
     pub(in crate::db::executor::pipeline::orchestrator) context: LoadExecutionContext,
     pub(in crate::db::executor::pipeline::orchestrator) payload: LoadExecutionPayload,
     pub(in crate::db::executor::pipeline::orchestrator) trace: Option<ExecutionTrace>,
+}
+
+impl LoadPayloadState {
+    // Validate that one staged payload shape matches the selected load-surface
+    // mode before later paging, tracing, and surface-materialization phases
+    // consume it.
+    pub(in crate::db::executor::pipeline::orchestrator) fn apply_paging(
+        self,
+    ) -> Result<Self, InternalError> {
+        self.payload.validate_for_mode(self.context.mode)?;
+
+        Ok(self)
+    }
+
+    // Apply tracing contracts over generic-free runtime payload artifacts.
+    pub(in crate::db::executor::pipeline::orchestrator) const fn apply_tracing(mut self) -> Self {
+        if !self.context.mode.tracing_enabled() {
+            self.trace = None;
+        }
+
+        self
+    }
+
+    // Materialize one finalized generic-free load surface from runtime payload
+    // artifacts after paging and tracing have already run.
+    pub(in crate::db::executor::pipeline::orchestrator) fn into_surface(
+        self,
+    ) -> Result<LoadExecutionSurface, InternalError> {
+        let execution_mode = self.context.mode;
+        self.payload.validate_for_mode(execution_mode)?;
+
+        if execution_mode.is_scalar_page() {
+            let page = self.payload.into_scalar_page()?;
+
+            return Ok(LoadExecutionSurface::ScalarPageWithTrace(page, self.trace));
+        }
+
+        debug_assert!(
+            execution_mode.is_grouped_page(),
+            "runtime surface materialization expects grouped mode for non-scalar load surfaces",
+        );
+        let page = self.payload.into_grouped_page()?;
+
+        Ok(LoadExecutionSurface::GroupedPageWithTrace(page, self.trace))
+    }
 }
 
 ///

@@ -44,8 +44,8 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::builder::aggregate as aggregate_builder,
         query::explain::{
-            ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
-            ExplainGroupHavingSymbol, ExplainGrouping,
+            ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingExpr,
+            ExplainGroupHavingValueExpr, ExplainGrouping,
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
