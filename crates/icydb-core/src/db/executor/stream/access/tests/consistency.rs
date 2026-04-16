@@ -107,7 +107,7 @@ fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
 #[test]
 fn load_page_materialization_uses_execution_input_consistency_projection() {
     let source_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/terminal/page.rs");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/terminal/page/mod.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
