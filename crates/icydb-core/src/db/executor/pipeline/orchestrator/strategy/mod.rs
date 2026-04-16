@@ -52,31 +52,29 @@ impl ExecutionSpec {
     const fn grouped(prepared: PreparedGroupedRouteRuntime) -> Self {
         Self::Grouped(prepared)
     }
-}
 
-// Execute one canonical kernel dispatch over one runtime execution descriptor.
-fn execute_kernel(
-    context: LoadExecutionContext,
-    spec: ExecutionSpec,
-) -> Result<LoadPayloadState, InternalError> {
-    let (payload, trace) = match spec {
-        ExecutionSpec::Scalar(prepared) => {
-            let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
+    // Execute one canonical kernel dispatch over one pre-bound scalar or
+    // grouped runtime descriptor.
+    fn execute(self, context: LoadExecutionContext) -> Result<LoadPayloadState, InternalError> {
+        let (payload, trace) = match self {
+            Self::Scalar(prepared) => {
+                let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
 
-            (LoadExecutionPayload::Scalar(page), trace)
-        }
-        ExecutionSpec::Grouped(prepared) => {
-            let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+                (LoadExecutionPayload::Scalar(page), trace)
+            }
+            Self::Grouped(prepared) => {
+                let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
 
-            (LoadExecutionPayload::Grouped(page), trace)
-        }
-    };
+                (LoadExecutionPayload::Grouped(page), trace)
+            }
+        };
 
-    Ok(LoadPayloadState {
-        context,
-        payload,
-        trace,
-    })
+        Ok(LoadPayloadState {
+            context,
+            payload,
+            trace,
+        })
+    }
 }
 
 impl<E> LoadExecutor<E>
@@ -114,7 +112,7 @@ where
         } = state;
         let LoadAccessInputs { execution_spec } = access_inputs;
 
-        execute_kernel(context, execution_spec)
+        execution_spec.execute(context)
     }
 
     // Build one non-generic kernel descriptor from one typed execution context.
@@ -134,18 +132,26 @@ where
 
                 Ok(ExecutionSpec::scalar(prepared))
             }
-            PreparedLoadCursor::Grouped(cursor) => {
-                let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-                let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
-                let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
-                let prepared = self.prepare_grouped_route_runtime(
-                    route,
-                    prepared_execution_preparation,
-                    prepared_grouped_slot_layout,
-                )?;
-
-                Ok(ExecutionSpec::grouped(prepared))
-            }
+            PreparedLoadCursor::Grouped(cursor) => self.build_grouped_execution_spec(plan, cursor),
         }
+    }
+
+    // Build one grouped execution descriptor from one prepared grouped cursor
+    // while keeping grouped route/runtime assembly under one local owner.
+    fn build_grouped_execution_spec(
+        &self,
+        plan: PreparedLoadPlan,
+        cursor: crate::db::cursor::GroupedPlannedCursor,
+    ) -> Result<ExecutionSpec, InternalError> {
+        let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
+        let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
+        let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
+        let prepared = self.prepare_grouped_route_runtime(
+            route,
+            prepared_execution_preparation,
+            prepared_grouped_slot_layout,
+        )?;
+
+        Ok(ExecutionSpec::grouped(prepared))
     }
 }
