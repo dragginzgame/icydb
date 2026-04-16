@@ -11,7 +11,7 @@ use crate::db::query::{
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
     plan::{
         AggregateKind,
-        expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+        expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr},
     },
 };
 #[cfg(test)]
@@ -109,14 +109,10 @@ pub(in crate::db) fn hash_projection_structural_fingerprint(
 }
 
 fn hash_projection_field(hasher: &mut Sha256, field: &ProjectionField) {
-    match field {
-        ProjectionField::Scalar { expr, alias: _ } => {
-            // Field aliases are explain/display metadata and must not affect
-            // projection semantic identity.
-            write_tag(hasher, PROJECTION_FIELD_SCALAR_TAG);
-            hash_expr(hasher, expr, false);
-        }
-    }
+    // Field aliases are explain/display metadata and must not affect
+    // projection semantic identity.
+    write_tag(hasher, PROJECTION_FIELD_SCALAR_TAG);
+    hash_expr(hasher, projection_field_expr(field), false);
 }
 
 fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {

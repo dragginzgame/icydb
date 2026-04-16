@@ -11,7 +11,9 @@ use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::query::plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+    db::query::plan::expr::{
+        BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr,
+    },
     model::entity::{EntityModel, resolve_field_slot},
 };
 
@@ -120,31 +122,8 @@ pub(in crate::db) fn compile_scalar_projection_expr(
     expr: &Expr,
 ) -> Option<ScalarProjectionExpr> {
     match expr {
-        Expr::Field(field_id) => {
-            let slot = resolve_field_slot(model, field_id.as_str())?;
-            #[cfg(test)]
-            let program = compile_scalar_field_program(model, field_id.as_str());
-
-            Some(ScalarProjectionExpr::Field(ScalarProjectionField {
-                field: field_id.as_str().to_string(),
-                slot,
-                #[cfg(test)]
-                program,
-            }))
-        }
-        Expr::Literal(value) => {
-            #[cfg(test)]
-            {
-                compile_scalar_literal_expr_value(value)
-                    .map(scalar_expr_value_into_value)
-                    .map(ScalarProjectionExpr::Literal)
-            }
-
-            #[cfg(not(test))]
-            {
-                Some(ScalarProjectionExpr::Literal(value.clone()))
-            }
-        }
+        Expr::Field(field_id) => compile_scalar_field_reference(model, field_id.as_str()),
+        Expr::Literal(value) => compile_scalar_literal(value),
         Expr::FunctionCall { function, args } => {
             let args = args
                 .iter()
@@ -191,12 +170,51 @@ pub(in crate::db) fn compile_scalar_projection_plan(
     let mut compiled_fields = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                compiled_fields.push(compile_scalar_projection_expr(model, expr)?);
-            }
-        }
+        compiled_fields.push(compile_scalar_projection_field(model, field)?);
     }
 
     Some(compiled_fields)
+}
+
+// Field references are the only scalar projection leaves that need schema slot
+// resolution and test-only field-program derivation before recursion continues.
+fn compile_scalar_field_reference(
+    model: &EntityModel,
+    field_name: &str,
+) -> Option<ScalarProjectionExpr> {
+    let slot = resolve_field_slot(model, field_name)?;
+    #[cfg(test)]
+    let program = compile_scalar_field_program(model, field_name);
+
+    Some(ScalarProjectionExpr::Field(ScalarProjectionField {
+        field: field_name.to_string(),
+        slot,
+        #[cfg(test)]
+        program,
+    }))
+}
+
+// Literal lowering stays owner-local here so the expression compiler can keep
+// the recursive shape match focused on planner expression structure.
+fn compile_scalar_literal(value: &Value) -> Option<ScalarProjectionExpr> {
+    #[cfg(test)]
+    {
+        compile_scalar_literal_expr_value(value)
+            .map(scalar_expr_value_into_value)
+            .map(ScalarProjectionExpr::Literal)
+    }
+
+    #[cfg(not(test))]
+    {
+        Some(ScalarProjectionExpr::Literal(value.clone()))
+    }
+}
+
+// Projection-plan compilation only admits scalar projection fields at this
+// boundary, so the field wrapper is lowered through one shared helper.
+fn compile_scalar_projection_field(
+    model: &EntityModel,
+    field: &ProjectionField,
+) -> Option<ScalarProjectionExpr> {
+    compile_scalar_projection_expr(model, projection_field_expr(field))
 }

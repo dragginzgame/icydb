@@ -37,6 +37,10 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db::executor) use aggregate::runtime::{
+    GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
+};
 #[cfg(feature = "structural-read-metrics")]
 pub use aggregate::runtime::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 pub(in crate::db) use aggregate::{
@@ -66,11 +70,11 @@ pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
     compare_orderable_row_with_boundary,
 };
-#[cfg(feature = "perf-attribution")]
-pub(in crate::db) use pipeline::ScalarExecutePhaseAttribution;
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db) use pipeline::{GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution};
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
     LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, RouteContinuationPlan,

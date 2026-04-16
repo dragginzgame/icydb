@@ -10,10 +10,22 @@ use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
 pub(in crate::db) fn index_order_terms(index: &IndexModel) -> Vec<String> {
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => {
-            fields.iter().map(|field| (*field).to_string()).collect()
+            canonical_index_order_terms(fields.iter().copied().map(IndexKeyItem::Field))
         }
-        IndexKeyItemsRef::Items(items) => items.iter().map(IndexKeyItem::canonical_text).collect(),
+        IndexKeyItemsRef::Items(items) => canonical_index_order_terms(items.iter().copied()),
     }
+}
+
+// Field-only indexes and mixed key-item indexes share the same canonical
+// ORDER BY rendering contract; only the source iterator for key items differs.
+fn canonical_index_order_terms<I>(key_items: I) -> Vec<String>
+where
+    I: IntoIterator<Item = IndexKeyItem>,
+{
+    key_items
+        .into_iter()
+        .map(|key_item| key_item.canonical_text())
+        .collect()
 }
 
 ///

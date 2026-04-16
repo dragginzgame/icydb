@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.84.x] 🧊 - 2026-04-16 - Prepared Execution Residents
+
+- `0.84.2` follows the resident and grouped-attribution work by trimming a broad slice of duplicate query-planner, validation, expression, and fingerprint scaffolding, so the `db/query` planning boundary is smaller and easier to maintain without changing query behavior.
+- `0.84.1` now exposes grouped stream/fold/finalize counters plus dedicated grouped `COUNT(*)` fold submetrics in the SQL and fluent perf audits, and uses that data to trim one repeated fold-path probe from grouped runtime without changing query behavior.
+- `0.84.0` starts the line by freezing shared prepared SQL projection, scalar retained-slot, and grouped prep/layout residents onto prepared plans, which cuts repeated SQL setup work without widening query behavior.
+
+See detailed breakdown:
+[docs/changelog/0.84.md](docs/changelog/0.84.md)
+
+---
 ## [0.83.x] 🧱 - 2026-04-15 - Serialization Boundary Cleanup
 
 - `0.83.5` finishes the last cold fluent compile cleanup by moving access-choice ranking behind the explain boundary, narrowing scalar load route preparation, and then trimming more executor, query, fluent, and access-choice wrapper duplication so the remaining `0.83` compile-path cleanup leaves less internal indirection behind.

@@ -16,6 +16,10 @@ use crate::{
     value::Value,
 };
 
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db::executor) use grouped_fold::{
+    GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
+};
 #[cfg(feature = "structural-read-metrics")]
 pub use grouped_fold::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 pub(in crate::db::executor) use grouped_fold::{

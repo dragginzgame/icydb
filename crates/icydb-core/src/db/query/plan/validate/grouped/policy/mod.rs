@@ -35,6 +35,12 @@ pub(in crate::db::query::plan::validate) fn validate_group_policy(
     Ok(())
 }
 
+// Lift grouped-policy violation mapping into one helper so the grouped policy
+// shell stays focused on rule ownership rather than `Option` plumbing.
+fn validate_group_policy_violation(reason: Option<GroupPlanError>) -> Result<(), PlanError> {
+    reason.map_or(Ok(()), |reason| Err(PlanError::from(reason)))
+}
+
 // Validate grouped DISTINCT policy gates for grouped v1 hardening.
 fn validate_grouped_distinct_policy(
     logical: &ScalarPlan,
@@ -92,12 +98,13 @@ fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<()
         return Ok(());
     };
 
-    having
-        .clauses()
-        .iter()
-        .enumerate()
-        .find_map(|(index, clause)| first_grouped_having_policy_violation(index, clause))
-        .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
+    validate_group_policy_violation(
+        having
+            .clauses()
+            .iter()
+            .enumerate()
+            .find_map(|(index, clause)| first_grouped_having_policy_violation(index, clause)),
+    )
 }
 
 // Validate grouped execution policy over a structurally valid grouped spec.
@@ -108,14 +115,9 @@ fn validate_group_spec_policy(
 ) -> Result<(), PlanError> {
     group.group_fields.is_empty().then_some(()).map_or_else(
         || {
-            group
-                .aggregates
-                .iter()
-                .enumerate()
-                .find_map(|(index, aggregate)| {
-                    first_grouped_aggregate_policy_violation(index, aggregate)
-                })
-                .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
+            validate_group_policy_violation(group.aggregates.iter().enumerate().find_map(
+                |(index, aggregate)| first_grouped_aggregate_policy_violation(index, aggregate),
+            ))
         },
         |()| validate_global_distinct_aggregate_without_group_keys(schema, group, having),
     )
@@ -146,10 +148,9 @@ fn validate_global_distinct_aggregate_without_group_keys(
         }
     };
 
-    first_global_distinct_aggregate_policy_violation(
+    validate_group_policy_violation(first_global_distinct_aggregate_policy_violation(
         schema,
         aggregate.kind(),
         aggregate.target_field(),
-    )
-    .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
+    ))
 }

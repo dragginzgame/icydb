@@ -29,6 +29,17 @@ use crate::{
     model::entity::EntityModel,
 };
 
+// Lift the shared access-structure validation bridge into one named helper so
+// scalar and grouped semantic entry points do not each restate the same
+// planner-to-access validation mapping closure.
+fn validate_access_structure_for_plan(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Result<(), PlanError> {
+    validate_access_structure_model_shared(schema, model, &plan.access).map_err(PlanError::from)
+}
+
 /// Validate a logical plan with model-level key values.
 ///
 /// Ownership:
@@ -51,10 +62,7 @@ pub(crate) fn validate_query_semantics(
         logical,
         plan,
         validate_order,
-        |schema, model, plan| {
-            validate_access_structure_model_shared(schema, model, &plan.access)
-                .map_err(PlanError::from)
-        },
+        validate_access_structure_for_plan,
     )?;
     validate_projection_expr_types(schema, &projection)?;
 
@@ -87,10 +95,7 @@ pub(crate) fn validate_group_query_semantics(
         logical,
         plan,
         validate_order,
-        |schema, model, plan| {
-            validate_access_structure_model_shared(schema, model, &plan.access)
-                .map_err(PlanError::from)
-        },
+        validate_access_structure_for_plan,
     )?;
     validate_group_structure(schema, model, group, &projection, having)?;
     validate_group_policy(schema, logical, group, having)?;

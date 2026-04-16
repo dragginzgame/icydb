@@ -112,6 +112,13 @@ pub struct SqlQueryExecutionAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub grouped_stream_local_instructions: u64,
+    pub grouped_fold_local_instructions: u64,
+    pub grouped_finalize_local_instructions: u64,
+    pub grouped_count_borrowed_hash_computations: u64,
+    pub grouped_count_bucket_candidate_checks: u64,
+    pub grouped_count_existing_group_hits: u64,
+    pub grouped_count_new_group_inserts: u64,
     pub pure_covering_decode_local_instructions: u64,
     pub pure_covering_row_assembly_local_instructions: u64,
     pub store_get_calls: u64,
@@ -130,12 +137,18 @@ pub struct SqlQueryExecutionAttribution {
 // work, physical store/index access, and narrower runtime execution so shell
 // tooling can show all three.
 #[cfg(feature = "perf-attribution")]
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub grouped_stream_local_instructions: u64,
+    pub grouped_fold_local_instructions: u64,
+    pub grouped_finalize_local_instructions: u64,
+    pub grouped_count_borrowed_hash_computations: u64,
+    pub grouped_count_bucket_candidate_checks: u64,
+    pub grouped_count_existing_group_hits: u64,
+    pub grouped_count_new_group_inserts: u64,
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -150,6 +163,13 @@ impl SqlExecutePhaseAttribution {
             store_local_instructions,
             executor_local_instructions: execute_local_instructions
                 .saturating_sub(store_local_instructions),
+            grouped_stream_local_instructions: 0,
+            grouped_fold_local_instructions: 0,
+            grouped_finalize_local_instructions: 0,
+            grouped_count_borrowed_hash_computations: 0,
+            grouped_count_bucket_candidate_checks: 0,
+            grouped_count_existing_group_hits: 0,
+            grouped_count_new_group_inserts: 0,
         }
     }
 }
@@ -729,6 +749,20 @@ impl<C: CanisterKind> DbSession<C> {
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
+                grouped_stream_local_instructions: execute_phase_attribution
+                    .grouped_stream_local_instructions,
+                grouped_fold_local_instructions: execute_phase_attribution
+                    .grouped_fold_local_instructions,
+                grouped_finalize_local_instructions: execute_phase_attribution
+                    .grouped_finalize_local_instructions,
+                grouped_count_borrowed_hash_computations: execute_phase_attribution
+                    .grouped_count_borrowed_hash_computations,
+                grouped_count_bucket_candidate_checks: execute_phase_attribution
+                    .grouped_count_bucket_candidate_checks,
+                grouped_count_existing_group_hits: execute_phase_attribution
+                    .grouped_count_existing_group_hits,
+                grouped_count_new_group_inserts: execute_phase_attribution
+                    .grouped_count_new_group_inserts,
                 pure_covering_decode_local_instructions,
                 pure_covering_row_assembly_local_instructions,
                 store_get_calls,

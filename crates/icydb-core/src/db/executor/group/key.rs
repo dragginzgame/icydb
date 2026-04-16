@@ -4,10 +4,7 @@
 //! Boundary: canonical equality/hash substrate for grouped execution.
 
 use crate::{
-    db::executor::{
-        aggregate::GroupError,
-        group::{StableHash, stable_hash_value},
-    },
+    db::executor::group::{StableHash, stable_hash_value},
     error::InternalError,
     value::{MapValueError, Value},
 };
@@ -46,12 +43,6 @@ impl KeyCanonicalError {
                 InternalError::executor_internal(format!("group key hashing failed: {reason}"))
             }
         }
-    }
-
-    /// Convert one key-canonicalization failure into the grouped execution
-    /// error surface while preserving grouped runtime ownership.
-    pub(in crate::db::executor) fn into_group_error(self) -> GroupError {
-        GroupError::from(self.into_internal_error())
     }
 }
 
@@ -110,10 +101,17 @@ impl GroupKey {
             reason: err.display_with_class(),
         })?;
 
-        Ok(Self {
+        Ok(Self::from_raw_with_hash(raw, hash))
+    }
+
+    // Materialize one grouped key from an already-canonical value plus one
+    // caller-proven stable hash so borrowed grouped fold paths do not rehash
+    // the same canonical list during owned key admission.
+    const fn from_raw_with_hash(raw: Value, hash: StableHash) -> Self {
+        Self {
             raw: CanonicalValue(raw),
             hash,
-        })
+        }
     }
 
     #[must_use]
@@ -140,6 +138,59 @@ impl GroupKey {
         let canonical = canonicalize_owned_value(Value::List(group_values))?;
 
         Self::from_raw(canonical)
+    }
+
+    // Materialize one grouped key from owned grouped slot values while
+    // reusing one caller-proven canonical stable hash from the borrowed fold
+    // path instead of hashing the same canonical list twice.
+    pub(in crate::db::executor) fn from_group_values_with_hash(
+        group_values: Vec<Value>,
+        hash: StableHash,
+    ) -> Result<Self, KeyCanonicalError> {
+        let canonical = canonicalize_owned_value(Value::List(group_values))?;
+
+        Ok(Self::from_raw_with_hash(canonical, hash))
+    }
+
+    // Materialize one single-field grouped key without first building an
+    // intermediate one-element `Vec<Value>` only to wrap it back into a list.
+    pub(in crate::db::executor) fn from_single_group_value(
+        group_value: Value,
+    ) -> Result<Self, KeyCanonicalError> {
+        let canonical_group_value = canonicalize_owned_value(group_value)?;
+
+        Self::from_raw(Value::List(vec![canonical_group_value]))
+    }
+
+    // Materialize one single-field grouped key while reusing one caller-proven
+    // canonical stable hash from the borrowed grouped fold path.
+    pub(in crate::db::executor) fn from_single_group_value_with_hash(
+        group_value: Value,
+        hash: StableHash,
+    ) -> Result<Self, KeyCanonicalError> {
+        let canonical_group_value = canonicalize_owned_value(group_value)?;
+
+        Ok(Self::from_raw_with_hash(
+            Value::List(vec![canonical_group_value]),
+            hash,
+        ))
+    }
+
+    // Materialize one single-field grouped key when the caller already proved
+    // the grouped value is in canonical grouped-equality form.
+    pub(in crate::db::executor) fn from_single_canonical_group_value(
+        group_value: Value,
+    ) -> Result<Self, KeyCanonicalError> {
+        Self::from_raw(Value::List(vec![group_value]))
+    }
+
+    // Materialize one single-field grouped key when the caller already proved
+    // the grouped value is canonical and already carries the matching stable hash.
+    pub(in crate::db::executor) fn from_single_canonical_group_value_with_hash(
+        group_value: Value,
+        hash: StableHash,
+    ) -> Self {
+        Self::from_raw_with_hash(Value::List(vec![group_value]), hash)
     }
 
     #[cfg(test)]
@@ -455,6 +506,67 @@ mod tests {
                 "re-inserting second key should dedupe by canonical equality",
             );
         });
+    }
+
+    #[test]
+    fn group_key_from_single_group_value_matches_group_values_path() {
+        let single = Value::Decimal(Decimal::new(100, 2));
+        let single_owned =
+            GroupKey::from_single_group_value(single.clone()).expect("single owned canonical key");
+        let list_owned =
+            GroupKey::from_group_values(vec![single]).expect("list owned canonical key");
+
+        assert_eq!(single_owned, list_owned);
+        assert_eq!(single_owned.hash(), list_owned.hash());
+    }
+
+    #[test]
+    fn group_key_from_prehashed_paths_match_unhashed_paths() {
+        let group_values = vec![
+            Value::Decimal(Decimal::new(100, 2)),
+            Value::Text("alpha".to_string()),
+        ];
+        let borrowed_hash = Value::List(group_values.clone())
+            .canonical_key()
+            .expect("borrowed canonical key")
+            .hash();
+        let prehashed_multi =
+            GroupKey::from_group_values_with_hash(group_values.clone(), borrowed_hash)
+                .expect("prehashed multi key");
+        let unhashed_multi = GroupKey::from_group_values(group_values).expect("unhashed multi key");
+
+        assert_eq!(prehashed_multi, unhashed_multi);
+        assert_eq!(prehashed_multi.hash(), unhashed_multi.hash());
+
+        let single = Value::Decimal(Decimal::new(100, 2));
+        let single_hash = Value::List(vec![single.clone()])
+            .canonical_key()
+            .expect("borrowed single canonical key")
+            .hash();
+        let prehashed_single =
+            GroupKey::from_single_group_value_with_hash(single.clone(), single_hash)
+                .expect("prehashed single key");
+        let unhashed_single =
+            GroupKey::from_single_group_value(single).expect("unhashed single key");
+
+        assert_eq!(prehashed_single, unhashed_single);
+        assert_eq!(prehashed_single.hash(), unhashed_single.hash());
+    }
+
+    #[test]
+    fn group_key_from_single_canonical_group_value_matches_hashed_single_path() {
+        let single = Value::Uint(7);
+        let single_hash = Value::List(vec![single.clone()])
+            .canonical_key()
+            .expect("borrowed single canonical key")
+            .hash();
+        let canonical =
+            GroupKey::from_single_canonical_group_value_with_hash(single.clone(), single_hash);
+        let hashed = GroupKey::from_single_group_value_with_hash(single, single_hash)
+            .expect("hashed single canonical key");
+
+        assert_eq!(canonical, hashed);
+        assert_eq!(canonical.hash(), hashed.hash());
     }
 
     #[test]

@@ -72,6 +72,13 @@ fn average_attribution(
     total_executor_local_instructions: u64,
     total_pure_covering_decode_local_instructions: u64,
     total_pure_covering_row_assembly_local_instructions: u64,
+    total_grouped_stream_local_instructions: u64,
+    total_grouped_fold_local_instructions: u64,
+    total_grouped_finalize_local_instructions: u64,
+    total_grouped_count_borrowed_hash_computations: u64,
+    total_grouped_count_bucket_candidate_checks: u64,
+    total_grouped_count_existing_group_hits: u64,
+    total_grouped_count_new_group_inserts: u64,
     total_store_get_calls: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
@@ -95,6 +102,15 @@ fn average_attribution(
             / divisor,
         pure_covering_row_assembly_local_instructions:
             total_pure_covering_row_assembly_local_instructions / divisor,
+        grouped_stream_local_instructions: total_grouped_stream_local_instructions / divisor,
+        grouped_fold_local_instructions: total_grouped_fold_local_instructions / divisor,
+        grouped_finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
+        grouped_count_borrowed_hash_computations: total_grouped_count_borrowed_hash_computations
+            / divisor,
+        grouped_count_bucket_candidate_checks: total_grouped_count_bucket_candidate_checks
+            / divisor,
+        grouped_count_existing_group_hits: total_grouped_count_existing_group_hits / divisor,
+        grouped_count_new_group_inserts: total_grouped_count_new_group_inserts / divisor,
         store_get_calls: total_store_get_calls / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
@@ -121,6 +137,13 @@ fn average_fluent_attribution(
     total_direct_data_row_store_get_local_instructions: u64,
     total_direct_data_row_order_window_local_instructions: u64,
     total_direct_data_row_page_window_local_instructions: u64,
+    total_grouped_stream_local_instructions: u64,
+    total_grouped_fold_local_instructions: u64,
+    total_grouped_finalize_local_instructions: u64,
+    total_grouped_count_borrowed_hash_computations: u64,
+    total_grouped_count_bucket_candidate_checks: u64,
+    total_grouped_count_existing_group_hits: u64,
+    total_grouped_count_new_group_inserts: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
@@ -148,6 +171,15 @@ fn average_fluent_attribution(
             total_direct_data_row_order_window_local_instructions / divisor,
         direct_data_row_page_window_local_instructions:
             total_direct_data_row_page_window_local_instructions / divisor,
+        grouped_stream_local_instructions: total_grouped_stream_local_instructions / divisor,
+        grouped_fold_local_instructions: total_grouped_fold_local_instructions / divisor,
+        grouped_finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
+        grouped_count_borrowed_hash_computations: total_grouped_count_borrowed_hash_computations
+            / divisor,
+        grouped_count_bucket_candidate_checks: total_grouped_count_bucket_candidate_checks
+            / divisor,
+        grouped_count_existing_group_hits: total_grouped_count_existing_group_hits / divisor,
+        grouped_count_new_group_inserts: total_grouped_count_new_group_inserts / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
@@ -173,6 +205,13 @@ where
     let mut total_executor_local_instructions = 0_u64;
     let mut total_pure_covering_decode_local_instructions = 0_u64;
     let mut total_pure_covering_row_assembly_local_instructions = 0_u64;
+    let mut total_grouped_stream_local_instructions = 0_u64;
+    let mut total_grouped_fold_local_instructions = 0_u64;
+    let mut total_grouped_finalize_local_instructions = 0_u64;
+    let mut total_grouped_count_borrowed_hash_computations = 0_u64;
+    let mut total_grouped_count_bucket_candidate_checks = 0_u64;
+    let mut total_grouped_count_existing_group_hits = 0_u64;
+    let mut total_grouped_count_new_group_inserts = 0_u64;
     let mut total_store_get_calls = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
@@ -206,6 +245,21 @@ where
         total_pure_covering_row_assembly_local_instructions =
             total_pure_covering_row_assembly_local_instructions
                 .saturating_add(attribution.pure_covering_row_assembly_local_instructions);
+        total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
+            .saturating_add(attribution.grouped_stream_local_instructions);
+        total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
+            .saturating_add(attribution.grouped_fold_local_instructions);
+        total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
+            .saturating_add(attribution.grouped_finalize_local_instructions);
+        total_grouped_count_borrowed_hash_computations =
+            total_grouped_count_borrowed_hash_computations
+                .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+        total_grouped_count_bucket_candidate_checks = total_grouped_count_bucket_candidate_checks
+            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+        total_grouped_count_existing_group_hits = total_grouped_count_existing_group_hits
+            .saturating_add(attribution.grouped_count_existing_group_hits);
+        total_grouped_count_new_group_inserts = total_grouped_count_new_group_inserts
+            .saturating_add(attribution.grouped_count_new_group_inserts);
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
@@ -236,6 +290,13 @@ where
             total_executor_local_instructions,
             total_pure_covering_decode_local_instructions,
             total_pure_covering_row_assembly_local_instructions,
+            total_grouped_stream_local_instructions,
+            total_grouped_fold_local_instructions,
+            total_grouped_finalize_local_instructions,
+            total_grouped_count_borrowed_hash_computations,
+            total_grouped_count_bucket_candidate_checks,
+            total_grouped_count_existing_group_hits,
+            total_grouped_count_new_group_inserts,
             total_store_get_calls,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
@@ -448,6 +509,13 @@ fn query_fluent_scenario_loop(
     let mut total_direct_data_row_store_get_local_instructions = 0_u64;
     let mut total_direct_data_row_order_window_local_instructions = 0_u64;
     let mut total_direct_data_row_page_window_local_instructions = 0_u64;
+    let mut total_grouped_stream_local_instructions = 0_u64;
+    let mut total_grouped_fold_local_instructions = 0_u64;
+    let mut total_grouped_finalize_local_instructions = 0_u64;
+    let mut total_grouped_count_borrowed_hash_computations = 0_u64;
+    let mut total_grouped_count_bucket_candidate_checks = 0_u64;
+    let mut total_grouped_count_existing_group_hits = 0_u64;
+    let mut total_grouped_count_new_group_inserts = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
@@ -498,6 +566,21 @@ fn query_fluent_scenario_loop(
         total_direct_data_row_page_window_local_instructions =
             total_direct_data_row_page_window_local_instructions
                 .saturating_add(attribution.direct_data_row_page_window_local_instructions);
+        total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
+            .saturating_add(attribution.grouped_stream_local_instructions);
+        total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
+            .saturating_add(attribution.grouped_fold_local_instructions);
+        total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
+            .saturating_add(attribution.grouped_finalize_local_instructions);
+        total_grouped_count_borrowed_hash_computations =
+            total_grouped_count_borrowed_hash_computations
+                .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+        total_grouped_count_bucket_candidate_checks = total_grouped_count_bucket_candidate_checks
+            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+        total_grouped_count_existing_group_hits = total_grouped_count_existing_group_hits
+            .saturating_add(attribution.grouped_count_existing_group_hits);
+        total_grouped_count_new_group_inserts = total_grouped_count_new_group_inserts
+            .saturating_add(attribution.grouped_count_new_group_inserts);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
@@ -523,6 +606,13 @@ fn query_fluent_scenario_loop(
             total_direct_data_row_store_get_local_instructions,
             total_direct_data_row_order_window_local_instructions,
             total_direct_data_row_page_window_local_instructions,
+            total_grouped_stream_local_instructions,
+            total_grouped_fold_local_instructions,
+            total_grouped_finalize_local_instructions,
+            total_grouped_count_borrowed_hash_computations,
+            total_grouped_count_bucket_candidate_checks,
+            total_grouped_count_existing_group_hits,
+            total_grouped_count_new_group_inserts,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,

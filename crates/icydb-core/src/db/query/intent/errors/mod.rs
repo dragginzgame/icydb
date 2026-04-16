@@ -285,6 +285,21 @@ impl IntentError {
         Self::InvalidPagingShape(err)
     }
 
+    /// Construct one cursor-requires-order intent error.
+    pub(crate) const fn cursor_requires_order() -> Self {
+        Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())
+    }
+
+    /// Construct one cursor-requires-limit intent error.
+    pub(crate) const fn cursor_requires_limit() -> Self {
+        Self::invalid_paging_shape(PagingIntentError::cursor_requires_limit())
+    }
+
+    /// Construct one cursor-requires-paged-execution intent error.
+    pub(crate) const fn cursor_requires_paged_execution() -> Self {
+        Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
+    }
+
     /// Construct one grouped-requires-direct-execute intent error.
     pub(crate) const fn grouped_requires_direct_execute() -> Self {
         Self::GroupedRequiresDirectExecute
@@ -350,7 +365,10 @@ impl From<CursorPagingPolicyError> for PagingIntentError {
 
 impl From<CursorPagingPolicyError> for IntentError {
     fn from(err: CursorPagingPolicyError) -> Self {
-        Self::invalid_paging_shape(PagingIntentError::from(err))
+        match err {
+            CursorPagingPolicyError::CursorRequiresOrder => Self::cursor_requires_order(),
+            CursorPagingPolicyError::CursorRequiresLimit => Self::cursor_requires_limit(),
+        }
     }
 }
 
@@ -368,17 +386,13 @@ impl From<FluentLoadPolicyViolation> for IntentError {
     fn from(err: FluentLoadPolicyViolation) -> Self {
         match err {
             FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
-                Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
+                Self::cursor_requires_paged_execution()
             }
             FluentLoadPolicyViolation::GroupedRequiresDirectExecute => {
                 Self::grouped_requires_direct_execute()
             }
-            FluentLoadPolicyViolation::CursorRequiresOrder => {
-                Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())
-            }
-            FluentLoadPolicyViolation::CursorRequiresLimit => {
-                Self::invalid_paging_shape(PagingIntentError::cursor_requires_limit())
-            }
+            FluentLoadPolicyViolation::CursorRequiresOrder => Self::cursor_requires_order(),
+            FluentLoadPolicyViolation::CursorRequiresLimit => Self::cursor_requires_limit(),
         }
     }
 }

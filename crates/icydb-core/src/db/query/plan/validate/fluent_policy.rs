@@ -86,13 +86,25 @@ fn fluent_paged_grouped_violation(
         .then_some(FluentLoadPolicyViolation::grouped_requires_direct_execute())
 }
 
+// Evaluate one ordered fluent policy rule set and lift the first violation
+// into the conventional `Result<(), _>` shell used by planner validation.
+fn validate_fluent_policy_rules<C>(
+    rules: &[fn(C) -> Option<FluentLoadPolicyViolation>],
+    context: C,
+) -> Result<(), FluentLoadPolicyViolation>
+where
+    C: Copy,
+{
+    first_violated_rule(rules, context).map_or(Ok(()), Err)
+}
+
 /// Validate fluent non-paged load entry policy.
 pub(crate) fn validate_fluent_non_paged_mode(
     has_cursor_token: bool,
     has_grouping: bool,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentNonPagedPolicyContext::new(has_cursor_token, has_grouping);
-    first_violated_rule(FLUENT_NON_PAGED_POLICY_RULES, context).map_or(Ok(()), Err)
+    validate_fluent_policy_rules(FLUENT_NON_PAGED_POLICY_RULES, context)
 }
 
 /// Validate fluent paged load entry policy.
@@ -102,11 +114,9 @@ pub(crate) fn validate_fluent_paged_mode(
     spec: Option<LoadSpec>,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentPagedPolicyContext::new(has_grouping);
-    first_violated_rule(FLUENT_PAGED_POLICY_RULES, context)
-        .map_or(Ok(()), Err)
-        .and_then(|()| match spec {
-            Some(spec) => validate_cursor_paging_requirements(has_explicit_order, spec)
-                .map_err(FluentLoadPolicyViolation::from),
-            None => Ok(()),
-        })
+    validate_fluent_policy_rules(FLUENT_PAGED_POLICY_RULES, context).and_then(|()| match spec {
+        Some(spec) => validate_cursor_paging_requirements(has_explicit_order, spec)
+            .map_err(FluentLoadPolicyViolation::from),
+        None => Ok(()),
+    })
 }

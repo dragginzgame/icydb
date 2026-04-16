@@ -177,31 +177,31 @@ pub(in crate::db) struct ExecutionOrderContract {
 }
 
 impl ExecutionOrderContract {
+    /// Construct one immutable planner-projected execution order contract.
+    #[must_use]
+    const fn new(ordering: ExecutionOrdering, direction: Direction, supports_cursor: bool) -> Self {
+        Self {
+            ordering,
+            direction,
+            supports_cursor,
+        }
+    }
+
     /// Build one execution ordering contract from grouped/order plan shape.
     #[must_use]
     pub(in crate::db) fn from_plan(is_grouped: bool, order: Option<&OrderSpec>) -> Self {
         let direction = primary_scan_direction(order);
+        let ordering = if is_grouped {
+            ExecutionOrdering::Grouped(order.cloned())
+        } else {
+            match order.cloned() {
+                Some(order) => ExecutionOrdering::Explicit(order),
+                None => ExecutionOrdering::PrimaryKey,
+            }
+        };
+        let supports_cursor = is_grouped || order.is_some();
 
-        if is_grouped {
-            return Self {
-                ordering: ExecutionOrdering::Grouped(order.cloned()),
-                direction,
-                supports_cursor: true,
-            };
-        }
-
-        match order.cloned() {
-            Some(order) => Self {
-                ordering: ExecutionOrdering::Explicit(order),
-                direction,
-                supports_cursor: true,
-            },
-            None => Self {
-                ordering: ExecutionOrdering::PrimaryKey,
-                direction,
-                supports_cursor: false,
-            },
-        }
+        Self::new(ordering, direction, supports_cursor)
     }
 
     #[must_use]

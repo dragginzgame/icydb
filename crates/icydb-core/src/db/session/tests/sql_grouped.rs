@@ -1660,3 +1660,61 @@ fn explain_sql_grouped_qualified_identifier_matrix_matches_unqualified_output() 
         );
     }
 }
+
+#[cfg(feature = "perf-attribution")]
+#[test]
+fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let (_result, attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age LIMIT 10",
+        )
+        .expect("grouped SQL attribution query should execute");
+
+    assert!(
+        attribution.executor_local_instructions
+            >= attribution
+                .grouped_stream_local_instructions
+                .saturating_add(attribution.grouped_fold_local_instructions)
+                .saturating_add(attribution.grouped_finalize_local_instructions),
+        "grouped SQL executor totals should remain at least as large as the grouped phase split",
+    );
+}
+
+#[cfg(feature = "perf-attribution")]
+#[test]
+fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("carol", 32)]);
+
+    let query = session
+        .load::<SessionSqlEntity>()
+        .group_by("age")
+        .expect("group_by(age) should resolve")
+        .aggregate(crate::db::count())
+        .order_by("age")
+        .limit(10);
+    let (_result, attribution) = session
+        .execute_query_result_with_attribution(query.query())
+        .expect("grouped fluent attribution query should execute");
+
+    assert_eq!(
+        attribution.runtime_local_instructions,
+        attribution
+            .grouped_stream_local_instructions
+            .saturating_add(attribution.grouped_fold_local_instructions),
+        "grouped fluent runtime totals should equal grouped stream plus fold work",
+    );
+    assert_eq!(
+        attribution.finalize_local_instructions, attribution.grouped_finalize_local_instructions,
+        "grouped fluent finalize totals should equal the grouped finalize phase",
+    );
+    assert_eq!(
+        attribution.direct_data_row_scan_local_instructions, 0,
+        "grouped fluent attribution should not populate scalar direct-row counters",
+    );
+}

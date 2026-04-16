@@ -8,7 +8,10 @@ use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
     query::{
-        intent::{IntentError, KeyAccess, KeyAccessKind, KeyAccessState, state::QueryIntent},
+        intent::{
+            IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
+            state::{GroupedIntent, QueryIntent},
+        },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
             GroupedExecutionConfig, OrderDirection, OrderSpec,
@@ -78,12 +81,11 @@ impl<K> QueryIntent<K> {
 
     /// Record one grouped key slot while preserving grouped-delete policy semantics.
     pub(in crate::db::query::intent) fn push_group_field_slot(&mut self, field_slot: FieldSlot) {
-        if matches!(self, Self::Delete(_)) {
-            self.mark_delete_grouping_requested();
+        let Some(grouped) = self.grouped_mutation_target() else {
             return;
-        }
+        };
 
-        let group = &mut self.ensure_grouped_mut().group;
+        let group = &mut grouped.group;
         if !group
             .group_fields
             .iter()
@@ -98,12 +100,11 @@ impl<K> QueryIntent<K> {
         &mut self,
         aggregate: GroupAggregateSpec,
     ) {
-        if matches!(self, Self::Delete(_)) {
-            self.mark_delete_grouping_requested();
+        let Some(grouped) = self.grouped_mutation_target() else {
             return;
-        }
+        };
 
-        self.ensure_grouped_mut().group.aggregates.push(aggregate);
+        grouped.group.aggregates.push(aggregate);
     }
 
     /// Override grouped hard limits while preserving delete-grouping policy flags.
@@ -112,12 +113,11 @@ impl<K> QueryIntent<K> {
         max_groups: u64,
         max_group_bytes: u64,
     ) {
-        if matches!(self, Self::Delete(_)) {
-            self.mark_delete_grouping_requested();
+        let Some(grouped) = self.grouped_mutation_target() else {
             return;
-        }
+        };
 
-        self.ensure_grouped_mut().group.execution =
+        grouped.group.execution =
             GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
     }
 
@@ -174,5 +174,16 @@ impl<K> QueryIntent<K> {
                 fields: vec![(field.to_string(), direction)],
             },
         });
+    }
+
+    // Route grouped declaration mutations onto one materialized grouped shape,
+    // or preserve delete-mode grouping policy when grouped state is forbidden.
+    fn grouped_mutation_target(&mut self) -> Option<&mut GroupedIntent<K>> {
+        if matches!(self, Self::Delete(_)) {
+            self.mark_delete_grouping_requested();
+            return None;
+        }
+
+        Some(self.ensure_grouped_mut())
     }
 }

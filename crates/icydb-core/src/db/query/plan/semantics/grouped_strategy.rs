@@ -190,19 +190,19 @@ pub(in crate::db) fn grouped_plan_strategy(
     let grouped = plan.grouped_plan()?;
     let aggregate_family = grouped_plan_aggregate_family(grouped.group.aggregates.as_slice());
     if grouped.scalar.distinct {
-        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+        return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::DistinctGroupingNotAdmitted,
             aggregate_family,
         ));
     }
     if plan.has_residual_predicate() {
-        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+        return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder,
             aggregate_family,
         ));
     }
     if !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice()) {
-        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+        return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::AggregateStreamingNotSupported,
             aggregate_family,
         ));
@@ -210,7 +210,7 @@ pub(in crate::db) fn grouped_plan_strategy(
     if !crate::db::query::plan::semantics::group_having::grouped_having_streaming_compatible(
         grouped.having.as_ref(),
     ) {
-        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+        return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::HavingBlocksGroupedOrder,
             aggregate_family,
         ));
@@ -221,7 +221,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
     ) {
-        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+        return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
             aggregate_family,
         ));
@@ -232,7 +232,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         ));
     }
 
-    Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
+    Some(hash_group_fallback_strategy(
         GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
         aggregate_family,
     ))
@@ -287,6 +287,15 @@ fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) ->
     aggregates
         .iter()
         .all(GroupAggregateSpec::streaming_compatible_v1)
+}
+
+// Lift the repeated hash-group fallback constructor so grouped strategy
+// selection reads as planner policy gates instead of repeated artifact wiring.
+const fn hash_group_fallback_strategy(
+    reason: GroupedPlanFallbackReason,
+    aggregate_family: GroupedPlanAggregateFamily,
+) -> GroupedPlanStrategy {
+    GroupedPlanStrategy::hash_group_with_aggregate_family(reason, aggregate_family)
 }
 
 fn grouped_order_prefix_matches_group_fields(

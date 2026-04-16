@@ -184,43 +184,61 @@ impl AccessPlannedQuery {
     #[cfg(test)]
     pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
         let access = AccessPlan::path(access);
+        let logical = LogicalPlan::Scalar(ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency,
+        });
+
+        Self::seeded_unfinalized(
+            logical,
+            access.clone(),
+            ProjectionSelection::All,
+            seeded_access_choice_snapshot(&access),
+        )
+    }
+
+    // Construct one seeded, unfinalized access-planned query shell so the
+    // planner-owned access-choice seed and grouped/scalar route-profile seed
+    // are initialized under one local authority.
+    fn seeded_unfinalized(
+        logical: LogicalPlan,
+        access: AccessPlan<Value>,
+        projection_selection: ProjectionSelection,
+        access_choice: AccessChoiceExplainSnapshot,
+    ) -> Self {
+        let planner_route_profile =
+            PlannerRouteProfile::seeded_unfinalized(matches!(logical, LogicalPlan::Grouped(_)));
 
         Self {
-            logical: LogicalPlan::Scalar(ScalarPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
-                predicate: None,
-                order: None,
-                distinct: false,
-                delete_limit: None,
-                page: None,
-                consistency,
-            }),
-            access_choice: seeded_access_choice_snapshot(&access),
-            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(false),
+            logical,
             access,
-            projection_selection: ProjectionSelection::All,
+            projection_selection,
+            access_choice,
+            planner_route_profile,
             static_planning_shape: None,
         }
     }
 
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self
     where
         K: FieldValue,
     {
         let access = access.into_value_plan();
-        let mut plan = Self {
-            logical,
-            access_choice: seeded_access_choice_snapshot(&access),
-            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(false),
-            access,
-            projection_selection: ProjectionSelection::All,
-            static_planning_shape: None,
-        };
-        plan.planner_route_profile = seeded_planner_route_profile(&plan);
 
-        plan
+        Self::seeded_unfinalized(
+            logical,
+            access.clone(),
+            ProjectionSelection::All,
+            seeded_access_choice_snapshot(&access),
+        )
     }
 
     /// Construct an access-planned query from logical + access + projection stages.
@@ -233,10 +251,14 @@ impl AccessPlannedQuery {
     where
         K: FieldValue,
     {
-        let mut plan = Self::from_parts(logical, access);
-        plan.projection_selection = projection_selection;
+        let access = access.into_value_plan();
 
-        plan
+        Self::seeded_unfinalized(
+            logical,
+            access.clone(),
+            projection_selection,
+            seeded_access_choice_snapshot(&access),
+        )
     }
 
     /// Convert this plan into grouped logical form with one explicit group spec.
@@ -264,8 +286,9 @@ impl AccessPlannedQuery {
             LogicalPlan::Scalar(plan) => plan,
             LogicalPlan::Grouped(plan) => plan.scalar,
         };
-        let mut plan = Self {
-            logical: LogicalPlan::Grouped(GroupPlan {
+
+        Self::seeded_unfinalized(
+            LogicalPlan::Grouped(GroupPlan {
                 scalar,
                 group,
                 having,
@@ -273,12 +296,7 @@ impl AccessPlannedQuery {
             access,
             projection_selection,
             access_choice,
-            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(true),
-            static_planning_shape: None,
-        };
-        plan.planner_route_profile = seeded_planner_route_profile(&plan);
-
-        plan
+        )
     }
 
     /// Lower the chosen access plan into an access-owned normalized contract.
@@ -325,8 +343,4 @@ fn seeded_access_choice_snapshot(access: &AccessPlan<Value>) -> AccessChoiceExpl
     } else {
         AccessChoiceExplainSnapshot::non_index_access()
     }
-}
-
-const fn seeded_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
-    PlannerRouteProfile::seeded_unfinalized(plan.grouped_plan().is_some())
 }

@@ -11,7 +11,7 @@ mod route;
 mod write;
 
 #[cfg(feature = "perf-attribution")]
-use crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister;
+use crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister_with_phase_attribution;
 #[cfg(feature = "perf-attribution")]
 use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "perf-attribution")]
@@ -180,6 +180,13 @@ impl<C: CanisterKind> DbSession<C> {
                 store_local_instructions,
                 executor_local_instructions: execute_local_instructions
                     .saturating_sub(store_local_instructions),
+                grouped_stream_local_instructions: 0,
+                grouped_fold_local_instructions: 0,
+                grouped_finalize_local_instructions: 0,
+                grouped_count_borrowed_hash_computations: 0,
+                grouped_count_bucket_candidate_checks: 0,
+                grouped_count_existing_group_hits: 0,
+                grouped_count_new_group_inserts: 0,
             },
         ))
     }
@@ -209,10 +216,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         let ((execute_local_instructions, store_local_instructions), statement_result) =
             measure_execute_phase_with_physical_access(move || {
-                let page = execute_initial_grouped_rows_for_canister(
-                    &self.db, self.debug, authority, plan,
-                )
-                .map_err(QueryError::execute)?;
+                let (page, grouped_phase_attribution) =
+                    execute_initial_grouped_rows_for_canister_with_phase_attribution(
+                        &self.db, self.debug, authority, plan,
+                    )
+                    .map_err(QueryError::execute)?;
                 let next_cursor = page
                     .next_cursor
                     .map(|cursor| {
@@ -228,15 +236,22 @@ impl<C: CanisterKind> DbSession<C> {
                     })
                     .transpose()?;
 
-                Ok::<SqlStatementResult, QueryError>(
+                Ok::<
+                    (
+                        SqlStatementResult,
+                        crate::db::executor::GroupedExecutePhaseAttribution,
+                    ),
+                    QueryError,
+                >((
                     crate::db::session::sql::projection::grouped_sql_statement_result(
                         columns,
                         page.rows,
                         next_cursor,
                     ),
-                )
+                    grouped_phase_attribution,
+                ))
             });
-        let statement_result = statement_result?;
+        let (statement_result, grouped_phase_attribution) = statement_result?;
 
         Ok((
             statement_result,
@@ -246,6 +261,19 @@ impl<C: CanisterKind> DbSession<C> {
                 store_local_instructions,
                 executor_local_instructions: execute_local_instructions
                     .saturating_sub(store_local_instructions),
+                grouped_stream_local_instructions: grouped_phase_attribution
+                    .stream_local_instructions,
+                grouped_fold_local_instructions: grouped_phase_attribution.fold_local_instructions,
+                grouped_finalize_local_instructions: grouped_phase_attribution
+                    .finalize_local_instructions,
+                grouped_count_borrowed_hash_computations: grouped_phase_attribution
+                    .grouped_count_borrowed_hash_computations,
+                grouped_count_bucket_candidate_checks: grouped_phase_attribution
+                    .grouped_count_bucket_candidate_checks,
+                grouped_count_existing_group_hits: grouped_phase_attribution
+                    .grouped_count_existing_group_hits,
+                grouped_count_new_group_inserts: grouped_phase_attribution
+                    .grouped_count_new_group_inserts,
             },
         ))
     }

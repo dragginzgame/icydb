@@ -69,18 +69,16 @@ impl<K> AccessPlan<K> {
         match self {
             Self::Path(path) => path.project(projection),
             Self::Union(children) => {
-                let children = children
-                    .iter()
-                    .map(|child| child.project(projection))
-                    .collect();
-                projection.union(children)
+                let child_projections =
+                    project_projection_children(children.iter(), projection, Self::project);
+
+                projection.union(child_projections)
             }
             Self::Intersection(children) => {
-                let children = children
-                    .iter()
-                    .map(|child| child.project(projection))
-                    .collect();
-                projection.intersection(children)
+                let child_projections =
+                    project_projection_children(children.iter(), projection, Self::project);
+
+                projection.intersection(child_projections)
             }
         }
     }
@@ -147,20 +145,41 @@ where
         } => projection.index_range(name, fields, *prefix_len, prefix, lower, upper),
         ExplainAccessPath::FullScan => projection.full_scan(),
         ExplainAccessPath::Union(children) => {
-            let children = children
-                .iter()
-                .map(|child| project_explain_access_path(child, projection))
-                .collect();
-            projection.union(children)
+            let child_projections = project_projection_children(
+                children.iter(),
+                projection,
+                project_explain_access_path,
+            );
+
+            projection.union(child_projections)
         }
         ExplainAccessPath::Intersection(children) => {
-            let children = children
-                .iter()
-                .map(|child| project_explain_access_path(child, projection))
-                .collect();
-            projection.intersection(children)
+            let child_projections = project_projection_children(
+                children.iter(),
+                projection,
+                project_explain_access_path,
+            );
+
+            projection.intersection(child_projections)
         }
     }
+}
+
+// Recurse over one child collection with the caller-owned projection adapter so
+// access-plan and explain-path walkers share the same union/intersection child
+// traversal contract.
+fn project_projection_children<'a, T: 'a, P, I, F, O>(
+    children: I,
+    projection: &mut P,
+    project_child: F,
+) -> Vec<O>
+where
+    I: Iterator<Item = &'a T>,
+    F: Fn(&'a T, &mut P) -> O,
+{
+    children
+        .map(|child| project_child(child, projection))
+        .collect()
 }
 
 ///

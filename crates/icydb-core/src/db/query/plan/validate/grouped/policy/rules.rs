@@ -185,21 +185,29 @@ pub(super) fn first_global_distinct_aggregate_policy_violation(
     )
 }
 
+// Resolve the grouped global-DISTINCT target field once so the rule family can
+// share the same schema lookup and unknown-field error mapping.
+fn resolve_global_distinct_target_field_type(
+    ctx: GlobalDistinctAggregatePolicyContext<'_>,
+) -> Result<&crate::db::schema::FieldType, GroupPlanError> {
+    resolve_group_aggregate_target_field_type(ctx.schema, ctx.target_field, 0)
+}
+
 fn global_distinct_target_field_known_rule(
     ctx: GlobalDistinctAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    resolve_group_aggregate_target_field_type(ctx.schema, ctx.target_field, 0).err()
+    resolve_global_distinct_target_field_type(ctx).err()
 }
 
 fn global_distinct_numeric_target_rule(
     ctx: GlobalDistinctAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    ctx.aggregate_kind
-        .is_sum()
-        .then(|| resolve_group_aggregate_target_field_type(ctx.schema, ctx.target_field, 0))
-        .transpose()
+    if !ctx.aggregate_kind.is_sum() {
+        return None;
+    }
+
+    resolve_global_distinct_target_field_type(ctx)
         .ok()
-        .flatten()
         .filter(|field_type| !field_type.supports_numeric_coercion())
         .map(|_| GroupPlanError::global_distinct_sum_target_not_numeric(0, ctx.target_field))
 }

@@ -8,7 +8,9 @@ use crate::db::{
     executor::{
         ExecutionPreparation,
         planning::preparation::slot_map_for_model_plan,
-        route::{AggregateRouteShape, build_execution_route_plan_for_aggregate_spec},
+        route::{
+            AggregateRouteShape, ExecutionRoutePlan, build_execution_route_plan_for_aggregate_spec,
+        },
     },
     query::{
         explain::{ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor},
@@ -20,6 +22,42 @@ use crate::db::executor::explain::descriptor::shared::{
     aggregate_covering_projection_for_terminal, explain_aggregate_ordering_source,
     explain_execution_mode, explain_node_properties_for_route,
 };
+
+///
+/// AggregateExplainPreparation
+///
+/// AggregateExplainPreparation bundles the route-plan and covering-projection
+/// facts derived once for aggregate EXPLAIN assembly so the final descriptor
+/// projection does not rebuild aggregate execution routing details inline.
+///
+
+struct AggregateExplainPreparation {
+    route_plan: ExecutionRoutePlan,
+    covering_projection: bool,
+}
+
+impl AggregateExplainPreparation {
+    // Build the aggregate EXPLAIN preparation bundle once from the logical
+    // plan and aggregate route shape so route selection and covering
+    // projection stay aligned for all aggregate descriptor projections.
+    fn from_shape(
+        plan: &AccessPlannedQuery,
+        aggregate: AggregateRouteShape<'_>,
+        aggregation: AggregateKind,
+    ) -> Self {
+        let execution_preparation =
+            ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+        let route_plan =
+            build_execution_route_plan_for_aggregate_spec(plan, aggregate, &execution_preparation);
+        let covering_projection =
+            aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
+
+        Self {
+            route_plan,
+            covering_projection,
+        }
+    }
+}
 
 // Assemble one canonical scalar aggregate execution descriptor through one
 // planner-owned aggregate route-shape boundary.
@@ -62,21 +100,16 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     projected_field: Option<&str>,
 ) -> ExplainExecutionDescriptor {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
-    let execution_preparation =
-        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
-    let route_plan =
-        build_execution_route_plan_for_aggregate_spec(plan, aggregate, &execution_preparation);
+    let explain_preparation = AggregateExplainPreparation::from_shape(plan, aggregate, aggregation);
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
-    let ordering_source = explain_aggregate_ordering_source(&route_plan);
-    let execution_mode = explain_execution_mode(&route_plan);
-    let covering_projection =
-        aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
+    let ordering_source = explain_aggregate_ordering_source(&explain_preparation.route_plan);
+    let execution_mode = explain_execution_mode(&explain_preparation.route_plan);
     let node_properties = explain_node_properties_for_route(
-        &route_plan,
+        &explain_preparation.route_plan,
         aggregation,
         projected_field,
-        covering_projection,
+        explain_preparation.covering_projection,
     );
 
     // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
@@ -88,12 +121,12 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
         access_strategy: ExplainAccessRoute::from_access_plan(&plan.access),
         // Covering flag reflects index-only aggregate fast-path eligibility for
         // scalar aggregate terminals.
-        covering_projection,
+        covering_projection: explain_preparation.covering_projection,
         aggregation,
         execution_mode,
         ordering_source,
-        limit: route_plan.continuation().limit(),
-        cursor: route_plan.continuation().applied(),
+        limit: explain_preparation.route_plan.continuation().limit(),
+        cursor: explain_preparation.route_plan.continuation().applied(),
         node_properties,
     }
 }

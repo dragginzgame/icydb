@@ -350,21 +350,13 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         // Phase 2: reuse the caller-provided normalized predicate so cache-key
         // construction and planner misses share the same canonical predicate.
-        let plan_mode = self.intent.mode();
-        let limit_zero_window = is_limit_zero_load_window(plan_mode);
-        let constant_false_predicate = predicate_is_constant_false(normalized_predicate.as_ref());
-        let access_plan_value = if limit_zero_window || constant_false_predicate {
-            AccessPlan::by_keys(Vec::new())
-        } else {
-            plan_query_access(
-                self.model,
-                visible_indexes.as_slice(),
-                schema_info,
-                normalized_predicate.as_ref(),
-                access_inputs.order(),
-                access_inputs.into_key_access_override(),
-            )?
-        };
+        let access_plan_value = self.plan_access_from_normalized_predicate(
+            visible_indexes,
+            schema_info,
+            normalized_predicate.as_ref(),
+            access_inputs.order(),
+            access_inputs.into_key_access_override(),
+        )?;
         let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
             self.model,
             &access_plan_value,
@@ -393,11 +385,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         // Phase 5: validate the assembled plan against schema, access-shape,
         // and planner-policy contracts before projecting explain metadata.
-        if plan.grouped_plan().is_some() {
-            validate_group_query_semantics(schema_info, self.model, &plan)?;
-        } else {
-            validate_query_semantics(schema_info, self.model, &plan)?;
-        }
+        self.validate_plan_semantics(schema_info, &plan)?;
 
         // Phase 6: freeze planner-owned execution metadata only after semantic
         // validation succeeds so user-facing projection/order errors remain
@@ -424,6 +412,49 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             schema_info,
             access_inputs.predicate(),
         )?))
+    }
+
+    // Reuse the caller-provided normalized predicate to choose one access path
+    // without recomputing planner inputs or scattering the empty-window gates.
+    fn plan_access_from_normalized_predicate(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        schema_info: &SchemaInfo,
+        normalized_predicate: Option<&Predicate>,
+        order: Option<&OrderSpec>,
+        key_access_override: Option<AccessPlan<Value>>,
+    ) -> Result<AccessPlan<Value>, QueryError> {
+        let limit_zero_window = is_limit_zero_load_window(self.intent.mode());
+        let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
+        if limit_zero_window || constant_false_predicate {
+            return Ok(AccessPlan::by_keys(Vec::new()));
+        }
+
+        plan_query_access(
+            self.model,
+            visible_indexes.as_slice(),
+            schema_info,
+            normalized_predicate,
+            order,
+            key_access_override,
+        )
+        .map_err(QueryError::from)
+    }
+
+    // Keep grouped and scalar semantic validation behind one owner-local gate
+    // so planner handoff code does not duplicate the route-shape branch.
+    fn validate_plan_semantics(
+        &self,
+        schema_info: &SchemaInfo,
+        plan: &AccessPlannedQuery,
+    ) -> Result<(), QueryError> {
+        if plan.grouped_plan().is_some() {
+            validate_group_query_semantics(schema_info, self.model, plan)?;
+        } else {
+            validate_query_semantics(schema_info, self.model, plan)?;
+        }
+
+        Ok(())
     }
 }
 

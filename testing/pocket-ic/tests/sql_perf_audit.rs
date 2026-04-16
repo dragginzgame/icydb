@@ -85,6 +85,13 @@ struct SqlPerfScenarioSample {
     baseline_avg_local_instructions: Option<u64>,
     avg_compile_local_instructions: u64,
     avg_execute_local_instructions: u64,
+    avg_grouped_stream_local_instructions: u64,
+    avg_grouped_fold_local_instructions: u64,
+    avg_grouped_finalize_local_instructions: u64,
+    avg_grouped_count_borrowed_hash_computations: u64,
+    avg_grouped_count_bucket_candidate_checks: u64,
+    avg_grouped_count_existing_group_hits: u64,
+    avg_grouped_count_new_group_inserts: u64,
     avg_store_get_calls: u64,
     avg_sql_compiled_command_cache_hits: u64,
     avg_sql_compiled_command_cache_misses: u64,
@@ -392,6 +399,13 @@ fn delta_percent_bps(current: u64, previous: u64) -> Option<i64> {
 struct SqlPerfRawSamples {
     compile_samples: Vec<u64>,
     execute_samples: Vec<u64>,
+    grouped_stream_samples: Vec<u64>,
+    grouped_fold_samples: Vec<u64>,
+    grouped_finalize_samples: Vec<u64>,
+    grouped_count_borrowed_hash_samples: Vec<u64>,
+    grouped_count_bucket_check_samples: Vec<u64>,
+    grouped_count_existing_hit_samples: Vec<u64>,
+    grouped_count_new_insert_samples: Vec<u64>,
     store_get_call_samples: Vec<u64>,
     sql_compiled_command_cache_hit_samples: Vec<u64>,
     sql_compiled_command_cache_miss_samples: Vec<u64>,
@@ -408,6 +422,13 @@ impl SqlPerfRawSamples {
         Self {
             compile_samples: Vec::with_capacity(sample_count),
             execute_samples: Vec::with_capacity(sample_count),
+            grouped_stream_samples: Vec::with_capacity(sample_count),
+            grouped_fold_samples: Vec::with_capacity(sample_count),
+            grouped_finalize_samples: Vec::with_capacity(sample_count),
+            grouped_count_borrowed_hash_samples: Vec::with_capacity(sample_count),
+            grouped_count_bucket_check_samples: Vec::with_capacity(sample_count),
+            grouped_count_existing_hit_samples: Vec::with_capacity(sample_count),
+            grouped_count_new_insert_samples: Vec::with_capacity(sample_count),
             store_get_call_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_hit_samples: Vec::with_capacity(sample_count),
             sql_compiled_command_cache_miss_samples: Vec::with_capacity(sample_count),
@@ -425,6 +446,20 @@ impl SqlPerfRawSamples {
             .push(sample.attribution.compile_local_instructions);
         self.execute_samples
             .push(sample.attribution.execute_local_instructions);
+        self.grouped_stream_samples
+            .push(sample.attribution.grouped_stream_local_instructions);
+        self.grouped_fold_samples
+            .push(sample.attribution.grouped_fold_local_instructions);
+        self.grouped_finalize_samples
+            .push(sample.attribution.grouped_finalize_local_instructions);
+        self.grouped_count_borrowed_hash_samples
+            .push(sample.attribution.grouped_count_borrowed_hash_computations);
+        self.grouped_count_bucket_check_samples
+            .push(sample.attribution.grouped_count_bucket_candidate_checks);
+        self.grouped_count_existing_hit_samples
+            .push(sample.attribution.grouped_count_existing_group_hits);
+        self.grouped_count_new_insert_samples
+            .push(sample.attribution.grouped_count_new_group_inserts);
         self.store_get_call_samples
             .push(sample.attribution.store_get_calls);
         self.sql_compiled_command_cache_hit_samples
@@ -452,6 +487,16 @@ fn build_sql_perf_scenario_sample(
 ) -> SqlPerfScenarioSample {
     let avg_compile_local_instructions = average_u64(&raw.compile_samples);
     let avg_execute_local_instructions = average_u64(&raw.execute_samples);
+    let avg_grouped_stream_local_instructions = average_u64(&raw.grouped_stream_samples);
+    let avg_grouped_fold_local_instructions = average_u64(&raw.grouped_fold_samples);
+    let avg_grouped_finalize_local_instructions = average_u64(&raw.grouped_finalize_samples);
+    let avg_grouped_count_borrowed_hash_computations =
+        average_u64(&raw.grouped_count_borrowed_hash_samples);
+    let avg_grouped_count_bucket_candidate_checks =
+        average_u64(&raw.grouped_count_bucket_check_samples);
+    let avg_grouped_count_existing_group_hits =
+        average_u64(&raw.grouped_count_existing_hit_samples);
+    let avg_grouped_count_new_group_inserts = average_u64(&raw.grouped_count_new_insert_samples);
     let avg_store_get_calls = average_u64(&raw.store_get_call_samples);
     let avg_sql_compiled_command_cache_hits =
         average_u64(&raw.sql_compiled_command_cache_hit_samples);
@@ -493,6 +538,13 @@ fn build_sql_perf_scenario_sample(
         baseline_avg_local_instructions,
         avg_compile_local_instructions,
         avg_execute_local_instructions,
+        avg_grouped_stream_local_instructions,
+        avg_grouped_fold_local_instructions,
+        avg_grouped_finalize_local_instructions,
+        avg_grouped_count_borrowed_hash_computations,
+        avg_grouped_count_bucket_candidate_checks,
+        avg_grouped_count_existing_group_hits,
+        avg_grouped_count_new_group_inserts,
         avg_store_get_calls,
         avg_sql_compiled_command_cache_hits,
         avg_sql_compiled_command_cache_misses,
@@ -1211,9 +1263,11 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     println!(
-        "| Scenario | Runs | Avg Compile | Avg Execute | Avg store.get() | SQL Compile Hits | SQL Compile Misses | SQL Select Hits | SQL Select Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
+        "| Scenario | Runs | Avg Compile | Avg Execute | Grouped Stream | Grouped Fold | Grouped Finalize | GCount Hash | GCount Buckets | GCount Hits | GCount Inserts | Avg store.get() | SQL Compile Hits | SQL Compile Misses | SQL Select Hits | SQL Select Misses | Shared Hits | Shared Misses | Avg Instructions | Delta | Delta % | Query |"
     );
-    println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+    println!(
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    );
 
     for sample in samples {
         let delta_text = sample
@@ -1225,11 +1279,18 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
         );
 
         println!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |",
             sample.scenario_key,
             sample.query_loop_count,
             sample.avg_compile_local_instructions,
             sample.avg_execute_local_instructions,
+            sample.avg_grouped_stream_local_instructions,
+            sample.avg_grouped_fold_local_instructions,
+            sample.avg_grouped_finalize_local_instructions,
+            sample.avg_grouped_count_borrowed_hash_computations,
+            sample.avg_grouped_count_bucket_candidate_checks,
+            sample.avg_grouped_count_existing_group_hits,
+            sample.avg_grouped_count_new_group_inserts,
             sample.avg_store_get_calls,
             sample.avg_sql_compiled_command_cache_hits,
             sample.avg_sql_compiled_command_cache_misses,

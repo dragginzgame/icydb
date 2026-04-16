@@ -4,12 +4,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::executor::{
-        aggregate::contracts::error::GroupError,
-        group::{CanonicalKey, GroupKey, GroupKeySet},
-    },
-    value::Value,
+use crate::db::executor::{
+    aggregate::contracts::error::GroupError,
+    group::{GroupKey, GroupKeySet},
 };
 use std::mem::size_of;
 
@@ -163,9 +160,7 @@ pub(in crate::db::executor) struct ExecutionConfig {
 pub(in crate::db::executor) struct ExecutionContext {
     config: ExecutionConfig,
     budget: ExecutionBudget,
-    seen_groups: GroupKeySet,
 }
-
 impl ExecutionConfig {
     /// Build one grouped hard-limit configuration.
     #[must_use]
@@ -232,11 +227,10 @@ impl ExecutionConfig {
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
     #[must_use]
-    pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
+    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
         Self {
             config,
             budget: ExecutionBudget::new(),
-            seen_groups: GroupKeySet::new(),
         }
     }
 
@@ -293,15 +287,14 @@ impl ExecutionContext {
 
     pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
-        group_key: &GroupKey,
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
     ) -> Result<(), GroupError> {
-        self.record_new_group_states(
-            group_key,
+        self.budget.record_new_group_state(
+            &self.config,
+            true,
             group_count_before_insert,
             group_capacity_before_insert,
-            1,
         )
     }
 
@@ -310,7 +303,6 @@ impl ExecutionContext {
     // per-aggregate-state budget accounting model.
     pub(in crate::db::executor::aggregate) fn record_new_group_states(
         &mut self,
-        group_key: &GroupKey,
         group_count_before_insert: usize,
         group_capacity_before_insert: usize,
         aggregate_state_count: usize,
@@ -320,23 +312,24 @@ impl ExecutionContext {
             "grouped budget accounting must record at least one aggregate state",
         );
 
-        // Count `max_groups` against unique canonical group keys across the
-        // full grouped query, not per-aggregate state machine instance.
-        let new_group_key = !self.seen_groups.contains_key(group_key);
+        // Keep the dedicated single-state case on the direct budget path so
+        // grouped count and other one-aggregate shapes do not pay the generic
+        // bundle loop on every new group insert.
+        if aggregate_state_count == 1 {
+            return self.record_new_group(group_count_before_insert, group_capacity_before_insert);
+        }
+
+        // Count `max_groups` against caller-proven unique canonical group keys,
+        // not per-aggregate state machine instance. Grouped runtime owns the
+        // canonical group table already, so this budget layer does not re-check
+        // uniqueness through a second `GroupKeySet`.
         for state_index in 0..aggregate_state_count {
             self.budget.record_new_group_state(
                 &self.config,
-                new_group_key && state_index == 0,
+                state_index == 0,
                 group_count_before_insert,
                 group_capacity_before_insert,
             )?;
-        }
-        if new_group_key {
-            let inserted = self.seen_groups.insert_key(group_key.clone());
-            debug_assert!(
-                inserted,
-                "new_group_key must imply one successful seen-groups insertion",
-            );
         }
 
         Ok(())
@@ -395,11 +388,7 @@ impl ExecutionContext {
     pub(in crate::db::executor) fn record_implicit_single_group(
         &mut self,
     ) -> Result<(), GroupError> {
-        let implicit_group_key = Value::List(Vec::new())
-            .canonical_key()
-            .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
-
-        self.record_new_group(&implicit_group_key, 0, 0)
+        self.record_new_group(0, 0)
     }
 }
 

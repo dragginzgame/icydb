@@ -11,7 +11,11 @@ use std::{
     collections::{BinaryHeap, HashMap},
 };
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+))]
 use std::cell::RefCell;
 
 use crate::{
@@ -48,6 +52,7 @@ use crate::{
         query::plan::FieldSlot,
     },
     error::InternalError,
+    model::field::FieldKind,
     value::{Value, ValueHashWriter},
 };
 
@@ -119,14 +124,22 @@ pub(crate) struct GroupedCountFoldMetrics {
     pub next_cursor_emitted: u64,
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+))]
 std::thread_local! {
     static GROUPED_COUNT_FOLD_METRICS: RefCell<Option<GroupedCountFoldMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+))]
 fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMetrics)) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
         let mut metrics = metrics.borrow_mut();
@@ -138,7 +151,11 @@ fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMe
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+)))]
 fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldMetrics)) {}
 
 /// with_grouped_count_fold_metrics
@@ -148,8 +165,14 @@ fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldM
 /// snapshot.
 ///
 
-#[cfg(feature = "structural-read-metrics")]
-pub fn with_grouped_count_fold_metrics<T>(f: impl FnOnce() -> T) -> (T, GroupedCountFoldMetrics) {
+#[cfg(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+))]
+pub(crate) fn with_grouped_count_fold_metrics<T>(
+    f: impl FnOnce() -> T,
+) -> (T, GroupedCountFoldMetrics) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
         debug_assert!(
             metrics.borrow().is_none(),
@@ -165,6 +188,18 @@ pub fn with_grouped_count_fold_metrics<T>(f: impl FnOnce() -> T) -> (T, GroupedC
     (result, metrics)
 }
 
+#[cfg(not(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+)))]
+#[allow(dead_code)]
+pub(crate) fn with_grouped_count_fold_metrics<T>(
+    f: impl FnOnce() -> T,
+) -> (T, GroupedCountFoldMetrics) {
+    (f(), GroupedCountFoldMetrics::default())
+}
+
 ///
 /// GroupedCountState
 ///
@@ -175,7 +210,47 @@ pub fn with_grouped_count_fold_metrics<T>(f: impl FnOnce() -> T) -> (T, GroupedC
 
 struct GroupedCountState {
     groups: Vec<(GroupKey, u32)>,
-    bucket_index: HashMap<StableHash, Vec<usize>>,
+    bucket_index: HashMap<StableHash, GroupedCountBucket>,
+}
+
+///
+/// GroupedCountBucket
+///
+/// GroupedCountBucket keeps the common grouped-count hash-bucket case
+/// allocation-free by storing one lone group index inline and promoting to a
+/// collision vector only after the fold actually observes a stable-hash peer.
+///
+
+enum GroupedCountBucket {
+    Single(usize),
+    Colliding(Vec<usize>),
+}
+
+impl GroupedCountBucket {
+    // Return the tracked bucket indexes as one shared slice regardless of
+    // whether the bucket stayed collision-free or promoted to a vector.
+    const fn as_slice(&self) -> &[usize] {
+        match self {
+            Self::Single(index) => std::slice::from_ref(index),
+            Self::Colliding(indexes) => indexes.as_slice(),
+        }
+    }
+
+    // Insert one grouped-count index, promoting to a vector only when the
+    // bucket actually needs to retain more than one peer.
+    fn push_index(&mut self, new_index: usize) {
+        match self {
+            Self::Single(existing_index) => {
+                *self = Self::Colliding(vec![*existing_index, new_index]);
+            }
+            Self::Colliding(indexes) => indexes.push(new_index),
+        }
+    }
+
+    // Build one fresh collision-free grouped-count bucket.
+    const fn single(index: usize) -> Self {
+        Self::Single(index)
+    }
 }
 
 ///
@@ -224,6 +299,7 @@ impl GroupedCountState {
         &mut self,
         row_view: &RowView,
         group_fields: &[FieldSlot],
+        borrowed_group_probe_supported: bool,
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
         update_grouped_count_fold_metrics(|metrics| {
@@ -232,7 +308,7 @@ impl GroupedCountState {
 
         // Phase 1: keep the common scalar-like grouped key path allocation-free
         // until we prove the row belongs to a genuinely new group.
-        if supports_borrowed_group_probe(row_view, group_fields)? {
+        if borrowed_group_probe_supported {
             update_grouped_count_fold_metrics(|metrics| {
                 metrics.borrowed_probe_rows = metrics.borrowed_probe_rows.saturating_add(1);
             });
@@ -257,52 +333,84 @@ impl GroupedCountState {
                 return Ok(());
             }
 
-            return self.insert_new_group(
+            let group_key =
+                materialize_group_key_from_row_view(row_view, group_fields, Some(group_hash))?;
+            debug_assert_eq!(
+                group_key.hash(),
                 group_hash,
-                row_view,
-                group_fields,
-                grouped_execution_context,
+                "borrowed grouped key hash must match owned canonical group key hash",
             );
+
+            return self.finish_new_group_insert(group_hash, group_key, grouped_execution_context);
         }
 
         // Phase 2: preserve the canonical owned-key fallback for structured
         // grouped values whose equality contract still depends on full
         // canonical materialization.
-        let group_key = materialize_group_key_from_row_view(row_view, group_fields)?;
+        let group_key = materialize_group_key_from_row_view(row_view, group_fields, None)?;
 
         self.increment_owned_group_key(group_key, grouped_execution_context)
     }
 
+    // Increment one grouped count row from one direct single grouped value
+    // when the grouped route already proves the single-field identity-canonical
+    // fast path is valid.
+    fn increment_single_group_value(
+        &mut self,
+        group_value: Value,
+        grouped_execution_context: &mut ExecutionContext,
+    ) -> Result<(), InternalError> {
+        update_grouped_count_fold_metrics(|metrics| {
+            metrics.rows_folded = metrics.rows_folded.saturating_add(1);
+            metrics.borrowed_probe_rows = metrics.borrowed_probe_rows.saturating_add(1);
+            metrics.borrowed_hash_computations =
+                metrics.borrowed_hash_computations.saturating_add(1);
+        });
+        let group_hash = stable_hash_single_group_value(&group_value)?;
+        if let Some(existing_index) = find_matching_single_group_value_index(
+            self.groups.as_slice(),
+            self.bucket_index.get(&group_hash),
+            &group_value,
+        )? {
+            let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
+                InternalError::query_executor_invariant(format!(
+                    "grouped count state missing bucket-indexed direct group: index={existing_index}",
+                ))
+            })?;
+            *count = count.saturating_add(1);
+
+            return Ok(());
+        }
+
+        update_grouped_count_fold_metrics(|metrics| {
+            metrics.owned_key_materializations =
+                metrics.owned_key_materializations.saturating_add(1);
+        });
+        let group_key =
+            GroupKey::from_single_canonical_group_value_with_hash(group_value, group_hash);
+
+        self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+    }
+
     // Insert one newly observed grouped key after the borrowed fast path has
     // already ruled out an existing canonical group match.
-    fn insert_new_group(
+    fn finish_new_group_insert(
         &mut self,
         group_hash: StableHash,
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
+        group_key: GroupKey,
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
         let group_count_before_insert = self.groups.len();
         let group_capacity_before_insert = self.groups.capacity();
-        let group_key = materialize_group_key_from_row_view(row_view, group_fields)?;
-        debug_assert_eq!(
-            group_key.hash(),
-            group_hash,
-            "borrowed grouped key hash must match owned canonical group key hash",
-        );
         grouped_execution_context
-            .record_new_group(
-                &group_key,
-                group_count_before_insert,
-                group_capacity_before_insert,
-            )
+            .record_new_group(group_count_before_insert, group_capacity_before_insert)
             .map_err(GroupError::into_internal_error)?;
         let new_index = self.groups.len();
         self.groups.push((group_key, 1));
         self.bucket_index
             .entry(group_hash)
-            .or_default()
-            .push(new_index);
+            .and_modify(|bucket| bucket.push_index(new_index))
+            .or_insert_with(|| GroupedCountBucket::single(new_index));
         update_grouped_count_fold_metrics(|metrics| {
             metrics.new_group_inserts = metrics.new_group_inserts.saturating_add(1);
         });
@@ -324,7 +432,7 @@ impl GroupedCountState {
         // still avoid a full scan across every grouped count entry.
         let group_hash = group_key.hash();
         if let Some(bucket) = self.bucket_index.get(&group_hash) {
-            for existing_index in bucket.iter().copied() {
+            for existing_index in bucket.as_slice().iter().copied() {
                 update_grouped_count_fold_metrics(|metrics| {
                     metrics.bucket_candidate_checks =
                         metrics.bucket_candidate_checks.saturating_add(1);
@@ -351,26 +459,7 @@ impl GroupedCountState {
 
         // Phase 2: admit one new group only after the existing-group lookup
         // misses under canonical owned-key equality.
-        let group_count_before_insert = self.groups.len();
-        let group_capacity_before_insert = self.groups.capacity();
-        grouped_execution_context
-            .record_new_group(
-                &group_key,
-                group_count_before_insert,
-                group_capacity_before_insert,
-            )
-            .map_err(GroupError::into_internal_error)?;
-        let new_index = self.groups.len();
-        self.groups.push((group_key, 1));
-        self.bucket_index
-            .entry(group_hash)
-            .or_default()
-            .push(new_index);
-        update_grouped_count_fold_metrics(|metrics| {
-            metrics.new_group_inserts = metrics.new_group_inserts.saturating_add(1);
-        });
-
-        Ok(())
+        self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
     }
 
     // Consume this grouped-count state into finalized `(group_key, count)` rows.
@@ -384,13 +473,36 @@ impl GroupedCountState {
 fn materialize_group_key_from_row_view(
     row_view: &RowView,
     group_fields: &[FieldSlot],
+    precomputed_hash: Option<StableHash>,
 ) -> Result<GroupKey, InternalError> {
     update_grouped_count_fold_metrics(|metrics| {
         metrics.owned_key_materializations = metrics.owned_key_materializations.saturating_add(1);
     });
+
+    if let [field] = group_fields {
+        let group_value = row_view.require_slot_ref(field.index())?.clone();
+        let identity_canonical_form = field
+            .kind()
+            .is_some_and(single_group_field_kind_has_identity_canonical_form);
+
+        return match (identity_canonical_form, precomputed_hash) {
+            (true, Some(hash)) => Ok(GroupKey::from_single_canonical_group_value_with_hash(
+                group_value,
+                hash,
+            )),
+            (true, None) => GroupKey::from_single_canonical_group_value(group_value),
+            (false, Some(hash)) => GroupKey::from_single_group_value_with_hash(group_value, hash),
+            (false, None) => GroupKey::from_single_group_value(group_value),
+        }
+        .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error);
+    }
+
     let group_values = row_view.group_values(group_fields)?;
-    GroupKey::from_group_values(group_values)
-        .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)
+    match precomputed_hash {
+        Some(hash) => GroupKey::from_group_values_with_hash(group_values, hash),
+        None => GroupKey::from_group_values(group_values),
+    }
+    .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)
 }
 
 // Build one grouped key stream from route-owned grouped execution metadata
@@ -607,10 +719,35 @@ fn execute_single_grouped_count_fold_stage(
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let consistency = route.consistency();
+    let borrowed_group_probe_supported =
+        group_fields_support_borrowed_group_probe(route.group_fields());
+    let direct_single_group_field = match (compiled_predicate, route.group_fields()) {
+        (None, [field])
+            if field
+                .kind()
+                .is_some_and(single_group_field_kind_has_identity_canonical_form) =>
+        {
+            Some(field)
+        }
+        _ => None,
+    };
     let mut grouped_counts = GroupedCountState::new();
 
     // Phase 1: fold grouped source rows directly into one canonical count map.
     while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+        if let Some(group_field) = direct_single_group_field {
+            let Some(group_value) =
+                row_runtime.read_single_group_value(consistency, &data_key, group_field.index())?
+            else {
+                continue;
+            };
+            scanned_rows = scanned_rows.saturating_add(1);
+            filtered_rows = filtered_rows.saturating_add(1);
+            grouped_counts.increment_single_group_value(group_value, grouped_execution_context)?;
+
+            continue;
+        }
+
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
             continue;
         };
@@ -621,7 +758,12 @@ fn execute_single_grouped_count_fold_stage(
             continue;
         }
         filtered_rows = filtered_rows.saturating_add(1);
-        grouped_counts.increment_row(&row_view, route.group_fields(), grouped_execution_context)?;
+        grouped_counts.increment_row(
+            &row_view,
+            route.group_fields(),
+            borrowed_group_probe_supported,
+            grouped_execution_context,
+        )?;
     }
 
     // Phase 2: page and project the finalized grouped-count rows directly so
@@ -655,6 +797,8 @@ fn fold_group_rows_into_bundle(
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let consistency = route.consistency();
+    let borrowed_group_probe_supported =
+        group_fields_support_borrowed_group_probe(route.group_fields());
 
     while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
@@ -670,8 +814,7 @@ fn fold_group_rows_into_bundle(
 
         // Phase 1: preserve the borrowed grouped-key fast path so existing
         // groups stay allocation-free on the hot ingest loop.
-        let borrowed_group_hash = if supports_borrowed_group_probe(&row_view, route.group_fields())?
-        {
+        let borrowed_group_hash = if borrowed_group_probe_supported {
             Some(stable_hash_group_values_from_row_view(
                 &row_view,
                 route.group_fields(),
@@ -734,6 +877,7 @@ fn execute_generic_grouped_fold_stage(
 
 // Return true when one grouped value can be hashed and compared from the
 // borrowed row slot without first allocating a canonical owned value tree.
+#[cfg(test)]
 fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
     match value {
         Value::List(_) | Value::Map(_) | Value::Unit => false,
@@ -744,8 +888,85 @@ fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
     }
 }
 
+// Return true when one single grouped field kind already arrives in canonical
+// grouped-equality form, so owned single-field key materialization can skip
+// the recursive normalization pass entirely.
+const fn single_group_field_kind_has_identity_canonical_form(kind: FieldKind) -> bool {
+    matches!(
+        kind,
+        FieldKind::Account
+            | FieldKind::Blob
+            | FieldKind::Bool
+            | FieldKind::Date
+            | FieldKind::Duration
+            | FieldKind::Float32
+            | FieldKind::Float64
+            | FieldKind::Int
+            | FieldKind::Int128
+            | FieldKind::IntBig
+            | FieldKind::Principal
+            | FieldKind::Subaccount
+            | FieldKind::Text
+            | FieldKind::Timestamp
+            | FieldKind::Uint
+            | FieldKind::Uint128
+            | FieldKind::UintBig
+            | FieldKind::Ulid
+    )
+}
+
+// Return true when one planner-frozen grouped field kind can stay on the
+// borrowed grouped-key probe path without owned canonical materialization.
+fn group_field_kind_supports_borrowed_group_probe(kind: FieldKind) -> bool {
+    match kind {
+        FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig
+        | FieldKind::Ulid => true,
+        FieldKind::Enum { variants, .. } => variants.iter().all(|variant| {
+            variant.payload_kind().is_none_or(|payload_kind| {
+                group_field_kind_supports_borrowed_group_probe(*payload_kind)
+            })
+        }),
+        FieldKind::Relation { key_kind, .. } => {
+            group_field_kind_supports_borrowed_group_probe(*key_kind)
+        }
+        FieldKind::List(_)
+        | FieldKind::Set(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Structured { .. }
+        | FieldKind::Unit => false,
+    }
+}
+
+// Return true when every planner-frozen grouped slot kind supports the
+// borrowed grouped-key probe path for this grouped route.
+fn group_fields_support_borrowed_group_probe(group_fields: &[FieldSlot]) -> bool {
+    group_fields.iter().all(|field| {
+        field
+            .kind()
+            .is_some_and(group_field_kind_supports_borrowed_group_probe)
+    })
+}
+
 // Return true when every grouped slot on this row can use the borrowed count
 // fast path without falling back to owned canonical materialization.
+#[cfg(test)]
 fn supports_borrowed_group_probe(
     row_view: &RowView,
     group_fields: &[FieldSlot],
@@ -773,6 +994,37 @@ fn stable_hash_group_values_from_row_view(
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))
+}
+
+// Hash one canonical single grouped value through the same one-element list
+// framing used by grouped-count key materialization.
+fn stable_hash_single_group_value(group_value: &Value) -> Result<StableHash, InternalError> {
+    let mut hash_writer = ValueHashWriter::new();
+    hash_writer.write_list_prefix(1);
+    hash_writer.write_list_value(group_value)?;
+
+    Ok(stable_hash_from_digest(hash_writer.finish()))
+}
+
+// Return true when one canonical grouped key matches one direct single grouped
+// value under the grouped-count single-field identity-canonical fast path.
+fn single_group_key_matches_value(
+    group_key: &GroupKey,
+    group_value: &Value,
+) -> Result<bool, InternalError> {
+    let Value::List(canonical_group_values) = group_key.canonical_value() else {
+        return Err(InternalError::query_executor_invariant(
+            "grouped count key must remain a canonical Value::List".to_string(),
+        ));
+    };
+    let [canonical_group_value] = canonical_group_values.as_slice() else {
+        return Err(InternalError::query_executor_invariant(format!(
+            "single-field grouped count key must retain exactly one canonical value: len={}",
+            canonical_group_values.len(),
+        )));
+    };
+
+    Ok(canonical_value_compare(group_value, canonical_group_value) == Ordering::Equal)
 }
 
 // Return true when one canonical grouped key matches this row's grouped slot
@@ -820,7 +1072,7 @@ fn group_key_matches_row_view(
 // matches the current borrowed grouped slot values.
 fn find_matching_group_index(
     grouped_counts: &[(GroupKey, u32)],
-    bucket: Option<&Vec<usize>>,
+    bucket: Option<&GroupedCountBucket>,
     row_view: &RowView,
     group_fields: &[FieldSlot],
 ) -> Result<Option<usize>, InternalError> {
@@ -828,7 +1080,7 @@ fn find_matching_group_index(
         return Ok(None);
     };
 
-    for group_index in bucket {
+    for group_index in bucket.as_slice() {
         update_grouped_count_fold_metrics(|metrics| {
             metrics.bucket_candidate_checks = metrics.bucket_candidate_checks.saturating_add(1);
         });
@@ -840,6 +1092,39 @@ fn find_matching_group_index(
             )));
         };
         if group_key_matches_row_view(group_key, row_view, group_fields)? {
+            update_grouped_count_fold_metrics(|metrics| {
+                metrics.existing_group_hits = metrics.existing_group_hits.saturating_add(1);
+            });
+            return Ok(Some(*group_index));
+        }
+    }
+
+    Ok(None)
+}
+
+// Search one stable-hash bucket for an existing grouped count entry that
+// matches one direct single grouped value.
+fn find_matching_single_group_value_index(
+    grouped_counts: &[(GroupKey, u32)],
+    bucket: Option<&GroupedCountBucket>,
+    group_value: &Value,
+) -> Result<Option<usize>, InternalError> {
+    let Some(bucket) = bucket else {
+        return Ok(None);
+    };
+
+    for group_index in bucket.as_slice() {
+        update_grouped_count_fold_metrics(|metrics| {
+            metrics.bucket_candidate_checks = metrics.bucket_candidate_checks.saturating_add(1);
+        });
+        let Some((group_key, _)) = grouped_counts.get(*group_index) else {
+            return Err(InternalError::query_executor_invariant(format!(
+                "grouped count bucket index out of bounds: index={} len={}",
+                group_index,
+                grouped_counts.len(),
+            )));
+        };
+        if single_group_key_matches_value(group_key, group_value)? {
             update_grouped_count_fold_metrics(|metrics| {
                 metrics.existing_group_hits = metrics.existing_group_hits.saturating_add(1);
             });
@@ -1034,7 +1319,7 @@ fn retain_smallest_grouped_count_candidates(
 
     // Phase 2: restore grouped-key order across the retained window only,
     // respecting the active grouped execution direction.
-    let mut out = retained
+    let mut out: Vec<(GroupKey, u32)> = retained
         .into_vec()
         .into_iter()
         .map(|candidate| (candidate.group_key, candidate.count))
@@ -1220,20 +1505,36 @@ mod tests {
     #[test]
     fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
         with_test_hash_override([0xAB; 16], || {
-            let mut grouped_counts = GroupedCountState::new();
             let mut grouped_execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
             let group_fields = group_fields(&[0]);
             let alpha = RowView::new(vec![Some(Value::Text("alpha".to_string()))]);
             let beta = RowView::new(vec![Some(Value::Text("beta".to_string()))]);
+            let borrowed_group_probe_supported = true;
+            let mut grouped_counts = GroupedCountState::new();
 
             grouped_counts
-                .increment_row(&alpha, &group_fields, &mut grouped_execution_context)
+                .increment_row(
+                    &alpha,
+                    &group_fields,
+                    borrowed_group_probe_supported,
+                    &mut grouped_execution_context,
+                )
                 .expect("alpha insert");
             grouped_counts
-                .increment_row(&beta, &group_fields, &mut grouped_execution_context)
+                .increment_row(
+                    &beta,
+                    &group_fields,
+                    borrowed_group_probe_supported,
+                    &mut grouped_execution_context,
+                )
                 .expect("beta insert");
             grouped_counts
-                .increment_row(&alpha, &group_fields, &mut grouped_execution_context)
+                .increment_row(
+                    &alpha,
+                    &group_fields,
+                    borrowed_group_probe_supported,
+                    &mut grouped_execution_context,
+                )
                 .expect("alpha increment");
 
             let mut rows = grouped_counts.into_groups();

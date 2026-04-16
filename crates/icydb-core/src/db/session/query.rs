@@ -5,7 +5,7 @@
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
 #[cfg(feature = "perf-attribution")]
-use crate::db::executor::ScalarExecutePhaseAttribution;
+use crate::db::executor::{GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution};
 use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
@@ -146,11 +146,39 @@ pub struct QueryExecutionAttribution {
     pub direct_data_row_store_get_local_instructions: u64,
     pub direct_data_row_order_window_local_instructions: u64,
     pub direct_data_row_page_window_local_instructions: u64,
+    pub grouped_stream_local_instructions: u64,
+    pub grouped_fold_local_instructions: u64,
+    pub grouped_finalize_local_instructions: u64,
+    pub grouped_count_borrowed_hash_computations: u64,
+    pub grouped_count_bucket_candidate_checks: u64,
+    pub grouped_count_existing_group_hits: u64,
+    pub grouped_count_new_group_inserts: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
     pub shared_query_plan_cache_hits: u64,
     pub shared_query_plan_cache_misses: u64,
+}
+
+#[cfg(feature = "perf-attribution")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct QueryExecutePhaseAttribution {
+    runtime_local_instructions: u64,
+    finalize_local_instructions: u64,
+    direct_data_row_scan_local_instructions: u64,
+    direct_data_row_key_stream_local_instructions: u64,
+    direct_data_row_row_read_local_instructions: u64,
+    direct_data_row_key_encode_local_instructions: u64,
+    direct_data_row_store_get_local_instructions: u64,
+    direct_data_row_order_window_local_instructions: u64,
+    direct_data_row_page_window_local_instructions: u64,
+    grouped_stream_local_instructions: u64,
+    grouped_fold_local_instructions: u64,
+    grouped_finalize_local_instructions: u64,
+    grouped_count_borrowed_hash_computations: u64,
+    grouped_count_bucket_candidate_checks: u64,
+    grouped_count_existing_group_hits: u64,
+    grouped_count_new_group_inserts: u64,
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -181,8 +209,8 @@ fn measure_query_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result
 
 impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "perf-attribution")]
-    const fn empty_scalar_execute_phase_attribution() -> ScalarExecutePhaseAttribution {
-        ScalarExecutePhaseAttribution {
+    const fn empty_query_execute_phase_attribution() -> QueryExecutePhaseAttribution {
+        QueryExecutePhaseAttribution {
             runtime_local_instructions: 0,
             finalize_local_instructions: 0,
             direct_data_row_scan_local_instructions: 0,
@@ -192,6 +220,70 @@ impl<C: CanisterKind> DbSession<C> {
             direct_data_row_store_get_local_instructions: 0,
             direct_data_row_order_window_local_instructions: 0,
             direct_data_row_page_window_local_instructions: 0,
+            grouped_stream_local_instructions: 0,
+            grouped_fold_local_instructions: 0,
+            grouped_finalize_local_instructions: 0,
+            grouped_count_borrowed_hash_computations: 0,
+            grouped_count_bucket_candidate_checks: 0,
+            grouped_count_existing_group_hits: 0,
+            grouped_count_new_group_inserts: 0,
+        }
+    }
+
+    #[cfg(feature = "perf-attribution")]
+    const fn scalar_query_execute_phase_attribution(
+        phase: ScalarExecutePhaseAttribution,
+    ) -> QueryExecutePhaseAttribution {
+        QueryExecutePhaseAttribution {
+            runtime_local_instructions: phase.runtime_local_instructions,
+            finalize_local_instructions: phase.finalize_local_instructions,
+            direct_data_row_scan_local_instructions: phase.direct_data_row_scan_local_instructions,
+            direct_data_row_key_stream_local_instructions: phase
+                .direct_data_row_key_stream_local_instructions,
+            direct_data_row_row_read_local_instructions: phase
+                .direct_data_row_row_read_local_instructions,
+            direct_data_row_key_encode_local_instructions: phase
+                .direct_data_row_key_encode_local_instructions,
+            direct_data_row_store_get_local_instructions: phase
+                .direct_data_row_store_get_local_instructions,
+            direct_data_row_order_window_local_instructions: phase
+                .direct_data_row_order_window_local_instructions,
+            direct_data_row_page_window_local_instructions: phase
+                .direct_data_row_page_window_local_instructions,
+            grouped_stream_local_instructions: 0,
+            grouped_fold_local_instructions: 0,
+            grouped_finalize_local_instructions: 0,
+            grouped_count_borrowed_hash_computations: 0,
+            grouped_count_bucket_candidate_checks: 0,
+            grouped_count_existing_group_hits: 0,
+            grouped_count_new_group_inserts: 0,
+        }
+    }
+
+    #[cfg(feature = "perf-attribution")]
+    const fn grouped_query_execute_phase_attribution(
+        phase: GroupedExecutePhaseAttribution,
+    ) -> QueryExecutePhaseAttribution {
+        QueryExecutePhaseAttribution {
+            runtime_local_instructions: phase
+                .stream_local_instructions
+                .saturating_add(phase.fold_local_instructions),
+            finalize_local_instructions: phase.finalize_local_instructions,
+            direct_data_row_scan_local_instructions: 0,
+            direct_data_row_key_stream_local_instructions: 0,
+            direct_data_row_row_read_local_instructions: 0,
+            direct_data_row_key_encode_local_instructions: 0,
+            direct_data_row_store_get_local_instructions: 0,
+            direct_data_row_order_window_local_instructions: 0,
+            direct_data_row_page_window_local_instructions: 0,
+            grouped_stream_local_instructions: phase.stream_local_instructions,
+            grouped_fold_local_instructions: phase.fold_local_instructions,
+            grouped_finalize_local_instructions: phase.finalize_local_instructions,
+            grouped_count_borrowed_hash_computations: phase
+                .grouped_count_borrowed_hash_computations,
+            grouped_count_bucket_candidate_checks: phase.grouped_count_bucket_candidate_checks,
+            grouped_count_existing_group_hits: phase.grouped_count_existing_group_hits,
+            grouped_count_new_group_inserts: phase.grouped_count_new_group_inserts,
         }
     }
 
@@ -588,16 +680,17 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_grouped_query_result_with_attribution<E>(
         &self,
         plan: PreparedExecutionPlan<E>,
-    ) -> Result<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>
+    ) -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (page, trace) = self.execute_grouped_plan_with_trace(plan, None)?;
+        let (page, trace, phase_attribution) =
+            self.execute_grouped_plan_with_trace_with_phase_attribution(plan, None)?;
         let grouped = Self::finalize_grouped_execution_page(page, trace)?;
 
         Ok((
             LoadQueryResult::grouped(grouped),
-            Self::empty_scalar_execute_phase_attribution(),
+            Self::grouped_query_execute_phase_attribution(phase_attribution),
             0,
         ))
     }
@@ -610,7 +703,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         mode: QueryMode,
         plan: PreparedExecutionPlan<E>,
-    ) -> Result<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>
+    ) -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -623,7 +716,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok((
                     LoadQueryResult::rows(rows),
-                    phase_attribution,
+                    Self::scalar_query_execute_phase_attribution(phase_attribution),
                     response_decode_local_instructions,
                 ))
             }
@@ -632,7 +725,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok((
                     LoadQueryResult::rows(result),
-                    Self::empty_scalar_execute_phase_attribution(),
+                    Self::empty_query_execute_phase_attribution(),
                     0,
                 ))
             }
@@ -705,6 +798,20 @@ impl<C: CanisterKind> DbSession<C> {
                     .direct_data_row_order_window_local_instructions,
                 direct_data_row_page_window_local_instructions: execute_phase_attribution
                     .direct_data_row_page_window_local_instructions,
+                grouped_stream_local_instructions: execute_phase_attribution
+                    .grouped_stream_local_instructions,
+                grouped_fold_local_instructions: execute_phase_attribution
+                    .grouped_fold_local_instructions,
+                grouped_finalize_local_instructions: execute_phase_attribution
+                    .grouped_finalize_local_instructions,
+                grouped_count_borrowed_hash_computations: execute_phase_attribution
+                    .grouped_count_borrowed_hash_computations,
+                grouped_count_bucket_candidate_checks: execute_phase_attribution
+                    .grouped_count_bucket_candidate_checks,
+                grouped_count_existing_group_hits: execute_phase_attribution
+                    .grouped_count_existing_group_hits,
+                grouped_count_new_group_inserts: execute_phase_attribution
+                    .grouped_count_new_group_inserts,
                 response_decode_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,
@@ -932,6 +1039,39 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_metrics(|| {
             self.load_executor::<E>()
                 .execute_grouped_paged_with_cursor_traced(plan, cursor)
+        })
+        .map_err(QueryError::execute)
+    }
+
+    #[cfg(feature = "perf-attribution")]
+    fn execute_grouped_plan_with_trace_with_phase_attribution<E>(
+        &self,
+        plan: PreparedExecutionPlan<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<
+        (
+            GroupedCursorPage,
+            Option<ExecutionTrace>,
+            GroupedExecutePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        Self::ensure_grouped_execution_family(
+            plan.execution_family().map_err(QueryError::execute)?,
+        )?;
+
+        let cursor = decode_optional_grouped_cursor_token(cursor_token)
+            .map_err(QueryError::from_cursor_plan_error)?;
+        let cursor = plan
+            .prepare_grouped_cursor_token(cursor)
+            .map_err(QueryError::from_executor_plan_error)?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .execute_grouped_paged_with_cursor_traced_with_phase_attribution(plan, cursor)
         })
         .map_err(QueryError::execute)
     }

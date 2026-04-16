@@ -164,46 +164,10 @@ fn strip_query_clauses_satisfied_by_filtered_guard(
     query_predicate: &Predicate,
     index_predicate: &Predicate,
 ) -> Option<Predicate> {
-    match query_predicate {
-        Predicate::And(children) => {
-            let mut residual_children = Vec::with_capacity(children.len());
-            for child in children {
-                if let Some(residual_child) =
-                    strip_query_clauses_satisfied_by_filtered_guard(child, index_predicate)
-                {
-                    residual_children.push(residual_child);
-                }
-            }
-
-            match residual_children.len() {
-                0 => None,
-                1 => residual_children.pop(),
-                _ => Some(Predicate::And(residual_children)),
-            }
-        }
-        Predicate::Compare(cmp)
-            if compare_clause_supported(cmp)
-                && predicate_implies_predicate(
-                    index_predicate,
-                    &Predicate::Compare(cmp.clone()),
-                ) =>
-        {
-            None
-        }
-        Predicate::True => None,
-        Predicate::False
-        | Predicate::Or(_)
-        | Predicate::Not(_)
-        | Predicate::CompareFields(_)
-        | Predicate::Compare(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => Some(query_predicate.clone()),
-    }
+    strip_query_clauses(query_predicate, |cmp| {
+        compare_clause_supported(cmp)
+            && predicate_implies_predicate(index_predicate, &Predicate::Compare(cmp.clone()))
+    })
 }
 
 fn access_bound_equalities(index: &IndexModel, values: &[Value]) -> Vec<ComparePredicate> {
@@ -226,13 +190,25 @@ fn strip_query_clauses_satisfied_by_access_bounds(
     query_predicate: &Predicate,
     implied_equalities: &[ComparePredicate],
 ) -> Option<Predicate> {
+    strip_query_clauses(query_predicate, |cmp| {
+        compare_clause_supported(cmp)
+            && implied_equalities
+                .iter()
+                .any(|bound| query_clause_implies_required(bound, cmp))
+    })
+}
+
+// Both residual-stripping paths share the same recursive AND-collapse contract;
+// they only differ in how they decide one compare clause is already implied.
+fn strip_query_clauses<F>(query_predicate: &Predicate, compare_is_redundant: F) -> Option<Predicate>
+where
+    F: Fn(&ComparePredicate) -> bool + Copy,
+{
     match query_predicate {
         Predicate::And(children) => {
             let mut residual_children = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(residual_child) =
-                    strip_query_clauses_satisfied_by_access_bounds(child, implied_equalities)
-                {
+                if let Some(residual_child) = strip_query_clauses(child, compare_is_redundant) {
                     residual_children.push(residual_child);
                 }
             }
@@ -243,14 +219,7 @@ fn strip_query_clauses_satisfied_by_access_bounds(
                 _ => Some(Predicate::And(residual_children)),
             }
         }
-        Predicate::Compare(cmp)
-            if compare_clause_supported(cmp)
-                && implied_equalities
-                    .iter()
-                    .any(|bound| query_clause_implies_required(bound, cmp)) =>
-        {
-            None
-        }
+        Predicate::Compare(cmp) if compare_is_redundant(cmp) => None,
         Predicate::True => None,
         Predicate::False
         | Predicate::Or(_)

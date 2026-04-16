@@ -17,7 +17,7 @@ use crate::{
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
                 compile_scalar_projection_expr, compile_scalar_projection_plan,
-                parse_supported_computed_order_expr,
+                parse_supported_computed_order_expr, projection_field_expr,
             },
             grouped_aggregate_execution_specs_with_model,
             grouped_aggregate_projection_specs_from_projection_spec,
@@ -402,14 +402,12 @@ fn project_static_planning_shape_for_model(
     plan: &AccessPlannedQuery,
 ) -> Result<StaticPlanningShape, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
-    let execution_preparation_compiled_predicate = plan
-        .execution_preparation_predicate()
-        .as_ref()
-        .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
-    let effective_runtime_compiled_predicate = plan
-        .effective_execution_predicate()
-        .as_ref()
-        .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
+    let execution_preparation_compiled_predicate = compile_optional_predicate_with_model(
+        model,
+        plan.execution_preparation_predicate().as_ref(),
+    );
+    let effective_runtime_compiled_predicate =
+        compile_optional_predicate_with_model(model, plan.effective_execution_predicate().as_ref());
     let scalar_projection_plan =
         if plan.grouped_plan().is_none() {
             Some(compile_scalar_projection_plan(model, &projection_spec).ok_or_else(|| {
@@ -420,37 +418,8 @@ fn project_static_planning_shape_for_model(
         } else {
             None
         };
-    let grouped_aggregate_execution_specs = if let Some(grouped) = plan.grouped_plan() {
-        #[cfg(not(test))]
-        let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
-            &projection_spec,
-            grouped.group.group_fields.as_slice(),
-            grouped.group.aggregates.as_slice(),
-        );
-        #[cfg(test)]
-        let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
-            &projection_spec,
-            grouped.group.group_fields.as_slice(),
-            grouped.group.aggregates.as_slice(),
-        )?;
-
-        Some(grouped_aggregate_execution_specs_with_model(
-            model,
-            aggregate_projection_specs.as_slice(),
-        )?)
-    } else {
-        None
-    };
-    let grouped_distinct_execution_strategy = if let Some(grouped) = plan.grouped_plan() {
-        Some(resolved_grouped_distinct_execution_strategy_for_model(
-            model,
-            grouped.group.group_fields.as_slice(),
-            grouped.group.aggregates.as_slice(),
-            grouped.having.as_ref(),
-        )?)
-    } else {
-        None
-    };
+    let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
+        resolve_grouped_static_planning_semantics(model, plan, &projection_spec)?;
     let projection_direct_slots =
         lower_direct_projection_slots(model, &plan.logical, &plan.projection_selection);
     let projection_referenced_slots =
@@ -483,6 +452,64 @@ fn project_static_planning_shape_for_model(
     })
 }
 
+// Compile one optional planner-frozen predicate program while keeping the
+// static planning assembly path free of repeated `Option` mapping boilerplate.
+fn compile_optional_predicate_with_model(
+    model: &EntityModel,
+    predicate: Option<&PredicateExecutionModel>,
+) -> Option<PredicateProgram> {
+    predicate.map(|predicate| PredicateProgram::compile_with_model(model, predicate))
+}
+
+// Resolve the grouped-only static planning semantics bundle once so grouped
+// aggregate execution specs and grouped DISTINCT strategy stay derived under
+// one shared grouped-plan branch.
+fn resolve_grouped_static_planning_semantics(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    projection_spec: &ProjectionSpec,
+) -> Result<
+    (
+        Option<Vec<GroupedAggregateExecutionSpec>>,
+        Option<GroupedDistinctExecutionStrategy>,
+    ),
+    InternalError,
+> {
+    let Some(grouped) = plan.grouped_plan() else {
+        return Ok((None, None));
+    };
+
+    #[cfg(not(test))]
+    let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
+        projection_spec,
+        grouped.group.group_fields.as_slice(),
+        grouped.group.aggregates.as_slice(),
+    );
+    #[cfg(test)]
+    let aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
+        projection_spec,
+        grouped.group.group_fields.as_slice(),
+        grouped.group.aggregates.as_slice(),
+    )?;
+
+    let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs_with_model(
+        model,
+        aggregate_projection_specs.as_slice(),
+    )?);
+    let grouped_distinct_execution_strategy =
+        Some(resolved_grouped_distinct_execution_strategy_for_model(
+            model,
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+            grouped.having.as_ref(),
+        )?);
+
+    Ok((
+        grouped_aggregate_execution_specs,
+        grouped_distinct_execution_strategy,
+    ))
+}
+
 fn projection_referenced_slots_for_spec(
     model: &EntityModel,
     projection: &ProjectionSpec,
@@ -490,11 +517,11 @@ fn projection_referenced_slots_for_spec(
     let mut referenced = vec![false; model.fields().len()];
 
     for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                mark_projection_expr_slots(model, expr, referenced.as_mut_slice())?;
-            }
-        }
+        mark_projection_expr_slots(
+            model,
+            projection_field_expr(field),
+            referenced.as_mut_slice(),
+        )?;
     }
 
     Ok(referenced
@@ -512,7 +539,7 @@ fn mark_projection_expr_slots(
     match expr {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let slot = resolve_field_slot(model, field_name).ok_or_else(|| {
+            let slot = resolve_required_field_slot(model, field_name, || {
                 InternalError::query_invalid_logical_plan(format!(
                     "projection expression references unknown field '{field_name}'",
                 ))
@@ -611,16 +638,13 @@ fn resolved_order_value_source_for_field(
 ) -> Result<ResolvedOrderValueSource, InternalError> {
     if let Some(expr) = parse_supported_computed_order_expr(field) {
         validate_resolved_order_expr_fields(model, &expr, field)?;
-        let compiled = compile_scalar_projection_expr(model, &expr).ok_or_else(|| {
-            InternalError::query_invalid_logical_plan(format!(
-                "order expression '{field}' did not stay on the scalar expression seam",
-            ))
-        })?;
+        let compiled = compile_scalar_projection_expr(model, &expr)
+            .ok_or_else(|| order_expression_scalar_seam_error(field))?;
 
         return Ok(ResolvedOrderValueSource::expression(compiled));
     }
 
-    let slot = resolve_field_slot(model, field).ok_or_else(|| {
+    let slot = resolve_required_field_slot(model, field, || {
         InternalError::query_invalid_logical_plan(format!(
             "order expression references unknown field '{field}'",
         ))
@@ -636,7 +660,7 @@ fn validate_resolved_order_expr_fields(
 ) -> Result<(), InternalError> {
     match expr {
         Expr::Field(field_id) => {
-            resolve_field_slot(model, field_id.as_str()).ok_or_else(|| {
+            resolve_required_field_slot(model, field_id.as_str(), || {
                 InternalError::query_invalid_logical_plan(format!(
                     "order expression references unknown field '{rendered}'",
                 ))
@@ -653,19 +677,36 @@ fn validate_resolved_order_expr_fields(
             validate_resolved_order_expr_fields(model, right.as_ref(), rendered)?;
         }
         Expr::Aggregate(_) => {
-            return Err(InternalError::query_invalid_logical_plan(format!(
-                "order expression '{rendered}' did not stay on the scalar expression seam",
-            )));
+            return Err(order_expression_scalar_seam_error(rendered));
         }
         #[cfg(test)]
         Expr::Alias { .. } | Expr::Unary { .. } => {
-            return Err(InternalError::query_invalid_logical_plan(format!(
-                "order expression '{rendered}' did not stay on the scalar expression seam",
-            )));
+            return Err(order_expression_scalar_seam_error(rendered));
         }
     }
 
     Ok(())
+}
+
+// Resolve one model field slot while keeping planner invalid-logical-plan
+// error construction at the callsite that owns the diagnostic wording.
+fn resolve_required_field_slot<F>(
+    model: &EntityModel,
+    field: &str,
+    invalid_plan_error: F,
+) -> Result<usize, InternalError>
+where
+    F: FnOnce() -> InternalError,
+{
+    resolve_field_slot(model, field).ok_or_else(invalid_plan_error)
+}
+
+// Keep the scalar-order expression seam violation text under one helper so the
+// parse validation and compile validation paths do not drift.
+fn order_expression_scalar_seam_error(rendered: &str) -> InternalError {
+    InternalError::query_invalid_logical_plan(format!(
+        "order expression '{rendered}' did not stay on the scalar expression seam",
+    ))
 }
 
 fn order_referenced_slots_for_resolved_order(

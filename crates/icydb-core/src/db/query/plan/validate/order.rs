@@ -19,18 +19,23 @@ use crate::{
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     for (field, _) in &order.fields {
-        if let Some(field_type) = schema.field(field) {
-            field_type
-                .is_orderable()
-                .then_some(())
-                .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)))?;
-            continue;
-        }
-
-        validate_expression_order_term(schema, field)?;
+        validate_order_term(schema, field)?;
     }
 
     Ok(())
+}
+
+// Canonical ORDER BY validation first prefers direct schema fields and only
+// falls back to the supported expression subset when no field matches.
+fn validate_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {
+    if let Some(field_type) = schema.field(field) {
+        return field_type
+            .is_orderable()
+            .then_some(())
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)));
+    }
+
+    validate_expression_order_term(schema, field)
 }
 
 fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {

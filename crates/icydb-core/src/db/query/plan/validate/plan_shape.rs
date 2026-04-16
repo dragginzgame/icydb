@@ -117,6 +117,12 @@ fn first_plan_shape_policy_violation(ctx: PlanShapePolicyContext) -> Option<Poli
     None
 }
 
+// Evaluate the ordered logical plan-shape policy rules and lift the first
+// violation into the planner-facing `Result<(), _>` shell.
+fn validate_plan_shape_policy_rules(ctx: PlanShapePolicyContext) -> Result<(), PolicyPlanError> {
+    first_plan_shape_policy_violation(ctx).map_or(Ok(()), Err)
+}
+
 /// Return true when an ORDER BY exists and contains at least one field.
 #[must_use]
 pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
@@ -154,9 +160,5 @@ pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PolicyPlanEr
         plan.page.is_some(),
         plan.delete_limit.is_some(),
     );
-    if let Some(reason) = first_plan_shape_policy_violation(context) {
-        return Err(reason);
-    }
-
-    Ok(())
+    validate_plan_shape_policy_rules(context)
 }

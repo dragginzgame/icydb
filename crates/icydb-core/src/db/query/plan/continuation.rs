@@ -488,12 +488,11 @@ impl AccessPlannedQuery {
         &self,
         cursor_present: bool,
     ) -> ScalarAccessWindowPlan {
-        let page = self.scalar_plan().page.as_ref();
-        let offset = page.map_or(0, |page| page.offset);
-        let limit = page.and_then(|page| page.limit);
-        let effective_offset = effective_offset_for_cursor_window(offset, cursor_present);
+        let page_window = PlannedPageWindow::from_query(self);
+        let effective_offset =
+            effective_offset_for_cursor_window(page_window.offset_u32(), cursor_present);
 
-        ScalarAccessWindowPlan::new(effective_offset, limit)
+        ScalarAccessWindowPlan::new(effective_offset, page_window.limit_u32())
     }
 
     /// Build one immutable continuation contract from planner-owned semantics.
@@ -506,6 +505,7 @@ impl AccessPlannedQuery {
             return None;
         }
 
+        let page_window = PlannedPageWindow::from_query(self);
         let shape_signature = self.execution_shape_signature(entity_path);
         let boundary_arity = self.grouped_plan().map_or_else(
             || {
@@ -516,17 +516,6 @@ impl AccessPlannedQuery {
             },
             |grouped| grouped.group.group_fields.len(),
         );
-        let window_size = self
-            .scalar_plan()
-            .page
-            .as_ref()
-            .map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX));
-        let page_limit = self
-            .scalar_plan()
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
         let is_grouped = self.grouped_plan().is_some();
         let order_contract =
             ExecutionOrderContract::from_plan(is_grouped, self.scalar_plan().order.as_ref());
@@ -538,11 +527,52 @@ impl AccessPlannedQuery {
         Some(PlannedContinuationContract::new(
             shape_signature,
             boundary_arity,
-            window_size,
+            page_window.offset_usize(),
             order_contract,
-            page_limit,
+            page_window.limit_usize(),
             access,
             grouped_cursor_policy_violation,
         ))
+    }
+}
+
+// Freeze one planner-owned page-window view so scalar access-window planning
+// and continuation-contract assembly do not each re-derive page offset/limit
+// conversions from the same logical page spec.
+struct PlannedPageWindow {
+    offset: u32,
+    limit: Option<u32>,
+}
+
+impl PlannedPageWindow {
+    // Project the logical page window from one access-planned query.
+    fn from_query(plan: &AccessPlannedQuery) -> Self {
+        let page = plan.scalar_plan().page.as_ref();
+
+        Self {
+            offset: page.map_or(0, |page| page.offset),
+            limit: page.and_then(|page| page.limit),
+        }
+    }
+
+    // Borrow the canonical u32 page offset used by cursor-window semantics.
+    const fn offset_u32(&self) -> u32 {
+        self.offset
+    }
+
+    // Borrow the canonical u32 page limit used by scalar access-window planning.
+    const fn limit_u32(&self) -> Option<u32> {
+        self.limit
+    }
+
+    // Project the page offset into continuation-contract usize form.
+    fn offset_usize(&self) -> usize {
+        usize::try_from(self.offset).unwrap_or(usize::MAX)
+    }
+
+    // Project the page limit into continuation-contract usize form.
+    fn limit_usize(&self) -> Option<usize> {
+        self.limit
+            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
     }
 }

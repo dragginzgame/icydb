@@ -6,7 +6,9 @@
 use crate::db::{
     query::plan::{
         FieldSlot, GroupSpec,
-        expr::{ProjectionField, ProjectionSpec, expr_references_only_fields, infer_expr_type},
+        expr::{
+            ProjectionSpec, expr_references_only_fields, infer_expr_type, projection_field_expr,
+        },
         validate::{ExprPlanError, PlanError},
     },
     schema::SchemaInfo,
@@ -26,19 +28,13 @@ pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
                 .collect::<Vec<_>>();
 
             for (index, field) in projection.fields().enumerate() {
-                match field {
-                    ProjectionField::Scalar { expr, .. } => {
-                        expr_references_only_fields(expr, &grouped_fields)
-                            .then_some(())
-                            .ok_or_else(|| {
-                                PlanError::from(
-                                    ExprPlanError::grouped_projection_references_non_group_field(
-                                        index,
-                                    ),
-                                )
-                            })?;
-                    }
-                }
+                expr_references_only_fields(projection_field_expr(field), &grouped_fields)
+                    .then_some(())
+                    .ok_or_else(|| {
+                        PlanError::from(
+                            ExprPlanError::grouped_projection_references_non_group_field(index),
+                        )
+                    })?;
             }
 
             Ok(())
@@ -53,11 +49,7 @@ pub(in crate::db::query::plan::validate) fn validate_projection_expr_types(
     projection: &ProjectionSpec,
 ) -> Result<(), PlanError> {
     for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                infer_expr_type(expr, schema)?;
-            }
-        }
+        infer_expr_type(projection_field_expr(field), schema)?;
     }
 
     Ok(())

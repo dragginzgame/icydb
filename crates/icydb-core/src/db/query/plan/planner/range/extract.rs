@@ -175,44 +175,44 @@ fn index_range_candidate_for_index(
     schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => index_range_candidate_for_key_items(
+            index,
+            schema,
+            fields.iter().copied().map(IndexKeyItem::Field),
+            compares,
+        ),
+        IndexKeyItemsRef::Items(items) => {
+            index_range_candidate_for_key_items(index, schema, items.iter().copied(), compares)
+        }
+    }
+}
+
+// Field-only and mixed key-item indexes share the same prefix/range slot walk;
+// only the source iterator for canonical key items differs.
+fn index_range_candidate_for_key_items<I>(
+    index: &'static IndexModel,
+    schema: &SchemaInfo,
+    key_items: I,
+    compares: &[CachedCompare<'_>],
+) -> Option<(usize, Vec<Value>, RangeConstraint)>
+where
+    I: IntoIterator<Item = IndexKeyItem>,
+{
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
 
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => {
-            for (position, &field_name) in fields.iter().enumerate() {
-                let constraint = key_item_constraint_for_index_slot(
-                    index,
-                    schema,
-                    IndexKeyItem::Field(field_name),
-                    compares,
-                )?;
-                if !consume_index_slot_constraint(
-                    &mut prefix,
-                    &mut range,
-                    &mut range_position,
-                    position,
-                    constraint,
-                ) {
-                    return None;
-                }
-            }
-        }
-        IndexKeyItemsRef::Items(items) => {
-            for (position, &key_item) in items.iter().enumerate() {
-                let constraint =
-                    key_item_constraint_for_index_slot(index, schema, key_item, compares)?;
-                if !consume_index_slot_constraint(
-                    &mut prefix,
-                    &mut range,
-                    &mut range_position,
-                    position,
-                    constraint,
-                ) {
-                    return None;
-                }
-            }
+    for (position, key_item) in key_items.into_iter().enumerate() {
+        let constraint = key_item_constraint_for_index_slot(index, schema, key_item, compares)?;
+        if !consume_index_slot_constraint(
+            &mut prefix,
+            &mut range,
+            &mut range_position,
+            position,
+            constraint,
+        ) {
+            return None;
         }
     }
 

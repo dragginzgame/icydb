@@ -218,28 +218,15 @@ pub(in crate::db) fn covering_read_plan_from_fields(
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
-    // Phase 1: reject shapes that are intentionally outside the first covering
-    // read route contract before touching projection details.
-    if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
-        return None;
-    }
-    if plan.has_residual_predicate() && !strict_predicate_compatible {
-        return None;
-    }
-
-    // Phase 2: project one immutable covering-access contract shared by every
-    // field in the scalar covering-read output.
-    let metadata = covering_access_metadata(&plan.access)?;
-    let order_terms = metadata.order_terms();
-    let order_contract = covering_projection_order_contract(
-        plan.scalar_plan().order.as_ref(),
-        order_terms.as_slice(),
-        metadata.prefix_len,
+    // Phase 1: reject unsupported plan shapes and freeze the shared
+    // index-backed covering contract once for the whole projection.
+    let (metadata, order_contract) = prepare_covering_index_projection_plan(
+        plan,
         primary_key_name,
-        metadata.path_kind_is_range,
+        strict_predicate_compatible,
     )?;
 
-    // Phase 3: derive one source contract per output field in canonical
+    // Phase 2: derive one source contract per output field in canonical
     // projection order. Any unsupported field shape falls back to the current
     // row-materialized path.
     let projection = plan.frozen_projection_spec();
@@ -280,27 +267,12 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<CoveringReadPlan> {
-    // Phase 1: reject shapes that still need full executor-owned row
-    // materialization or post-access predicate semantics.
-    if plan.grouped_plan().is_some()
-        || !plan.scalar_plan().mode.is_load()
-        || plan.has_residual_predicate()
-    {
-        return None;
-    }
+    // Phase 1: reject unsupported plan shapes and freeze the shared
+    // index-backed covering contract once for the whole projection.
+    let (metadata, order_contract) =
+        prepare_covering_index_projection_plan(plan, primary_key_name, false)?;
 
-    // Phase 2: freeze the shared index-backed order and component context.
-    let metadata = covering_access_metadata(&plan.access)?;
-    let order_terms = metadata.order_terms();
-    let order_contract = covering_projection_order_contract(
-        plan.scalar_plan().order.as_ref(),
-        order_terms.as_slice(),
-        metadata.prefix_len,
-        primary_key_name,
-        metadata.path_kind_is_range,
-    )?;
-
-    // Phase 3: admit direct projections that mix covering-backed and
+    // Phase 2: admit direct projections that mix covering-backed and
     // row-backed fields so SQL can assemble the final row from both sources.
     let fields = covering_hybrid_projection_fields_from_projection(
         fields,
@@ -580,6 +552,33 @@ impl CoveringAccessMetadata<'_> {
     }
 }
 
+// Freeze the shared index-backed covering plan contract once so the pure and
+// hybrid covering planners do not each restate the same access/order setup.
+fn prepare_covering_index_projection_plan<'a>(
+    plan: &'a AccessPlannedQuery,
+    primary_key_name: &'static str,
+    residual_predicate_supported: bool,
+) -> Option<(CoveringAccessMetadata<'a>, CoveringProjectionOrder)> {
+    if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
+        return None;
+    }
+    if plan.has_residual_predicate() && !residual_predicate_supported {
+        return None;
+    }
+
+    let metadata = covering_access_metadata(&plan.access)?;
+    let order_terms = metadata.order_terms();
+    let order_contract = covering_projection_order_contract(
+        plan.scalar_plan().order.as_ref(),
+        order_terms.as_slice(),
+        metadata.prefix_len,
+        primary_key_name,
+        metadata.path_kind_is_range,
+    )?;
+
+    Some((metadata, order_contract))
+}
+
 // Classify the planner-owned existing-row mode for one primary-store covering
 // access shape.
 fn primary_store_covering_existing_row_mode<K>(
@@ -635,22 +634,14 @@ fn covering_read_fields_from_projection(
     primary_key_name: &'static str,
     access: &AccessPlan<Value>,
 ) -> Option<Vec<CoveringReadField>> {
-    let mut covering_fields = Vec::with_capacity(projection.len());
-
-    for projection_field in projection.fields() {
-        let field_name = projection_field_direct_field_name(projection_field)?;
-        let field_slot = resolve_covering_field_slot(fields, field_name)?;
-        let source = covering_read_field_source(
-            field_name,
-            coverable_component_fields,
-            primary_key_name,
-            access,
-        )?;
-
-        covering_fields.push(CoveringReadField { field_slot, source });
-    }
-
-    Some(covering_fields)
+    covering_projection_fields_from_projection(
+        fields,
+        projection,
+        coverable_component_fields,
+        primary_key_name,
+        access,
+        covering_read_field_source,
+    )
 }
 
 // Derive one hybrid direct-field projection field list where each projected
@@ -662,18 +653,53 @@ fn covering_hybrid_projection_fields_from_projection(
     primary_key_name: &'static str,
     access: &AccessPlan<Value>,
 ) -> Option<Vec<CoveringReadField>> {
+    covering_projection_fields_from_projection(
+        fields,
+        projection,
+        coverable_component_fields,
+        primary_key_name,
+        access,
+        |field_name, coverable_component_fields, primary_key_name, access| {
+            Some(covering_hybrid_projection_field_source(
+                field_name,
+                coverable_component_fields,
+                primary_key_name,
+                access,
+            ))
+        },
+    )
+}
+
+// Assemble one projected covering field list while leaving field-source
+// ownership to the caller so pure and hybrid covering plans share the same
+// projection-walk and field-slot resolution contract.
+fn covering_projection_fields_from_projection<F>(
+    fields: &[FieldModel],
+    projection: &ProjectionSpec,
+    coverable_component_fields: &[Option<&'static str>],
+    primary_key_name: &'static str,
+    access: &AccessPlan<Value>,
+    resolve_source: F,
+) -> Option<Vec<CoveringReadField>>
+where
+    F: Fn(
+        &str,
+        &[Option<&'static str>],
+        &'static str,
+        &AccessPlan<Value>,
+    ) -> Option<CoveringReadFieldSource>,
+{
     let mut projection_fields = Vec::with_capacity(projection.len());
 
     for projection_field in projection.fields() {
         let field_name = projection_field_direct_field_name(projection_field)?;
         let field_slot = resolve_covering_field_slot(fields, field_name)?;
-        let source = covering_hybrid_projection_field_source(
+        let source = resolve_source(
             field_name,
             coverable_component_fields,
             primary_key_name,
             access,
-        );
-
+        )?;
         projection_fields.push(CoveringReadField { field_slot, source });
     }
 

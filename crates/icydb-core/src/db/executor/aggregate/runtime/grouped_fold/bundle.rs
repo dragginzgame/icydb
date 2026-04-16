@@ -117,6 +117,30 @@ impl GroupedAggregateGroupState {
 }
 
 ///
+/// GroupedAggregateGroupEntry
+///
+/// GroupedAggregateGroupEntry keeps one canonical group key beside its
+/// aggregate state row so the generic grouped bundle can use bucketed indices
+/// without duplicating group keys across a second lookup map.
+///
+
+struct GroupedAggregateGroupEntry {
+    group_key: GroupKey,
+    group_state: GroupedAggregateGroupState,
+}
+
+impl GroupedAggregateGroupEntry {
+    // Build one new grouped bundle entry from the canonical group key and the
+    // bundle-owned aggregate slot specs.
+    fn from_specs(group_key: GroupKey, specs: &[GroupedAggregateBundleSpec]) -> Self {
+        Self {
+            group_key,
+            group_state: GroupedAggregateGroupState::from_specs(specs),
+        }
+    }
+}
+
+///
 /// GroupedFinalizeGroup
 ///
 /// GroupedFinalizeGroup carries one canonical group key plus its per-group
@@ -174,8 +198,8 @@ impl GroupedFinalizeGroup {
 
 pub(super) struct GroupedAggregateBundle {
     aggregate_specs: Vec<GroupedAggregateBundleSpec>,
-    borrowed_lookup_keys: HashMap<StableHash, Vec<GroupKey>>,
-    groups: HashMap<GroupKey, GroupedAggregateGroupState>,
+    bucket_index: HashMap<StableHash, Vec<usize>>,
+    groups: Vec<GroupedAggregateGroupEntry>,
 }
 
 impl GroupedAggregateBundle {
@@ -184,8 +208,8 @@ impl GroupedAggregateBundle {
     pub(super) fn new(aggregate_specs: Vec<GroupedAggregateBundleSpec>) -> Self {
         Self {
             aggregate_specs,
-            borrowed_lookup_keys: HashMap::new(),
-            groups: HashMap::new(),
+            bucket_index: HashMap::new(),
+            groups: Vec::new(),
         }
     }
 
@@ -223,20 +247,29 @@ impl GroupedAggregateBundle {
     }
 
     // Search one borrowed stable-hash bucket for an existing canonical group
-    // key without first materializing a fresh owned key for this row.
-    fn find_matching_borrowed_group_key(
+    // entry without first materializing a fresh owned key for this row.
+    fn find_matching_borrowed_group_index(
         &self,
         borrowed_group_hash: StableHash,
         row_view: &RowView,
         group_fields: &[FieldSlot],
-    ) -> Result<Option<GroupKey>, GroupError> {
-        let Some(bucket) = self.borrowed_lookup_keys.get(&borrowed_group_hash) else {
+    ) -> Result<Option<usize>, GroupError> {
+        let Some(bucket) = self.bucket_index.get(&borrowed_group_hash) else {
             return Ok(None);
         };
 
-        for group_key in bucket {
-            if Self::group_key_matches_row_view(group_key, row_view, group_fields)? {
-                return Ok(Some(group_key.clone()));
+        for group_index in bucket {
+            let Some(group_entry) = self.groups.get(*group_index) else {
+                return Err(GroupError::from(InternalError::query_executor_invariant(
+                    format!(
+                        "grouped aggregate bucket index out of bounds: index={} len={}",
+                        group_index,
+                        self.groups.len(),
+                    ),
+                )));
+            };
+            if Self::group_key_matches_row_view(&group_entry.group_key, row_view, group_fields)? {
+                return Ok(Some(*group_index));
             }
         }
 
@@ -252,7 +285,7 @@ impl GroupedAggregateBundle {
     ) -> Result<&'a GroupKey, GroupError> {
         if owned_group_key.is_none() {
             *owned_group_key = Some(
-                super::materialize_group_key_from_row_view(row_view, group_fields)
+                super::materialize_group_key_from_row_view(row_view, group_fields, None)
                     .map_err(GroupError::from)?,
             );
         }
@@ -270,29 +303,26 @@ impl GroupedAggregateBundle {
         &mut self,
         group_key: GroupKey,
         execution_context: &mut ExecutionContext,
-    ) -> Result<(), GroupError> {
+    ) -> Result<usize, GroupError> {
         let group_count_before_insert = self.groups.len();
         let group_capacity_before_insert = self.groups.capacity();
         execution_context.record_new_group_states(
-            &group_key,
             group_count_before_insert,
             group_capacity_before_insert,
             self.aggregate_specs.len(),
         )?;
-        self.borrowed_lookup_keys
-            .entry(group_key.hash())
-            .or_default()
-            .push(group_key.clone());
-        let inserted = self.groups.insert(
+        let new_index = self.groups.len();
+        let group_hash = group_key.hash();
+        self.groups.push(GroupedAggregateGroupEntry::from_specs(
             group_key,
-            GroupedAggregateGroupState::from_specs(self.aggregate_specs.as_slice()),
-        );
-        debug_assert!(
-            inserted.is_none(),
-            "new grouped bundle group insertion must not replace an existing group",
-        );
+            self.aggregate_specs.as_slice(),
+        ));
+        self.bucket_index
+            .entry(group_hash)
+            .or_default()
+            .push(new_index);
 
-        Ok(())
+        Ok(new_index)
     }
 
     // Apply one grouped input row to the resolved per-group aggregate states.
@@ -336,30 +366,34 @@ impl GroupedAggregateBundle {
     ) -> Result<(), GroupError> {
         // Phase 1: resolve the group through borrowed row-slot hashing when
         // possible so existing-group hits stay allocation-free.
-        let resolved_group_key = if let Some(borrowed_group_hash) = borrowed_group_hash {
-            if let Some(group_key) =
-                self.find_matching_borrowed_group_key(borrowed_group_hash, row_view, group_fields)?
-            {
-                group_key
+        let group_index = if let Some(borrowed_group_hash) = borrowed_group_hash {
+            if let Some(group_index) = self.find_matching_borrowed_group_index(
+                borrowed_group_hash,
+                row_view,
+                group_fields,
+            )? {
+                group_index
             } else {
-                Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone()
+                let group_key =
+                    Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?
+                        .clone();
+                self.insert_new_group(group_key, execution_context)?
             }
         } else {
-            Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone()
+            let group_key =
+                Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
+            self.insert_new_group(group_key, execution_context)?
         };
 
-        // Phase 2: create one new group entry only when the canonical grouped
-        // key is unseen in the shared bundle.
-        if !self.groups.contains_key(&resolved_group_key) {
-            self.insert_new_group(resolved_group_key.clone(), execution_context)?;
-        }
-
-        let group_state = self.groups.get_mut(&resolved_group_key).ok_or_else(|| {
-            GroupError::from(InternalError::query_executor_invariant(format!(
-                "grouped bundle missing resolved group state for key: {:?}",
-                resolved_group_key.canonical_value(),
-            )))
-        })?;
+        let group_state = self
+            .groups
+            .get_mut(group_index)
+            .map(|entry| &mut entry.group_state)
+            .ok_or_else(|| {
+                GroupError::from(InternalError::query_executor_invariant(format!(
+                    "grouped bundle missing resolved group state for index: {group_index}",
+                )))
+            })?;
 
         Self::apply_row_to_group(group_state, data_key, row_view, execution_context)
     }
@@ -374,9 +408,9 @@ impl GroupedAggregateBundle {
     pub(super) fn into_groups(self) -> impl Iterator<Item = GroupedFinalizeGroup> {
         self.groups
             .into_iter()
-            .map(|(group_key, group_state)| GroupedFinalizeGroup {
-                group_key,
-                aggregate_states: group_state.aggregate_states,
+            .map(|group_entry| GroupedFinalizeGroup {
+                group_key: group_entry.group_key,
+                aggregate_states: group_entry.group_state.aggregate_states,
             })
     }
 
@@ -384,15 +418,11 @@ impl GroupedAggregateBundle {
     /// states have not been finalized yet.
     #[must_use]
     pub(super) fn into_sorted_groups(self) -> Vec<GroupedFinalizeGroup> {
-        debug_assert!(
-            !self.aggregate_specs.is_empty(),
-            "grouped finalize requires at least one aggregate slot",
-        );
         let expected_group_count = self.groups.len();
         let mut out = self.into_groups().collect::<Vec<_>>();
 
         // Phase 2: preserve deterministic canonical grouped-key order across
-        // hash-table iteration.
+        // grouped-bundle insertion order.
         out.sort_by(|left, right| {
             canonical_value_compare(
                 left.group_key.canonical_value(),

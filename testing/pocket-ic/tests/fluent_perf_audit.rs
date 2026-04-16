@@ -87,6 +87,20 @@ struct FluentPerfBaselineRow {
     #[serde(default)]
     avg_direct_data_row_page_window_local_instructions: u64,
     #[serde(default)]
+    avg_grouped_stream_local_instructions: u64,
+    #[serde(default)]
+    avg_grouped_fold_local_instructions: u64,
+    #[serde(default)]
+    avg_grouped_finalize_local_instructions: u64,
+    #[serde(default)]
+    avg_grouped_count_borrowed_hash_computations: u64,
+    #[serde(default)]
+    avg_grouped_count_bucket_candidate_checks: u64,
+    #[serde(default)]
+    avg_grouped_count_existing_group_hits: u64,
+    #[serde(default)]
+    avg_grouped_count_new_group_inserts: u64,
+    #[serde(default)]
     avg_response_decode_local_instructions: u64,
     #[serde(default)]
     avg_execute_local_instructions: u64,
@@ -110,6 +124,13 @@ struct FluentPerfScenarioSample {
     baseline_avg_direct_data_row_store_get_local_instructions: Option<u64>,
     baseline_avg_direct_data_row_order_window_local_instructions: Option<u64>,
     baseline_avg_direct_data_row_page_window_local_instructions: Option<u64>,
+    baseline_avg_grouped_stream_local_instructions: Option<u64>,
+    baseline_avg_grouped_fold_local_instructions: Option<u64>,
+    baseline_avg_grouped_finalize_local_instructions: Option<u64>,
+    baseline_avg_grouped_count_borrowed_hash_computations: Option<u64>,
+    baseline_avg_grouped_count_bucket_candidate_checks: Option<u64>,
+    baseline_avg_grouped_count_existing_group_hits: Option<u64>,
+    baseline_avg_grouped_count_new_group_inserts: Option<u64>,
     baseline_avg_response_decode_local_instructions: Option<u64>,
     baseline_avg_execute_local_instructions: Option<u64>,
     baseline_avg_local_instructions: Option<u64>,
@@ -123,6 +144,13 @@ struct FluentPerfScenarioSample {
     avg_direct_data_row_store_get_local_instructions: u64,
     avg_direct_data_row_order_window_local_instructions: u64,
     avg_direct_data_row_page_window_local_instructions: u64,
+    avg_grouped_stream_local_instructions: u64,
+    avg_grouped_fold_local_instructions: u64,
+    avg_grouped_finalize_local_instructions: u64,
+    avg_grouped_count_borrowed_hash_computations: u64,
+    avg_grouped_count_bucket_candidate_checks: u64,
+    avg_grouped_count_existing_group_hits: u64,
+    avg_grouped_count_new_group_inserts: u64,
     avg_response_decode_local_instructions: u64,
     avg_execute_local_instructions: u64,
     avg_shared_query_plan_cache_hits: u64,
@@ -354,6 +382,15 @@ fn maybe_write_blessed_baseline(samples: &[FluentPerfScenarioSample]) {
                 .avg_direct_data_row_order_window_local_instructions,
             avg_direct_data_row_page_window_local_instructions: sample
                 .avg_direct_data_row_page_window_local_instructions,
+            avg_grouped_stream_local_instructions: sample.avg_grouped_stream_local_instructions,
+            avg_grouped_fold_local_instructions: sample.avg_grouped_fold_local_instructions,
+            avg_grouped_finalize_local_instructions: sample.avg_grouped_finalize_local_instructions,
+            avg_grouped_count_borrowed_hash_computations: sample
+                .avg_grouped_count_borrowed_hash_computations,
+            avg_grouped_count_bucket_candidate_checks: sample
+                .avg_grouped_count_bucket_candidate_checks,
+            avg_grouped_count_existing_group_hits: sample.avg_grouped_count_existing_group_hits,
+            avg_grouped_count_new_group_inserts: sample.avg_grouped_count_new_group_inserts,
             avg_response_decode_local_instructions: sample.avg_response_decode_local_instructions,
             avg_execute_local_instructions: sample.avg_execute_local_instructions,
             avg_local_instructions: sample.avg_local_instructions,
@@ -385,6 +422,13 @@ fn sample_perf_scenario(
     let mut direct_data_row_store_get_samples = Vec::with_capacity(scenario.sample_count);
     let mut direct_data_row_order_window_samples = Vec::with_capacity(scenario.sample_count);
     let mut direct_data_row_page_window_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_stream_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_fold_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_finalize_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_count_borrowed_hash_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_count_bucket_check_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_count_existing_hit_samples = Vec::with_capacity(scenario.sample_count);
+    let mut grouped_count_new_insert_samples = Vec::with_capacity(scenario.sample_count);
     let mut response_decode_samples = Vec::with_capacity(scenario.sample_count);
     let mut execute_samples = Vec::with_capacity(scenario.sample_count);
     let mut shared_query_plan_cache_hit_samples = Vec::with_capacity(scenario.sample_count);
@@ -472,6 +516,16 @@ fn sample_perf_scenario(
                 .attribution
                 .direct_data_row_page_window_local_instructions,
         );
+        grouped_stream_samples.push(sample.attribution.grouped_stream_local_instructions);
+        grouped_fold_samples.push(sample.attribution.grouped_fold_local_instructions);
+        grouped_finalize_samples.push(sample.attribution.grouped_finalize_local_instructions);
+        grouped_count_borrowed_hash_samples
+            .push(sample.attribution.grouped_count_borrowed_hash_computations);
+        grouped_count_bucket_check_samples
+            .push(sample.attribution.grouped_count_bucket_candidate_checks);
+        grouped_count_existing_hit_samples
+            .push(sample.attribution.grouped_count_existing_group_hits);
+        grouped_count_new_insert_samples.push(sample.attribution.grouped_count_new_group_inserts);
         response_decode_samples.push(sample.attribution.response_decode_local_instructions);
         execute_samples.push(sample.attribution.execute_local_instructions);
         shared_query_plan_cache_hit_samples.push(sample.attribution.shared_query_plan_cache_hits);
@@ -502,6 +556,15 @@ fn sample_perf_scenario(
         average_u64(&direct_data_row_order_window_samples);
     let avg_direct_data_row_page_window_local_instructions =
         average_u64(&direct_data_row_page_window_samples);
+    let avg_grouped_stream_local_instructions = average_u64(&grouped_stream_samples);
+    let avg_grouped_fold_local_instructions = average_u64(&grouped_fold_samples);
+    let avg_grouped_finalize_local_instructions = average_u64(&grouped_finalize_samples);
+    let avg_grouped_count_borrowed_hash_computations =
+        average_u64(&grouped_count_borrowed_hash_samples);
+    let avg_grouped_count_bucket_candidate_checks =
+        average_u64(&grouped_count_bucket_check_samples);
+    let avg_grouped_count_existing_group_hits = average_u64(&grouped_count_existing_hit_samples);
+    let avg_grouped_count_new_group_inserts = average_u64(&grouped_count_new_insert_samples);
     let avg_response_decode_local_instructions = average_u64(&response_decode_samples);
     let avg_execute_local_instructions = average_u64(&execute_samples);
     let avg_shared_query_plan_cache_hits = average_u64(&shared_query_plan_cache_hit_samples);
@@ -552,6 +615,20 @@ fn sample_perf_scenario(
             .map(|row| row.avg_direct_data_row_order_window_local_instructions),
         baseline_avg_direct_data_row_page_window_local_instructions: baseline_row
             .map(|row| row.avg_direct_data_row_page_window_local_instructions),
+        baseline_avg_grouped_stream_local_instructions: baseline_row
+            .map(|row| row.avg_grouped_stream_local_instructions),
+        baseline_avg_grouped_fold_local_instructions: baseline_row
+            .map(|row| row.avg_grouped_fold_local_instructions),
+        baseline_avg_grouped_finalize_local_instructions: baseline_row
+            .map(|row| row.avg_grouped_finalize_local_instructions),
+        baseline_avg_grouped_count_borrowed_hash_computations: baseline_row
+            .map(|row| row.avg_grouped_count_borrowed_hash_computations),
+        baseline_avg_grouped_count_bucket_candidate_checks: baseline_row
+            .map(|row| row.avg_grouped_count_bucket_candidate_checks),
+        baseline_avg_grouped_count_existing_group_hits: baseline_row
+            .map(|row| row.avg_grouped_count_existing_group_hits),
+        baseline_avg_grouped_count_new_group_inserts: baseline_row
+            .map(|row| row.avg_grouped_count_new_group_inserts),
         baseline_avg_response_decode_local_instructions: baseline_row
             .map(|row| row.avg_response_decode_local_instructions),
         baseline_avg_execute_local_instructions: baseline_row
@@ -567,6 +644,13 @@ fn sample_perf_scenario(
         avg_direct_data_row_store_get_local_instructions,
         avg_direct_data_row_order_window_local_instructions,
         avg_direct_data_row_page_window_local_instructions,
+        avg_grouped_stream_local_instructions,
+        avg_grouped_fold_local_instructions,
+        avg_grouped_finalize_local_instructions,
+        avg_grouped_count_borrowed_hash_computations,
+        avg_grouped_count_bucket_candidate_checks,
+        avg_grouped_count_existing_group_hits,
+        avg_grouped_count_new_group_inserts,
         avg_response_decode_local_instructions,
         avg_execute_local_instructions,
         avg_shared_query_plan_cache_hits,
@@ -725,7 +809,7 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
 
     for sample in &samples {
         println!(
-            "{} | {} | runs={} | compile={} | runtime={} | direct_scan={} | direct_key={} | direct_read={} | direct_encode={} | direct_store={} | direct_order={} | direct_page={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
+            "{} | {} | runs={} | compile={} | runtime={} | direct_scan={} | direct_key={} | direct_read={} | direct_encode={} | direct_store={} | direct_order={} | direct_page={} | grouped_stream={} | grouped_fold={} | grouped_finalize={} | count_hash={} | count_buckets={} | count_hits={} | count_inserts={} | finalize={} | decode={} | execute={} | cache_hits={} | cache_misses={} | total={} | delta={:?} | delta_bps={:?}",
             sample.scenario_key,
             sample.query_label,
             sample.query_loop_count,
@@ -738,6 +822,13 @@ fn fluent_perf_audit_harness_reports_instruction_samples() {
             sample.avg_direct_data_row_store_get_local_instructions,
             sample.avg_direct_data_row_order_window_local_instructions,
             sample.avg_direct_data_row_page_window_local_instructions,
+            sample.avg_grouped_stream_local_instructions,
+            sample.avg_grouped_fold_local_instructions,
+            sample.avg_grouped_finalize_local_instructions,
+            sample.avg_grouped_count_borrowed_hash_computations,
+            sample.avg_grouped_count_bucket_candidate_checks,
+            sample.avg_grouped_count_existing_group_hits,
+            sample.avg_grouped_count_new_group_inserts,
             sample.avg_finalize_local_instructions,
             sample.avg_response_decode_local_instructions,
             sample.avg_execute_local_instructions,

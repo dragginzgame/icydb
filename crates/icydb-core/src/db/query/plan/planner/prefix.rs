@@ -193,65 +193,52 @@ fn build_index_eq_prefix(
     index: &IndexModel,
     field_values: &[CachedEqLiteral<'_>],
 ) -> Option<Vec<Value>> {
-    let mut prefix = Vec::new();
     match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => {
-            for &field in fields {
-                let key_item = IndexKeyItem::Field(field);
-                let mut matched: Option<Value> = None;
-                for cached in field_values {
-                    let Some(candidate) = eq_lookup_value_for_key_item(
-                        key_item,
-                        cached.field,
-                        cached.value,
-                        cached.coercion,
-                        cached.compatible,
-                    ) else {
-                        continue;
-                    };
-
-                    if let Some(existing) = &matched
-                        && existing != &candidate
-                    {
-                        return None;
-                    }
-                    matched = Some(candidate);
-                }
-
-                let Some(value) = matched else {
-                    break;
-                };
-                prefix.push(value);
-            }
-        }
+        IndexKeyItemsRef::Fields(fields) => build_index_eq_prefix_for_items(
+            fields.iter().copied().map(IndexKeyItem::Field),
+            field_values,
+        ),
         IndexKeyItemsRef::Items(items) => {
-            for &key_item in items {
-                let mut matched: Option<Value> = None;
-                for cached in field_values {
-                    let Some(candidate) = eq_lookup_value_for_key_item(
-                        key_item,
-                        cached.field,
-                        cached.value,
-                        cached.coercion,
-                        cached.compatible,
-                    ) else {
-                        continue;
-                    };
-
-                    if let Some(existing) = &matched
-                        && existing != &candidate
-                    {
-                        return None;
-                    }
-                    matched = Some(candidate);
-                }
-
-                let Some(value) = matched else {
-                    break;
-                };
-                prefix.push(value);
-            }
+            build_index_eq_prefix_for_items(items.iter().copied(), field_values)
         }
+    }
+}
+
+// Field-only indexes and mixed field/expression indexes both use the same
+// equality-prefix assembly contract; only the key-item iterator differs.
+fn build_index_eq_prefix_for_items<I>(
+    key_items: I,
+    field_values: &[CachedEqLiteral<'_>],
+) -> Option<Vec<Value>>
+where
+    I: IntoIterator<Item = IndexKeyItem>,
+{
+    let mut prefix = Vec::new();
+    for key_item in key_items {
+        let mut matched: Option<Value> = None;
+        for cached in field_values {
+            let Some(candidate) = eq_lookup_value_for_key_item(
+                key_item,
+                cached.field,
+                cached.value,
+                cached.coercion,
+                cached.compatible,
+            ) else {
+                continue;
+            };
+
+            if let Some(existing) = &matched
+                && existing != &candidate
+            {
+                return None;
+            }
+            matched = Some(candidate);
+        }
+
+        let Some(value) = matched else {
+            break;
+        };
+        prefix.push(value);
     }
 
     Some(prefix)

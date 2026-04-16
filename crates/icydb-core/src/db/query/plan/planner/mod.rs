@@ -94,10 +94,11 @@ pub(crate) fn plan_access_with_order(
         let true_predicate = Predicate::True;
         let eligible_indexes = sorted_indexes(visible_indexes, &true_predicate);
 
-        return Ok(
-            order_select::index_range_from_order(model, eligible_indexes.as_slice(), order)
-                .unwrap_or_else(AccessPlan::full_scan),
-        );
+        return Ok(order_fallback_plan(
+            model,
+            eligible_indexes.as_slice(),
+            order,
+        ));
     };
 
     let eligible_indexes = sorted_indexes(visible_indexes, predicate);
@@ -125,11 +126,19 @@ pub(crate) fn plan_access_with_order(
         return Ok(plan);
     }
 
-    if let Some(order_plan) =
+    Ok(
         order_select::index_range_from_order(model, eligible_indexes.as_slice(), order)
-    {
-        return Ok(order_plan);
-    }
+            .unwrap_or(plan),
+    )
+}
 
-    Ok(plan)
+// Order-only planning is the final planner-owned fallback once predicate
+// access either does not exist or degenerates to a full scan.
+fn order_fallback_plan(
+    model: &EntityModel,
+    eligible_indexes: &[&'static IndexModel],
+    order: Option<&OrderSpec>,
+) -> AccessPlan<Value> {
+    order_select::index_range_from_order(model, eligible_indexes, order)
+        .unwrap_or_else(AccessPlan::full_scan)
 }

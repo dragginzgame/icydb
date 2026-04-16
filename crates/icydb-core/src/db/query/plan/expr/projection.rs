@@ -77,6 +77,14 @@ impl ProjectionSpec {
     }
 }
 
+/// Borrow the canonical expression owned by one projection field.
+#[must_use]
+pub(crate) const fn projection_field_expr(field: &ProjectionField) -> &Expr {
+    match field {
+        ProjectionField::Scalar { expr, .. } => expr,
+    }
+}
+
 /// Return one direct projected field name when the output stays on one field
 /// leaf under optional alias wrappers.
 #[must_use]
@@ -84,9 +92,7 @@ impl ProjectionSpec {
 pub(in crate::db) const fn projection_field_direct_field_name(
     field: &ProjectionField,
 ) -> Option<&str> {
-    match field {
-        ProjectionField::Scalar { expr, .. } => direct_projection_expr_field_name(expr),
-    }
+    direct_projection_expr_field_name(projection_field_expr(field))
 }
 
 /// Return one direct projected field name when the output stays on one field
@@ -94,9 +100,7 @@ pub(in crate::db) const fn projection_field_direct_field_name(
 #[must_use]
 #[cfg(test)]
 pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField) -> Option<&str> {
-    match field {
-        ProjectionField::Scalar { expr, .. } => direct_projection_expr_field_name(expr),
-    }
+    direct_projection_expr_field_name(projection_field_expr(field))
 }
 
 /// Return one direct field name when the expression is only a field leaf plus

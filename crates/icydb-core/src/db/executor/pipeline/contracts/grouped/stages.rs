@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow},
+        data::{DataKey, RawRow, StorageKey},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -24,6 +24,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
+    model::field::FieldModel,
     value::Value,
 };
 
@@ -98,6 +99,10 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
 enum RowViewStorage {
     #[cfg(test)]
     Dense(Vec<Option<Value>>),
+    Single {
+        slot: usize,
+        value: Value,
+    },
     Indexed {
         layout: RetainedSlotLayout,
         values: Vec<Option<Value>>,
@@ -131,12 +136,23 @@ impl RowView {
         }
     }
 
+    /// Build one compact grouped row view for the common single-slot grouped
+    /// shape without cloning the shared retained-slot layout or allocating a
+    /// one-element retained-values vector.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_single_value(slot: usize, value: Value) -> Self {
+        Self {
+            storage: RowViewStorage::Single { slot, value },
+        }
+    }
+
     /// Borrow one slot by index without cloning the underlying value.
     #[must_use]
     pub(in crate::db::executor) fn borrow_slot(&self, index: usize) -> Option<&Value> {
         match &self.storage {
             #[cfg(test)]
             RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
+            RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
             RowViewStorage::Indexed { layout, values } => {
                 let value_index = layout.value_index_for_slot(index)?;
 
@@ -195,6 +211,21 @@ impl RowView {
 }
 
 ///
+/// SingleGroupedSlotDecode
+///
+/// SingleGroupedSlotDecode freezes the field metadata needed by the common
+/// one-slot grouped row path.
+/// Grouped runtime uses this to avoid rediscovering both the selected-slot and
+/// primary-key field contracts on every row decode.
+///
+
+struct SingleGroupedSlotDecode {
+    slot: usize,
+    field: &'static FieldModel,
+    primary_key_field: &'static FieldModel,
+}
+
+///
 /// StructuralGroupedRowRuntime
 ///
 /// StructuralGroupedRowRuntime keeps grouped row reads on store-handle and
@@ -207,27 +238,58 @@ pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
     store: StoreHandle,
     row_layout: RowLayout,
     grouped_slot_layout: RetainedSlotLayout,
+    single_grouped_slot_decode: Option<SingleGroupedSlotDecode>,
 }
 
 impl StructuralGroupedRowRuntime {
     /// Build one grouped row runtime from structural store authority and one
     /// precomputed row-decode layout.
     #[must_use]
-    pub(in crate::db::executor) const fn new(
+    pub(in crate::db::executor) fn new(
         store: StoreHandle,
         row_layout: RowLayout,
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Self {
+        let single_grouped_slot_decode = match grouped_slot_layout.required_slots() {
+            [required_slot] => {
+                let contract = row_layout.contract();
+                let field = contract
+                    .fields()
+                    .get(*required_slot)
+                    .expect("grouped slot layout must reference one declared structural row field");
+                let primary_key_field = contract
+                    .fields()
+                    .get(contract.primary_key_slot())
+                    .expect("structural row contract must retain one declared primary-key field");
+
+                Some(SingleGroupedSlotDecode {
+                    slot: *required_slot,
+                    field,
+                    primary_key_field,
+                })
+            }
+            _ => None,
+        };
+
         Self {
             store,
             row_layout,
             grouped_slot_layout,
+            single_grouped_slot_decode,
         }
     }
 
     // Decode one persisted data row straight into the structural slot view
     // consumed by grouped fold/runtime stages without building a full kernel row.
     fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
+        if let Some(single_grouped_slot_decode) = &self.single_grouped_slot_decode {
+            return self.single_slot_row_view_from_data_row(
+                key.storage_key(),
+                row,
+                single_grouped_slot_decode,
+            );
+        }
+
         let values = RowDecoder::decode_indexed_slot_values(
             &self.row_layout,
             key.storage_key(),
@@ -238,6 +300,36 @@ impl StructuralGroupedRowRuntime {
         Ok(RowView::from_indexed_values(
             &self.grouped_slot_layout,
             values,
+        ))
+    }
+
+    // Decode one grouped row view for the common single-slot shape without
+    // allocating the shared indexed row-view wrapper.
+    fn single_slot_row_view_from_data_row(
+        &self,
+        expected_key: StorageKey,
+        row: RawRow,
+        single_grouped_slot_decode: &SingleGroupedSlotDecode,
+    ) -> Result<RowView, InternalError> {
+        let value = RowDecoder::decode_required_slot_value_with_fields(
+            &self.row_layout,
+            expected_key,
+            &row,
+            single_grouped_slot_decode.slot,
+            single_grouped_slot_decode.field,
+            single_grouped_slot_decode.primary_key_field,
+        )?;
+
+        let value = value.ok_or_else(|| {
+            InternalError::query_executor_invariant(format!(
+                "single-slot grouped row decode returned no value: slot={}",
+                single_grouped_slot_decode.slot,
+            ))
+        })?;
+
+        Ok(RowView::from_single_value(
+            single_grouped_slot_decode.slot,
+            value,
         ))
     }
 
@@ -258,6 +350,37 @@ impl StructuralGroupedRowRuntime {
                 Err(crate::db::executor::ExecutorError::missing_row(key).into())
             }
         }
+    }
+
+    /// Read one data row and decode one caller-selected grouped slot value
+    /// directly when the grouped runtime already carries the matching one-slot
+    /// decode metadata.
+    pub(in crate::db::executor) fn read_single_group_value(
+        &self,
+        consistency: MissingRowPolicy,
+        key: &DataKey,
+        required_slot: usize,
+    ) -> Result<Option<Value>, InternalError> {
+        let Some(row) = self.read_data_row(consistency, key)? else {
+            return Ok(None);
+        };
+
+        if let Some(single_grouped_slot_decode) = &self.single_grouped_slot_decode
+            && single_grouped_slot_decode.slot == required_slot
+        {
+            return RowDecoder::decode_required_slot_value_with_fields(
+                &self.row_layout,
+                key.storage_key(),
+                &row,
+                single_grouped_slot_decode.slot,
+                single_grouped_slot_decode.field,
+                single_grouped_slot_decode.primary_key_field,
+            );
+        }
+
+        let row_view = self.row_view_from_data_row(key, row)?;
+
+        Ok(Some(row_view.require_slot_ref(required_slot)?.clone()))
     }
 
     /// Read one data row and project it into one structural grouped row view.
@@ -432,5 +555,16 @@ mod tests {
             Some(&Value::Text("group".to_string()))
         );
         assert_eq!(row_view.borrow_slot(0), None);
+    }
+
+    #[test]
+    fn single_slot_row_view_resolves_only_its_declared_slot() {
+        let row_view = RowView::from_single_value(4, Value::Text("group".to_string()));
+
+        assert_eq!(
+            row_view.borrow_slot(4),
+            Some(&Value::Text("group".to_string()))
+        );
+        assert_eq!(row_view.borrow_slot(1), None);
     }
 }

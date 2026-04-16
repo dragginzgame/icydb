@@ -10,7 +10,7 @@ use crate::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingSpec,
             GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{Expr, ProjectionField, ProjectionSpec, expr_references_only_fields},
+            expr::{Expr, ProjectionSpec, expr_references_only_fields, projection_field_expr},
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
             validate_grouped_projection_layout,
@@ -664,91 +664,7 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
 
 // Derive grouped field/aggregate projection slots and grouped aggregate
 // projection specs from canonical projection semantics.
-#[cfg(not(test))]
-fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
-    projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
-    aggregates: &[GroupAggregateSpec],
-) -> (
-    PlannedProjectionLayout,
-    Vec<GroupedAggregateProjectionSpec>,
-    bool,
-) {
-    let grouped_field_names = group_fields
-        .iter()
-        .map(FieldSlot::field)
-        .collect::<Vec<_>>();
-    let mut group_field_positions = Vec::new();
-    let mut aggregate_positions = Vec::new();
-    let mut aggregate_projection_specs = Vec::new();
-    let mut projection_is_identity =
-        projection_spec.len() == group_fields.len().saturating_add(aggregates.len());
-    let mut next_group_field_index = 0usize;
-    let mut next_aggregate_index = 0usize;
-
-    for (index, field) in projection_spec.fields().enumerate() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                let root_expr = expression_without_alias(expr);
-                match root_expr {
-                    Expr::Field(field_id) => {
-                        group_field_positions.push(index);
-                        projection_is_identity &= next_aggregate_index == 0
-                            && group_fields.get(next_group_field_index).is_some_and(
-                                |group_field| field_id.as_str() == group_field.field.as_str(),
-                            );
-                        next_group_field_index = next_group_field_index.saturating_add(1);
-                    }
-                    Expr::Aggregate(aggregate_expr) => {
-                        aggregate_positions.push(index);
-                        let aggregate_projection_spec =
-                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
-                        projection_is_identity &= next_group_field_index == group_fields.len()
-                            && aggregates
-                                .get(next_aggregate_index)
-                                .is_some_and(|aggregate| {
-                                    aggregate_projection_spec.matches_semantic_aggregate(aggregate)
-                                });
-                        aggregate_projection_specs.push(aggregate_projection_spec);
-                        next_aggregate_index = next_aggregate_index.saturating_add(1);
-                    }
-                    _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
-                        group_field_positions.push(index);
-                        projection_is_identity &= next_aggregate_index == 0
-                            && matches!(
-                                root_expr,
-                                Expr::Field(field_id)
-                                    if group_fields.get(next_group_field_index).is_some_and(
-                                        |group_field| field_id.as_str() == group_field.field.as_str(),
-                                    )
-                            );
-                        next_group_field_index = next_group_field_index.saturating_add(1);
-                    }
-                    _ => {
-                        group_field_positions.push(index);
-                        projection_is_identity = false;
-                        next_group_field_index = next_group_field_index.saturating_add(1);
-                    }
-                }
-            }
-        }
-    }
-    projection_is_identity &=
-        next_group_field_index == group_fields.len() && next_aggregate_index == aggregates.len();
-
-    (
-        PlannedProjectionLayout {
-            group_field_positions,
-            aggregate_positions,
-        },
-        aggregate_projection_specs,
-        projection_is_identity,
-    )
-}
-
-// Strip alias wrappers so layout classification uses semantic expression roots.
-#[cfg(test)]
-fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
+fn planned_projection_layout_and_aggregate_projection_specs_core(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
@@ -773,58 +689,46 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     let mut next_aggregate_index = 0usize;
 
     for (index, field) in projection_spec.fields().enumerate() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                let root_expr = expression_without_alias(expr);
-                match root_expr {
-                    Expr::Field(field_id) => {
-                        group_field_positions.push(index);
-                        projection_is_identity &= next_aggregate_index == 0
-                            && group_fields.get(next_group_field_index).is_some_and(
-                                |group_field| field_id.as_str() == group_field.field.as_str(),
-                            );
-                        next_group_field_index = next_group_field_index.saturating_add(1);
-                    }
-                    Expr::Aggregate(aggregate_expr) => {
-                        aggregate_positions.push(index);
-                        let aggregate_projection_spec =
-                            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
-                        projection_is_identity &= next_group_field_index == group_fields.len()
-                            && aggregates
-                                .get(next_aggregate_index)
-                                .is_some_and(|aggregate| {
-                                    aggregate_projection_spec.matches_semantic_aggregate(aggregate)
-                                });
-                        aggregate_projection_specs.push(aggregate_projection_spec);
-                        next_aggregate_index = next_aggregate_index.saturating_add(1);
-                    }
-                    Expr::Literal(_)
-                    | Expr::FunctionCall { .. }
-                    | Expr::Unary { .. }
-                    | Expr::Binary { .. }
-                        if expr_references_only_fields(
-                            root_expr,
-                            grouped_field_names.as_slice(),
-                        ) =>
-                    {
-                        group_field_positions.push(index);
-                        projection_is_identity = false;
-                        next_group_field_index = next_group_field_index.saturating_add(1);
-                    }
-                    Expr::Literal(_)
-                    | Expr::FunctionCall { .. }
-                    | Expr::Unary { .. }
-                    | Expr::Binary { .. } => {
-                        return Err(InternalError::planner_executor_invariant(format!(
-                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
-                        )));
-                    }
-                    Expr::Alias { .. } => {
-                        return Err(InternalError::planner_executor_invariant(
-                            "grouped projection layout alias normalization must remove alias wrappers",
-                        ));
-                    }
-                }
+        let root_expr = expression_without_alias(projection_field_expr(field));
+        match root_expr {
+            Expr::Field(field_id) => {
+                group_field_positions.push(index);
+                projection_is_identity &= next_aggregate_index == 0
+                    && group_fields
+                        .get(next_group_field_index)
+                        .is_some_and(|group_field| field_id.as_str() == group_field.field.as_str());
+                next_group_field_index = next_group_field_index.saturating_add(1);
+            }
+            Expr::Aggregate(aggregate_expr) => {
+                aggregate_positions.push(index);
+                let aggregate_projection_spec =
+                    GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
+                projection_is_identity &= next_group_field_index == group_fields.len()
+                    && aggregates
+                        .get(next_aggregate_index)
+                        .is_some_and(|aggregate| {
+                            aggregate_projection_spec.matches_semantic_aggregate(aggregate)
+                        });
+                aggregate_projection_specs.push(aggregate_projection_spec);
+                next_aggregate_index = next_aggregate_index.saturating_add(1);
+            }
+            _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
+                group_field_positions.push(index);
+                projection_is_identity &= grouped_projection_expression_preserves_identity(
+                    root_expr,
+                    group_fields,
+                    next_group_field_index,
+                    next_aggregate_index,
+                );
+                next_group_field_index = next_group_field_index.saturating_add(1);
+            }
+            _ => {
+                #[cfg(test)]
+                return Err(non_grouped_projection_layout_expression(index));
+
+                group_field_positions.push(index);
+                projection_is_identity = false;
+                next_group_field_index = next_group_field_index.saturating_add(1);
             }
         }
     }
@@ -838,6 +742,80 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
         },
         aggregate_projection_specs,
         projection_is_identity,
+    ))
+}
+
+// Derive grouped field/aggregate projection slots and grouped aggregate
+// projection specs from canonical projection semantics.
+#[cfg(not(test))]
+fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
+    projection_spec: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> (
+    PlannedProjectionLayout,
+    Vec<GroupedAggregateProjectionSpec>,
+    bool,
+) {
+    match planned_projection_layout_and_aggregate_projection_specs_core(
+        projection_spec,
+        group_fields,
+        aggregates,
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            unreachable!("non-test grouped projection layout core must stay infallible: {error}")
+        }
+    }
+}
+
+// Derive grouped field/aggregate projection slots and grouped aggregate
+// projection specs from canonical projection semantics.
+#[cfg(test)]
+fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
+    projection_spec: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+) -> Result<
+    (
+        PlannedProjectionLayout,
+        Vec<GroupedAggregateProjectionSpec>,
+        bool,
+    ),
+    InternalError,
+> {
+    planned_projection_layout_and_aggregate_projection_specs_core(
+        projection_spec,
+        group_fields,
+        aggregates,
+    )
+}
+
+// Keep grouped layout identity checks local to the planner-owned layout core
+// so computed grouped-key expressions do not pretend to preserve field-order
+// identity.
+fn grouped_projection_expression_preserves_identity(
+    root_expr: &Expr,
+    group_fields: &[FieldSlot],
+    next_group_field_index: usize,
+    next_aggregate_index: usize,
+) -> bool {
+    next_aggregate_index == 0
+        && matches!(
+            root_expr,
+            Expr::Field(field_id)
+                if group_fields.get(next_group_field_index).is_some_and(
+                    |group_field| field_id.as_str() == group_field.field.as_str(),
+                )
+        )
+}
+
+// Keep the grouped projection-layout rejection text under one helper so the
+// test-only strict grouped projection path does not drift from the core loop.
+#[cfg(test)]
+fn non_grouped_projection_layout_expression(index: usize) -> InternalError {
+    InternalError::planner_executor_invariant(format!(
+        "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
     ))
 }
 

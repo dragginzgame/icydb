@@ -44,10 +44,7 @@ pub(super) fn plan_compare(
 
     match cmp.op {
         CompareOp::Eq => {
-            if !matches!(
-                cmp.coercion.id,
-                CoercionId::Strict | CoercionId::TextCasefold
-            ) {
+            if !coercion_supports_index_lookup(cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
             if let Some(paths) = index_prefix_for_eq(
@@ -63,10 +60,7 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::In => {
-            if !matches!(
-                cmp.coercion.id,
-                CoercionId::Strict | CoercionId::TextCasefold
-            ) {
+            if !coercion_supports_index_lookup(cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
             if let Value::List(items) = &cmp.value {
@@ -90,19 +84,13 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-            if !matches!(
-                cmp.coercion.id,
-                CoercionId::Strict | CoercionId::TextCasefold
-            ) {
+            if !coercion_supports_index_lookup(cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
             let Some(field_type) = schema.field(&cmp.field) else {
                 return AccessPlan::full_scan();
             };
-            if cmp.coercion.id == CoercionId::Strict && !field_type.is_orderable() {
-                return AccessPlan::full_scan();
-            }
-            if cmp.coercion.id == CoercionId::TextCasefold && !field_type.is_text() {
+            if !field_supports_ordered_compare(field_type, cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
             if let Some(path) = plan_ordered_compare(model, candidate_indexes, schema, cmp, order) {
@@ -110,10 +98,7 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::StartsWith => {
-            if !matches!(
-                cmp.coercion.id,
-                CoercionId::Strict | CoercionId::TextCasefold
-            ) {
+            if !coercion_supports_index_lookup(cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
 
@@ -136,6 +121,23 @@ pub(super) fn plan_compare(
     }
 
     AccessPlan::full_scan()
+}
+
+// Planner compare access only supports exact schema semantics or case-folded
+// text semantics. Other coercions still require residual predicate filtering.
+const fn coercion_supports_index_lookup(coercion: CoercionId) -> bool {
+    matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold)
+}
+
+// Ordered compare access has one tighter field-type contract on top of the
+// generic lookup-coercion gate: strict comparisons require orderable fields,
+// and case-folded compares are text-only.
+fn field_supports_ordered_compare(field_type: &FieldType, coercion: CoercionId) -> bool {
+    match coercion {
+        CoercionId::Strict => field_type.is_orderable(),
+        CoercionId::TextCasefold => field_type.is_text(),
+        _ => false,
+    }
 }
 
 fn plan_pk_compare(

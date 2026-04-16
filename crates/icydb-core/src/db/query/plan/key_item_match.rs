@@ -99,6 +99,18 @@ pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item(
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<Value> {
+    lower_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)
+}
+
+// Lower one predicate literal into the canonical key-item value once so the
+// equality and prefix lookup paths share the same field/coercion/literal gate.
+fn lower_lookup_value_for_key_item(
+    key_item: IndexKeyItem,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> Option<Value> {
     match key_item {
         IndexKeyItem::Field(key_field) => {
             if key_field != field || coercion != CoercionId::Strict || !literal_compatible {
@@ -132,7 +144,7 @@ pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item(
     literal_compatible: bool,
 ) -> Option<String> {
     let lowered =
-        eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
+        lower_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
     let Value::Text(prefix) = lowered else {
         return None;
     };

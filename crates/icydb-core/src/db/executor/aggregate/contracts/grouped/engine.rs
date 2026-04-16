@@ -232,11 +232,8 @@ impl GroupedAggregateState {
             self.max_distinct_values_per_group,
         );
         let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;
-        execution_context.record_new_group(
-            group_key,
-            group_count_before_insert,
-            group_capacity_before_insert,
-        )?;
+        execution_context
+            .record_new_group(group_count_before_insert, group_capacity_before_insert)?;
         self.groups.insert(group_key.clone(), state);
 
         Ok(fold_control)
@@ -276,7 +273,7 @@ impl GroupedAggregateState {
         } else {
             let group_values = row_view.group_values(group_fields)?;
             let group_key = GroupKey::from_group_values(group_values)
-                .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
+                .map_err(|err| GroupError::from(err.into_internal_error()))?;
             owned_group_key.insert(group_key)
         };
 

@@ -113,14 +113,14 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
     plan: &AccessPlannedQuery,
     covering_scan: bool,
 ) {
-    let projected_fields = plan
-        .frozen_projection_spec()
-        .fields()
-        .map(projection_field_descriptor_name)
-        .map(Value::from)
-        .collect();
-    node.node_properties
-        .insert("proj_fields", Value::List(projected_fields));
+    node.node_properties.insert(
+        "proj_fields",
+        value_list(
+            plan.frozen_projection_spec()
+                .fields()
+                .map(projection_field_descriptor_name),
+        ),
+    );
     node.node_properties
         .insert("proj_pushdown", Value::from(covering_scan));
 }
@@ -170,20 +170,10 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
         "acc_reason",
         Value::from(access_choice.chosen_reason.code()),
     );
-    let alternatives = access_choice
-        .alternatives
-        .into_iter()
-        .map(Value::from)
-        .collect();
     node.node_properties
-        .insert("acc_alts", Value::List(alternatives));
-    let rejected = access_choice
-        .rejected
-        .into_iter()
-        .map(Value::from)
-        .collect();
+        .insert("acc_alts", value_list(access_choice.alternatives));
     node.node_properties
-        .insert("acc_reject", Value::List(rejected));
+        .insert("acc_reject", value_list(access_choice.rejected));
 }
 
 pub(in crate::db::executor::explain::descriptor) fn descriptor_route_property_line(
@@ -260,6 +250,28 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_fast_path_reason_no
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
+    let (selected_label, selected_reason, rejections) = fast_path_property_values(route_plan);
+    node.node_properties
+        .insert("fast_path", Value::from(selected_label));
+    node.node_properties
+        .insert("fast_reason", Value::from(selected_reason));
+    node.node_properties.insert("fast_reject", rejections);
+}
+
+// Convert one iterator of route/explain-facing scalar values into the
+// canonical `Value::List` payload used by descriptor node properties.
+fn value_list<T>(values: impl IntoIterator<Item = T>) -> Value
+where
+    Value: From<T>,
+{
+    Value::List(values.into_iter().map(Value::from).collect())
+}
+
+// Derive the selected fast-path label/reason plus the rejected candidate list
+// once so descriptor annotation does not open-code fast-path observability.
+fn fast_path_property_values(
+    route_plan: &ExecutionRoutePlan,
+) -> (&'static str, &'static str, Value) {
     let mut selected: Option<FastPathOrder> = None;
     let mut rejections = Vec::new();
     for route in route_plan.fast_path_order() {
@@ -270,7 +282,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_fast_path_reason_no
         } else {
             let mut rejection = String::new();
             write_fast_path_rejection_entry(&mut rejection, *route, route_plan);
-            rejections.push(Value::from(rejection));
+            rejections.push(rejection);
         }
     }
 
@@ -282,12 +294,8 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_fast_path_reason_no
     } else {
         ("none", "mat_fallback")
     };
-    node.node_properties
-        .insert("fast_path", Value::from(selected_label));
-    node.node_properties
-        .insert("fast_reason", Value::from(selected_reason));
-    node.node_properties
-        .insert("fast_reject", Value::List(rejections));
+
+    (selected_label, selected_reason, value_list(rejections))
 }
 
 const fn fast_path_label(route: FastPathOrder) -> &'static str {
@@ -417,9 +425,8 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
         ExplainExecutionNodeType::SecondaryOrderPushdown,
         execution_mode,
     );
-    node.node_properties.insert("index", Value::from(*index));
-    node.node_properties
-        .insert("prefix_len", Value::from(u64_from_usize(*prefix_len)));
+    insert_node_property(&mut node, "index", *index);
+    insert_node_property(&mut node, "prefix_len", u64_from_usize(*prefix_len));
 
     Some(node)
 }
@@ -442,12 +449,10 @@ pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_desc
         ExplainExecutionNodeType::OrderByMaterializedSort
     };
     let mut node = empty_execution_node_descriptor(node_type, execution_mode);
-    node.node_properties.insert(
+    insert_node_property(
+        &mut node,
         "order_by_idx",
-        Value::from(matches!(
-            node_type,
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        )),
+        matches!(node_type, ExplainExecutionNodeType::OrderByAccessSatisfied),
     );
 
     Some(node)
@@ -581,7 +586,7 @@ pub(in crate::db::executor::explain::descriptor) fn index_range_limit_pushdown_d
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let spec = route_plan.index_range_limit_spec?;
-    Some(fetch_execution_node_descriptor(
+    Some(fetch_pushdown_execution_node_descriptor(
         ExplainExecutionNodeType::IndexRangeLimitPushdown,
         execution_mode,
         spec.fetch,
@@ -593,7 +598,7 @@ pub(in crate::db::executor::explain::descriptor) fn top_n_seek_descriptor(
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let spec = route_plan.top_n_seek_spec()?;
-    Some(fetch_execution_node_descriptor(
+    Some(fetch_pushdown_execution_node_descriptor(
         ExplainExecutionNodeType::TopNSeek,
         execution_mode,
         spec.fetch(),
@@ -712,11 +717,17 @@ fn annotate_continuation_node_properties(
 }
 
 fn insert_fetch_node_property(node: &mut ExplainExecutionNodeDescriptor, fetch: usize) {
-    node.node_properties
-        .insert("fetch", Value::from(u64_from_usize(fetch)));
+    insert_node_property(node, "fetch", u64_from_usize(fetch));
 }
 
-fn fetch_execution_node_descriptor(
+fn insert_node_property<T>(node: &mut ExplainExecutionNodeDescriptor, key: &'static str, value: T)
+where
+    Value: From<T>,
+{
+    node.node_properties.insert(key, Value::from(value));
+}
+
+fn fetch_pushdown_execution_node_descriptor(
     node_type: ExplainExecutionNodeType,
     execution_mode: ExplainExecutionMode,
     fetch: usize,

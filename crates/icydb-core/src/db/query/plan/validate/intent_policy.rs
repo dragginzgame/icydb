@@ -127,6 +127,15 @@ fn intent_only_with_predicate_violation(
         .then_some(IntentKeyAccessPolicyViolation::only_with_predicate())
 }
 
+// Evaluate one ordered intent-policy rule set and lift the first violation
+// into the conventional `Result<(), _>` planner-validation shell.
+fn validate_intent_policy_rules<C, E>(rules: &[fn(C) -> Option<E>], context: C) -> Result<(), E>
+where
+    C: Copy,
+{
+    first_violated_rule(rules, context).map_or(Ok(()), Err)
+}
+
 /// Validate intent-level plan-shape rules derived from query mode + modifiers.
 pub(crate) fn validate_intent_plan_shape(
     mode: QueryMode,
@@ -141,7 +150,7 @@ pub(crate) fn validate_intent_plan_shape(
         has_explicit_order(order),
         matches!(&mode, QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0),
     );
-    first_violated_rule(INTENT_PLAN_SHAPE_POLICY_RULES, context).map_or(Ok(()), Err)
+    validate_intent_policy_rules(INTENT_PLAN_SHAPE_POLICY_RULES, context)
 }
 
 /// Validate intent key-access policy before planning.
@@ -156,5 +165,5 @@ pub(crate) fn validate_intent_key_access_policy(
         has_predicate,
     );
 
-    first_violated_rule(INTENT_KEY_ACCESS_POLICY_RULES, context).map_or(Ok(()), Err)
+    validate_intent_policy_rules(INTENT_KEY_ACCESS_POLICY_RULES, context)
 }

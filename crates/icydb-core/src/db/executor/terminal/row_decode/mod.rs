@@ -16,11 +16,12 @@ use crate::{
             DataRow, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
             decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
             decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+            decode_sparse_required_slot_with_contract_and_fields,
         },
         executor::terminal::{RetainedSlotLayout, RetainedSlotRow, page::KernelRow},
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldModel},
     value::Value,
 };
 
@@ -163,6 +164,27 @@ impl RowDecoder {
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
         decode_sparse_required_slot_with_contract(row, layout.contract, expected_key, required_slot)
+    }
+
+    // Decode one retained structural slot value through caller-frozen field
+    // metadata so one-slot grouped paths do not rediscover the selected and
+    // primary-key field contracts per row.
+    pub(in crate::db::executor) fn decode_required_slot_value_with_fields(
+        layout: &RowLayout,
+        expected_key: StorageKey,
+        row: &RawRow,
+        required_slot: usize,
+        required_field: &FieldModel,
+        primary_key_field: &FieldModel,
+    ) -> Result<Option<Value>, InternalError> {
+        decode_sparse_required_slot_with_contract_and_fields(
+            row,
+            layout.contract,
+            expected_key,
+            required_slot,
+            required_field,
+            primary_key_field,
+        )
     }
 
     /// Decode one retained structural slot-row without materializing a dense

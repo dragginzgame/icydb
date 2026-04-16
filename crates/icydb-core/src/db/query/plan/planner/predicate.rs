@@ -4,7 +4,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPath, AccessPlan},
         predicate::Predicate,
         query::plan::{
             OrderSpec,
@@ -117,16 +117,8 @@ fn child_is_redundant_under_selected_index_access(
         return false;
     };
 
-    if let Some((index, values)) = path.as_ref().as_index_prefix()
-        && cmp.op == crate::db::predicate::CompareOp::Eq
-        && index_prefix_guarantees_eq_compare(schema, index, values, cmp)
-    {
-        return true;
-    }
-
-    if let Some((index, prefix_values, _, _)) = path.as_ref().as_index_range()
-        && cmp.op == crate::db::predicate::CompareOp::Eq
-        && index_prefix_guarantees_eq_compare(schema, index, prefix_values, cmp)
+    if cmp.op == crate::db::predicate::CompareOp::Eq
+        && selected_index_prefix_guarantees_eq_compare(schema, path.as_ref(), cmp)
     {
         return true;
     }
@@ -134,6 +126,26 @@ fn child_is_redundant_under_selected_index_access(
     path.as_ref()
         .selected_index_model()
         .is_some_and(|index| index_predicate_guarantees_compare(index, cmp))
+}
+
+// Selected index prefix and selected index range both carry an equality prefix
+// that can already prove one compare predicate. Project that shared contract
+// before checking whether the chosen access path makes the child redundant.
+fn selected_index_prefix_guarantees_eq_compare(
+    schema: &SchemaInfo,
+    selected_path: &AccessPath<Value>,
+    cmp: &crate::db::predicate::ComparePredicate,
+) -> bool {
+    let selected_prefix = selected_path.as_index_prefix().or_else(|| {
+        selected_path
+            .as_index_range()
+            .map(|(index, values, _, _)| (index, values))
+    });
+    let Some((index, prefix_values)) = selected_prefix else {
+        return false;
+    };
+
+    index_prefix_guarantees_eq_compare(schema, index, prefix_values, cmp)
 }
 
 // Prefix guarantees are checked against canonical key-item lowering so mixed

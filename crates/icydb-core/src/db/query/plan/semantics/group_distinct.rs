@@ -238,42 +238,15 @@ pub(crate) fn is_global_distinct_field_aggregate_candidate(
 /// Return grouped DISTINCT admissibility for the global field-target aggregate
 /// shape candidate.
 #[must_use]
+#[cfg(test)]
 pub(crate) fn global_distinct_field_aggregate_admissibility(
     aggregates: &[GroupAggregateSpec],
     having: Option<&GroupHavingSpec>,
 ) -> GroupDistinctAdmissibility {
-    if having.is_some() {
-        return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::global_distinct_having_unsupported(),
-        );
-    }
-    if aggregates.len() != 1 {
-        return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::global_distinct_requires_single_aggregate(),
-        );
-    }
-
-    let aggregate = &aggregates[0];
-    if aggregate.target_field().is_none() {
-        return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate(),
-        );
-    }
-    if !aggregate.distinct() {
-        return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::global_distinct_requires_distinct_aggregate_terminal(),
-        );
-    }
-    if !aggregate
-        .kind()
-        .supports_global_distinct_without_group_keys()
-    {
-        return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind(),
-        );
-    }
-
-    GroupDistinctAdmissibility::Allowed
+    resolve_global_distinct_supported_aggregate(aggregates, having)
+        .map_or_else(GroupDistinctAdmissibility::Disallowed, |_| {
+            GroupDistinctAdmissibility::Allowed
+        })
 }
 
 /// Resolve one supported global DISTINCT field-target grouped aggregate shape.
@@ -285,11 +258,7 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
     if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
         return Ok(None);
     }
-    match global_distinct_field_aggregate_admissibility(aggregates, having) {
-        GroupDistinctAdmissibility::Allowed => {}
-        GroupDistinctAdmissibility::Disallowed(reason) => return Err(reason),
-    }
-    let aggregate = &aggregates[0];
+    let aggregate = resolve_global_distinct_supported_aggregate(aggregates, having)?;
     let target_field = aggregate
         .target_field()
         .ok_or(GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate())?;
@@ -298,6 +267,38 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
         kind: aggregate.kind(),
         target_field,
     }))
+}
+
+// Resolve the one supported global-DISTINCT aggregate terminal so the planner
+// policy path and semantic projection path share the same shape contract.
+fn resolve_global_distinct_supported_aggregate<'a>(
+    aggregates: &'a [GroupAggregateSpec],
+    having: Option<&GroupHavingSpec>,
+) -> Result<&'a GroupAggregateSpec, GroupDistinctPolicyReason> {
+    if having.is_some() {
+        return Err(GroupDistinctPolicyReason::global_distinct_having_unsupported());
+    }
+    if aggregates.len() != 1 {
+        return Err(GroupDistinctPolicyReason::global_distinct_requires_single_aggregate());
+    }
+
+    let aggregate = &aggregates[0];
+    if aggregate.target_field().is_none() {
+        return Err(GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate());
+    }
+    if !aggregate.distinct() {
+        return Err(
+            GroupDistinctPolicyReason::global_distinct_requires_distinct_aggregate_terminal(),
+        );
+    }
+    if !aggregate
+        .kind()
+        .supports_global_distinct_without_group_keys()
+    {
+        return Err(GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind());
+    }
+
+    Ok(aggregate)
 }
 
 /// Build one global DISTINCT grouped spec from canonical semantic aggregate shape.

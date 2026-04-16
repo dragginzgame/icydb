@@ -41,17 +41,12 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
         ProjectionSelection::All => model
             .fields
             .iter()
-            .map(|field| ProjectionField::Scalar {
-                expr: Expr::Field(FieldId::new(field.name)),
-                alias: None,
-            })
+            .map(|field| direct_field_projection(FieldId::new(field.name)))
             .collect(),
         ProjectionSelection::Fields(field_ids) => field_ids
             .iter()
-            .map(|field_id| ProjectionField::Scalar {
-                expr: Expr::Field(field_id.clone()),
-                alias: None,
-            })
+            .cloned()
+            .map(direct_field_projection)
             .collect(),
         ProjectionSelection::Exprs(fields) => fields.clone(),
     };
@@ -99,10 +94,9 @@ fn lower_scalar_direct_projection_slots(
 #[must_use]
 pub(crate) fn lower_projection_identity(logical: &LogicalPlan) -> ProjectionSpec {
     match logical {
-        LogicalPlan::Scalar(_) => ProjectionSpec::new(vec![ProjectionField::Scalar {
-            expr: Expr::Field(FieldId::new("__icydb_scalar_projection_default_v1__")),
-            alias: None,
-        }]),
+        LogicalPlan::Scalar(_) => ProjectionSpec::new(vec![direct_field_projection(FieldId::new(
+            "__icydb_scalar_projection_default_v1__",
+        ))]),
         LogicalPlan::Grouped(grouped) => lower_grouped_projection_from_plan(grouped),
     }
 }
@@ -122,19 +116,31 @@ fn lower_grouped_projection(
 ) -> ProjectionSpec {
     let mut fields = Vec::with_capacity(group_fields.len().saturating_add(aggregates.len()));
     for group_field in group_fields {
-        fields.push(ProjectionField::Scalar {
-            expr: Expr::Field(FieldId::new(group_field.field())),
-            alias: None,
-        });
+        fields.push(direct_field_projection(FieldId::new(group_field.field())));
     }
     for aggregate in aggregates {
-        fields.push(ProjectionField::Scalar {
-            expr: Expr::Aggregate(lower_group_aggregate_expr(aggregate)),
-            alias: None,
-        });
+        fields.push(aggregate_projection(lower_group_aggregate_expr(aggregate)));
     }
 
     ProjectionSpec::new(fields)
+}
+
+// Build one direct-field projection node so scalar, grouped, and identity
+// lowering keep the same projection-field shape in one place.
+fn direct_field_projection(field_id: FieldId) -> ProjectionField {
+    ProjectionField::Scalar {
+        expr: Expr::Field(field_id),
+        alias: None,
+    }
+}
+
+// Build one grouped aggregate projection node so grouped projection lowering
+// does not restate the scalar aggregate projection envelope inline.
+fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField {
+    ProjectionField::Scalar {
+        expr: Expr::Aggregate(aggregate_expr),
+        alias: None,
+    }
 }
 
 /// Lower one grouped aggregate semantic spec into one canonical aggregate expression.
