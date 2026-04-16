@@ -78,7 +78,7 @@ struct GroupedCountTotals {
 
 #[cfg(feature = "sql")]
 impl GroupedCountTotals {
-    fn record_sql(&mut self, attribution: &SqlQueryExecutionAttribution) {
+    const fn record_sql(&mut self, attribution: &SqlQueryExecutionAttribution) {
         self.borrowed_hash_computations = self
             .borrowed_hash_computations
             .saturating_add(attribution.grouped_count_borrowed_hash_computations);
@@ -105,7 +105,7 @@ impl GroupedCountTotals {
             .saturating_add(attribution.grouped_count_new_group_insert_local_instructions);
     }
 
-    fn record_fluent(&mut self, attribution: &QueryExecutionAttribution) {
+    const fn record_fluent(&mut self, attribution: &QueryExecutionAttribution) {
         self.borrowed_hash_computations = self
             .borrowed_hash_computations
             .saturating_add(attribution.grouped_count_borrowed_hash_computations);
