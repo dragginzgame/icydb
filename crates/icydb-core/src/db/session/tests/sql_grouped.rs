@@ -1622,11 +1622,11 @@ fn grouped_statement_sql_preserves_fixed_scale_for_post_aggregate_round_projecti
         vec![
             (
                 vec![Value::Uint(12)],
-                vec![Value::Decimal(crate::types::Decimal::new(120000, 4))],
+                vec![Value::Decimal(crate::types::Decimal::new(120_000, 4))],
             ),
             (
                 vec![Value::Uint(14)],
-                vec![Value::Decimal(crate::types::Decimal::new(140000, 4))],
+                vec![Value::Decimal(crate::types::Decimal::new(140_000, 4))],
             ),
         ],
         "grouped ROUND projection should preserve rounded decimal payload values",

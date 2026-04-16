@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.86.x] 🧪 - 2026-04-16 - Grouped HAVING Expression Widening
 
-- `0.86.0` widens grouped SQL `HAVING` from simple symbol-to-literal checks to bounded post-aggregate expressions like `ROUND(AVG(strength), 2) >= 10` and `COUNT(*) + 1 > 5`, while intentionally leaving grouped `ORDER BY`, aggregate-input expressions, and non-grouped field access unchanged.
+- `0.86.0` widens grouped SQL `HAVING` from simple symbol-to-literal checks to bounded post-aggregate expressions like `ROUND(AVG(strength), 2) >= 10` and `COUNT(*) + 1 > 5`, and it also fixes grouped query cache identity so those widened `HAVING` shapes do not collide in the shared query cache.
 
 See detailed breakdown:
 [docs/changelog/0.86.md](docs/changelog/0.86.md)
