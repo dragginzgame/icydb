@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.87.x] 🎚️ - 2026-04-17 - Grouped ORDER BY Proof Cleanup
 
-- `0.87.0` formalizes grouped `ORDER BY` admission so canonical grouped-key order plus the safe `group_key + constant` and `group_key - constant` forms are admitted deliberately, while unsupported grouped order expressions now fail with specific planner and explain diagnostics instead of one generic grouped-order fallback.
+- `0.87.0` formalizes grouped `ORDER BY` admission so safe grouped-key transforms like `group_key + constant` and `group_key - constant` are admitted deliberately with clearer planner and explain diagnostics, and it also finishes the grouped `HAVING` internal cleanup so the engine now carries one expression-based `HAVING` model instead of the old mixed clause wrapper.
 
 See detailed breakdown:
 [docs/changelog/0.87.md](docs/changelog/0.87.md)

@@ -108,7 +108,7 @@ impl GroupHavingExpr {
                 children.push(expr);
                 Self::And(children)
             }
-            existing => Self::And(vec![existing, expr]),
+            existing @ Self::Compare { .. } => Self::And(vec![existing, expr]),
         }
     }
 

@@ -99,7 +99,7 @@ fn validate_grouped_having_policy(having_expr: Option<&GroupHavingExpr>) -> Resu
             0,
             having_expr,
         ));
-    };
+    }
 
     Ok(())
 }
