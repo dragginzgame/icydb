@@ -228,6 +228,10 @@ impl ExecutionConfig {
 
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "test builds attach seen_groups via GroupKeySet::new(), so this constructor must stay non-const across cfgs"
+    )]
     #[must_use]
     pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
         Self {
