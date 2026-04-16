@@ -229,7 +229,7 @@ impl ExecutionConfig {
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
     #[must_use]
-    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
+    pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
         Self {
             config,
             budget: ExecutionBudget::new(),

@@ -1,5 +1,5 @@
 .PHONY: help version tags patch minor major release publish \
-        test build check clippy fmt fmt-check clean install-dev install-env update-dev \
+        test build check clippy fmt fmt-check clean install-dev install-env update-dev ensure-python3 \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
@@ -39,8 +39,8 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-env      Bootstrap a fresh Ubuntu development environment"
 	@echo "  install-all      Install both dev and canister dependencies"
-	@echo "  install-dev      Install Rust development dependencies"
-	@echo "  update-dev       Update Rust, cargo tools, lockfile, and dfxvm"
+	@echo "  install-dev      Install development dependencies and ensure python3"
+	@echo "  update-dev       Update development tools and ensure python3"
 	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
@@ -83,7 +83,7 @@ help:
 # Bootstrap a fresh Ubuntu development environment
 install-env:
 	sudo apt -y update && sudo apt -y upgrade
-	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep
+	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep python3
 	sudo apt -y install speedtest-cli fdupes tree cloc
 	sudo apt -y install valgrind
 	sudo apt -y install binaryen wabt
@@ -111,18 +111,29 @@ install-env:
 	chmod +x "$$HOME/bin/quill"
 	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$HOME/.local/share/dfx/bin:$$PATH" $(MAKE) --no-print-directory update-dev
 
+# Ensure python3 exists for repo scripts that use it.
+ensure-python3:
+	@if command -v python3 >/dev/null 2>&1; then \
+		echo "✅ python3 available: $$(python3 --version 2>/dev/null)"; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+		sudo apt -y update && sudo apt -y install python3; \
+	else \
+		echo "python3 not found. Install it manually or run make install-env on Ubuntu."; \
+		exit 1; \
+	fi
+
 # Install everything (dev + canister deps)
 install-all: install-dev install-canister-deps install-hooks
 	@echo "✅ All development and canister dependencies installed"
 
 # Install Rust development tooling
-install-dev:
+install-dev: ensure-python3
 	cargo install cargo-watch --locked || true
 	cargo install cargo-edit --locked || true
 	cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
 
 # Update development tooling and dependencies
-update-dev:
+update-dev: ensure-python3
 	rustup update
 	cargo install \
 		cargo-audit cargo-bloat cargo-deny cargo-expand cargo-machete \
