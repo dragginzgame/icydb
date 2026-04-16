@@ -1747,7 +1747,7 @@ fn execute_direct_data_row_path(
         } => match residual_predicate_scan_mode {
             ResidualPredicateScanMode::Absent => record_direct_data_row_path_hit(),
             ResidualPredicateScanMode::AppliedDuringScan => {
-                record_direct_filtered_data_row_path_hit()
+                record_direct_filtered_data_row_path_hit();
             }
             ResidualPredicateScanMode::DeferredPostAccess => {
                 return Err(InternalError::query_executor_invariant(

@@ -179,46 +179,46 @@ struct FluentPerfScenarioSample {
 }
 
 struct GroupedCountRawSamples {
-    borrowed_hash_samples: Vec<u64>,
-    bucket_check_samples: Vec<u64>,
-    existing_hit_samples: Vec<u64>,
-    new_insert_samples: Vec<u64>,
-    row_materialization_local_instruction_samples: Vec<u64>,
-    group_lookup_local_instruction_samples: Vec<u64>,
-    existing_group_update_local_instruction_samples: Vec<u64>,
-    new_group_insert_local_instruction_samples: Vec<u64>,
+    borrowed_hash: Vec<u64>,
+    bucket_checks: Vec<u64>,
+    existing_hits: Vec<u64>,
+    new_inserts: Vec<u64>,
+    row_materialization_local_instructions: Vec<u64>,
+    group_lookup_local_instructions: Vec<u64>,
+    existing_group_update_local_instructions: Vec<u64>,
+    new_group_insert_local_instructions: Vec<u64>,
 }
 
 impl GroupedCountRawSamples {
     fn with_capacity(sample_count: usize) -> Self {
         Self {
-            borrowed_hash_samples: Vec::with_capacity(sample_count),
-            bucket_check_samples: Vec::with_capacity(sample_count),
-            existing_hit_samples: Vec::with_capacity(sample_count),
-            new_insert_samples: Vec::with_capacity(sample_count),
-            row_materialization_local_instruction_samples: Vec::with_capacity(sample_count),
-            group_lookup_local_instruction_samples: Vec::with_capacity(sample_count),
-            existing_group_update_local_instruction_samples: Vec::with_capacity(sample_count),
-            new_group_insert_local_instruction_samples: Vec::with_capacity(sample_count),
+            borrowed_hash: Vec::with_capacity(sample_count),
+            bucket_checks: Vec::with_capacity(sample_count),
+            existing_hits: Vec::with_capacity(sample_count),
+            new_inserts: Vec::with_capacity(sample_count),
+            row_materialization_local_instructions: Vec::with_capacity(sample_count),
+            group_lookup_local_instructions: Vec::with_capacity(sample_count),
+            existing_group_update_local_instructions: Vec::with_capacity(sample_count),
+            new_group_insert_local_instructions: Vec::with_capacity(sample_count),
         }
     }
 
     fn record(&mut self, attribution: &QueryExecutionAttribution) {
-        self.borrowed_hash_samples
+        self.borrowed_hash
             .push(attribution.grouped_count_borrowed_hash_computations);
-        self.bucket_check_samples
+        self.bucket_checks
             .push(attribution.grouped_count_bucket_candidate_checks);
-        self.existing_hit_samples
+        self.existing_hits
             .push(attribution.grouped_count_existing_group_hits);
-        self.new_insert_samples
+        self.new_inserts
             .push(attribution.grouped_count_new_group_inserts);
-        self.row_materialization_local_instruction_samples
+        self.row_materialization_local_instructions
             .push(attribution.grouped_count_row_materialization_local_instructions);
-        self.group_lookup_local_instruction_samples
+        self.group_lookup_local_instructions
             .push(attribution.grouped_count_group_lookup_local_instructions);
-        self.existing_group_update_local_instruction_samples
+        self.existing_group_update_local_instructions
             .push(attribution.grouped_count_existing_group_update_local_instructions);
-        self.new_group_insert_local_instruction_samples
+        self.new_group_insert_local_instructions
             .push(attribution.grouped_count_new_group_insert_local_instructions);
     }
 }
@@ -237,21 +237,19 @@ struct GroupedCountSampleAverages {
 impl GroupedCountRawSamples {
     fn average(&self) -> GroupedCountSampleAverages {
         GroupedCountSampleAverages {
-            borrowed_hash_computations: average_u64(&self.borrowed_hash_samples),
-            bucket_candidate_checks: average_u64(&self.bucket_check_samples),
-            existing_group_hits: average_u64(&self.existing_hit_samples),
-            new_group_inserts: average_u64(&self.new_insert_samples),
+            borrowed_hash_computations: average_u64(&self.borrowed_hash),
+            bucket_candidate_checks: average_u64(&self.bucket_checks),
+            existing_group_hits: average_u64(&self.existing_hits),
+            new_group_inserts: average_u64(&self.new_inserts),
             row_materialization_local_instructions: average_u64(
-                &self.row_materialization_local_instruction_samples,
+                &self.row_materialization_local_instructions,
             ),
-            group_lookup_local_instructions: average_u64(
-                &self.group_lookup_local_instruction_samples,
-            ),
+            group_lookup_local_instructions: average_u64(&self.group_lookup_local_instructions),
             existing_group_update_local_instructions: average_u64(
-                &self.existing_group_update_local_instruction_samples,
+                &self.existing_group_update_local_instructions,
             ),
             new_group_insert_local_instructions: average_u64(
-                &self.new_group_insert_local_instruction_samples,
+                &self.new_group_insert_local_instructions,
             ),
         }
     }
