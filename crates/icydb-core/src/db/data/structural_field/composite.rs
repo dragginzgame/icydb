@@ -208,12 +208,12 @@ fn decode_binary_enum_bytes(
                 }
             } else {
                 return Err(FieldDecodeError::new(
-                    "structural binary untyped enum payload fallback is unsupported",
+                    "structural binary untyped enum payload is unsupported",
                 ));
             }
         } else {
             return Err(FieldDecodeError::new(
-                "structural binary untyped enum payload fallback is unsupported",
+                "structural binary untyped enum payload is unsupported",
             ));
         };
 
@@ -254,7 +254,7 @@ fn validate_binary_enum_bytes(
     }
 
     Err(FieldDecodeError::new(
-        "structural binary untyped enum payload fallback is unsupported",
+        "structural binary untyped enum payload is unsupported",
     ))
 }
 

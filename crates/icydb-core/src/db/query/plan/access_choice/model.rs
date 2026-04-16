@@ -34,9 +34,9 @@ impl AccessChoiceExplainSnapshot {
     /// Construct one fail-closed snapshot for manually assembled index plans
     /// that never passed through planner-owned candidate projection.
     #[must_use]
-    pub(in crate::db) const fn selected_index_unavailable() -> Self {
+    pub(in crate::db) const fn selected_index_not_projected() -> Self {
         Self {
-            chosen_reason: AccessChoiceSelectedReason::SelectedIndexUnavailable,
+            chosen_reason: AccessChoiceSelectedReason::SelectedIndexNotProjected,
             alternatives: Vec::new(),
             rejected: Vec::new(),
         }
@@ -78,7 +78,7 @@ impl AccessChoiceRankingReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceSelectedReason {
     NonIndexAccess,
-    SelectedIndexUnavailable,
+    SelectedIndexNotProjected,
     SingleCandidate,
     BestPrefixLen,
     Ranked(AccessChoiceRankingReason),
@@ -89,7 +89,7 @@ impl AccessChoiceSelectedReason {
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::NonIndexAccess => "non_index_access",
-            Self::SelectedIndexUnavailable => "selected_index_unavailable",
+            Self::SelectedIndexNotProjected => "selected_index_not_projected",
             Self::SingleCandidate => "single_candidate",
             Self::BestPrefixLen => "best_prefix_len",
             Self::Ranked(reason) => reason.code(),

@@ -54,7 +54,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     }
 
     let Some(chosen_index_name) = chosen_index_name else {
-        return AccessChoiceExplainSnapshot::selected_index_unavailable();
+        return AccessChoiceExplainSnapshot::selected_index_not_projected();
     };
 
     let schema_info = SchemaInfo::cached_for_entity_model(model);

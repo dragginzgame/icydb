@@ -321,7 +321,7 @@ impl AccessPlannedQuery {
 
 fn seeded_access_choice_snapshot(access: &AccessPlan<Value>) -> AccessChoiceExplainSnapshot {
     if access.selected_index_model().is_some() {
-        AccessChoiceExplainSnapshot::selected_index_unavailable()
+        AccessChoiceExplainSnapshot::selected_index_not_projected()
     } else {
         AccessChoiceExplainSnapshot::non_index_access()
     }

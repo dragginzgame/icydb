@@ -261,7 +261,7 @@ fn persisted_field_decode_expr(
         );
     }
 
-    unreachable!("validated persisted-row field should not reach implicit structural fallback")
+    unreachable!("validated persisted-row field must lower through one explicit storage contract")
 }
 
 fn persisted_field_encode_expr(
@@ -335,7 +335,7 @@ fn persisted_field_encode_expr(
         );
     }
 
-    unreachable!("validated persisted-row field should not reach implicit structural fallback")
+    unreachable!("validated persisted-row field must lower through one explicit storage contract")
 }
 
 fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize) -> TokenStream {
@@ -549,7 +549,7 @@ fn ensure_persisted_field_storage_supported(
 
     Err(Error::new_spanned(
         field_ty,
-        "legacy PersistedRow fields require an explicit structural contract; use #[icydb(meta)], #[icydb(value)], or #[icydb(scale = ...)]",
+        "PersistedRow derive fields require an explicit structural contract; use #[icydb(meta)], #[icydb(value)], or #[icydb(scale = ...)]",
     ))
 }
 
