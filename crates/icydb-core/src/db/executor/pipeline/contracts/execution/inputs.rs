@@ -622,7 +622,7 @@ impl<'a> ExecutionInputs<'a> {
     /// Borrow one prepared slot-row projection validation bundle when this
     /// execution attempt still requires shared projection validation.
     #[must_use]
-    pub(in crate::db::executor) fn prepared_projection_validation(
+    pub(in crate::db::executor) const fn prepared_projection_validation(
         &self,
     ) -> Option<&PreparedSlotProjectionValidation> {
         self.prepared_projection.projection_validation()
