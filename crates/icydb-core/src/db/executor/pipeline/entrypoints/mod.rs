@@ -73,6 +73,18 @@ fn measure_load_entry_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, R
     (delta, result)
 }
 
+#[cfg(feature = "perf-attribution")]
+fn resolve_grouped_perf_cursor(
+    plan: &crate::db::executor::PreparedLoadPlan,
+    cursor: LoadCursorInput,
+) -> Result<crate::db::executor::PreparedLoadCursor, InternalError> {
+    crate::db::executor::LoadCursorResolver::resolve_load_cursor_context(
+        plan,
+        cursor,
+        LoadSurfaceMode::grouped_paged(LoadTracingMode::Enabled),
+    )
+}
+
 impl<E> LoadExecutor<E>
 where
     E: PersistedRow + EntityValue,

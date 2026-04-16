@@ -160,6 +160,8 @@ pub(in crate::db::executor) struct ExecutionConfig {
 pub(in crate::db::executor) struct ExecutionContext {
     config: ExecutionConfig,
     budget: ExecutionBudget,
+    #[cfg(test)]
+    seen_groups: GroupKeySet,
 }
 impl ExecutionConfig {
     /// Build one grouped hard-limit configuration.
@@ -227,10 +229,12 @@ impl ExecutionConfig {
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
     #[must_use]
-    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
+    pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
         Self {
             config,
             budget: ExecutionBudget::new(),
+            #[cfg(test)]
+            seen_groups: GroupKeySet::new(),
         }
     }
 
@@ -293,6 +297,26 @@ impl ExecutionContext {
         self.budget.record_new_group_state(
             &self.config,
             true,
+            group_count_before_insert,
+            group_capacity_before_insert,
+        )
+    }
+
+    // Record one canonical grouped key through the shared grouped budget so
+    // test-only grouped state containers still count `max_groups` once across
+    // multiple grouped terminal states.
+    #[cfg(test)]
+    pub(in crate::db::executor::aggregate) fn record_new_canonical_group(
+        &mut self,
+        key: &GroupKey,
+        group_count_before_insert: usize,
+        group_capacity_before_insert: usize,
+    ) -> Result<(), GroupError> {
+        let new_group_key = self.seen_groups.insert_key(key.clone());
+
+        self.budget.record_new_group_state(
+            &self.config,
+            new_group_key,
             group_count_before_insert,
             group_capacity_before_insert,
         )

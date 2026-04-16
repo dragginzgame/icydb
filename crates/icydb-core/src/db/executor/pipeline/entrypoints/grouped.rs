@@ -434,11 +434,7 @@ where
             return Err(InternalError::load_executor_load_plan_required());
         }
 
-        let resolved_cursor = crate::db::executor::LoadCursorResolver::resolve_load_cursor_context(
-            &plan,
-            cursor,
-            LoadSurfaceMode::grouped_paged(LoadTracingMode::Enabled),
-        )?;
+        let resolved_cursor = super::resolve_grouped_perf_cursor(&plan, cursor)?;
         let crate::db::executor::PreparedLoadCursor::Grouped(cursor) = resolved_cursor else {
             return Err(InternalError::query_executor_invariant(
                 "grouped traced perf entrypoint must resolve a grouped cursor",
