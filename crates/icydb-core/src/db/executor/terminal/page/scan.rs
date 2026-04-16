@@ -16,18 +16,16 @@ use crate::db::executor::terminal::page::{
     KernelRow, KernelRowScanStrategy, ResidualPredicateScanMode, ScalarRowRuntimeHandle,
 };
 
+#[cfg(feature = "perf-attribution")]
+use super::metrics::{
+    measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
+    record_direct_data_row_row_read_local_instructions,
+    record_direct_data_row_scan_local_instructions,
+};
 #[cfg(any(test, feature = "structural-read-metrics"))]
 use super::metrics::{
     record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
     record_kernel_slots_only_path_hit,
-};
-#[cfg(feature = "perf-attribution")]
-use crate::db::executor::terminal::page::measure_direct_data_row_phase;
-#[cfg(feature = "perf-attribution")]
-use crate::db::executor::terminal::page::{
-    record_direct_data_row_key_stream_local_instructions,
-    record_direct_data_row_row_read_local_instructions,
-    record_direct_data_row_scan_local_instructions,
 };
 
 // Shared scalar load page-kernel orchestration boundary.

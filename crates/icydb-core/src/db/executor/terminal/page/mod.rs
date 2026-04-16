@@ -40,6 +40,7 @@ use metrics::{
     measure_direct_data_row_phase, record_direct_data_row_key_encode_local_instructions,
     record_direct_data_row_order_window_local_instructions,
     record_direct_data_row_page_window_local_instructions,
+    record_direct_data_row_scan_local_instructions,
     record_direct_data_row_store_get_local_instructions,
 };
 #[cfg(any(test, feature = "structural-read-metrics"))]
