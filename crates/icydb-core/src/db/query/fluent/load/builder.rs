@@ -239,7 +239,7 @@ where
 
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
-        self.map_session_query_output(|session, query| session.trace_query(query))
+        self.map_session_query_output(DbSession::trace_query)
     }
 
     /// Build the validated logical plan without compiling execution details.
