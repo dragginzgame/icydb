@@ -53,7 +53,7 @@ use crate::{
     },
     error::InternalError,
     model::field::FieldKind,
-    value::{Value, ValueHashWriter},
+    value::{Value, ValueHashWriter, hash_single_list_identity_canonical_value},
 };
 
 ///
@@ -78,6 +78,10 @@ pub struct GroupedCountFoldMetrics {
     pub bucket_candidate_checks: u64,
     pub existing_group_hits: u64,
     pub new_group_inserts: u64,
+    pub row_materialization_local_instructions: u64,
+    pub group_lookup_local_instructions: u64,
+    pub existing_group_update_local_instructions: u64,
+    pub new_group_insert_local_instructions: u64,
     pub finalize_stage_runs: u64,
     pub finalized_group_count: u64,
     pub window_rows_considered: u64,
@@ -107,6 +111,10 @@ pub(crate) struct GroupedCountFoldMetrics {
     pub bucket_candidate_checks: u64,
     pub existing_group_hits: u64,
     pub new_group_inserts: u64,
+    pub row_materialization_local_instructions: u64,
+    pub group_lookup_local_instructions: u64,
+    pub existing_group_update_local_instructions: u64,
+    pub new_group_insert_local_instructions: u64,
     pub finalize_stage_runs: u64,
     pub finalized_group_count: u64,
     pub window_rows_considered: u64,
@@ -157,6 +165,76 @@ fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMe
     feature = "perf-attribution"
 )))]
 fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldMetrics)) {}
+
+#[cfg(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+))]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
+)]
+fn read_grouped_count_local_instruction_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+#[cfg(not(any(
+    test,
+    feature = "structural-read-metrics",
+    feature = "perf-attribution"
+)))]
+const fn read_grouped_count_local_instruction_counter() -> u64 {
+    0
+}
+
+fn measure_grouped_count_local_instructions<T>(run: impl FnOnce() -> T) -> (u64, T) {
+    let start = read_grouped_count_local_instruction_counter();
+    let result = run();
+    let delta = read_grouped_count_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
+
+fn record_grouped_count_row_materialization_local_instructions(delta: u64) {
+    update_grouped_count_fold_metrics(|metrics| {
+        metrics.row_materialization_local_instructions = metrics
+            .row_materialization_local_instructions
+            .saturating_add(delta);
+    });
+}
+
+fn record_grouped_count_group_lookup_local_instructions(delta: u64) {
+    update_grouped_count_fold_metrics(|metrics| {
+        metrics.group_lookup_local_instructions = metrics
+            .group_lookup_local_instructions
+            .saturating_add(delta);
+    });
+}
+
+fn record_grouped_count_existing_group_update_local_instructions(delta: u64) {
+    update_grouped_count_fold_metrics(|metrics| {
+        metrics.existing_group_update_local_instructions = metrics
+            .existing_group_update_local_instructions
+            .saturating_add(delta);
+    });
+}
+
+fn record_grouped_count_new_group_insert_local_instructions(delta: u64) {
+    update_grouped_count_fold_metrics(|metrics| {
+        metrics.new_group_insert_local_instructions = metrics
+            .new_group_insert_local_instructions
+            .saturating_add(delta);
+    });
+}
 
 /// with_grouped_count_fold_metrics
 ///
@@ -313,36 +391,68 @@ impl GroupedCountState {
             update_grouped_count_fold_metrics(|metrics| {
                 metrics.borrowed_probe_rows = metrics.borrowed_probe_rows.saturating_add(1);
             });
-            update_grouped_count_fold_metrics(|metrics| {
-                metrics.borrowed_hash_computations =
-                    metrics.borrowed_hash_computations.saturating_add(1);
-            });
-            let group_hash = stable_hash_group_values_from_row_view(row_view, group_fields)?;
-            if let Some(existing_index) = find_matching_group_index(
-                self.groups.as_slice(),
-                self.bucket_index.get(&group_hash),
-                row_view,
-                group_fields,
-            )? {
-                let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
-                    InternalError::query_executor_invariant(format!(
-                        "grouped count state missing bucket-indexed group: index={existing_index}",
-                    ))
-                })?;
-                *count = count.saturating_add(1);
+            let (lookup_local_instructions, lookup) =
+                measure_grouped_count_local_instructions(|| {
+                    update_grouped_count_fold_metrics(|metrics| {
+                        metrics.borrowed_hash_computations =
+                            metrics.borrowed_hash_computations.saturating_add(1);
+                    });
+                    let group_hash =
+                        stable_hash_group_values_from_row_view(row_view, group_fields)?;
+                    let existing_index = find_matching_group_index(
+                        self.groups.as_slice(),
+                        self.bucket_index.get(&group_hash),
+                        row_view,
+                        group_fields,
+                    )?;
+
+                    Ok::<(StableHash, Option<usize>), InternalError>((group_hash, existing_index))
+                });
+            record_grouped_count_group_lookup_local_instructions(lookup_local_instructions);
+            let (group_hash, existing_index) = lookup?;
+
+            if let Some(existing_index) = existing_index {
+                let (update_local_instructions, update_result) =
+                    measure_grouped_count_local_instructions(|| {
+                        let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
+                            InternalError::query_executor_invariant(format!(
+                                "grouped count state missing bucket-indexed group: index={existing_index}",
+                            ))
+                        })?;
+                        *count = count.saturating_add(1);
+                        update_grouped_count_fold_metrics(|metrics| {
+                            metrics.existing_group_hits =
+                                metrics.existing_group_hits.saturating_add(1);
+                        });
+
+                        Ok::<(), InternalError>(())
+                    });
+                record_grouped_count_existing_group_update_local_instructions(
+                    update_local_instructions,
+                );
+                update_result?;
 
                 return Ok(());
             }
 
-            let group_key =
-                materialize_group_key_from_row_view(row_view, group_fields, Some(group_hash))?;
-            debug_assert_eq!(
-                group_key.hash(),
-                group_hash,
-                "borrowed grouped key hash must match owned canonical group key hash",
-            );
+            let (insert_local_instructions, insert_result) =
+                measure_grouped_count_local_instructions(|| {
+                    let group_key = materialize_group_key_from_row_view(
+                        row_view,
+                        group_fields,
+                        Some(group_hash),
+                    )?;
+                    debug_assert_eq!(
+                        group_key.hash(),
+                        group_hash,
+                        "borrowed grouped key hash must match owned canonical group key hash",
+                    );
 
-            return self.finish_new_group_insert(group_hash, group_key, grouped_execution_context);
+                    self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+                });
+            record_grouped_count_new_group_insert_local_instructions(insert_local_instructions);
+
+            return insert_result;
         }
 
         // Phase 2: preserve the canonical owned-key fallback for structured
@@ -364,33 +474,61 @@ impl GroupedCountState {
         update_grouped_count_fold_metrics(|metrics| {
             metrics.rows_folded = metrics.rows_folded.saturating_add(1);
             metrics.borrowed_probe_rows = metrics.borrowed_probe_rows.saturating_add(1);
-            metrics.borrowed_hash_computations =
-                metrics.borrowed_hash_computations.saturating_add(1);
         });
-        let group_hash = stable_hash_single_group_value(&group_value)?;
-        if let Some(existing_index) = find_matching_single_group_value_index(
-            self.groups.as_slice(),
-            self.bucket_index.get(&group_hash),
-            &group_value,
-        )? {
-            let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
-                InternalError::query_executor_invariant(format!(
-                    "grouped count state missing bucket-indexed direct group: index={existing_index}",
-                ))
-            })?;
-            *count = count.saturating_add(1);
+        let (lookup_local_instructions, lookup) = measure_grouped_count_local_instructions(|| {
+            update_grouped_count_fold_metrics(|metrics| {
+                metrics.borrowed_hash_computations =
+                    metrics.borrowed_hash_computations.saturating_add(1);
+            });
+            let group_hash = stable_hash_single_group_value(&group_value)?;
+            let existing_index = find_matching_single_group_value_index(
+                self.groups.as_slice(),
+                self.bucket_index.get(&group_hash),
+                &group_value,
+            )?;
+
+            Ok::<(StableHash, Option<usize>), InternalError>((group_hash, existing_index))
+        });
+        record_grouped_count_group_lookup_local_instructions(lookup_local_instructions);
+        let (group_hash, existing_index) = lookup?;
+
+        if let Some(existing_index) = existing_index {
+            let (update_local_instructions, update_result) =
+                measure_grouped_count_local_instructions(|| {
+                    let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
+                        InternalError::query_executor_invariant(format!(
+                            "grouped count state missing bucket-indexed direct group: index={existing_index}",
+                        ))
+                    })?;
+                    *count = count.saturating_add(1);
+                    update_grouped_count_fold_metrics(|metrics| {
+                        metrics.existing_group_hits = metrics.existing_group_hits.saturating_add(1);
+                    });
+
+                    Ok::<(), InternalError>(())
+                });
+            record_grouped_count_existing_group_update_local_instructions(
+                update_local_instructions,
+            );
+            update_result?;
 
             return Ok(());
         }
 
-        update_grouped_count_fold_metrics(|metrics| {
-            metrics.owned_key_materializations =
-                metrics.owned_key_materializations.saturating_add(1);
-        });
-        let group_key =
-            GroupKey::from_single_canonical_group_value_with_hash(group_value, group_hash);
+        let (insert_local_instructions, insert_result) =
+            measure_grouped_count_local_instructions(|| {
+                update_grouped_count_fold_metrics(|metrics| {
+                    metrics.owned_key_materializations =
+                        metrics.owned_key_materializations.saturating_add(1);
+                });
+                let group_key =
+                    GroupKey::from_single_canonical_group_value_with_hash(group_value, group_hash);
 
-        self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+                self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+            });
+        record_grouped_count_new_group_insert_local_instructions(insert_local_instructions);
+
+        insert_result
     }
 
     // Insert one newly observed grouped key after the borrowed fast path has
@@ -432,17 +570,31 @@ impl GroupedCountState {
         // Phase 1: reuse the stable-hash side index so owned-key fallback rows
         // still avoid a full scan across every grouped count entry.
         let group_hash = group_key.hash();
-        if let Some(bucket) = self.bucket_index.get(&group_hash) {
-            for existing_index in bucket.as_slice().iter().copied() {
-                update_grouped_count_fold_metrics(|metrics| {
-                    metrics.bucket_candidate_checks =
-                        metrics.bucket_candidate_checks.saturating_add(1);
-                });
-                if self
-                    .groups
-                    .get(existing_index)
-                    .is_some_and(|(existing, _)| existing == &group_key)
-                {
+        let (lookup_local_instructions, existing_index) =
+            measure_grouped_count_local_instructions(|| {
+                if let Some(bucket) = self.bucket_index.get(&group_hash) {
+                    for existing_index in bucket.as_slice().iter().copied() {
+                        update_grouped_count_fold_metrics(|metrics| {
+                            metrics.bucket_candidate_checks =
+                                metrics.bucket_candidate_checks.saturating_add(1);
+                        });
+                        if self
+                            .groups
+                            .get(existing_index)
+                            .is_some_and(|(existing, _)| existing == &group_key)
+                        {
+                            return Some(existing_index);
+                        }
+                    }
+                }
+
+                None
+            });
+        record_grouped_count_group_lookup_local_instructions(lookup_local_instructions);
+
+        if let Some(existing_index) = existing_index {
+            let (update_local_instructions, update_result) =
+                measure_grouped_count_local_instructions(|| {
                     let (_, count) = self.groups.get_mut(existing_index).ok_or_else(|| {
                         InternalError::query_executor_invariant(format!(
                             "grouped count state missing owned-key bucket index: index={existing_index}",
@@ -453,14 +605,25 @@ impl GroupedCountState {
                         metrics.existing_group_hits = metrics.existing_group_hits.saturating_add(1);
                     });
 
-                    return Ok(());
-                }
-            }
+                    Ok::<(), InternalError>(())
+                });
+            record_grouped_count_existing_group_update_local_instructions(
+                update_local_instructions,
+            );
+            update_result?;
+
+            return Ok(());
         }
 
         // Phase 2: admit one new group only after the existing-group lookup
         // misses under canonical owned-key equality.
-        self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+        let (insert_local_instructions, insert_result) =
+            measure_grouped_count_local_instructions(|| {
+                self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
+            });
+        record_grouped_count_new_group_insert_local_instructions(insert_local_instructions);
+
+        insert_result
     }
 
     // Consume this grouped-count state into finalized `(group_key, count)` rows.
@@ -737,9 +900,14 @@ fn execute_single_grouped_count_fold_stage(
     // Phase 1: fold grouped source rows directly into one canonical count map.
     while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         if let Some(group_field) = direct_single_group_field {
-            let Some(group_value) =
-                row_runtime.read_single_group_value(consistency, &data_key, group_field.index())?
-            else {
+            let (row_materialization_local_instructions, group_value) =
+                measure_grouped_count_local_instructions(|| {
+                    row_runtime.read_single_group_value(consistency, &data_key, group_field.index())
+                });
+            record_grouped_count_row_materialization_local_instructions(
+                row_materialization_local_instructions,
+            );
+            let Some(group_value) = group_value? else {
                 continue;
             };
             scanned_rows = scanned_rows.saturating_add(1);
@@ -749,7 +917,14 @@ fn execute_single_grouped_count_fold_stage(
             continue;
         }
 
-        let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+        let (row_materialization_local_instructions, row_view) =
+            measure_grouped_count_local_instructions(|| {
+                row_runtime.read_row_view(consistency, &data_key)
+            });
+        record_grouped_count_row_materialization_local_instructions(
+            row_materialization_local_instructions,
+        );
+        let Some(row_view) = row_view? else {
             continue;
         };
         scanned_rows = scanned_rows.saturating_add(1);
@@ -1000,6 +1175,10 @@ fn stable_hash_group_values_from_row_view(
 // Hash one canonical single grouped value through the same one-element list
 // framing used by grouped-count key materialization.
 fn stable_hash_single_group_value(group_value: &Value) -> Result<StableHash, InternalError> {
+    if let Some(digest) = hash_single_list_identity_canonical_value(group_value)? {
+        return Ok(stable_hash_from_digest(digest));
+    }
+
     let mut hash_writer = ValueHashWriter::new();
     hash_writer.write_list_prefix(1);
     hash_writer.write_list_value(group_value)?;

@@ -41,8 +41,6 @@ pub(in crate::db) use crate::db::access::{
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
-#[cfg(feature = "structural-read-metrics")]
-pub use aggregate::runtime::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
     ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
@@ -74,7 +72,9 @@ pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
 #[cfg(feature = "perf-attribution")]
-pub(in crate::db) use pipeline::{GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution};
+pub(in crate::db) use pipeline::{
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+};
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
     LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, RouteContinuationPlan,

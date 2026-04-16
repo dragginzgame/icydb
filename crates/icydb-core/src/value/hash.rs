@@ -96,6 +96,76 @@ impl ValueHashWriter {
     }
 }
 
+// Hash one identity-canonical value under the same one-element list framing used
+// by grouped single-field keys without routing through the fully generic value
+// writer. This keeps the common grouped `COUNT(*)` fast path off the broader
+// `Value` hashing dispatch when the grouped slot already arrives canonical.
+pub(crate) fn hash_single_list_identity_canonical_value(
+    value: &Value,
+) -> Result<Option<[u8; 16]>, InternalError> {
+    #[cfg(test)]
+    if let Some(override_hash) = test_hash_override() {
+        return Ok(Some(override_hash));
+    }
+
+    let mut hasher = Xxh3::with_seed(VALUE_HASH_SEED);
+    feed_u8(&mut hasher, VALUE_HASH_VERSION);
+    feed_u8(&mut hasher, ValueTag::List.to_u8());
+    feed_u32(&mut hasher, 1);
+    feed_u8(&mut hasher, 0xFF);
+    feed_u8(&mut hasher, value.canonical_tag().to_u8());
+
+    match value {
+        Value::Account(account) => {
+            let bytes = account
+                .to_stored_bytes()
+                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+            feed_bytes(&mut hasher, &bytes);
+        }
+        Value::Blob(bytes) => {
+            feed_u8(&mut hasher, 0x01);
+            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_bytes(&mut hasher, bytes);
+        }
+        Value::Bool(value) => feed_u8(&mut hasher, u8::from(*value)),
+        Value::Date(value) => feed_i32(&mut hasher, value.as_days_since_epoch()),
+        Value::Duration(value) => feed_u64(&mut hasher, value.repr()),
+        Value::Float32(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
+        Value::Float64(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
+        Value::Int(value) => feed_i64(&mut hasher, *value),
+        Value::Int128(value) => feed_i128(&mut hasher, value.get()),
+        Value::IntBig(value) => {
+            let bytes = value.to_leb128();
+            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_bytes(&mut hasher, &bytes);
+        }
+        Value::Principal(value) => {
+            let raw = value
+                .stored_bytes()
+                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
+            feed_u32(&mut hasher, raw.len() as u32);
+            feed_bytes(&mut hasher, raw);
+        }
+        Value::Subaccount(value) => feed_bytes(&mut hasher, &value.to_bytes()),
+        Value::Text(value) => {
+            feed_u32(&mut hasher, value.len() as u32);
+            feed_bytes(&mut hasher, value.as_bytes());
+        }
+        Value::Timestamp(value) => feed_i64(&mut hasher, value.repr()),
+        Value::Uint(value) => feed_u64(&mut hasher, *value),
+        Value::Uint128(value) => feed_u128(&mut hasher, value.get()),
+        Value::UintBig(value) => {
+            let bytes = value.to_leb128();
+            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_bytes(&mut hasher, &bytes);
+        }
+        Value::Ulid(value) => feed_bytes(&mut hasher, &value.to_bytes()),
+        _ => return Ok(None),
+    }
+
+    Ok(Some(hasher.digest128().to_be_bytes()))
+}
+
 #[cfg(test)]
 thread_local! {
     static TEST_HASH_OVERRIDE: std::cell::Cell<Option<[u8; 16]>> =

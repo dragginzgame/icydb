@@ -5,7 +5,9 @@
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
 #[cfg(feature = "perf-attribution")]
-use crate::db::executor::{GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution};
+use crate::db::executor::{
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+};
 use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
@@ -153,6 +155,10 @@ pub struct QueryExecutionAttribution {
     pub grouped_count_bucket_candidate_checks: u64,
     pub grouped_count_existing_group_hits: u64,
     pub grouped_count_new_group_inserts: u64,
+    pub grouped_count_row_materialization_local_instructions: u64,
+    pub grouped_count_group_lookup_local_instructions: u64,
+    pub grouped_count_existing_group_update_local_instructions: u64,
+    pub grouped_count_new_group_insert_local_instructions: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
@@ -175,10 +181,7 @@ struct QueryExecutePhaseAttribution {
     grouped_stream_local_instructions: u64,
     grouped_fold_local_instructions: u64,
     grouped_finalize_local_instructions: u64,
-    grouped_count_borrowed_hash_computations: u64,
-    grouped_count_bucket_candidate_checks: u64,
-    grouped_count_existing_group_hits: u64,
-    grouped_count_new_group_inserts: u64,
+    grouped_count: GroupedCountAttribution,
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -223,10 +226,7 @@ impl<C: CanisterKind> DbSession<C> {
             grouped_stream_local_instructions: 0,
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
-            grouped_count_borrowed_hash_computations: 0,
-            grouped_count_bucket_candidate_checks: 0,
-            grouped_count_existing_group_hits: 0,
-            grouped_count_new_group_inserts: 0,
+            grouped_count: GroupedCountAttribution::none(),
         }
     }
 
@@ -253,10 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
             grouped_stream_local_instructions: 0,
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
-            grouped_count_borrowed_hash_computations: 0,
-            grouped_count_bucket_candidate_checks: 0,
-            grouped_count_existing_group_hits: 0,
-            grouped_count_new_group_inserts: 0,
+            grouped_count: GroupedCountAttribution::none(),
         }
     }
 
@@ -279,11 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
             grouped_stream_local_instructions: phase.stream_local_instructions,
             grouped_fold_local_instructions: phase.fold_local_instructions,
             grouped_finalize_local_instructions: phase.finalize_local_instructions,
-            grouped_count_borrowed_hash_computations: phase
-                .grouped_count_borrowed_hash_computations,
-            grouped_count_bucket_candidate_checks: phase.grouped_count_bucket_candidate_checks,
-            grouped_count_existing_group_hits: phase.grouped_count_existing_group_hits,
-            grouped_count_new_group_inserts: phase.grouped_count_new_group_inserts,
+            grouped_count: phase.grouped_count,
         }
     }
 
@@ -805,13 +798,29 @@ impl<C: CanisterKind> DbSession<C> {
                 grouped_finalize_local_instructions: execute_phase_attribution
                     .grouped_finalize_local_instructions,
                 grouped_count_borrowed_hash_computations: execute_phase_attribution
-                    .grouped_count_borrowed_hash_computations,
+                    .grouped_count
+                    .borrowed_hash_computations,
                 grouped_count_bucket_candidate_checks: execute_phase_attribution
-                    .grouped_count_bucket_candidate_checks,
+                    .grouped_count
+                    .bucket_candidate_checks,
                 grouped_count_existing_group_hits: execute_phase_attribution
-                    .grouped_count_existing_group_hits,
+                    .grouped_count
+                    .existing_group_hits,
                 grouped_count_new_group_inserts: execute_phase_attribution
-                    .grouped_count_new_group_inserts,
+                    .grouped_count
+                    .new_group_inserts,
+                grouped_count_row_materialization_local_instructions: execute_phase_attribution
+                    .grouped_count
+                    .row_materialization_local_instructions,
+                grouped_count_group_lookup_local_instructions: execute_phase_attribution
+                    .grouped_count
+                    .group_lookup_local_instructions,
+                grouped_count_existing_group_update_local_instructions: execute_phase_attribution
+                    .grouped_count
+                    .existing_group_update_local_instructions,
+                grouped_count_new_group_insert_local_instructions: execute_phase_attribution
+                    .grouped_count
+                    .new_group_insert_local_instructions,
                 response_decode_local_instructions,
                 execute_local_instructions,
                 total_local_instructions,

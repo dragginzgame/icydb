@@ -311,13 +311,10 @@ impl StructuralGroupedRowRuntime {
         row: RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<RowView, InternalError> {
-        let value = RowDecoder::decode_required_slot_value_with_fields(
-            &self.row_layout,
+        let value = self.decode_single_grouped_slot_value_from_raw_row(
             expected_key,
             &row,
-            single_grouped_slot_decode.slot,
-            single_grouped_slot_decode.field,
-            single_grouped_slot_decode.primary_key_field,
+            single_grouped_slot_decode,
         )?;
 
         let value = value.ok_or_else(|| {
@@ -331,6 +328,26 @@ impl StructuralGroupedRowRuntime {
             single_grouped_slot_decode.slot,
             value,
         ))
+    }
+
+    // Decode the caller-frozen single grouped slot directly from one raw row.
+    // Both the single-slot row-view path and the direct grouped slot read path
+    // share this decode contract, so the selected-slot and primary-key field
+    // metadata only live in one place.
+    fn decode_single_grouped_slot_value_from_raw_row(
+        &self,
+        expected_key: StorageKey,
+        row: &RawRow,
+        single_grouped_slot_decode: &SingleGroupedSlotDecode,
+    ) -> Result<Option<Value>, InternalError> {
+        RowDecoder::decode_required_slot_value_with_fields(
+            &self.row_layout,
+            expected_key,
+            row,
+            single_grouped_slot_decode.slot,
+            single_grouped_slot_decode.field,
+            single_grouped_slot_decode.primary_key_field,
+        )
     }
 
     // Read one persisted row under the grouped consistency contract while
@@ -368,13 +385,10 @@ impl StructuralGroupedRowRuntime {
         if let Some(single_grouped_slot_decode) = &self.single_grouped_slot_decode
             && single_grouped_slot_decode.slot == required_slot
         {
-            return RowDecoder::decode_required_slot_value_with_fields(
-                &self.row_layout,
+            return self.decode_single_grouped_slot_value_from_raw_row(
                 key.storage_key(),
                 &row,
-                single_grouped_slot_decode.slot,
-                single_grouped_slot_decode.field,
-                single_grouped_slot_decode.primary_key_field,
+                single_grouped_slot_decode,
             );
         }
 

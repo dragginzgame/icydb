@@ -230,3 +230,40 @@ fn map_hash_is_order_independent_for_non_canonical_construction_order() {
         "map hash must be deterministic regardless of insertion order"
     );
 }
+
+#[test]
+fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
+    let values = vec![
+        Value::Account(crate::types::Account::dummy(7)),
+        Value::Blob(vec![1u8, 2u8, 3u8]),
+        Value::Bool(true),
+        Value::Date(crate::types::Date::new(2024, 1, 2)),
+        Value::Duration(crate::types::Duration::from_secs(1)),
+        Value::Float32(F32::try_new(1.25).expect("finite f32")),
+        Value::Float64(F64::try_new(2.5).expect("finite f64")),
+        Value::Int(-7),
+        Value::Int128(crate::types::Int128::from(123i128)),
+        Value::IntBig(crate::types::Int::from(99i32)),
+        Value::Principal(crate::types::Principal::from_slice(&[1u8, 2u8, 3u8])),
+        Value::Subaccount(crate::types::Subaccount::new([1u8; 32])),
+        Value::Text("example".to_string()),
+        Value::Timestamp(crate::types::Timestamp::from_secs(1)),
+        Value::Uint(7),
+        Value::Uint128(crate::types::Nat128::from(9u128)),
+        Value::UintBig(crate::types::Nat::from(11u64)),
+        Value::Ulid(crate::types::Ulid::from_u128(42)),
+    ];
+
+    for value in values {
+        let fast = hash_single_list_identity_canonical_value(&value)
+            .expect("fast single-list hash should succeed")
+            .expect("value should stay on the identity-canonical fast path");
+        let generic = hash_value(&Value::List(vec![value]))
+            .expect("generic grouped single-list hash should succeed");
+
+        assert_eq!(
+            fast, generic,
+            "fast single-list identity-canonical hash must match generic grouped hash contract",
+        );
+    }
+}

@@ -23,8 +23,9 @@ use crate::{
             terminal::{
                 RetainedSlotLayout, RetainedSlotRow,
                 page::{
-                    KernelPageMaterializationRequest, ScalarRowRuntimeHandle,
-                    ScalarRowRuntimeState, materialize_key_stream_into_execution_payload,
+                    KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
+                    ScalarRowRuntimeHandle, ScalarRowRuntimeState,
+                    materialize_key_stream_into_execution_payload,
                 },
             },
             traversal::row_read_consistency_for_plan,
@@ -297,16 +298,10 @@ impl ProjectionMaterializationMode {
 
 pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
-    pub(in crate::db::executor) validate_projection: bool,
-    pub(in crate::db::executor) retain_slot_rows: bool,
-    pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
-    pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a PreparedSlotProjectionValidation>,
-    pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
+    pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
     pub(in crate::db::executor) direction: Direction,
@@ -335,6 +330,26 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) prepared_projection_validation:
         Option<&'a PreparedSlotProjectionValidation>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+}
+
+///
+/// ExecutionMaterializationContract
+///
+/// ExecutionMaterializationContract captures the execution-input fields shared
+/// by the row-collector and runtime-page materialization requests.
+/// `ExecutionInputs` builds this once so the two outward request shapes do not
+/// re-spell the same predicate/projection/retained-slot contract fields.
+///
+
+struct ExecutionMaterializationContract<'a> {
+    plan: &'a AccessPlannedQuery,
+    predicate_slots: Option<&'a PredicateProgram>,
+    scan_budget_hint: Option<usize>,
+    load_order_route_contract: LoadOrderRouteContract,
+    validate_projection: bool,
+    retain_slot_rows: bool,
+    retained_slot_layout: Option<&'a RetainedSlotLayout>,
+    prepared_projection_validation: Option<&'a PreparedSlotProjectionValidation>,
 }
 
 ///
@@ -520,15 +535,10 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
             KernelPageMaterializationRequest {
                 authority: self.authority()?,
                 plan: request.plan,
-                predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
                 scan_budget_hint: request.scan_budget_hint,
                 load_order_route_contract: request.load_order_route_contract,
-                validate_projection: request.validate_projection,
-                retain_slot_rows: request.retain_slot_rows,
-                retained_slot_layout: request.retained_slot_layout,
-                prepared_projection_validation: request.prepared_projection_validation,
-                cursor_emission: request.cursor_emission,
+                capabilities: request.capabilities,
                 consistency: request.consistency,
                 continuation: request.continuation,
                 direction: request.direction,
@@ -648,6 +658,24 @@ impl<'a> ExecutionInputs<'a> {
         row_read_consistency_for_plan(self.plan)
     }
 
+    // Build the shared materialization contract once so the two outward
+    // request shapes stay aligned on predicate/projection/retained-slot wiring.
+    fn materialization_contract<'req>(
+        &'req self,
+        route_plan: &ExecutionPlan,
+    ) -> ExecutionMaterializationContract<'req> {
+        ExecutionMaterializationContract {
+            plan: self.plan(),
+            predicate_slots: self.execution_preparation().compiled_predicate(),
+            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+            load_order_route_contract: route_plan.load_order_route_contract(),
+            validate_projection: self.validate_projection(),
+            retain_slot_rows: self.retain_slot_rows(),
+            retained_slot_layout: self.retained_slot_layout(),
+            prepared_projection_validation: self.prepared_projection_validation(),
+        }
+    }
+
     /// Build the cursorless row-collector materialization request owned by
     /// this execution-input boundary so kernel callers do not reconstruct the
     /// same projection and predicate contract ad hoc.
@@ -657,17 +685,19 @@ impl<'a> ExecutionInputs<'a> {
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut dyn OrderedKeyStream,
     ) -> RowCollectorMaterializationRequest<'req> {
+        let contract = self.materialization_contract(route_plan);
+
         RowCollectorMaterializationRequest {
-            plan: self.plan(),
-            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-            load_order_route_contract: route_plan.load_order_route_contract(),
+            plan: contract.plan,
+            scan_budget_hint: contract.scan_budget_hint,
+            load_order_route_contract: contract.load_order_route_contract,
             continuation,
             cursor_boundary: continuation.post_access_cursor_boundary(),
-            predicate_slots: self.execution_preparation().compiled_predicate(),
-            validate_projection: self.validate_projection(),
-            retain_slot_rows: self.retain_slot_rows(),
-            retained_slot_layout: self.retained_slot_layout(),
-            prepared_projection_validation: self.prepared_projection_validation(),
+            predicate_slots: contract.predicate_slots,
+            validate_projection: contract.validate_projection,
+            retain_slot_rows: contract.retain_slot_rows,
+            retained_slot_layout: contract.retained_slot_layout,
+            prepared_projection_validation: contract.prepared_projection_validation,
             key_stream,
         }
     }
@@ -680,20 +710,24 @@ impl<'a> ExecutionInputs<'a> {
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut dyn OrderedKeyStream,
     ) -> RuntimePageMaterializationRequest<'req> {
+        let contract = self.materialization_contract(route_plan);
+
         RuntimePageMaterializationRequest {
-            plan: self.plan(),
-            predicate_slots: self.execution_preparation().compiled_predicate(),
+            plan: contract.plan,
             key_stream,
-            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-            load_order_route_contract: route_plan.load_order_route_contract(),
-            validate_projection: self.validate_projection(),
-            retain_slot_rows: self.retain_slot_rows(),
-            retained_slot_layout: self.retained_slot_layout(),
-            prepared_projection_validation: self.prepared_projection_validation(),
-            cursor_emission: if self.emit_cursor() {
-                CursorEmissionMode::Emit
-            } else {
-                CursorEmissionMode::Suppress
+            scan_budget_hint: contract.scan_budget_hint,
+            load_order_route_contract: contract.load_order_route_contract,
+            capabilities: ScalarMaterializationCapabilities {
+                predicate_slots: contract.predicate_slots,
+                validate_projection: contract.validate_projection,
+                retain_slot_rows: contract.retain_slot_rows,
+                retained_slot_layout: contract.retained_slot_layout,
+                prepared_projection_validation: contract.prepared_projection_validation,
+                cursor_emission: if self.emit_cursor() {
+                    CursorEmissionMode::Emit
+                } else {
+                    CursorEmissionMode::Suppress
+                },
             },
             consistency: self.consistency(),
             continuation,

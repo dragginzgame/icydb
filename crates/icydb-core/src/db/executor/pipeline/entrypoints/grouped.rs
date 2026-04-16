@@ -80,14 +80,56 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
 
 #[cfg(feature = "perf-attribution")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct GroupedCountAttribution {
+    pub(in crate::db) borrowed_hash_computations: u64,
+    pub(in crate::db) bucket_candidate_checks: u64,
+    pub(in crate::db) existing_group_hits: u64,
+    pub(in crate::db) new_group_inserts: u64,
+    pub(in crate::db) row_materialization_local_instructions: u64,
+    pub(in crate::db) group_lookup_local_instructions: u64,
+    pub(in crate::db) existing_group_update_local_instructions: u64,
+    pub(in crate::db) new_group_insert_local_instructions: u64,
+}
+
+#[cfg(feature = "perf-attribution")]
+impl GroupedCountAttribution {
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            borrowed_hash_computations: 0,
+            bucket_candidate_checks: 0,
+            existing_group_hits: 0,
+            new_group_inserts: 0,
+            row_materialization_local_instructions: 0,
+            group_lookup_local_instructions: 0,
+            existing_group_update_local_instructions: 0,
+            new_group_insert_local_instructions: 0,
+        }
+    }
+
+    #[must_use]
+    const fn from_fold_metrics(metrics: GroupedCountFoldMetrics) -> Self {
+        Self {
+            borrowed_hash_computations: metrics.borrowed_hash_computations,
+            bucket_candidate_checks: metrics.bucket_candidate_checks,
+            existing_group_hits: metrics.existing_group_hits,
+            new_group_inserts: metrics.new_group_inserts,
+            row_materialization_local_instructions: metrics.row_materialization_local_instructions,
+            group_lookup_local_instructions: metrics.group_lookup_local_instructions,
+            existing_group_update_local_instructions: metrics
+                .existing_group_update_local_instructions,
+            new_group_insert_local_instructions: metrics.new_group_insert_local_instructions,
+        }
+    }
+}
+
+#[cfg(feature = "perf-attribution")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) stream_local_instructions: u64,
     pub(in crate::db) fold_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
-    pub(in crate::db) grouped_count_borrowed_hash_computations: u64,
-    pub(in crate::db) grouped_count_bucket_candidate_checks: u64,
-    pub(in crate::db) grouped_count_existing_group_hits: u64,
-    pub(in crate::db) grouped_count_new_group_inserts: u64,
+    pub(in crate::db) grouped_count: GroupedCountAttribution,
 }
 
 #[cfg(feature = "perf-attribution")]
@@ -321,12 +363,7 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase
             stream_local_instructions,
             fold_local_instructions,
             finalize_local_instructions,
-            grouped_count_borrowed_hash_computations: grouped_count_fold_metrics
-                .borrowed_hash_computations,
-            grouped_count_bucket_candidate_checks: grouped_count_fold_metrics
-                .bucket_candidate_checks,
-            grouped_count_existing_group_hits: grouped_count_fold_metrics.existing_group_hits,
-            grouped_count_new_group_inserts: grouped_count_fold_metrics.new_group_inserts,
+            grouped_count: GroupedCountAttribution::from_fold_metrics(grouped_count_fold_metrics),
         },
     ))
 }

@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.84.x] 🧊 - 2026-04-16 - Prepared Execution Residents
 
+- `0.84.3` follows the grouped attribution line through the remaining hot repeated `GROUP BY age, COUNT(*)` row and also turns the scalar page executor into a resolved-strategy path, so grouped repeated rows get cheaper and scalar read behavior is now decided once through explicit direct-row, kernel-scan, post-access, and final-payload strategies instead of being re-derived across page execution.
 - `0.84.2` follows the resident and grouped-attribution work by trimming a broad slice of duplicate query-planner, validation, expression, and fingerprint scaffolding, so the `db/query` planning boundary is smaller and easier to maintain without changing query behavior.
-- `0.84.1` turns grouped runtime into a measured and then tightened path: SQL and fluent perf audits now expose grouped stream/fold/finalize plus grouped `COUNT(*)` fold metrics, and the follow-through trims repeated grouped fold and one-slot grouped-read work enough to make the repeated grouped SQL row materially cheaper than its original baseline.
+- `0.84.1` turns grouped runtime into a measured and then tightened path: SQL and fluent perf audits now expose grouped stream/fold/finalize plus grouped `COUNT(*)` fold metrics, and the follow-through trims repeated grouped fold, one-slot grouped row-read, and single-field grouped hash work enough to make the repeated grouped SQL row materially cheaper than its original baseline.
 - `0.84.0` starts the line by freezing shared prepared SQL projection, scalar retained-slot, and grouped prep/layout residents onto prepared plans, which cuts repeated SQL setup work without widening query behavior.
 
 See detailed breakdown:

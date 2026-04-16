@@ -10,6 +10,7 @@ use crate::db::executor::{
     pipeline::orchestrator::LoadSurfaceMode,
     pipeline::orchestrator::strategy::ExecutionSpec,
 };
+use crate::error::InternalError;
 
 ///
 /// LoadExecutionContext
@@ -71,4 +72,50 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState {
 pub(in crate::db::executor::pipeline::orchestrator) enum LoadExecutionPayload {
     Scalar(StructuralCursorPage),
     Grouped(GroupedCursorPage),
+}
+
+impl LoadExecutionPayload {
+    // Validate that this payload shape matches the selected load-surface mode.
+    pub(in crate::db::executor::pipeline::orchestrator) fn validate_for_mode(
+        &self,
+        execution_mode: LoadSurfaceMode,
+    ) -> Result<(), InternalError> {
+        if execution_mode.is_scalar_page() {
+            return match self {
+                Self::Scalar(_) => Ok(()),
+                Self::Grouped(_) => Err(InternalError::load_runtime_scalar_payload_required()),
+            };
+        }
+
+        debug_assert!(
+            execution_mode.is_grouped_page(),
+            "runtime payload validation expects grouped mode for non-scalar load surfaces",
+        );
+        match self {
+            Self::Grouped(_) => Ok(()),
+            Self::Scalar(_) => Err(InternalError::load_runtime_grouped_payload_required()),
+        }
+    }
+
+    // Require one scalar cursor page after payload validation selected the
+    // scalar load surface family.
+    pub(in crate::db::executor::pipeline::orchestrator) fn into_scalar_page(
+        self,
+    ) -> Result<StructuralCursorPage, InternalError> {
+        match self {
+            Self::Scalar(page) => Ok(page),
+            Self::Grouped(_) => Err(InternalError::load_runtime_scalar_surface_payload_required()),
+        }
+    }
+
+    // Require one grouped cursor page after payload validation selected the
+    // grouped load surface family.
+    pub(in crate::db::executor::pipeline::orchestrator) fn into_grouped_page(
+        self,
+    ) -> Result<GroupedCursorPage, InternalError> {
+        match self {
+            Self::Grouped(page) => Ok(page),
+            Self::Scalar(_) => Err(InternalError::load_runtime_grouped_surface_payload_required()),
+        }
+    }
 }

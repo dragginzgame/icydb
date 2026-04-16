@@ -20,8 +20,6 @@ use crate::{
 pub(in crate::db::executor) use grouped_fold::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
-#[cfg(feature = "structural-read-metrics")]
-pub use grouped_fold::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 pub(in crate::db::executor) use grouped_fold::{
     build_grouped_stream_with_runtime, execute_group_fold_stage,
 };

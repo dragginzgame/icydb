@@ -31,25 +31,7 @@ fn validate_runtime_payload_shape(
     execution_mode: LoadSurfaceMode,
     payload: &state::LoadExecutionPayload,
 ) -> Result<(), InternalError> {
-    if execution_mode.is_scalar_page() {
-        match payload {
-            state::LoadExecutionPayload::Scalar(_) => Ok(()),
-            state::LoadExecutionPayload::Grouped(_) => {
-                Err(InternalError::load_runtime_scalar_payload_required())
-            }
-        }
-    } else {
-        debug_assert!(
-            execution_mode.is_grouped_page(),
-            "runtime payload validation expects grouped mode for non-scalar load surfaces",
-        );
-        match payload {
-            state::LoadExecutionPayload::Grouped(_) => Ok(()),
-            state::LoadExecutionPayload::Scalar(_) => {
-                Err(InternalError::load_runtime_grouped_payload_required())
-            }
-        }
-    }
+    payload.validate_for_mode(execution_mode)
 }
 
 /// Apply paging contracts over generic-free payload artifacts.
@@ -76,9 +58,7 @@ fn materialize_runtime_surface(
     validate_runtime_payload_shape(execution_mode, &state.payload)?;
 
     if execution_mode.is_scalar_page() {
-        let state::LoadExecutionPayload::Scalar(page) = state.payload else {
-            return Err(InternalError::load_runtime_scalar_surface_payload_required());
-        };
+        let page = state.payload.into_scalar_page()?;
 
         Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
     } else {
@@ -86,9 +66,7 @@ fn materialize_runtime_surface(
             execution_mode.is_grouped_page(),
             "runtime surface materialization expects grouped mode for non-scalar load surfaces",
         );
-        let state::LoadExecutionPayload::Grouped(page) = state.payload else {
-            return Err(InternalError::load_runtime_grouped_surface_payload_required());
-        };
+        let page = state.payload.into_grouped_page()?;
 
         Ok(LoadExecutionSurface::GroupedPageWithTrace(
             page,

@@ -15,7 +15,7 @@ pub(super) mod timing;
 pub(in crate::db) use entrypoints::execute_initial_grouped_rows_for_canister_with_phase_attribution;
 #[cfg(feature = "perf-attribution")]
 pub(in crate::db) use entrypoints::{
-    GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
+    GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use entrypoints::{

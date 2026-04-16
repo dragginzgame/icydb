@@ -1,6 +1,7 @@
 use crate::{
     db::data::{
-        DataKey, RawRow, StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
+        DataKey, RawRow, SparseRequiredRowFieldBytes, StructuralRowContract,
+        StructuralRowDecodeError, StructuralRowFieldBytes,
     },
     error::InternalError,
     model::{
@@ -502,28 +503,28 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
     required_field: &FieldModel,
     primary_key_field: &FieldModel,
 ) -> Result<Option<Value>, InternalError> {
-    // Phase 1: open the canonical field-byte spans once through the shared
-    // structural row envelope scanner.
-    let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
-        .map_err(StructuralRowDecodeError::into_internal_error)?;
+    // Phase 1: scan the row envelope once while retaining only the selected
+    // slot span plus the primary-key span needed by this narrow decode path.
+    let field_bytes =
+        SparseRequiredRowFieldBytes::from_raw_row_with_contract(raw_row, contract, required_slot)
+            .map_err(StructuralRowDecodeError::into_internal_error)?;
 
     // Phase 2: validate the persisted primary-key payload directly against the
     // authoritative storage key before decoding the requested field.
-    validate_storage_key_value_from_field_bytes_with_field(
-        contract,
-        &field_bytes,
+    validate_storage_key_value_from_sparse_required_field_bytes_with_field(
         expected_key,
+        field_bytes.primary_key_field(),
         primary_key_field,
     )?;
 
     // Phase 3: decode exactly one caller-selected slot and report it through
     // the same sparse-read metrics surface used by the reader-backed path.
     let probe = StructuralReadProbe::begin(contract.field_count());
-    let value = decode_selected_slot_value_with_field(
+    let value = decode_selected_slot_value_from_raw_bytes_with_field(
         contract,
-        &field_bytes,
         required_slot,
         required_field,
+        field_bytes.required_field(),
         expected_key,
         &probe,
     )?;
@@ -569,6 +570,36 @@ fn validate_storage_key_value_from_field_bytes_with_field(
     let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
         InternalError::persisted_row_declared_field_missing(primary_key_field.name())
     })?;
+
+    validate_storage_key_value_from_primary_key_bytes_with_field(
+        expected_key,
+        raw_value,
+        primary_key_field,
+    )
+}
+
+// Validate the persisted primary-key payload against one authoritative storage
+// key using the already selected primary-key field bytes from the narrow sparse
+// direct-slot decode path.
+fn validate_storage_key_value_from_sparse_required_field_bytes_with_field(
+    expected_key: StorageKey,
+    raw_value: &[u8],
+    primary_key_field: &FieldModel,
+) -> Result<(), InternalError> {
+    validate_storage_key_value_from_primary_key_bytes_with_field(
+        expected_key,
+        raw_value,
+        primary_key_field,
+    )
+}
+
+// Validate the persisted primary-key payload directly from caller-supplied raw
+// field bytes so both full-span and narrow sparse reads share one decode rule.
+fn validate_storage_key_value_from_primary_key_bytes_with_field(
+    expected_key: StorageKey,
+    raw_value: &[u8],
+    primary_key_field: &FieldModel,
+) -> Result<(), InternalError> {
     let decoded_key = match primary_key_field.leaf_codec() {
         LeafCodec::Scalar(codec) => {
             match decode_scalar_slot_value(raw_value, codec, primary_key_field.name())? {
@@ -649,6 +680,33 @@ fn decode_selected_slot_value_with_field(
         .field(slot)
         .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
 
+    decode_non_primary_selected_slot_value_from_raw_bytes(field, raw_value, probe)
+}
+
+// Decode one caller-selected slot directly from already selected raw field
+// bytes after the row-envelope and primary-key validation steps succeeded.
+fn decode_selected_slot_value_from_raw_bytes_with_field(
+    contract: StructuralRowContract,
+    slot: usize,
+    field: &FieldModel,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
+    if slot == contract.primary_key_slot() {
+        return materialize_primary_key_slot_value_from_expected_key(field, expected_key, probe);
+    }
+
+    decode_non_primary_selected_slot_value_from_raw_bytes(field, raw_value, probe)
+}
+
+// Decode one non-primary selected slot from caller-supplied raw field bytes so
+// sparse single-slot reads can skip the general field-span wrapper.
+fn decode_non_primary_selected_slot_value_from_raw_bytes(
+    field: &FieldModel,
+    raw_value: &[u8],
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
     match field.leaf_codec() {
         LeafCodec::Scalar(codec) => {
             probe.record_validated_slot();

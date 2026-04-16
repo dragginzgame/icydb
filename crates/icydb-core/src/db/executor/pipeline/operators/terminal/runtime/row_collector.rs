@@ -20,6 +20,7 @@ use crate::{
                 page::{
                     KernelRow, KernelRowPayloadMode, KernelRowScanRequest,
                     ResidualPredicateScanMode, ScalarRowRuntimeHandle, execute_kernel_row_scan,
+                    resolve_kernel_row_scan_strategy,
                 },
             },
             traversal::row_read_consistency_for_plan,
@@ -78,6 +79,12 @@ impl ExecutionKernel {
             plan.has_residual_predicate(),
             retained_slot_layout,
         );
+        let scan_strategy = resolve_kernel_row_scan_strategy(
+            payload_mode,
+            predicate_slots,
+            residual_predicate_scan_mode,
+            retained_slot_layout,
+        )?;
         let _ = continuation;
         let _ = load_order_route_contract;
 
@@ -87,10 +94,7 @@ impl ExecutionKernel {
             key_stream,
             scan_budget_hint,
             consistency,
-            payload_mode,
-            predicate_slots,
-            residual_predicate_scan_mode,
-            retained_slot_layout,
+            scan_strategy,
             row_keep_cap,
             row_runtime,
         })

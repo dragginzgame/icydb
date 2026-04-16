@@ -27,10 +27,9 @@ use std::{cmp::Ordering, fmt};
 
 // re-exports
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
-pub(crate) use hash::ValueHashWriter;
-pub(crate) use hash::hash_value;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
+pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub use tag::ValueTag;
 

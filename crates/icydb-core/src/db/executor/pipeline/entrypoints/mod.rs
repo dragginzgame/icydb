@@ -29,12 +29,12 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
-#[cfg(feature = "perf-attribution")]
-pub(in crate::db) use grouped::GroupedExecutePhaseAttribution;
 #[cfg(feature = "sql")]
 pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
 pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister_with_phase_attribution;
+#[cfg(feature = "perf-attribution")]
+pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };

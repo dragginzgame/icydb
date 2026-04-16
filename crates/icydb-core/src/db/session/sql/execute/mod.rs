@@ -183,10 +183,7 @@ impl<C: CanisterKind> DbSession<C> {
                 grouped_stream_local_instructions: 0,
                 grouped_fold_local_instructions: 0,
                 grouped_finalize_local_instructions: 0,
-                grouped_count_borrowed_hash_computations: 0,
-                grouped_count_bucket_candidate_checks: 0,
-                grouped_count_existing_group_hits: 0,
-                grouped_count_new_group_inserts: 0,
+                grouped_count: crate::db::executor::GroupedCountAttribution::none(),
             },
         ))
     }
@@ -266,14 +263,7 @@ impl<C: CanisterKind> DbSession<C> {
                 grouped_fold_local_instructions: grouped_phase_attribution.fold_local_instructions,
                 grouped_finalize_local_instructions: grouped_phase_attribution
                     .finalize_local_instructions,
-                grouped_count_borrowed_hash_computations: grouped_phase_attribution
-                    .grouped_count_borrowed_hash_computations,
-                grouped_count_bucket_candidate_checks: grouped_phase_attribution
-                    .grouped_count_bucket_candidate_checks,
-                grouped_count_existing_group_hits: grouped_phase_attribution
-                    .grouped_count_existing_group_hits,
-                grouped_count_new_group_inserts: grouped_phase_attribution
-                    .grouped_count_new_group_inserts,
+                grouped_count: grouped_phase_attribution.grouped_count,
             },
         ))
     }

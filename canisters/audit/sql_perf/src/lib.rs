@@ -64,6 +64,76 @@ fn invalid_perf_loop_runs_error() -> icydb::Error {
 }
 
 #[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GroupedCountTotals {
+    borrowed_hash_computations: u64,
+    bucket_candidate_checks: u64,
+    existing_group_hits: u64,
+    new_group_inserts: u64,
+    row_materialization_local_instructions: u64,
+    group_lookup_local_instructions: u64,
+    existing_group_update_local_instructions: u64,
+    new_group_insert_local_instructions: u64,
+}
+
+#[cfg(feature = "sql")]
+impl GroupedCountTotals {
+    fn record_sql(&mut self, attribution: &SqlQueryExecutionAttribution) {
+        self.borrowed_hash_computations = self
+            .borrowed_hash_computations
+            .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+        self.bucket_candidate_checks = self
+            .bucket_candidate_checks
+            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+        self.existing_group_hits = self
+            .existing_group_hits
+            .saturating_add(attribution.grouped_count_existing_group_hits);
+        self.new_group_inserts = self
+            .new_group_inserts
+            .saturating_add(attribution.grouped_count_new_group_inserts);
+        self.row_materialization_local_instructions = self
+            .row_materialization_local_instructions
+            .saturating_add(attribution.grouped_count_row_materialization_local_instructions);
+        self.group_lookup_local_instructions = self
+            .group_lookup_local_instructions
+            .saturating_add(attribution.grouped_count_group_lookup_local_instructions);
+        self.existing_group_update_local_instructions = self
+            .existing_group_update_local_instructions
+            .saturating_add(attribution.grouped_count_existing_group_update_local_instructions);
+        self.new_group_insert_local_instructions = self
+            .new_group_insert_local_instructions
+            .saturating_add(attribution.grouped_count_new_group_insert_local_instructions);
+    }
+
+    fn record_fluent(&mut self, attribution: &QueryExecutionAttribution) {
+        self.borrowed_hash_computations = self
+            .borrowed_hash_computations
+            .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+        self.bucket_candidate_checks = self
+            .bucket_candidate_checks
+            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+        self.existing_group_hits = self
+            .existing_group_hits
+            .saturating_add(attribution.grouped_count_existing_group_hits);
+        self.new_group_inserts = self
+            .new_group_inserts
+            .saturating_add(attribution.grouped_count_new_group_inserts);
+        self.row_materialization_local_instructions = self
+            .row_materialization_local_instructions
+            .saturating_add(attribution.grouped_count_row_materialization_local_instructions);
+        self.group_lookup_local_instructions = self
+            .group_lookup_local_instructions
+            .saturating_add(attribution.grouped_count_group_lookup_local_instructions);
+        self.existing_group_update_local_instructions = self
+            .existing_group_update_local_instructions
+            .saturating_add(attribution.grouped_count_existing_group_update_local_instructions);
+        self.new_group_insert_local_instructions = self
+            .new_group_insert_local_instructions
+            .saturating_add(attribution.grouped_count_new_group_insert_local_instructions);
+    }
+}
+
+#[cfg(feature = "sql")]
 #[expect(clippy::too_many_arguments)]
 fn average_attribution(
     total_compile_local_instructions: u64,
@@ -79,6 +149,10 @@ fn average_attribution(
     total_grouped_count_bucket_candidate_checks: u64,
     total_grouped_count_existing_group_hits: u64,
     total_grouped_count_new_group_inserts: u64,
+    total_grouped_count_row_materialization_local_instructions: u64,
+    total_grouped_count_group_lookup_local_instructions: u64,
+    total_grouped_count_existing_group_update_local_instructions: u64,
+    total_grouped_count_new_group_insert_local_instructions: u64,
     total_store_get_calls: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
@@ -111,6 +185,14 @@ fn average_attribution(
             / divisor,
         grouped_count_existing_group_hits: total_grouped_count_existing_group_hits / divisor,
         grouped_count_new_group_inserts: total_grouped_count_new_group_inserts / divisor,
+        grouped_count_row_materialization_local_instructions:
+            total_grouped_count_row_materialization_local_instructions / divisor,
+        grouped_count_group_lookup_local_instructions:
+            total_grouped_count_group_lookup_local_instructions / divisor,
+        grouped_count_existing_group_update_local_instructions:
+            total_grouped_count_existing_group_update_local_instructions / divisor,
+        grouped_count_new_group_insert_local_instructions:
+            total_grouped_count_new_group_insert_local_instructions / divisor,
         store_get_calls: total_store_get_calls / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
@@ -144,6 +226,10 @@ fn average_fluent_attribution(
     total_grouped_count_bucket_candidate_checks: u64,
     total_grouped_count_existing_group_hits: u64,
     total_grouped_count_new_group_inserts: u64,
+    total_grouped_count_row_materialization_local_instructions: u64,
+    total_grouped_count_group_lookup_local_instructions: u64,
+    total_grouped_count_existing_group_update_local_instructions: u64,
+    total_grouped_count_new_group_insert_local_instructions: u64,
     total_response_decode_local_instructions: u64,
     total_execute_local_instructions: u64,
     total_local_instructions: u64,
@@ -180,6 +266,14 @@ fn average_fluent_attribution(
             / divisor,
         grouped_count_existing_group_hits: total_grouped_count_existing_group_hits / divisor,
         grouped_count_new_group_inserts: total_grouped_count_new_group_inserts / divisor,
+        grouped_count_row_materialization_local_instructions:
+            total_grouped_count_row_materialization_local_instructions / divisor,
+        grouped_count_group_lookup_local_instructions:
+            total_grouped_count_group_lookup_local_instructions / divisor,
+        grouped_count_existing_group_update_local_instructions:
+            total_grouped_count_existing_group_update_local_instructions / divisor,
+        grouped_count_new_group_insert_local_instructions:
+            total_grouped_count_new_group_insert_local_instructions / divisor,
         response_decode_local_instructions: total_response_decode_local_instructions / divisor,
         execute_local_instructions: total_execute_local_instructions / divisor,
         total_local_instructions: total_local_instructions / divisor,
@@ -209,10 +303,7 @@ where
     let mut total_grouped_stream_local_instructions = 0_u64;
     let mut total_grouped_fold_local_instructions = 0_u64;
     let mut total_grouped_finalize_local_instructions = 0_u64;
-    let mut total_grouped_count_borrowed_hash_computations = 0_u64;
-    let mut total_grouped_count_bucket_candidate_checks = 0_u64;
-    let mut total_grouped_count_existing_group_hits = 0_u64;
-    let mut total_grouped_count_new_group_inserts = 0_u64;
+    let mut grouped_count_totals = GroupedCountTotals::default();
     let mut total_store_get_calls = 0_u64;
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
@@ -252,15 +343,7 @@ where
             .saturating_add(attribution.grouped_fold_local_instructions);
         total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
             .saturating_add(attribution.grouped_finalize_local_instructions);
-        total_grouped_count_borrowed_hash_computations =
-            total_grouped_count_borrowed_hash_computations
-                .saturating_add(attribution.grouped_count_borrowed_hash_computations);
-        total_grouped_count_bucket_candidate_checks = total_grouped_count_bucket_candidate_checks
-            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
-        total_grouped_count_existing_group_hits = total_grouped_count_existing_group_hits
-            .saturating_add(attribution.grouped_count_existing_group_hits);
-        total_grouped_count_new_group_inserts = total_grouped_count_new_group_inserts
-            .saturating_add(attribution.grouped_count_new_group_inserts);
+        grouped_count_totals.record_sql(&attribution);
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
@@ -294,10 +377,14 @@ where
             total_grouped_stream_local_instructions,
             total_grouped_fold_local_instructions,
             total_grouped_finalize_local_instructions,
-            total_grouped_count_borrowed_hash_computations,
-            total_grouped_count_bucket_candidate_checks,
-            total_grouped_count_existing_group_hits,
-            total_grouped_count_new_group_inserts,
+            grouped_count_totals.borrowed_hash_computations,
+            grouped_count_totals.bucket_candidate_checks,
+            grouped_count_totals.existing_group_hits,
+            grouped_count_totals.new_group_inserts,
+            grouped_count_totals.row_materialization_local_instructions,
+            grouped_count_totals.group_lookup_local_instructions,
+            grouped_count_totals.existing_group_update_local_instructions,
+            grouped_count_totals.new_group_insert_local_instructions,
             total_store_get_calls,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
@@ -514,10 +601,7 @@ fn query_fluent_scenario_loop(
     let mut total_grouped_stream_local_instructions = 0_u64;
     let mut total_grouped_fold_local_instructions = 0_u64;
     let mut total_grouped_finalize_local_instructions = 0_u64;
-    let mut total_grouped_count_borrowed_hash_computations = 0_u64;
-    let mut total_grouped_count_bucket_candidate_checks = 0_u64;
-    let mut total_grouped_count_existing_group_hits = 0_u64;
-    let mut total_grouped_count_new_group_inserts = 0_u64;
+    let mut grouped_count_totals = GroupedCountTotals::default();
     let mut total_response_decode_local_instructions = 0_u64;
     let mut total_execute_local_instructions = 0_u64;
     let mut total_local_instructions = 0_u64;
@@ -574,15 +658,7 @@ fn query_fluent_scenario_loop(
             .saturating_add(attribution.grouped_fold_local_instructions);
         total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
             .saturating_add(attribution.grouped_finalize_local_instructions);
-        total_grouped_count_borrowed_hash_computations =
-            total_grouped_count_borrowed_hash_computations
-                .saturating_add(attribution.grouped_count_borrowed_hash_computations);
-        total_grouped_count_bucket_candidate_checks = total_grouped_count_bucket_candidate_checks
-            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
-        total_grouped_count_existing_group_hits = total_grouped_count_existing_group_hits
-            .saturating_add(attribution.grouped_count_existing_group_hits);
-        total_grouped_count_new_group_inserts = total_grouped_count_new_group_inserts
-            .saturating_add(attribution.grouped_count_new_group_inserts);
+        grouped_count_totals.record_fluent(&attribution);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
         total_execute_local_instructions =
@@ -611,10 +687,14 @@ fn query_fluent_scenario_loop(
             total_grouped_stream_local_instructions,
             total_grouped_fold_local_instructions,
             total_grouped_finalize_local_instructions,
-            total_grouped_count_borrowed_hash_computations,
-            total_grouped_count_bucket_candidate_checks,
-            total_grouped_count_existing_group_hits,
-            total_grouped_count_new_group_inserts,
+            grouped_count_totals.borrowed_hash_computations,
+            grouped_count_totals.bucket_candidate_checks,
+            grouped_count_totals.existing_group_hits,
+            grouped_count_totals.new_group_inserts,
+            grouped_count_totals.row_materialization_local_instructions,
+            grouped_count_totals.group_lookup_local_instructions,
+            grouped_count_totals.existing_group_update_local_instructions,
+            grouped_count_totals.new_group_insert_local_instructions,
             total_response_decode_local_instructions,
             total_execute_local_instructions,
             total_local_instructions,

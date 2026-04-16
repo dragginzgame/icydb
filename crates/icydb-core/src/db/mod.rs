@@ -76,9 +76,6 @@ pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
-pub use executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
-#[cfg(feature = "structural-read-metrics")]
-#[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "structural-read-metrics")))]
 #[expect(unused_imports)]
