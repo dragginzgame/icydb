@@ -16,11 +16,11 @@ use crate::db::{
 };
 use crate::db::{
     sql::parser::{
-        Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlArithmeticProjectionOperand,
-        SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderTerm,
-        SqlProjection, SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
-        SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlAssignment, SqlDeleteStatement,
+        SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
+        SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
+        SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
         SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
@@ -268,22 +268,12 @@ pub(super) fn normalize_projection_for_table_alias(
                     SqlSelectItem::TextFunction(call) => SqlSelectItem::TextFunction(
                         normalize_text_function_call_for_table_alias(call, scope.as_slice()),
                     ),
-                    SqlSelectItem::Arithmetic(call) => {
-                        SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
-                            field: normalize_identifier_to_scope(call.field, scope.as_slice()),
-                            op: call.op,
-                            rhs: match call.rhs {
-                                SqlArithmeticProjectionOperand::Field(field) => {
-                                    SqlArithmeticProjectionOperand::Field(
-                                        normalize_identifier_to_scope(field, scope.as_slice()),
-                                    )
-                                }
-                                SqlArithmeticProjectionOperand::Literal(literal) => {
-                                    SqlArithmeticProjectionOperand::Literal(literal)
-                                }
-                            },
-                        })
-                    }
+                    SqlSelectItem::Arithmetic(call) => SqlSelectItem::Arithmetic(
+                        normalize_arithmetic_projection_call_for_table_alias(
+                            call,
+                            scope.as_slice(),
+                        ),
+                    ),
                     SqlSelectItem::Round(call) => SqlSelectItem::Round(
                         normalize_round_projection_call_for_table_alias(call, scope.as_slice()),
                     ),
@@ -299,27 +289,40 @@ fn normalize_round_projection_call_for_table_alias(
 ) -> SqlRoundProjectionCall {
     SqlRoundProjectionCall {
         input: match call.input {
-            SqlRoundProjectionInput::Field(field) => {
-                SqlRoundProjectionInput::Field(normalize_identifier_to_scope(field, scope))
-            }
-            SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall { field, op, rhs }) => {
-                SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
-                    field: normalize_identifier_to_scope(field, scope),
-                    op,
-                    rhs: match rhs {
-                        SqlArithmeticProjectionOperand::Field(field) => {
-                            SqlArithmeticProjectionOperand::Field(normalize_identifier_to_scope(
-                                field, scope,
-                            ))
-                        }
-                        SqlArithmeticProjectionOperand::Literal(literal) => {
-                            SqlArithmeticProjectionOperand::Literal(literal)
-                        }
-                    },
-                })
-            }
+            SqlRoundProjectionInput::Operand(operand) => SqlRoundProjectionInput::Operand(
+                normalize_projection_operand_for_table_alias(operand, scope),
+            ),
+            SqlRoundProjectionInput::Arithmetic(call) => SqlRoundProjectionInput::Arithmetic(
+                normalize_arithmetic_projection_call_for_table_alias(call, scope),
+            ),
         },
         scale: call.scale,
+    }
+}
+
+fn normalize_arithmetic_projection_call_for_table_alias(
+    call: SqlArithmeticProjectionCall,
+    scope: &[String],
+) -> SqlArithmeticProjectionCall {
+    SqlArithmeticProjectionCall {
+        left: normalize_projection_operand_for_table_alias(call.left, scope),
+        op: call.op,
+        right: normalize_projection_operand_for_table_alias(call.right, scope),
+    }
+}
+
+fn normalize_projection_operand_for_table_alias(
+    operand: SqlProjectionOperand,
+    scope: &[String],
+) -> SqlProjectionOperand {
+    match operand {
+        SqlProjectionOperand::Field(field) => {
+            SqlProjectionOperand::Field(normalize_identifier_to_scope(field, scope))
+        }
+        SqlProjectionOperand::Aggregate(aggregate) => SqlProjectionOperand::Aggregate(
+            normalize_aggregate_call_for_table_alias(aggregate, scope),
+        ),
+        SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
     }
 }
 

@@ -1810,6 +1810,57 @@ fn compile_sql_command_allows_grouped_round_projection_over_grouped_field() {
 }
 
 #[test]
+fn compile_sql_command_allows_grouped_round_projection_over_aggregate_output() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, ROUND(AVG(age), 2) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped ROUND projection over aggregate output should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped ROUND projection over aggregate output should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_allows_grouped_arithmetic_projection_over_aggregate_output() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) + MAX(age) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped arithmetic projection over aggregate output should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped arithmetic projection over aggregate output should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_deduplicates_repeated_grouped_aggregate_leaves_in_projection_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) + COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped arithmetic projection with repeated aggregate leaves should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped arithmetic projection with repeated aggregate leaves should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
 fn compile_sql_command_allows_grouped_additive_order_over_grouped_field() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + 1 ASC LIMIT 1",

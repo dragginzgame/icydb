@@ -776,21 +776,9 @@ fn build_grouped_bundle(
     }
 
     let grouped_specs = route
-        .projection_layout()
-        .aggregate_positions()
+        .grouped_aggregate_execution_specs()
         .iter()
-        .enumerate()
-        .map(|(aggregate_index, projection_index)| {
-            let aggregate_spec = route
-                .grouped_aggregate_execution_specs()
-                .get(aggregate_index)
-                .ok_or_else(|| {
-                    GroupedRouteStage::aggregate_index_out_of_bounds_for_projection_layout(
-                        *projection_index,
-                        aggregate_index,
-                    )
-                })?;
-
+        .map(|aggregate_spec| {
             GroupedAggregateBundleSpec::new(
                 aggregate_spec.kind(),
                 aggregate_materialized_fold_direction(aggregate_spec.kind()),

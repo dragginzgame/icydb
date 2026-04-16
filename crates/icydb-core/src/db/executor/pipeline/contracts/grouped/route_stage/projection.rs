@@ -23,17 +23,6 @@ use crate::{
 };
 
 impl GroupedRouteStage {
-    /// Construct one grouped route invariant for projection-layout aggregate
-    /// positions that do not align with the grouped aggregate payload.
-    pub(in crate::db::executor) fn aggregate_index_out_of_bounds_for_projection_layout(
-        projection_index: usize,
-        aggregate_index: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}",
-        ))
-    }
-
     /// Construct one grouped route invariant for grouped page-finalize keys
     /// that no longer match the canonical list-based group-key shape.
     pub(in crate::db::executor) fn canonical_group_key_must_be_list(

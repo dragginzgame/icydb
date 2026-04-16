@@ -10,8 +10,8 @@ use crate::{
             },
         },
         sql::parser::{
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlArithmeticProjectionOperand,
-            SqlProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
+            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
             SqlTextFunction, SqlTextFunctionCall,
         },
     },
@@ -337,21 +337,12 @@ pub(super) fn lower_grouped_projection_selection(
 
     for (index, item) in items.into_iter().enumerate() {
         let expr = lower_select_item_expr(&item)?;
-
-        match item {
-            SqlSelectItem::Aggregate(_) => {
-                seen_aggregate = true;
-            }
-            SqlSelectItem::Field(_)
-            | SqlSelectItem::TextFunction(_)
-            | SqlSelectItem::Arithmetic(_)
-            | SqlSelectItem::Round(_) => {
-                if seen_aggregate {
-                    return Err(SqlLoweringError::unsupported_select_group_by());
-                }
-                validate_grouped_projection_expr(model, &expr, grouped_field_names.as_slice())?;
-            }
+        let contains_aggregate = expr_contains_aggregate(&expr);
+        if seen_aggregate && !contains_aggregate {
+            return Err(SqlLoweringError::unsupported_select_group_by());
         }
+        validate_grouped_projection_expr(model, &expr, grouped_field_names.as_slice())?;
+        seen_aggregate |= contains_aggregate;
 
         fields.push(ProjectionField::Scalar {
             expr,
@@ -375,8 +366,8 @@ pub(super) fn lower_grouped_projection_selection(
     Ok(ProjectionSelection::Exprs(fields))
 }
 
-// Validate one grouped projection expression against the current grouped-field
-// authority while preserving specific unknown-field diagnostics.
+// Validate one grouped projection expression against grouped-key authority
+// while preserving specific unknown-field diagnostics.
 fn validate_grouped_projection_expr(
     model: &EntityModel,
     expr: &Expr,
@@ -385,7 +376,7 @@ fn validate_grouped_projection_expr(
     if let Some(field) = first_unknown_field_in_expr(expr, model) {
         return Err(SqlLoweringError::unknown_field(field));
     }
-    if expr_contains_aggregate(expr) || !expr_references_only_fields(expr, grouped_field_names) {
+    if !expr_references_only_fields(expr, grouped_field_names) {
         return Err(SqlLoweringError::unsupported_select_group_by());
     }
 
@@ -517,56 +508,58 @@ fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLower
 fn lower_arithmetic_projection_expr(
     call: &SqlArithmeticProjectionCall,
 ) -> Result<Expr, SqlLoweringError> {
-    // Keep arithmetic projection bounded to `field op (literal | field)` while
-    // still lowering onto the same canonical binary expression seam used by
-    // projection planning and evaluation.
-    let right = match &call.rhs {
-        SqlArithmeticProjectionOperand::Field(field) => Expr::Field(FieldId::new(field.clone())),
-        SqlArithmeticProjectionOperand::Literal(literal) => {
-            return match call.op {
-                SqlArithmeticProjectionOp::Add => {
-                    NumericProjectionExpr::add_value(call.field.clone(), literal.clone())
-                        .map(|projection| projection.expr().clone())
-                        .map_err(SqlLoweringError::from)
-                }
-                SqlArithmeticProjectionOp::Sub => {
-                    NumericProjectionExpr::sub_value(call.field.clone(), literal.clone())
-                        .map(|projection| projection.expr().clone())
-                        .map_err(SqlLoweringError::from)
-                }
-                SqlArithmeticProjectionOp::Mul => {
-                    NumericProjectionExpr::mul_value(call.field.clone(), literal.clone())
-                        .map(|projection| projection.expr().clone())
-                        .map_err(SqlLoweringError::from)
-                }
-                SqlArithmeticProjectionOp::Div => {
-                    NumericProjectionExpr::div_value(call.field.clone(), literal.clone())
-                        .map(|projection| projection.expr().clone())
-                        .map_err(SqlLoweringError::from)
-                }
-            };
-        }
-    };
+    // Keep arithmetic projection bounded to one admitted binary expression
+    // while still preserving the old field-plus-literal fast path for scalar
+    // projection lowering.
+    if let (SqlProjectionOperand::Field(field), SqlProjectionOperand::Literal(literal)) =
+        (&call.left, &call.right)
+    {
+        return match call.op {
+            SqlArithmeticProjectionOp::Add => {
+                NumericProjectionExpr::add_value(field.clone(), literal.clone())
+                    .map(|projection| projection.expr().clone())
+                    .map_err(SqlLoweringError::from)
+            }
+            SqlArithmeticProjectionOp::Sub => {
+                NumericProjectionExpr::sub_value(field.clone(), literal.clone())
+                    .map(|projection| projection.expr().clone())
+                    .map_err(SqlLoweringError::from)
+            }
+            SqlArithmeticProjectionOp::Mul => {
+                NumericProjectionExpr::mul_value(field.clone(), literal.clone())
+                    .map(|projection| projection.expr().clone())
+                    .map_err(SqlLoweringError::from)
+            }
+            SqlArithmeticProjectionOp::Div => {
+                NumericProjectionExpr::div_value(field.clone(), literal.clone())
+                    .map(|projection| projection.expr().clone())
+                    .map_err(SqlLoweringError::from)
+            }
+        };
+    }
+
+    let left = lower_projection_operand_expr(&call.left)?;
+    let right = lower_projection_operand_expr(&call.right)?;
 
     match call.op {
         SqlArithmeticProjectionOp::Add => Ok(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
-            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            left: Box::new(left),
             right: Box::new(right),
         }),
         SqlArithmeticProjectionOp::Sub => Ok(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Sub,
-            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            left: Box::new(left),
             right: Box::new(right),
         }),
         SqlArithmeticProjectionOp::Mul => Ok(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Mul,
-            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            left: Box::new(left),
             right: Box::new(right),
         }),
         SqlArithmeticProjectionOp::Div => Ok(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Div,
-            left: Box::new(Expr::Field(FieldId::new(call.field.clone()))),
+            left: Box::new(left),
             right: Box::new(right),
         }),
     }
@@ -576,20 +569,35 @@ fn lower_round_projection_expr(call: &SqlRoundProjectionCall) -> Result<Expr, Sq
     let scale = validate_round_projection_scale(call.scale.clone())?;
 
     match &call.input {
-        SqlRoundProjectionInput::Field(field) => RoundProjectionExpr::field(field.clone(), scale)
-            .map(|projection| projection.expr().clone())
-            .map_err(SqlLoweringError::from),
-        SqlRoundProjectionInput::Arithmetic(arithmetic) => {
-            let base = lower_arithmetic_projection_expr(arithmetic)?;
-
-            RoundProjectionExpr::new(
-                arithmetic.field.clone(),
-                base,
-                Value::Uint(u64::from(scale)),
-            )
-            .map(|projection| projection.expr().clone())
-            .map_err(SqlLoweringError::from)
+        SqlRoundProjectionInput::Operand(SqlProjectionOperand::Field(field)) => {
+            RoundProjectionExpr::field(field.clone(), scale)
+                .map(|projection| projection.expr().clone())
+                .map_err(SqlLoweringError::from)
         }
+        SqlRoundProjectionInput::Operand(operand) => Ok(Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Round,
+            args: vec![
+                lower_projection_operand_expr(operand)?,
+                Expr::Literal(Value::Uint(u64::from(scale))),
+            ],
+        }),
+        SqlRoundProjectionInput::Arithmetic(arithmetic) => Ok(Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Round,
+            args: vec![
+                lower_arithmetic_projection_expr(arithmetic)?,
+                Expr::Literal(Value::Uint(u64::from(scale))),
+            ],
+        }),
+    }
+}
+
+fn lower_projection_operand_expr(operand: &SqlProjectionOperand) -> Result<Expr, SqlLoweringError> {
+    match operand {
+        SqlProjectionOperand::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
+        SqlProjectionOperand::Aggregate(aggregate) => {
+            Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
+        }
+        SqlProjectionOperand::Literal(literal) => Ok(Expr::Literal(literal.clone())),
     }
 }
 

@@ -17,8 +17,9 @@ use crate::{
             },
         },
         sql::parser::{
-            SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlProjection, SqlSelectItem,
-            SqlSelectStatement, SqlStatement,
+            SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlProjection,
+            SqlProjectionOperand, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+            SqlStatement,
         },
     },
     model::entity::EntityModel,
@@ -919,25 +920,17 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     let mut seen_aggregate = false;
 
     for item in items {
-        match item {
-            SqlSelectItem::Aggregate(aggregate) => {
-                seen_aggregate = true;
-                aggregate_calls.push(aggregate.clone());
-            }
-            SqlSelectItem::Field(_)
-            | SqlSelectItem::TextFunction(_)
-            | SqlSelectItem::Arithmetic(_)
-            | SqlSelectItem::Round(_) => {
-                if seen_aggregate {
-                    return Err(SqlLoweringError::unsupported_select_group_by());
-                }
-                let expr = crate::db::sql::lowering::select::lower_select_item_expr(item)?;
-                if expr_contains_aggregate(&expr)
-                    || !expr_references_only_fields(&expr, grouped_field_names.as_slice())
-                {
-                    return Err(SqlLoweringError::unsupported_select_group_by());
-                }
-            }
+        let expr = crate::db::sql::lowering::select::lower_select_item_expr(item)?;
+        let contains_aggregate = expr_contains_aggregate(&expr);
+        if seen_aggregate && !contains_aggregate {
+            return Err(SqlLoweringError::unsupported_select_group_by());
+        }
+        if !expr_references_only_fields(&expr, grouped_field_names.as_slice()) {
+            return Err(SqlLoweringError::unsupported_select_group_by());
+        }
+        if contains_aggregate {
+            seen_aggregate = true;
+            collect_projection_item_aggregate_calls(item, &mut aggregate_calls);
         }
     }
 
@@ -948,9 +941,54 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     Ok(aggregate_calls)
 }
 
-// Keep grouped aggregate extraction narrow: non-aggregate projection items may
-// reference grouped fields, but aggregate leaves still belong only to the
-// explicit grouped aggregate list.
+fn collect_projection_item_aggregate_calls(
+    item: &SqlSelectItem,
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+) {
+    match item {
+        SqlSelectItem::Field(_) | SqlSelectItem::TextFunction(_) => {}
+        SqlSelectItem::Aggregate(aggregate) => {
+            push_unique_grouped_projection_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlSelectItem::Arithmetic(call) => {
+            collect_projection_operand_aggregate_calls(&call.left, aggregate_calls);
+            collect_projection_operand_aggregate_calls(&call.right, aggregate_calls);
+        }
+        SqlSelectItem::Round(call) => match &call.input {
+            SqlRoundProjectionInput::Operand(operand) => {
+                collect_projection_operand_aggregate_calls(operand, aggregate_calls);
+            }
+            SqlRoundProjectionInput::Arithmetic(call) => {
+                collect_projection_operand_aggregate_calls(&call.left, aggregate_calls);
+                collect_projection_operand_aggregate_calls(&call.right, aggregate_calls);
+            }
+        },
+    }
+}
+
+fn collect_projection_operand_aggregate_calls(
+    operand: &SqlProjectionOperand,
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+) {
+    if let SqlProjectionOperand::Aggregate(aggregate) = operand {
+        push_unique_grouped_projection_aggregate_call(aggregate_calls, aggregate.clone());
+    }
+}
+
+// Keep grouped aggregate extraction on one stable first-seen unique terminal
+// order so repeated aggregate leaves reuse the same grouped reducer slot.
+fn push_unique_grouped_projection_aggregate_call(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    aggregate: SqlAggregateCall,
+) {
+    if aggregate_calls.iter().all(|current| current != &aggregate) {
+        aggregate_calls.push(aggregate);
+    }
+}
+
+// Keep grouped aggregate extraction narrow: grouped projection expressions may
+// include aggregate leaves, but field references must still stay inside the
+// declared grouped-key authority.
 fn expr_contains_aggregate(expr: &Expr) -> bool {
     match expr {
         Expr::Aggregate(_) => true,

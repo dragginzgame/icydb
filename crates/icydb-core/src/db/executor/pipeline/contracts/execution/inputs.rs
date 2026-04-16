@@ -323,12 +323,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
-    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
-    pub(in crate::db::executor) validate_projection: bool,
-    pub(in crate::db::executor) retain_slot_rows: bool,
-    pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
-    pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a PreparedSlotProjectionValidation>,
+    pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
 }
 
@@ -366,11 +361,14 @@ impl<'a> ExecutionMaterializationContract<'a> {
             load_order_route_contract: self.load_order_route_contract,
             continuation,
             cursor_boundary: continuation.post_access_cursor_boundary(),
-            predicate_slots: self.predicate_slots,
-            validate_projection: self.validate_projection,
-            retain_slot_rows: self.retain_slot_rows,
-            retained_slot_layout: self.retained_slot_layout,
-            prepared_projection_validation: self.prepared_projection_validation,
+            capabilities: ScalarMaterializationCapabilities {
+                predicate_slots: self.predicate_slots,
+                validate_projection: self.validate_projection,
+                retain_slot_rows: self.retain_slot_rows,
+                retained_slot_layout: self.retained_slot_layout,
+                prepared_projection_validation: self.prepared_projection_validation,
+                cursor_emission: CursorEmissionMode::Suppress,
+            },
             key_stream,
         }
     }

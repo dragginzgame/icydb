@@ -73,28 +73,29 @@ pub(crate) enum SqlArithmeticProjectionOp {
 /// SqlArithmeticProjectionCall
 ///
 /// Parsed bounded scalar arithmetic projection item.
-/// Reduced SQL keeps this to one field plus one bounded right-hand operand so
-/// scalar projection support can admit sibling-field arithmetic without
-/// reopening generic expression parsing.
+/// Reduced SQL keeps this narrow to one binary operation over admitted scalar
+/// operands so grouped widening can add aggregate leaves without reopening a
+/// full generic SQL expression parser.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlArithmeticProjectionCall {
-    pub(crate) field: String,
+    pub(crate) left: SqlProjectionOperand,
     pub(crate) op: SqlArithmeticProjectionOp,
-    pub(crate) rhs: SqlArithmeticProjectionOperand,
+    pub(crate) right: SqlProjectionOperand,
 }
 
 ///
-/// SqlArithmeticProjectionOperand
+/// SqlProjectionOperand
 ///
-/// Bounded right-hand operand admitted in scalar arithmetic projection
+/// Bounded scalar operand admitted in grouped/scalar projection expression
 /// position.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlArithmeticProjectionOperand {
+pub(crate) enum SqlProjectionOperand {
     Field(String),
+    Aggregate(SqlAggregateCall),
     Literal(Value),
 }
 
@@ -107,7 +108,7 @@ pub(crate) enum SqlArithmeticProjectionOperand {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlRoundProjectionInput {
-    Field(String),
+    Operand(SqlProjectionOperand),
     Arithmetic(SqlArithmeticProjectionCall),
 }
 

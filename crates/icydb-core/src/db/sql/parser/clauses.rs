@@ -7,9 +7,9 @@ use crate::{
     db::{
         predicate::CompareOp,
         sql::parser::{
-            Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-            SqlArithmeticProjectionOperand, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
-            SqlOrderTerm, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
+            Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlHavingClause,
+            SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm, SqlProjectionOperand,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
         },
         sql_shared::{Keyword, SqlParseError},
     },
@@ -43,7 +43,7 @@ impl Parser {
         let field = self.expect_identifier()?;
         if let Some(op) = self.parse_direct_order_arithmetic_op() {
             return Ok(render_order_arithmetic_term(
-                self.parse_arithmetic_projection_call(field, op)?,
+                self.parse_arithmetic_projection_call(SqlProjectionOperand::Field(field), op)?,
             ));
         }
         if !self.peek_lparen() {
@@ -178,10 +178,8 @@ impl Parser {
 }
 
 fn render_order_arithmetic_term(term: SqlArithmeticProjectionCall) -> String {
-    let rhs = match term.rhs {
-        SqlArithmeticProjectionOperand::Field(field) => field,
-        SqlArithmeticProjectionOperand::Literal(literal) => render_order_literal(literal),
-    };
+    let left = render_order_projection_operand(term.left);
+    let right = render_order_projection_operand(term.right);
     let op = match term.op {
         SqlArithmeticProjectionOp::Add => "+",
         SqlArithmeticProjectionOp::Sub => "-",
@@ -189,16 +187,41 @@ fn render_order_arithmetic_term(term: SqlArithmeticProjectionCall) -> String {
         SqlArithmeticProjectionOp::Div => "/",
     };
 
-    format!("{} {op} {rhs}", term.field)
+    format!("{left} {op} {right}")
 }
 
 fn render_order_round_term(term: SqlRoundProjectionCall) -> String {
     let input = match term.input {
-        SqlRoundProjectionInput::Field(field) => field,
+        SqlRoundProjectionInput::Operand(operand) => render_order_projection_operand(operand),
         SqlRoundProjectionInput::Arithmetic(arithmetic) => render_order_arithmetic_term(arithmetic),
     };
 
     format!("ROUND({input}, {})", render_order_literal(term.scale))
+}
+
+fn render_order_projection_operand(operand: SqlProjectionOperand) -> String {
+    match operand {
+        SqlProjectionOperand::Field(field) => field,
+        SqlProjectionOperand::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
+        SqlProjectionOperand::Literal(literal) => render_order_literal(literal),
+    }
+}
+
+fn render_order_aggregate_call(aggregate: crate::db::sql::parser::SqlAggregateCall) -> String {
+    let function = match aggregate.kind {
+        crate::db::sql::parser::SqlAggregateKind::Count => "COUNT",
+        crate::db::sql::parser::SqlAggregateKind::Sum => "SUM",
+        crate::db::sql::parser::SqlAggregateKind::Avg => "AVG",
+        crate::db::sql::parser::SqlAggregateKind::Min => "MIN",
+        crate::db::sql::parser::SqlAggregateKind::Max => "MAX",
+    };
+    let distinct = if aggregate.distinct { "DISTINCT " } else { "" };
+    let inner = match aggregate.field {
+        Some(field) => field,
+        None => "*".to_string(),
+    };
+
+    format!("{function}({distinct}{inner})")
 }
 
 fn render_order_literal(value: Value) -> String {

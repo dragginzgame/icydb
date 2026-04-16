@@ -28,13 +28,16 @@ pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
                 .collect::<Vec<_>>();
 
             for (index, field) in projection.fields().enumerate() {
-                expr_references_only_fields(projection_field_expr(field), &grouped_fields)
-                    .then_some(())
-                    .ok_or_else(|| {
-                        PlanError::from(
-                            ExprPlanError::grouped_projection_references_non_group_field(index),
-                        )
-                    })?;
+                expr_references_only_fields(
+                    projection_field_expr(field),
+                    grouped_fields.as_slice(),
+                )
+                .then_some(())
+                .ok_or_else(|| {
+                    PlanError::from(
+                        ExprPlanError::grouped_projection_references_non_group_field(index),
+                    )
+                })?;
             }
 
             Ok(())

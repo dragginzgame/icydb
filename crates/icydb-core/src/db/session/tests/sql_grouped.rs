@@ -1526,6 +1526,87 @@ fn grouped_select_helper_equivalent_row_matrix_matches_canonical_rows() {
 }
 
 #[test]
+fn grouped_select_allows_post_aggregate_projection_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) + MAX(age), ROUND(AVG(age), 2) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped post-aggregate projection expressions should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped post-aggregate projection expressions should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(10),
+                vec![
+                    Value::Decimal(crate::types::Decimal::from_u128(12).expect("12 decimal"),),
+                    Value::Decimal(crate::types::Decimal::new(1000, 2)),
+                ],
+            ),
+            (
+                Value::Uint(20),
+                vec![
+                    Value::Decimal(crate::types::Decimal::from_u128(21).expect("21 decimal"),),
+                    Value::Decimal(crate::types::Decimal::new(2000, 2)),
+                ],
+            ),
+        ],
+        "grouped post-aggregate projection expressions should materialize computed aggregate outputs on the aggregate side",
+    );
+}
+
+#[test]
+fn grouped_select_reuses_repeated_aggregate_leaf_outputs() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) + COUNT(*)          FROM SessionSqlEntity          GROUP BY age          ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped repeated aggregate leaf projection expressions should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped repeated aggregate leaf projection expressions should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(10),
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(4).expect("4 decimal"),
+                )],
+            ),
+            (
+                Value::Uint(20),
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(2).expect("2 decimal"),
+                )],
+            ),
+        ],
+        "grouped repeated aggregate leaf projection expressions should reuse one grouped aggregate output slot",
+    );
+}
+
+#[test]
 fn grouped_select_rejects_non_preserving_computed_order() {
     reset_session_sql_store();
     let session = sql_session();

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.85.x] 🧮 - 2026-04-16 - Grouped Post-Aggregate Projection Expressions
+
+- `0.85.0` widens grouped SQL `SELECT` projection so you can now compute bounded scalar expressions over grouped keys and finished aggregate results, including forms like `COUNT(*) + MAX(age)` and `ROUND(AVG(age), 2)`, and it also breaks the large scalar page materializer into focused planning, scan, post-scan, retained-slot, and metrics modules so the executor keeps the same behavior through clearer internal boundaries.
+
+See detailed breakdown:
+[docs/changelog/0.85.md](docs/changelog/0.85.md)
+
+---
+
 ## [0.84.x] 🧊 - 2026-04-16 - Prepared Execution Residents
 
 - `0.84.4` closes the line by finishing the shared scalar executor cleanup: scalar page reads and the cursorless short path now resolve explicit execution strategies once instead of re-reading retained-layout and residual-scan flags at each late phase, and the local bootstrap/perf harness follow-through keeps the new attribution tooling clean for recurring audit runs.
@@ -18,6 +27,7 @@ See detailed breakdown:
 [docs/changelog/0.84.md](docs/changelog/0.84.md)
 
 ---
+
 ## [0.83.x] 🧱 - 2026-04-15 - Serialization Boundary Cleanup
 
 - `0.83.5` finishes the last cold fluent compile cleanup by moving access-choice ranking behind the explain boundary, narrowing scalar load route preparation, and then trimming more executor, query, fluent, and access-choice wrapper duplication so the remaining `0.83` compile-path cleanup leaves less internal indirection behind.

@@ -197,16 +197,6 @@ impl PlannedProjectionLayout {
         self.aggregate_positions.as_slice()
     }
 
-    /// Construct one grouped layout invariant for mismatched aggregate counts.
-    pub(in crate::db) fn aggregate_count_mismatch(
-        layout_count: usize,
-        handoff_count: usize,
-    ) -> InternalError {
-        InternalError::planner_executor_invariant(format!(
-            "grouped projection layout aggregate count mismatch: layout={layout_count}, handoff={handoff_count}",
-        ))
-    }
-
     /// Construct one grouped layout invariant for non-monotonic grouped-field positions.
     pub(in crate::db) fn group_field_positions_not_strictly_increasing() -> InternalError {
         InternalError::planner_executor_invariant(
@@ -404,7 +394,7 @@ pub(in crate::db) fn grouped_executor_handoff(
     };
     let projection_spec = plan.frozen_projection_spec();
     #[cfg(not(test))]
-    let (projection_layout, aggregate_projection_specs, projection_is_identity) =
+    let (projection_layout, _, projection_is_identity) =
         planned_projection_layout_and_aggregate_projection_specs_from_spec(
             projection_spec,
             grouped.group.group_fields.as_slice(),
@@ -417,11 +407,7 @@ pub(in crate::db) fn grouped_executor_handoff(
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         )?;
-    validate_grouped_projection_layout(
-        &projection_layout,
-        grouped.group.group_fields.len(),
-        aggregate_projection_specs.len(),
-    )?;
+    validate_grouped_projection_layout(&projection_layout)?;
     let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
         InternalError::planner_executor_invariant(
             "grouped executor handoff must carry grouped strategy for grouped plans",
@@ -706,8 +692,22 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
                         .is_some_and(|aggregate| {
                             aggregate_projection_spec.matches_semantic_aggregate(aggregate)
                         });
-                aggregate_projection_specs.push(aggregate_projection_spec);
-                next_aggregate_index = next_aggregate_index.saturating_add(1);
+                next_aggregate_index = next_aggregate_index.saturating_add(
+                    push_unique_grouped_projection_aggregate_spec(
+                        &mut aggregate_projection_specs,
+                        aggregate_projection_spec,
+                    ),
+                );
+            }
+            _ if grouped_projection_expr_contains_aggregate(root_expr) => {
+                aggregate_positions.push(index);
+                projection_is_identity = false;
+                next_aggregate_index = next_aggregate_index.saturating_add(
+                    collect_grouped_projection_aggregate_specs(
+                        root_expr,
+                        &mut aggregate_projection_specs,
+                    ),
+                );
             }
             _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
                 group_field_positions.push(index);
@@ -773,18 +773,14 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     ),
     InternalError,
 > {
+    let grouped_field_names = group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<Vec<_>>();
+
     for (index, field) in projection_spec.fields().enumerate() {
         let root_expr = expression_without_alias(projection_field_expr(field));
-        if !matches!(root_expr, Expr::Field(_) | Expr::Aggregate(_))
-            && !expr_references_only_fields(
-                root_expr,
-                group_fields
-                    .iter()
-                    .map(FieldSlot::field)
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-        {
+        if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
             return Err(non_grouped_projection_layout_expression(index));
         }
     }
@@ -815,6 +811,74 @@ fn grouped_projection_expression_preserves_identity(
                     |group_field| field_id.as_str() == group_field.field.as_str(),
                 )
         )
+}
+
+fn grouped_projection_expr_contains_aggregate(expr: &Expr) -> bool {
+    match expr {
+        Expr::Aggregate(_) => true,
+        Expr::Field(_) | Expr::Literal(_) => false,
+        Expr::FunctionCall { args, .. } => {
+            args.iter().any(grouped_projection_expr_contains_aggregate)
+        }
+        Expr::Binary { left, right, .. } => {
+            grouped_projection_expr_contains_aggregate(left.as_ref())
+                || grouped_projection_expr_contains_aggregate(right.as_ref())
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
+            grouped_projection_expr_contains_aggregate(expr.as_ref())
+        }
+    }
+}
+
+// Collect grouped aggregate leaves from one projection expression in
+// declaration order so grouped executor handoff can resolve aggregate leaves
+// inside post-aggregate grouped projection expressions.
+// Keep grouped aggregate projection specs on one stable first-seen unique
+// order so repeated aggregate leaves reuse the same grouped execution slot.
+fn push_unique_grouped_projection_aggregate_spec(
+    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+    aggregate_projection_spec: GroupedAggregateProjectionSpec,
+) -> usize {
+    if aggregate_projection_specs
+        .iter()
+        .all(|current| current != &aggregate_projection_spec)
+    {
+        aggregate_projection_specs.push(aggregate_projection_spec);
+        return 1;
+    }
+
+    0
+}
+
+fn collect_grouped_projection_aggregate_specs(
+    expr: &Expr,
+    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+) -> usize {
+    match expr {
+        Expr::Aggregate(aggregate_expr) => push_unique_grouped_projection_aggregate_spec(
+            aggregate_projection_specs,
+            GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
+        ),
+        Expr::Field(_) | Expr::Literal(_) => 0,
+        Expr::FunctionCall { args, .. } => args.iter().fold(0usize, |count, arg| {
+            count.saturating_add(collect_grouped_projection_aggregate_specs(
+                arg,
+                aggregate_projection_specs,
+            ))
+        }),
+        Expr::Binary { left, right, .. } => {
+            collect_grouped_projection_aggregate_specs(left.as_ref(), aggregate_projection_specs)
+                .saturating_add(collect_grouped_projection_aggregate_specs(
+                    right.as_ref(),
+                    aggregate_projection_specs,
+                ))
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
+            collect_grouped_projection_aggregate_specs(expr.as_ref(), aggregate_projection_specs)
+        }
+    }
 }
 
 // Keep the grouped projection-layout rejection text under one helper so the

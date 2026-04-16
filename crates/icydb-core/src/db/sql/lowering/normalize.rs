@@ -12,8 +12,8 @@ use crate::db::{
             rewrite_field_identifiers,
         },
         parser::{
-            SqlAggregateCall, SqlArithmeticProjectionCall, SqlArithmeticProjectionOperand,
-            SqlHavingClause, SqlHavingSymbol, SqlOrderTerm, SqlProjection, SqlRoundProjectionCall,
+            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingSymbol,
+            SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
             SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
             SqlTextFunctionCall,
         },
@@ -82,6 +82,32 @@ fn normalize_aggregate_call_identifiers(
     }
 }
 
+fn normalize_projection_operand_identifiers(
+    operand: SqlProjectionOperand,
+    entity_scope: &[String],
+) -> SqlProjectionOperand {
+    match operand {
+        SqlProjectionOperand::Field(field) => {
+            SqlProjectionOperand::Field(normalize_identifier(field, entity_scope))
+        }
+        SqlProjectionOperand::Aggregate(aggregate) => SqlProjectionOperand::Aggregate(
+            normalize_aggregate_call_identifiers(aggregate, entity_scope),
+        ),
+        SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
+    }
+}
+
+fn normalize_arithmetic_projection_call_identifiers(
+    call: SqlArithmeticProjectionCall,
+    entity_scope: &[String],
+) -> SqlArithmeticProjectionCall {
+    SqlArithmeticProjectionCall {
+        left: normalize_projection_operand_identifiers(call.left, entity_scope),
+        op: call.op,
+        right: normalize_projection_operand_identifiers(call.right, entity_scope),
+    }
+}
+
 // Build one identifier scope used for reducing SQL-qualified field references
 // (`entity.field`, `schema.entity.field`) into canonical planner field names.
 pub(in crate::db::sql::lowering) fn sql_entity_scope_candidates(
@@ -137,50 +163,28 @@ fn normalize_projection_identifiers(
                         literal2,
                         literal3,
                     }),
-                    SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall { field, op, rhs }) => {
-                        SqlSelectItem::Arithmetic(SqlArithmeticProjectionCall {
-                            field: normalize_identifier(field, entity_scope),
-                            op,
-                            rhs: match rhs {
-                                SqlArithmeticProjectionOperand::Field(field) => {
-                                    SqlArithmeticProjectionOperand::Field(normalize_identifier(
-                                        field,
-                                        entity_scope,
-                                    ))
-                                }
-                                SqlArithmeticProjectionOperand::Literal(literal) => {
-                                    SqlArithmeticProjectionOperand::Literal(literal)
-                                }
-                            },
-                        })
-                    }
+                    SqlSelectItem::Arithmetic(call) => SqlSelectItem::Arithmetic(
+                        normalize_arithmetic_projection_call_identifiers(call, entity_scope),
+                    ),
                     SqlSelectItem::Round(SqlRoundProjectionCall { input, scale }) => {
                         SqlSelectItem::Round(SqlRoundProjectionCall {
                             input: match input {
-                                SqlRoundProjectionInput::Field(field) => {
-                                    SqlRoundProjectionInput::Field(normalize_identifier(
-                                        field,
-                                        entity_scope,
-                                    ))
+                                SqlRoundProjectionInput::Operand(operand) => {
+                                    SqlRoundProjectionInput::Operand(
+                                        normalize_projection_operand_identifiers(
+                                            operand,
+                                            entity_scope,
+                                        ),
+                                    )
                                 }
-                                SqlRoundProjectionInput::Arithmetic(
-                                    SqlArithmeticProjectionCall { field, op, rhs },
-                                ) => SqlRoundProjectionInput::Arithmetic(
-                                    SqlArithmeticProjectionCall {
-                                        field: normalize_identifier(field, entity_scope),
-                                        op,
-                                        rhs: match rhs {
-                                            SqlArithmeticProjectionOperand::Field(field) => {
-                                                SqlArithmeticProjectionOperand::Field(
-                                                    normalize_identifier(field, entity_scope),
-                                                )
-                                            }
-                                            SqlArithmeticProjectionOperand::Literal(literal) => {
-                                                SqlArithmeticProjectionOperand::Literal(literal)
-                                            }
-                                        },
-                                    },
-                                ),
+                                SqlRoundProjectionInput::Arithmetic(call) => {
+                                    SqlRoundProjectionInput::Arithmetic(
+                                        normalize_arithmetic_projection_call_identifiers(
+                                            call,
+                                            entity_scope,
+                                        ),
+                                    )
+                                }
                             },
                             scale,
                         })

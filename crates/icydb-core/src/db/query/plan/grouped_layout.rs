@@ -8,18 +8,9 @@ use crate::{db::query::plan::PlannedProjectionLayout, error::InternalError};
 /// Validate grouped projection layout invariants for one grouped handoff shape.
 pub(in crate::db) fn validate_grouped_projection_layout(
     projection_layout: &PlannedProjectionLayout,
-    group_fields_len: usize,
-    aggregate_exprs_len: usize,
 ) -> Result<(), InternalError> {
     let group_positions = projection_layout.group_field_positions();
     let aggregate_positions = projection_layout.aggregate_positions();
-    let _ = group_fields_len;
-    if aggregate_positions.len() != aggregate_exprs_len {
-        return Err(PlannedProjectionLayout::aggregate_count_mismatch(
-            aggregate_positions.len(),
-            aggregate_exprs_len,
-        ));
-    }
 
     if !group_positions
         .windows(2)

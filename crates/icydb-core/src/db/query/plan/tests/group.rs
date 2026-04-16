@@ -14,7 +14,10 @@ use crate::{
             GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
             GroupedFoldPath, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             PlanPolicyError, PlanUserError, QueryMode,
-            expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+            expr::{
+                Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSelection,
+                ProjectionSpec,
+            },
             global_distinct_field_aggregate_admissibility,
             global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
             grouped_distinct_admissibility, grouped_executor_handoff,
@@ -1644,6 +1647,49 @@ fn grouped_projection_expr_compatibility_accepts_group_fields_and_aggregates_wit
     validate_group_projection_expr_compatibility(&group, &projection).expect(
         "grouped projection compatibility should allow grouped fields, aliases, and aggregates",
     );
+}
+
+#[test]
+fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection_expr() {
+    let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    base.projection_selection = ProjectionSelection::Exprs(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Aggregate(crate::db::count())),
+            },
+            alias: None,
+        },
+    ]);
+
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+
+    assert_eq!(handoff.projection_layout().group_field_positions(), &[0]);
+    assert_eq!(handoff.projection_layout().aggregate_positions(), &[1]);
+    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
+    assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
+    assert_eq!(
+        handoff.aggregate_projection_specs()[0].kind(),
+        AggregateKind::Count
+    );
+    assert_eq!(handoff.aggregate_projection_specs()[0].target_field(), None);
 }
 
 #[test]
