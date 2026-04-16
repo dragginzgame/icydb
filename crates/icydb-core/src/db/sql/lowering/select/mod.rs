@@ -97,7 +97,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     let is_grouped = !group_by.is_empty();
     let (projection_selection, grouped_aggregates, normalized_distinct) = if is_grouped {
         let projection_aggregates =
-            grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
+            grouped_projection_aggregate_calls(&projection, group_by.as_slice(), model)?;
         let mut grouped_aggregates = projection_aggregates.clone();
         extend_grouped_having_aggregate_calls(&mut grouped_aggregates, having.as_slice());
         let projection_selection = lower_grouped_projection_selection(

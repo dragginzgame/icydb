@@ -184,24 +184,19 @@ impl GroupedRouteStage {
         direction: Direction,
         selection_bound: Option<usize>,
     ) -> Self {
-        use crate::{
-            db::{
-                access::AccessPath,
-                cursor::ContinuationSignature,
-                executor::{
-                    GroupedContinuationContext, GroupedPaginationWindow,
-                    route::GroupedExecutionMode,
-                },
-                predicate::MissingRowPolicy,
-                query::plan::{
-                    AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
-                    GroupedFoldPath, PlannedProjectionLayout,
-                },
+        use crate::db::{
+            cursor::ContinuationSignature,
+            executor::{
+                GroupedContinuationContext, GroupedPaginationWindow, route::GroupedExecutionMode,
             },
-            value::Value,
+            predicate::MissingRowPolicy,
+            query::plan::{
+                AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
+                GroupedFoldPath, PlannedProjectionLayout,
+            },
         };
 
-        let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         let grouped_pagination_window =
             GroupedPaginationWindow::new(None, 0, selection_bound, 0, None);
         let continuation = GroupedContinuationContext::new(

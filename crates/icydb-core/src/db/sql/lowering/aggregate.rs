@@ -22,7 +22,7 @@ use crate::{
             SqlStatement,
         },
     },
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_field_slot},
 };
 
 ///
@@ -903,6 +903,7 @@ fn lower_sql_aggregate_shape(
 pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     projection: &SqlProjection,
     group_by_fields: &[String],
+    model: &'static EntityModel,
 ) -> Result<Vec<SqlAggregateCall>, SqlLoweringError> {
     if group_by_fields.is_empty() {
         return Err(SqlLoweringError::unsupported_select_group_by());
@@ -924,6 +925,9 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
         let contains_aggregate = expr_contains_aggregate(&expr);
         if seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::unsupported_select_group_by());
+        }
+        if let Some(field) = first_unknown_field_in_expr(&expr, model) {
+            return Err(SqlLoweringError::unknown_field(field));
         }
         if !expr_references_only_fields(&expr, grouped_field_names.as_slice()) {
             return Err(SqlLoweringError::unsupported_select_group_by());
@@ -999,6 +1003,25 @@ fn expr_contains_aggregate(expr: &Expr) -> bool {
         }
         #[cfg(test)]
         Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => expr_contains_aggregate(expr),
+    }
+}
+
+// Preserve field-resolution diagnostics during grouped aggregate extraction so
+// grouped projection typos do not collapse into the generic unsupported shape.
+fn first_unknown_field_in_expr(expr: &Expr, model: &EntityModel) -> Option<String> {
+    match expr {
+        Expr::Field(field) => (resolve_field_slot(model, field.as_str()).is_none())
+            .then(|| field.as_str().to_string()),
+        Expr::Literal(_) | Expr::Aggregate(_) => None,
+        Expr::FunctionCall { args, .. } => args
+            .iter()
+            .find_map(|arg| first_unknown_field_in_expr(arg, model)),
+        Expr::Binary { left, right, .. } => first_unknown_field_in_expr(left, model)
+            .or_else(|| first_unknown_field_in_expr(right, model)),
+        #[cfg(test)]
+        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
+            first_unknown_field_in_expr(expr, model)
+        }
     }
 }
 
