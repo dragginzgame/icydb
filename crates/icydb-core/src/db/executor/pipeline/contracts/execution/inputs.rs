@@ -116,7 +116,7 @@ impl PreparedExecutionProjection {
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn projection_validation(
+    pub(in crate::db::executor) const fn projection_validation(
         &self,
     ) -> Option<&PreparedSlotProjectionValidation> {
         self.projection_validation.as_ref()

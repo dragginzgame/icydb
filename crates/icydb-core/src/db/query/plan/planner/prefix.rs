@@ -38,12 +38,8 @@ fn leading_index_prefix_lookup_value(
 }
 
 // This helper now carries one explicit planner-visible index slice in addition
-// to the existing predicate/order inputs so callers can keep lifecycle gating
-// at the planner boundary instead of reopening store state here.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "planner visibility is explicit input"
-)]
+// to the existing schema/field/order inputs so callers can keep lifecycle
+// gating at the planner boundary instead of reopening store state here.
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
     candidate_indexes: &[&'static IndexModel],

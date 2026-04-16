@@ -941,7 +941,7 @@ impl QueryPlanCacheKey {
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.
-    fn from_authority_parts(
+    const fn from_authority_parts(
         authority: crate::db::executor::EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
