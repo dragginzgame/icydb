@@ -115,7 +115,7 @@ pub(in crate::db::executor) const fn grouped_execution_config_from_planner_confi
 /// Build one grouped execution context from optional planner-side limits.
 ///
 #[must_use]
-pub(in crate::db::executor) fn grouped_execution_context_from_planner_config(
+pub(in crate::db::executor) const fn grouped_execution_context_from_planner_config(
     planner_config: Option<GroupedExecutionConfig>,
 ) -> ExecutionContext {
     ExecutionContext::new(grouped_execution_config_from_planner_config(planner_config))

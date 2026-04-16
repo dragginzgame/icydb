@@ -132,7 +132,7 @@ const fn coercion_supports_index_lookup(coercion: CoercionId) -> bool {
 // Ordered compare access has one tighter field-type contract on top of the
 // generic lookup-coercion gate: strict comparisons require orderable fields,
 // and case-folded compares are text-only.
-fn field_supports_ordered_compare(field_type: &FieldType, coercion: CoercionId) -> bool {
+const fn field_supports_ordered_compare(field_type: &FieldType, coercion: CoercionId) -> bool {
     match coercion {
         CoercionId::Strict => field_type.is_orderable(),
         CoercionId::TextCasefold => field_type.is_text(),

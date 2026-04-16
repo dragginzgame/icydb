@@ -205,7 +205,7 @@ impl AccessPlannedQuery {
     // Construct one seeded, unfinalized access-planned query shell so the
     // planner-owned access-choice seed and grouped/scalar route-profile seed
     // are initialized under one local authority.
-    fn seeded_unfinalized(
+    const fn seeded_unfinalized(
         logical: LogicalPlan,
         access: AccessPlan<Value>,
         projection_selection: ProjectionSelection,

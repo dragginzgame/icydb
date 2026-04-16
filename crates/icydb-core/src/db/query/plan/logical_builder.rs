@@ -143,7 +143,7 @@ pub(in crate::db::query) fn build_logical_plan(
 
 // Project the delete-limit contract from query mode so scalar logical-plan
 // assembly does not repeat the delete-mode shape gate inline.
-fn delete_limit_for_mode(mode: QueryMode) -> Option<DeleteLimitSpec> {
+const fn delete_limit_for_mode(mode: QueryMode) -> Option<DeleteLimitSpec> {
     match mode {
         QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
             Some(DeleteLimitSpec {
@@ -157,7 +157,7 @@ fn delete_limit_for_mode(mode: QueryMode) -> Option<DeleteLimitSpec> {
 
 // Project the load paging contract from query mode so logical-plan assembly
 // keeps load/delete mode branching in one place.
-fn page_spec_for_mode(mode: QueryMode) -> Option<PageSpec> {
+const fn page_spec_for_mode(mode: QueryMode) -> Option<PageSpec> {
     match mode {
         QueryMode::Load(spec) if spec.limit.is_some() || spec.offset > 0 => Some(PageSpec {
             limit: spec.limit,

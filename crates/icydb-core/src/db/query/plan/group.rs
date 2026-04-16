@@ -668,14 +668,11 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
-) -> Result<
-    (
-        PlannedProjectionLayout,
-        Vec<GroupedAggregateProjectionSpec>,
-        bool,
-    ),
-    InternalError,
-> {
+) -> (
+    PlannedProjectionLayout,
+    Vec<GroupedAggregateProjectionSpec>,
+    bool,
+) {
     let grouped_field_names = group_fields
         .iter()
         .map(FieldSlot::field)
@@ -723,9 +720,6 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
                 next_group_field_index = next_group_field_index.saturating_add(1);
             }
             _ => {
-                #[cfg(test)]
-                return Err(non_grouped_projection_layout_expression(index));
-
                 group_field_positions.push(index);
                 projection_is_identity = false;
                 next_group_field_index = next_group_field_index.saturating_add(1);
@@ -735,14 +729,14 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
     projection_is_identity &=
         next_group_field_index == group_fields.len() && next_aggregate_index == aggregates.len();
 
-    Ok((
+    (
         PlannedProjectionLayout {
             group_field_positions,
             aggregate_positions,
         },
         aggregate_projection_specs,
         projection_is_identity,
-    ))
+    )
 }
 
 // Derive grouped field/aggregate projection slots and grouped aggregate
@@ -757,16 +751,11 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     Vec<GroupedAggregateProjectionSpec>,
     bool,
 ) {
-    match planned_projection_layout_and_aggregate_projection_specs_core(
+    planned_projection_layout_and_aggregate_projection_specs_core(
         projection_spec,
         group_fields,
         aggregates,
-    ) {
-        Ok(layout) => layout,
-        Err(error) => {
-            unreachable!("non-test grouped projection layout core must stay infallible: {error}")
-        }
-    }
+    )
 }
 
 // Derive grouped field/aggregate projection slots and grouped aggregate
@@ -784,10 +773,28 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     ),
     InternalError,
 > {
-    planned_projection_layout_and_aggregate_projection_specs_core(
-        projection_spec,
-        group_fields,
-        aggregates,
+    for (index, field) in projection_spec.fields().enumerate() {
+        let root_expr = expression_without_alias(projection_field_expr(field));
+        if !matches!(root_expr, Expr::Field(_) | Expr::Aggregate(_))
+            && !expr_references_only_fields(
+                root_expr,
+                group_fields
+                    .iter()
+                    .map(FieldSlot::field)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+        {
+            return Err(non_grouped_projection_layout_expression(index));
+        }
+    }
+
+    Ok(
+        planned_projection_layout_and_aggregate_projection_specs_core(
+            projection_spec,
+            group_fields,
+            aggregates,
+        ),
     )
 }
 

@@ -123,7 +123,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
 ) -> Option<ScalarProjectionExpr> {
     match expr {
         Expr::Field(field_id) => compile_scalar_field_reference(model, field_id.as_str()),
-        Expr::Literal(value) => compile_scalar_literal(value),
+        Expr::Literal(value) => Some(compile_scalar_literal(value)),
         Expr::FunctionCall { function, args } => {
             let args = args
                 .iter()
@@ -196,17 +196,18 @@ fn compile_scalar_field_reference(
 
 // Literal lowering stays owner-local here so the expression compiler can keep
 // the recursive shape match focused on planner expression structure.
-fn compile_scalar_literal(value: &Value) -> Option<ScalarProjectionExpr> {
+fn compile_scalar_literal(value: &Value) -> ScalarProjectionExpr {
     #[cfg(test)]
     {
         compile_scalar_literal_expr_value(value)
             .map(scalar_expr_value_into_value)
             .map(ScalarProjectionExpr::Literal)
+            .expect("test-only scalar literal lowering must preserve scalar literal support")
     }
 
     #[cfg(not(test))]
     {
-        Some(ScalarProjectionExpr::Literal(value.clone()))
+        ScalarProjectionExpr::Literal(value.clone())
     }
 }
 

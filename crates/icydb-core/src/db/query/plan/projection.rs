@@ -127,7 +127,7 @@ fn lower_grouped_projection(
 
 // Build one direct-field projection node so scalar, grouped, and identity
 // lowering keep the same projection-field shape in one place.
-fn direct_field_projection(field_id: FieldId) -> ProjectionField {
+const fn direct_field_projection(field_id: FieldId) -> ProjectionField {
     ProjectionField::Scalar {
         expr: Expr::Field(field_id),
         alias: None,
@@ -136,7 +136,7 @@ fn direct_field_projection(field_id: FieldId) -> ProjectionField {
 
 // Build one grouped aggregate projection node so grouped projection lowering
 // does not restate the scalar aggregate projection envelope inline.
-fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField {
+const fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField {
     ProjectionField::Scalar {
         expr: Expr::Aggregate(aggregate_expr),
         alias: None,
