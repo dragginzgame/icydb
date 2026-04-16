@@ -8,9 +8,8 @@ mod rules;
 use crate::db::{
     predicate::Predicate,
     query::plan::{
-        GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingExpr, GroupHavingSpec,
-        GroupSpec, ScalarPlan, grouped_distinct_admissibility,
-        resolve_global_distinct_field_aggregate,
+        GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingExpr, GroupSpec, ScalarPlan,
+        grouped_distinct_admissibility, resolve_global_distinct_field_aggregate,
         validate::{GroupPlanError, PlanError},
     },
     schema::SchemaInfo,
@@ -18,7 +17,7 @@ use crate::db::{
 
 use crate::db::query::plan::validate::grouped::policy::rules::{
     first_global_distinct_aggregate_policy_violation, first_grouped_aggregate_policy_violation,
-    first_grouped_having_expr_policy_violation, first_grouped_having_policy_violation,
+    first_grouped_having_expr_policy_violation,
 };
 
 // Validate grouped policy gates independent from structural shape checks.
@@ -26,13 +25,12 @@ pub(in crate::db::query::plan::validate) fn validate_group_policy(
     schema: &SchemaInfo,
     logical: &ScalarPlan,
     group: &GroupSpec,
-    having: Option<&GroupHavingSpec>,
     having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    validate_grouped_distinct_policy(logical, having.is_some() || having_expr.is_some())?;
+    validate_grouped_distinct_policy(logical, having_expr.is_some())?;
     validate_grouped_predicate_policy(logical.predicate.as_ref())?;
-    validate_grouped_having_policy(having, having_expr)?;
-    validate_group_spec_policy(schema, group, having)?;
+    validate_grouped_having_policy(having_expr)?;
+    validate_group_spec_policy(schema, group, having_expr)?;
 
     Ok(())
 }
@@ -95,35 +93,22 @@ fn predicate_contains_compare_fields(predicate: &Predicate) -> bool {
 }
 
 // Validate grouped HAVING policy gates and operator support.
-fn validate_grouped_having_policy(
-    having: Option<&GroupHavingSpec>,
-    having_expr: Option<&GroupHavingExpr>,
-) -> Result<(), PlanError> {
+fn validate_grouped_having_policy(having_expr: Option<&GroupHavingExpr>) -> Result<(), PlanError> {
     if let Some(having_expr) = having_expr {
-        validate_group_policy_violation(first_grouped_having_expr_policy_violation(
+        return validate_group_policy_violation(first_grouped_having_expr_policy_violation(
             0,
             having_expr,
-        ))?;
-    }
-
-    let Some(having) = having else {
-        return Ok(());
+        ));
     };
 
-    validate_group_policy_violation(
-        having
-            .clauses()
-            .iter()
-            .enumerate()
-            .find_map(|(index, clause)| first_grouped_having_policy_violation(index, clause)),
-    )
+    Ok(())
 }
 
 // Validate grouped execution policy over a structurally valid grouped spec.
 fn validate_group_spec_policy(
     schema: &SchemaInfo,
     group: &GroupSpec,
-    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
     group.group_fields.is_empty().then_some(()).map_or_else(
         || {
@@ -131,7 +116,7 @@ fn validate_group_spec_policy(
                 |(index, aggregate)| first_grouped_aggregate_policy_violation(index, aggregate),
             ))
         },
-        |()| validate_global_distinct_aggregate_without_group_keys(schema, group, having),
+        |()| validate_global_distinct_aggregate_without_group_keys(schema, group, having_expr),
     )
 }
 
@@ -139,12 +124,12 @@ fn validate_group_spec_policy(
 fn validate_global_distinct_aggregate_without_group_keys(
     schema: &SchemaInfo,
     group: &GroupSpec,
-    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
     let aggregate = match resolve_global_distinct_field_aggregate(
         group.group_fields.as_slice(),
         group.aggregates.as_slice(),
-        having,
+        having_expr,
     ) {
         Ok(Some(aggregate)) => aggregate,
         Ok(None) => {

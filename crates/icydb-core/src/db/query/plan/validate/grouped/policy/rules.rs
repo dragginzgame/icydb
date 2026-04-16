@@ -12,13 +12,11 @@ use crate::db::{
     schema::SchemaInfo,
 };
 
-type GroupedHavingPolicyRule = for<'a> fn(GroupedHavingPolicyContext<'a>) -> Option<GroupPlanError>;
 type GroupedAggregatePolicyRule =
     for<'a> fn(GroupedAggregatePolicyContext<'a>) -> Option<GroupPlanError>;
 type GlobalDistinctAggregatePolicyRule =
     for<'a> fn(GlobalDistinctAggregatePolicyContext<'a>) -> Option<GroupPlanError>;
 
-const GROUPED_HAVING_POLICY_RULES: &[GroupedHavingPolicyRule] = &[grouped_having_compare_op_rule];
 const GROUPED_AGGREGATE_POLICY_RULES: &[GroupedAggregatePolicyRule] = &[
     grouped_aggregate_distinct_kind_supported_rule,
     grouped_aggregate_distinct_field_target_unsupported_rule,
@@ -28,27 +26,6 @@ const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRul
     global_distinct_target_field_known_rule,
     global_distinct_numeric_target_rule,
 ];
-
-///
-/// GroupedHavingPolicyContext
-///
-
-#[derive(Clone, Copy)]
-struct GroupedHavingPolicyContext<'a> {
-    index: usize,
-    clause: &'a crate::db::query::plan::GroupHavingClause,
-}
-
-impl<'a> GroupedHavingPolicyContext<'a> {
-    #[must_use]
-    const fn new(index: usize, clause: &'a crate::db::query::plan::GroupHavingClause) -> Self {
-        Self { index, clause }
-    }
-}
-
-///
-/// GroupedAggregatePolicyContext
-///
 
 #[derive(Clone, Copy)]
 struct GroupedAggregatePolicyContext<'a> {
@@ -110,22 +87,6 @@ pub(super) fn first_grouped_having_expr_policy_violation(
 
     let mut next_index = index;
     walk(expr, &mut next_index)
-}
-
-pub(super) fn first_grouped_having_policy_violation(
-    index: usize,
-    clause: &crate::db::query::plan::GroupHavingClause,
-) -> Option<GroupPlanError> {
-    first_violated_rule(
-        GROUPED_HAVING_POLICY_RULES,
-        GroupedHavingPolicyContext::new(index, clause),
-    )
-}
-
-fn grouped_having_compare_op_rule(ctx: GroupedHavingPolicyContext<'_>) -> Option<GroupPlanError> {
-    (!grouped_having_compare_op_supported(ctx.clause.op())).then(|| {
-        GroupPlanError::having_unsupported_compare_op(ctx.index, format!("{:?}", ctx.clause.op()))
-    })
 }
 
 pub(super) fn first_grouped_aggregate_policy_violation(

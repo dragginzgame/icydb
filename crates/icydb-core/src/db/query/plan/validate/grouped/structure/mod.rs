@@ -6,8 +6,7 @@
 use crate::{
     db::{
         query::plan::{
-            GroupAggregateSpec, GroupHavingExpr, GroupHavingSpec, GroupHavingSymbol,
-            GroupHavingValueExpr, GroupSpec,
+            GroupAggregateSpec, GroupHavingExpr, GroupHavingValueExpr, GroupSpec,
             expr::ProjectionSpec,
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -23,10 +22,9 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
     model: &EntityModel,
     group: &GroupSpec,
     projection: &ProjectionSpec,
-    having: Option<&GroupHavingSpec>,
     having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    if group.group_fields.is_empty() && (having.is_some() || having_expr.is_some()) {
+    if group.group_fields.is_empty() && having_expr.is_some() {
         return Err(PlanError::from(
             GroupPlanError::global_distinct_aggregate_shape_unsupported(),
         ));
@@ -34,7 +32,7 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
 
     validate_group_spec_structure(schema, model, group)?;
     validate_group_projection_expr_compatibility(group, projection)?;
-    validate_grouped_having_structure(group, having, having_expr)?;
+    validate_grouped_having_structure(group, having_expr)?;
 
     Ok(())
 }
@@ -42,27 +40,11 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
 // Validate grouped HAVING structural symbol/reference compatibility.
 fn validate_grouped_having_structure(
     group: &GroupSpec,
-    having: Option<&GroupHavingSpec>,
     having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
     if let Some(having_expr) = having_expr {
         let mut compare_index = 0;
         validate_grouped_having_expr_structure(group, having_expr, &mut compare_index)?;
-    }
-
-    let Some(having) = having else {
-        return Ok(());
-    };
-
-    for (index, clause) in having.clauses().iter().enumerate() {
-        match clause.symbol() {
-            GroupHavingSymbol::GroupField(field_slot) => {
-                validate_having_group_field_reference(group, field_slot, index)?;
-            }
-            GroupHavingSymbol::AggregateIndex(aggregate_index) => {
-                validate_having_aggregate_index(group, *aggregate_index, index)?;
-            }
-        }
     }
 
     Ok(())

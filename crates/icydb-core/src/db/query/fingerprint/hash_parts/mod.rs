@@ -346,35 +346,65 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
 /// Hash explain order specs into the plan hash stream.
 ///
 
-pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
-    match order {
-        ExplainOrderBy::None => write_tag(hasher, ORDER_NONE_TAG),
-        ExplainOrderBy::Fields(fields) => {
-            write_tag(hasher, ORDER_FIELDS_TAG);
-            write_u32(hasher, fields.len() as u32);
-            for field in fields {
-                write_str(hasher, field.field());
-                write_tag(hasher, order_direction_tag(field.direction()));
-            }
+///
+/// ProjectedOrderShape
+///
+/// Canonical order projection shared by logical-plan and explain hashing.
+/// Both surfaces normalize into the same ordered field list before the
+/// canonical order hash is written.
+///
+
+enum ProjectedOrderShape<'a> {
+    None,
+    Fields(Vec<(&'a str, OrderDirection)>),
+}
+
+impl<'a> ProjectedOrderShape<'a> {
+    fn from_explain(order: &'a ExplainOrderBy) -> Self {
+        match order {
+            ExplainOrderBy::None => Self::None,
+            ExplainOrderBy::Fields(fields) => Self::Fields(
+                fields
+                    .iter()
+                    .map(|field| (field.field(), field.direction()))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn from_plan(order: Option<&'a OrderSpec>) -> Self {
+        match order {
+            Some(order) if !order.fields.is_empty() => Self::Fields(
+                order
+                    .fields
+                    .iter()
+                    .map(|(field, direction)| (field.as_str(), *direction))
+                    .collect(),
+            ),
+            Some(_) | None => Self::None,
         }
     }
 }
 
-fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
-    let Some(order) = order else {
-        write_tag(hasher, ORDER_NONE_TAG);
-        return;
-    };
-    if order.fields.is_empty() {
-        write_tag(hasher, ORDER_NONE_TAG);
-        return;
-    }
+pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
+    hash_projected_order_shape(hasher, &ProjectedOrderShape::from_explain(order));
+}
 
-    write_tag(hasher, ORDER_FIELDS_TAG);
-    write_u32(hasher, order.fields.len() as u32);
-    for (field, direction) in &order.fields {
-        write_str(hasher, field);
-        write_tag(hasher, order_direction_tag(*direction));
+fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
+    hash_projected_order_shape(hasher, &ProjectedOrderShape::from_plan(order));
+}
+
+fn hash_projected_order_shape(hasher: &mut Sha256, order: &ProjectedOrderShape<'_>) {
+    match order {
+        ProjectedOrderShape::None => write_tag(hasher, ORDER_NONE_TAG),
+        ProjectedOrderShape::Fields(fields) => {
+            write_tag(hasher, ORDER_FIELDS_TAG);
+            write_u32(hasher, fields.len() as u32);
+            for (field, direction) in fields {
+                write_str(hasher, field);
+                write_tag(hasher, order_direction_tag(*direction));
+            }
+        }
     }
 }
 
@@ -491,6 +521,21 @@ enum ExplainHashField {
     ProjectionSpec,
 }
 
+///
+/// ExplainHashSource
+///
+/// Canonical hash-profile source shared by explain and planner-owned query
+/// hashing. This keeps the per-field profile walk on one owner-local seam
+/// instead of maintaining parallel match trees for the two input surfaces.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+enum ExplainHashSource<'a> {
+    Explain(&'a ExplainPlan),
+    Planned(&'a AccessPlannedQuery),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ExplainHashStep {
     section_tag: u8,
@@ -591,66 +636,115 @@ impl<'a> ExplainHashProfile<'a> {
     }
 }
 
-fn hash_explain_field(
-    hasher: &mut Sha256,
-    plan: &ExplainPlan,
-    field: ExplainHashField,
-    entity_path: Option<&str>,
-    projection: Option<&ProjectionSpec>,
-    include_group_strategy: bool,
-) {
-    match field {
-        ExplainHashField::EntityPath => {
-            let entity_path = entity_path.expect("entity path required by hash profile");
-            write_str(hasher, entity_path);
-        }
-        ExplainHashField::Mode => hash_mode(hasher, plan.mode()),
-        ExplainHashField::Access => hash_access(hasher, plan.access()),
-        ExplainHashField::Predicate => hash_predicate(hasher, plan.predicate_model_for_hash()),
-        ExplainHashField::Order => hash_order(hasher, plan.order_by()),
-        ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct()),
-        ExplainHashField::Page => hash_page(hasher, plan.page()),
-        ExplainHashField::DeleteLimit => hash_delete_limit(hasher, plan.delete_limit()),
-        ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency()),
-        ExplainHashField::GroupingShape => {
-            hash_grouping_shape_v1(hasher, plan.grouping(), include_group_strategy);
-        }
-        ExplainHashField::ProjectionSpec => {
-            hash_projection_spec_v1(hasher, projection, plan.grouping(), include_group_strategy);
+impl<'a> ExplainHashSource<'a> {
+    const fn grouping_source(self) -> GroupingFingerprintSource<'a> {
+        match self {
+            Self::Explain(plan) => GroupingFingerprintSource::Explain(plan.grouping()),
+            Self::Planned(plan) => GroupingFingerprintSource::Plan(plan),
         }
     }
-}
 
-fn hash_planned_query_field(
-    hasher: &mut Sha256,
-    plan: &AccessPlannedQuery,
-    field: ExplainHashField,
-    entity_path: Option<&str>,
-    projection: Option<&ProjectionSpec>,
-    include_group_strategy: bool,
-) {
-    let scalar = plan.scalar_plan();
+    fn hash_field(
+        self,
+        hasher: &mut Sha256,
+        field: ExplainHashField,
+        entity_path: Option<&str>,
+        projection: Option<&ProjectionSpec>,
+        include_group_strategy: bool,
+    ) {
+        match self {
+            Self::Explain(plan) => self.hash_explain_field(
+                hasher,
+                plan,
+                field,
+                entity_path,
+                projection,
+                include_group_strategy,
+            ),
+            Self::Planned(plan) => self.hash_planned_field(
+                hasher,
+                plan,
+                field,
+                entity_path,
+                projection,
+                include_group_strategy,
+            ),
+        }
+    }
 
-    match field {
-        ExplainHashField::EntityPath => {
-            let entity_path = entity_path.expect("entity path required by hash profile");
-            write_str(hasher, entity_path);
+    fn hash_explain_field(
+        self,
+        hasher: &mut Sha256,
+        plan: &'a ExplainPlan,
+        field: ExplainHashField,
+        entity_path: Option<&str>,
+        projection: Option<&ProjectionSpec>,
+        include_group_strategy: bool,
+    ) {
+        match field {
+            ExplainHashField::EntityPath => {
+                let entity_path = entity_path.expect("entity path required by hash profile");
+                write_str(hasher, entity_path);
+            }
+            ExplainHashField::Mode => hash_mode(hasher, plan.mode()),
+            ExplainHashField::Access => hash_access(hasher, plan.access()),
+            ExplainHashField::Predicate => hash_predicate(hasher, plan.predicate_model_for_hash()),
+            ExplainHashField::Order => hash_order(hasher, plan.order_by()),
+            ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct()),
+            ExplainHashField::Page => hash_page(hasher, plan.page()),
+            ExplainHashField::DeleteLimit => hash_delete_limit(hasher, plan.delete_limit()),
+            ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency()),
+            ExplainHashField::GroupingShape => {
+                hash_grouping_shape_v1(hasher, self.grouping_source(), include_group_strategy);
+            }
+            ExplainHashField::ProjectionSpec => {
+                hash_projection_spec_v1(
+                    hasher,
+                    projection,
+                    self.grouping_source(),
+                    include_group_strategy,
+                );
+            }
         }
-        ExplainHashField::Mode => hash_mode(hasher, scalar.mode),
-        ExplainHashField::Access => hash_access_plan(hasher, &plan.access),
-        ExplainHashField::Predicate => hash_predicate(hasher, scalar.predicate.as_ref()),
-        ExplainHashField::Order => hash_order_spec(hasher, scalar.order.as_ref()),
-        ExplainHashField::Distinct => hash_distinct(hasher, scalar.distinct),
-        ExplainHashField::Page => hash_page_spec(hasher, scalar.page.as_ref()),
-        ExplainHashField::DeleteLimit => {
-            hash_delete_limit_spec(hasher, scalar.delete_limit.as_ref());
-        }
-        ExplainHashField::Consistency => hash_consistency(hasher, scalar.consistency),
-        ExplainHashField::GroupingShape => {
-            hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
-        }
-        ExplainHashField::ProjectionSpec => {
-            hash_projection_spec_v1_for_plan(hasher, projection, plan, include_group_strategy);
+    }
+
+    fn hash_planned_field(
+        self,
+        hasher: &mut Sha256,
+        plan: &'a AccessPlannedQuery,
+        field: ExplainHashField,
+        entity_path: Option<&str>,
+        projection: Option<&ProjectionSpec>,
+        include_group_strategy: bool,
+    ) {
+        let scalar = plan.scalar_plan();
+
+        match field {
+            ExplainHashField::EntityPath => {
+                let entity_path = entity_path.expect("entity path required by hash profile");
+                write_str(hasher, entity_path);
+            }
+            ExplainHashField::Mode => hash_mode(hasher, scalar.mode),
+            ExplainHashField::Access => hash_access_plan(hasher, &plan.access),
+            ExplainHashField::Predicate => hash_predicate(hasher, scalar.predicate.as_ref()),
+            ExplainHashField::Order => hash_order_spec(hasher, scalar.order.as_ref()),
+            ExplainHashField::Distinct => hash_distinct(hasher, scalar.distinct),
+            ExplainHashField::Page => hash_page_spec(hasher, scalar.page.as_ref()),
+            ExplainHashField::DeleteLimit => {
+                hash_delete_limit_spec(hasher, scalar.delete_limit.as_ref());
+            }
+            ExplainHashField::Consistency => hash_consistency(hasher, scalar.consistency),
+            ExplainHashField::GroupingShape => {
+                hash_grouping_shape_v1(hasher, self.grouping_source(), include_group_strategy);
+            }
+            ExplainHashField::ProjectionSpec => {
+                hash_projection_spec_v1(
+                    hasher,
+                    projection,
+                    self.grouping_source(),
+                    include_group_strategy,
+                );
+            }
         }
     }
 }
@@ -673,11 +767,12 @@ fn hash_planned_query_profile_internal(
 ) {
     let spec = profile.spec();
     let include_group_strategy = spec.entity_path.is_some();
+    let source = ExplainHashSource::Planned(plan);
+
     for step in spec.steps {
         write_tag(hasher, step.section_tag);
-        hash_planned_query_field(
+        source.hash_field(
             hasher,
-            plan,
             step.field,
             spec.entity_path,
             projection,
@@ -704,11 +799,12 @@ pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
     // Apply selected hash profile in declared order to preserve determinism.
     let spec = profile.spec();
     let include_group_strategy = spec.entity_path.is_some();
+    let source = ExplainHashSource::Explain(plan);
+
     for step in spec.steps {
         write_tag(hasher, step.section_tag);
-        hash_explain_field(
+        source.hash_field(
             hasher,
-            plan,
             step.field,
             spec.entity_path,
             projection,
@@ -717,10 +813,92 @@ pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
     }
 }
 
+///
+/// ProjectedPageWindow
+///
+/// Canonical pagination projection shared by logical-plan and explain hashing.
+/// Both surfaces normalize into the same optional-limit plus offset shape
+/// before the canonical page hash is written.
+///
+
+enum ProjectedPageWindow {
+    None,
+    Page { limit: Option<u32>, offset: u32 },
+}
+
+///
+/// ProjectedDeleteWindow
+///
+/// Canonical delete-limit projection shared by logical-plan and explain hashing.
+/// Explain-only fixed-row delete limits normalize into the same limit/offset
+/// window shape used by planner-owned delete limit specs.
+///
+
+enum ProjectedDeleteWindow {
+    None,
+    Window { limit: Option<u32>, offset: u32 },
+}
+
+impl ProjectedPageWindow {
+    const fn from_explain(page: &ExplainPagination) -> Self {
+        match page {
+            ExplainPagination::None => Self::None,
+            ExplainPagination::Page { limit, offset } => Self::Page {
+                limit: *limit,
+                offset: *offset,
+            },
+        }
+    }
+
+    const fn from_plan(page: Option<&PageSpec>) -> Self {
+        match page {
+            Some(page) => Self::Page {
+                limit: page.limit,
+                offset: page.offset,
+            },
+            None => Self::None,
+        }
+    }
+}
+
+impl ProjectedDeleteWindow {
+    const fn from_explain(limit: &ExplainDeleteLimit) -> Self {
+        match limit {
+            ExplainDeleteLimit::None => Self::None,
+            ExplainDeleteLimit::Limit { max_rows } => Self::Window {
+                limit: Some(*max_rows),
+                offset: 0,
+            },
+            ExplainDeleteLimit::Window { limit, offset } => Self::Window {
+                limit: *limit,
+                offset: *offset,
+            },
+        }
+    }
+
+    const fn from_plan(limit: Option<&DeleteLimitSpec>) -> Self {
+        match limit {
+            Some(limit) => Self::Window {
+                limit: limit.limit,
+                offset: limit.offset,
+            },
+            None => Self::None,
+        }
+    }
+}
+
 fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
+    hash_projected_page_window(hasher, &ProjectedPageWindow::from_explain(page));
+}
+
+fn hash_page_spec(hasher: &mut Sha256, page: Option<&PageSpec>) {
+    hash_projected_page_window(hasher, &ProjectedPageWindow::from_plan(page));
+}
+
+fn hash_projected_page_window(hasher: &mut Sha256, page: &ProjectedPageWindow) {
     match page {
-        ExplainPagination::None => write_tag(hasher, PAGE_NONE_TAG),
-        ExplainPagination::Page { limit, offset } => {
+        ProjectedPageWindow::None => write_tag(hasher, PAGE_NONE_TAG),
+        ProjectedPageWindow::Page { limit, offset } => {
             write_tag(hasher, PAGE_PRESENT_TAG);
             match limit {
                 Some(limit) => {
@@ -734,23 +912,6 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
     }
 }
 
-fn hash_page_spec(hasher: &mut Sha256, page: Option<&PageSpec>) {
-    let Some(page) = page else {
-        write_tag(hasher, PAGE_NONE_TAG);
-        return;
-    };
-
-    write_tag(hasher, PAGE_PRESENT_TAG);
-    match page.limit {
-        Some(limit) => {
-            write_tag(hasher, OPTIONAL_VALUE_PRESENT_TAG);
-            write_u32(hasher, limit);
-        }
-        None => write_tag(hasher, OPTIONAL_VALUE_ABSENT_TAG),
-    }
-    write_u32(hasher, page.offset);
-}
-
 fn hash_distinct(hasher: &mut Sha256, distinct: bool) {
     if distinct {
         write_tag(hasher, DISTINCT_ENABLED_TAG);
@@ -760,29 +921,22 @@ fn hash_distinct(hasher: &mut Sha256, distinct: bool) {
 }
 
 fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
+    hash_projected_delete_window(hasher, &ProjectedDeleteWindow::from_explain(limit));
+}
+
+fn hash_delete_limit_spec(hasher: &mut Sha256, limit: Option<&DeleteLimitSpec>) {
+    hash_projected_delete_window(hasher, &ProjectedDeleteWindow::from_plan(limit));
+}
+
+fn hash_projected_delete_window(hasher: &mut Sha256, limit: &ProjectedDeleteWindow) {
     match limit {
-        ExplainDeleteLimit::None => write_tag(hasher, DELETE_LIMIT_NONE_TAG),
-        ExplainDeleteLimit::Limit { max_rows } => {
-            write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
-            write_u32(hasher, *max_rows);
-        }
-        ExplainDeleteLimit::Window { limit, offset } => {
+        ProjectedDeleteWindow::None => write_tag(hasher, DELETE_LIMIT_NONE_TAG),
+        ProjectedDeleteWindow::Window { limit, offset } => {
             write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
             write_u32(hasher, *offset);
             write_optional_u32(hasher, *limit);
         }
     }
-}
-
-fn hash_delete_limit_spec(hasher: &mut Sha256, limit: Option<&DeleteLimitSpec>) {
-    let Some(limit) = limit else {
-        write_tag(hasher, DELETE_LIMIT_NONE_TAG);
-        return;
-    };
-
-    write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
-    write_u32(hasher, limit.offset);
-    write_optional_u32(hasher, limit.limit);
 }
 
 fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
@@ -816,13 +970,145 @@ enum ProjectedGroupingShape<'a> {
     Grouped(GroupedFingerprintShape<'a>),
 }
 
+///
+/// GroupingFingerprintSource
+///
+/// Canonical grouped fingerprint source shared by logical-plan and explain
+/// hashing callsites. This keeps the grouped-shape and grouped-projection
+/// fallback wrappers on one source-neutral seam before hashing.
+///
+
+enum GroupingFingerprintSource<'a> {
+    Explain(&'a ExplainGrouping),
+    Plan(&'a AccessPlannedQuery),
+}
+
 /// Canonical grouped HAVING expression source shared by plan and explain hashing.
 enum GroupHavingFingerprintSource<'a> {
     Explain(&'a ExplainGroupHavingExpr),
     Plan(&'a GroupHavingExpr),
 }
 
+/// Canonical grouped HAVING value projection shared by plan and explain hashing.
+enum ProjectedGroupHavingValueExpr<'a> {
+    GroupField {
+        slot_index: u32,
+        field: &'a str,
+    },
+    AggregateIndex {
+        index: u32,
+    },
+    Literal(&'a Value),
+    FunctionCall {
+        function: &'a str,
+        args: Vec<Self>,
+    },
+    Binary {
+        op_tag: u8,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
+}
+
+/// Canonical grouped HAVING expression projection shared by plan and explain hashing.
+enum ProjectedGroupHavingExpr<'a> {
+    Compare {
+        left: ProjectedGroupHavingValueExpr<'a>,
+        op_tag: u8,
+        right: ProjectedGroupHavingValueExpr<'a>,
+    },
+    And(Vec<Self>),
+}
+
+impl<'a> ProjectedGroupHavingValueExpr<'a> {
+    fn from_explain(expr: &'a ExplainGroupHavingValueExpr) -> Self {
+        match expr {
+            ExplainGroupHavingValueExpr::GroupField { slot_index, field } => Self::GroupField {
+                slot_index: *slot_index as u32,
+                field,
+            },
+            ExplainGroupHavingValueExpr::AggregateIndex { index } => Self::AggregateIndex {
+                index: *index as u32,
+            },
+            ExplainGroupHavingValueExpr::Literal(value) => Self::Literal(value),
+            ExplainGroupHavingValueExpr::FunctionCall { function, args } => Self::FunctionCall {
+                function,
+                args: args.iter().map(Self::from_explain).collect(),
+            },
+            ExplainGroupHavingValueExpr::Binary { op, left, right } => Self::Binary {
+                op_tag: grouped_having_binary_op_tag_from_explain(op),
+                left: Box::new(Self::from_explain(left)),
+                right: Box::new(Self::from_explain(right)),
+            },
+        }
+    }
+
+    fn from_plan(expr: &'a GroupHavingValueExpr) -> Self {
+        match expr {
+            GroupHavingValueExpr::GroupField(field_slot) => Self::GroupField {
+                slot_index: field_slot.index() as u32,
+                field: field_slot.field(),
+            },
+            GroupHavingValueExpr::AggregateIndex(index) => Self::AggregateIndex {
+                index: *index as u32,
+            },
+            GroupHavingValueExpr::Literal(value) => Self::Literal(value),
+            GroupHavingValueExpr::FunctionCall { function, args } => Self::FunctionCall {
+                function: function.sql_label(),
+                args: args.iter().map(Self::from_plan).collect(),
+            },
+            GroupHavingValueExpr::Binary { op, left, right } => Self::Binary {
+                op_tag: grouped_having_binary_op_tag(*op),
+                left: Box::new(Self::from_plan(left)),
+                right: Box::new(Self::from_plan(right)),
+            },
+        }
+    }
+}
+
+impl<'a> ProjectedGroupHavingExpr<'a> {
+    fn from_source(source: &'a GroupHavingFingerprintSource<'a>) -> Self {
+        match source {
+            GroupHavingFingerprintSource::Explain(expr) => Self::from_explain(expr),
+            GroupHavingFingerprintSource::Plan(expr) => Self::from_plan(expr),
+        }
+    }
+
+    fn from_explain(expr: &'a ExplainGroupHavingExpr) -> Self {
+        match expr {
+            ExplainGroupHavingExpr::Compare { left, op, right } => Self::Compare {
+                left: ProjectedGroupHavingValueExpr::from_explain(left),
+                op_tag: op.tag(),
+                right: ProjectedGroupHavingValueExpr::from_explain(right),
+            },
+            ExplainGroupHavingExpr::And(children) => {
+                Self::And(children.iter().map(Self::from_explain).collect())
+            }
+        }
+    }
+
+    fn from_plan(expr: &'a GroupHavingExpr) -> Self {
+        match expr {
+            GroupHavingExpr::Compare { left, op, right } => Self::Compare {
+                left: ProjectedGroupHavingValueExpr::from_plan(left),
+                op_tag: op.tag(),
+                right: ProjectedGroupHavingValueExpr::from_plan(right),
+            },
+            GroupHavingExpr::And(children) => {
+                Self::And(children.iter().map(Self::from_plan).collect())
+            }
+        }
+    }
+}
+
 impl<'a> ProjectedGroupingShape<'a> {
+    fn from_source(source: GroupingFingerprintSource<'a>) -> Self {
+        match source {
+            GroupingFingerprintSource::Explain(grouping) => Self::from_explain(grouping),
+            GroupingFingerprintSource::Plan(plan) => Self::from_plan(plan),
+        }
+    }
+
     fn from_explain(grouping: &'a ExplainGrouping) -> Self {
         match grouping {
             ExplainGrouping::None => Self::None,
@@ -901,17 +1187,12 @@ impl<'a> ProjectedGroupingShape<'a> {
                     )
                 })
                 .collect(),
-            having: grouped
-                .having_expr
-                .as_ref()
-                .map(GroupHavingFingerprintSource::Plan)
-                .or_else(|| {
-                    grouped
-                        .having
-                        .as_ref()
-                        .map(GroupHavingExpr::from_legacy_spec)
-                        .map(|expr| GroupHavingFingerprintSource::Plan(Box::leak(Box::new(expr))))
-                }),
+            having: grouped.effective_having_expr().map(|expr| match expr {
+                std::borrow::Cow::Borrowed(expr) => GroupHavingFingerprintSource::Plan(expr),
+                std::borrow::Cow::Owned(expr) => {
+                    GroupHavingFingerprintSource::Plan(Box::leak(Box::new(expr)))
+                }
+            }),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
         })
@@ -922,20 +1203,10 @@ impl<'a> ProjectedGroupingShape<'a> {
 // from projection expression hashing.
 fn hash_grouping_shape_v1(
     hasher: &mut Sha256,
-    grouping: &ExplainGrouping,
+    source: GroupingFingerprintSource<'_>,
     include_group_strategy: bool,
 ) {
-    let grouping = ProjectedGroupingShape::from_explain(grouping);
-
-    hash_projected_grouping_shape_v1(hasher, &grouping, include_group_strategy);
-}
-
-fn hash_grouping_shape_v1_from_plan(
-    hasher: &mut Sha256,
-    plan: &AccessPlannedQuery,
-    include_group_strategy: bool,
-) {
-    let grouping = ProjectedGroupingShape::from_plan(plan);
+    let grouping = ProjectedGroupingShape::from_source(source);
 
     hash_projected_grouping_shape_v1(hasher, &grouping, include_group_strategy);
 }
@@ -943,7 +1214,7 @@ fn hash_grouping_shape_v1_from_plan(
 fn hash_projection_spec_v1(
     hasher: &mut Sha256,
     projection: Option<&ProjectionSpec>,
-    grouping: &ExplainGrouping,
+    grouping: GroupingFingerprintSource<'_>,
     include_group_strategy: bool,
 ) {
     // Explain-only hashing callsites may not have planner projection semantics.
@@ -954,20 +1225,6 @@ fn hash_projection_spec_v1(
     }
 
     hash_grouping_shape_v1(hasher, grouping, include_group_strategy);
-}
-
-fn hash_projection_spec_v1_for_plan(
-    hasher: &mut Sha256,
-    projection: Option<&ProjectionSpec>,
-    plan: &AccessPlannedQuery,
-    include_group_strategy: bool,
-) {
-    if let Some(projection) = projection {
-        hash_projection_structural_fingerprint(hasher, projection);
-        return;
-    }
-
-    hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
 }
 
 // Hash the canonical grouped identity payload after plan/explain have already
@@ -1050,101 +1307,62 @@ fn hash_grouped_strategy_projection(
     }
 }
 
-fn hash_group_having_value_expr_explain(hasher: &mut Sha256, expr: &ExplainGroupHavingValueExpr) {
+fn hash_projected_group_having_value_expr(
+    hasher: &mut Sha256,
+    expr: &ProjectedGroupHavingValueExpr<'_>,
+) {
     match expr {
-        ExplainGroupHavingValueExpr::GroupField { slot_index, field } => {
+        ProjectedGroupHavingValueExpr::GroupField { slot_index, field } => {
             write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
-            write_u32(hasher, *slot_index as u32);
+            write_u32(hasher, *slot_index);
             write_str(hasher, field);
         }
-        ExplainGroupHavingValueExpr::AggregateIndex { index } => {
+        ProjectedGroupHavingValueExpr::AggregateIndex { index } => {
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, *index as u32);
+            write_u32(hasher, *index);
         }
-        ExplainGroupHavingValueExpr::Literal(value) => {
+        ProjectedGroupHavingValueExpr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
             write_value(hasher, value);
         }
-        ExplainGroupHavingValueExpr::FunctionCall { function, args } => {
+        ProjectedGroupHavingValueExpr::FunctionCall { function, args } => {
             write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
             write_str(hasher, function);
             write_u32(hasher, args.len() as u32);
             for arg in args {
-                hash_group_having_value_expr_explain(hasher, arg);
+                hash_projected_group_having_value_expr(hasher, arg);
             }
         }
-        ExplainGroupHavingValueExpr::Binary { op, left, right } => {
+        ProjectedGroupHavingValueExpr::Binary {
+            op_tag,
+            left,
+            right,
+        } => {
             write_tag(hasher, GROUP_HAVING_VALUE_BINARY_TAG);
-            write_str(hasher, op);
-            hash_group_having_value_expr_explain(hasher, left);
-            hash_group_having_value_expr_explain(hasher, right);
+            write_tag(hasher, *op_tag);
+            hash_projected_group_having_value_expr(hasher, left);
+            hash_projected_group_having_value_expr(hasher, right);
         }
     }
 }
 
-fn hash_group_having_value_expr_plan(hasher: &mut Sha256, expr: &GroupHavingValueExpr) {
+fn hash_projected_group_having_expr(hasher: &mut Sha256, expr: &ProjectedGroupHavingExpr<'_>) {
     match expr {
-        GroupHavingValueExpr::GroupField(field_slot) => {
-            write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
-            write_u32(hasher, field_slot.index() as u32);
-            write_str(hasher, field_slot.field());
-        }
-        GroupHavingValueExpr::AggregateIndex(index) => {
-            write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
-            write_u32(hasher, *index as u32);
-        }
-        GroupHavingValueExpr::Literal(value) => {
-            write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
-            write_value(hasher, value);
-        }
-        GroupHavingValueExpr::FunctionCall { function, args } => {
-            write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
-            write_str(hasher, function.sql_label());
-            write_u32(hasher, args.len() as u32);
-            for arg in args {
-                hash_group_having_value_expr_plan(hasher, arg);
-            }
-        }
-        GroupHavingValueExpr::Binary { op, left, right } => {
-            write_tag(hasher, GROUP_HAVING_VALUE_BINARY_TAG);
-            write_tag(hasher, grouped_having_binary_op_tag(*op));
-            hash_group_having_value_expr_plan(hasher, left);
-            hash_group_having_value_expr_plan(hasher, right);
-        }
-    }
-}
-
-fn hash_group_having_expr_explain(hasher: &mut Sha256, expr: &ExplainGroupHavingExpr) {
-    match expr {
-        ExplainGroupHavingExpr::Compare { left, op, right } => {
+        ProjectedGroupHavingExpr::Compare {
+            left,
+            op_tag,
+            right,
+        } => {
             write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr_explain(hasher, left);
-            write_tag(hasher, op.tag());
-            hash_group_having_value_expr_explain(hasher, right);
+            hash_projected_group_having_value_expr(hasher, left);
+            write_tag(hasher, *op_tag);
+            hash_projected_group_having_value_expr(hasher, right);
         }
-        ExplainGroupHavingExpr::And(children) => {
+        ProjectedGroupHavingExpr::And(children) => {
             write_tag(hasher, GROUP_HAVING_AND_TAG);
             write_u32(hasher, children.len() as u32);
             for child in children {
-                hash_group_having_expr_explain(hasher, child);
-            }
-        }
-    }
-}
-
-fn hash_group_having_expr_plan(hasher: &mut Sha256, expr: &GroupHavingExpr) {
-    match expr {
-        GroupHavingExpr::Compare { left, op, right } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr_plan(hasher, left);
-            write_tag(hasher, op.tag());
-            hash_group_having_value_expr_plan(hasher, right);
-        }
-        GroupHavingExpr::And(children) => {
-            write_tag(hasher, GROUP_HAVING_AND_TAG);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_group_having_expr_plan(hasher, child);
+                hash_projected_group_having_expr(hasher, child);
             }
         }
     }
@@ -1163,6 +1381,18 @@ const fn grouped_having_binary_op_tag(op: BinaryOp) -> u8 {
     }
 }
 
+fn grouped_having_binary_op_tag_from_explain(op: &str) -> u8 {
+    match op {
+        "+" => 0x01,
+        "-" => 0x02,
+        "*" => 0x03,
+        "/" => 0x04,
+        "and" => 0x05,
+        "=" => 0x06,
+        other => panic!("unsupported explain grouped HAVING binary op: {other}"),
+    }
+}
+
 fn hash_group_having_projection(
     hasher: &mut Sha256,
     expr: Option<&GroupHavingFingerprintSource<'_>>,
@@ -1173,8 +1403,7 @@ fn hash_group_having_projection(
     };
 
     write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    match expr {
-        GroupHavingFingerprintSource::Explain(expr) => hash_group_having_expr_explain(hasher, expr),
-        GroupHavingFingerprintSource::Plan(expr) => hash_group_having_expr_plan(hasher, expr),
-    }
+    let projected = ProjectedGroupHavingExpr::from_source(expr);
+
+    hash_projected_group_having_expr(hasher, &projected);
 }

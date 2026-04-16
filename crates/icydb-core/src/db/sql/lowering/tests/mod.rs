@@ -1878,6 +1878,23 @@ fn compile_sql_command_allows_grouped_additive_order_over_grouped_field() {
 }
 
 #[test]
+fn compile_sql_command_allows_grouped_subtractive_order_over_grouped_field() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age - 2 ASC LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped subtractive ORDER BY over grouped field should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped subtractive ORDER BY over grouped field should stay on the admitted grouped plan lane",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + age ASC LIMIT 1",
@@ -1904,7 +1921,7 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
                         crate::db::query::plan::validate::PlanPolicyError::Group(group)
                             if matches!(
                                 group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term } if term == "age + age"
                             )
                     )
             )

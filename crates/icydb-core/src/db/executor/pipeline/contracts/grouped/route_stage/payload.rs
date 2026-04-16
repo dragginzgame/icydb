@@ -10,7 +10,7 @@ use crate::db::{
         ExecutionPlan, ExecutionTrace, GroupedContinuationContext, route::GroupedExecutionMode,
     },
     query::plan::{
-        AccessPlannedQuery, GroupHavingExpr, GroupHavingSpec, GroupedAggregateExecutionSpec,
+        AccessPlannedQuery, GroupHavingExpr, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedFoldPath,
         PlannedProjectionLayout,
     },
@@ -46,7 +46,6 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
         Vec<GroupedAggregateExecutionSpec>,
     pub(in crate::db::executor) projection_layout: PlannedProjectionLayout,
     pub(in crate::db::executor) projection_is_identity: bool,
-    pub(in crate::db::executor) grouped_having: Option<GroupHavingSpec>,
     pub(in crate::db::executor) grouped_having_expr: Option<GroupHavingExpr>,
     pub(in crate::db::executor) grouped_distinct_execution_strategy:
         GroupedDistinctExecutionStrategy,

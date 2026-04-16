@@ -48,86 +48,7 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
     clauses: Vec<SqlHavingClause>,
     entity_scope: &[String],
 ) -> Vec<SqlHavingClause> {
-    clauses
-        .into_iter()
-        .map(|clause| SqlHavingClause {
-            left: normalize_having_value_expr(clause.left, entity_scope),
-            op: clause.op,
-            right: normalize_having_value_expr(clause.right, entity_scope),
-        })
-        .collect()
-}
-
-fn normalize_having_value_expr(
-    expr: SqlHavingValueExpr,
-    entity_scope: &[String],
-) -> SqlHavingValueExpr {
-    match expr {
-        SqlHavingValueExpr::Field(field) => {
-            SqlHavingValueExpr::Field(normalize_identifier_to_scope(field, entity_scope))
-        }
-        SqlHavingValueExpr::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(
-            normalize_aggregate_call_identifiers(aggregate, entity_scope),
-        ),
-        SqlHavingValueExpr::Literal(literal) => SqlHavingValueExpr::Literal(literal),
-        SqlHavingValueExpr::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(
-            normalize_arithmetic_projection_call_identifiers(call, entity_scope),
-        ),
-        SqlHavingValueExpr::Round(SqlRoundProjectionCall { input, scale }) => {
-            SqlHavingValueExpr::Round(SqlRoundProjectionCall {
-                input: match input {
-                    SqlRoundProjectionInput::Operand(operand) => SqlRoundProjectionInput::Operand(
-                        normalize_projection_operand_identifiers(operand, entity_scope),
-                    ),
-                    SqlRoundProjectionInput::Arithmetic(call) => {
-                        SqlRoundProjectionInput::Arithmetic(
-                            normalize_arithmetic_projection_call_identifiers(call, entity_scope),
-                        )
-                    }
-                },
-                scale,
-            })
-        }
-    }
-}
-
-fn normalize_aggregate_call_identifiers(
-    aggregate: SqlAggregateCall,
-    entity_scope: &[String],
-) -> SqlAggregateCall {
-    SqlAggregateCall {
-        kind: aggregate.kind,
-        field: aggregate
-            .field
-            .map(|field| normalize_identifier_to_scope(field, entity_scope)),
-        distinct: aggregate.distinct,
-    }
-}
-
-fn normalize_projection_operand_identifiers(
-    operand: SqlProjectionOperand,
-    entity_scope: &[String],
-) -> SqlProjectionOperand {
-    match operand {
-        SqlProjectionOperand::Field(field) => {
-            SqlProjectionOperand::Field(normalize_identifier(field, entity_scope))
-        }
-        SqlProjectionOperand::Aggregate(aggregate) => SqlProjectionOperand::Aggregate(
-            normalize_aggregate_call_identifiers(aggregate, entity_scope),
-        ),
-        SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
-    }
-}
-
-fn normalize_arithmetic_projection_call_identifiers(
-    call: SqlArithmeticProjectionCall,
-    entity_scope: &[String],
-) -> SqlArithmeticProjectionCall {
-    SqlArithmeticProjectionCall {
-        left: normalize_projection_operand_identifiers(call.left, entity_scope),
-        op: call.op,
-        right: normalize_projection_operand_identifiers(call.right, entity_scope),
-    }
+    SqlIdentifierNormalizer::new(entity_scope).normalize_having_clauses(clauses)
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -154,66 +75,178 @@ fn normalize_projection_identifiers(
     projection: SqlProjection,
     entity_scope: &[String],
 ) -> SqlProjection {
-    match projection {
-        SqlProjection::All => SqlProjection::All,
-        SqlProjection::Items(items) => SqlProjection::Items(
-            items
-                .into_iter()
-                .map(|item| match item {
-                    SqlSelectItem::Field(field) => {
-                        SqlSelectItem::Field(normalize_identifier(field, entity_scope))
-                    }
-                    SqlSelectItem::Aggregate(aggregate) => {
-                        SqlSelectItem::Aggregate(SqlAggregateCall {
-                            kind: aggregate.kind,
-                            field: aggregate
-                                .field
-                                .map(|field| normalize_identifier(field, entity_scope)),
-                            distinct: aggregate.distinct,
-                        })
-                    }
-                    SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                        function,
-                        field,
-                        literal,
-                        literal2,
-                        literal3,
-                    }) => SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                        function,
-                        field: normalize_identifier(field, entity_scope),
-                        literal,
-                        literal2,
-                        literal3,
-                    }),
-                    SqlSelectItem::Arithmetic(call) => SqlSelectItem::Arithmetic(
-                        normalize_arithmetic_projection_call_identifiers(call, entity_scope),
-                    ),
-                    SqlSelectItem::Round(SqlRoundProjectionCall { input, scale }) => {
-                        SqlSelectItem::Round(SqlRoundProjectionCall {
-                            input: match input {
-                                SqlRoundProjectionInput::Operand(operand) => {
-                                    SqlRoundProjectionInput::Operand(
-                                        normalize_projection_operand_identifiers(
-                                            operand,
-                                            entity_scope,
-                                        ),
-                                    )
-                                }
-                                SqlRoundProjectionInput::Arithmetic(call) => {
-                                    SqlRoundProjectionInput::Arithmetic(
-                                        normalize_arithmetic_projection_call_identifiers(
-                                            call,
-                                            entity_scope,
-                                        ),
-                                    )
-                                }
-                            },
-                            scale,
-                        })
-                    }
-                })
-                .collect(),
-        ),
+    SqlIdentifierNormalizer::new(entity_scope).normalize_projection(projection)
+}
+
+///
+/// SqlIdentifierNormalizer
+///
+/// Local SQL identifier rewrite owner shared by projection and HAVING
+/// normalization. This keeps recursive aggregate, operand, arithmetic, and
+/// round rewrites on one boundary instead of rethreading `entity_scope`
+/// through parallel helper families.
+///
+
+#[derive(Clone, Copy)]
+struct SqlIdentifierNormalizer<'a> {
+    entity_scope: &'a [String],
+}
+
+impl<'a> SqlIdentifierNormalizer<'a> {
+    // Freeze one entity scope for all recursive SQL identifier rewrites so
+    // projection and HAVING normalization share the same rewrite contract.
+    const fn new(entity_scope: &'a [String]) -> Self {
+        Self { entity_scope }
+    }
+
+    // Rewrite all identifiers inside one projection surface while preserving
+    // the original SQL projection shape.
+    fn normalize_projection(self, projection: SqlProjection) -> SqlProjection {
+        match projection {
+            SqlProjection::All => SqlProjection::All,
+            SqlProjection::Items(items) => SqlProjection::Items(
+                items
+                    .into_iter()
+                    .map(|item| self.normalize_select_item(item))
+                    .collect(),
+            ),
+        }
+    }
+
+    // Rewrite grouped HAVING clauses with the same recursive identifier rules
+    // used by projection normalization.
+    fn normalize_having_clauses(self, clauses: Vec<SqlHavingClause>) -> Vec<SqlHavingClause> {
+        clauses
+            .into_iter()
+            .map(|clause| SqlHavingClause {
+                left: self.normalize_having_value_expr(clause.left),
+                op: clause.op,
+                right: self.normalize_having_value_expr(clause.right),
+            })
+            .collect()
+    }
+
+    // Rewrite one select item while preserving the parser-owned projection
+    // family chosen for this SQL surface.
+    fn normalize_select_item(self, item: SqlSelectItem) -> SqlSelectItem {
+        match item {
+            SqlSelectItem::Field(field) => SqlSelectItem::Field(self.normalize_identifier(field)),
+            SqlSelectItem::Aggregate(aggregate) => {
+                SqlSelectItem::Aggregate(self.normalize_aggregate_call(aggregate))
+            }
+            SqlSelectItem::TextFunction(call) => {
+                SqlSelectItem::TextFunction(self.normalize_text_function_call(call))
+            }
+            SqlSelectItem::Arithmetic(call) => {
+                SqlSelectItem::Arithmetic(self.normalize_arithmetic_call(call))
+            }
+            SqlSelectItem::Round(call) => SqlSelectItem::Round(self.normalize_round_call(call)),
+        }
+    }
+
+    // Rewrite one grouped HAVING value while preserving the post-aggregate SQL
+    // expression family admitted by the parser.
+    fn normalize_having_value_expr(self, expr: SqlHavingValueExpr) -> SqlHavingValueExpr {
+        match expr {
+            SqlHavingValueExpr::Field(field) => {
+                SqlHavingValueExpr::Field(self.normalize_identifier_to_scope(field))
+            }
+            SqlHavingValueExpr::Aggregate(aggregate) => {
+                SqlHavingValueExpr::Aggregate(self.normalize_aggregate_call(aggregate))
+            }
+            SqlHavingValueExpr::Literal(literal) => SqlHavingValueExpr::Literal(literal),
+            SqlHavingValueExpr::Arithmetic(call) => {
+                SqlHavingValueExpr::Arithmetic(self.normalize_arithmetic_call(call))
+            }
+            SqlHavingValueExpr::Round(call) => {
+                SqlHavingValueExpr::Round(self.normalize_round_call(call))
+            }
+        }
+    }
+
+    // Aggregate calls only rewrite their optional field target, so keep that
+    // field-local transformation behind one owner-local helper.
+    fn normalize_aggregate_call(self, aggregate: SqlAggregateCall) -> SqlAggregateCall {
+        SqlAggregateCall {
+            kind: aggregate.kind,
+            field: aggregate
+                .field
+                .map(|field| self.normalize_identifier_to_scope(field)),
+            distinct: aggregate.distinct,
+        }
+    }
+
+    // Projection operands stay narrow: only field and aggregate leaves need
+    // identifier rewriting here.
+    fn normalize_projection_operand(self, operand: SqlProjectionOperand) -> SqlProjectionOperand {
+        match operand {
+            SqlProjectionOperand::Field(field) => {
+                SqlProjectionOperand::Field(self.normalize_identifier(field))
+            }
+            SqlProjectionOperand::Aggregate(aggregate) => {
+                SqlProjectionOperand::Aggregate(self.normalize_aggregate_call(aggregate))
+            }
+            SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
+        }
+    }
+
+    // Arithmetic projection calls recurse through the two operand leaves while
+    // preserving the parser-owned operator.
+    fn normalize_arithmetic_call(
+        self,
+        call: SqlArithmeticProjectionCall,
+    ) -> SqlArithmeticProjectionCall {
+        SqlArithmeticProjectionCall {
+            left: self.normalize_projection_operand(call.left),
+            op: call.op,
+            right: self.normalize_projection_operand(call.right),
+        }
+    }
+
+    // Round projection input can be either a single operand or an arithmetic
+    // subtree, so keep that branch local to one owner.
+    fn normalize_round_call(self, call: SqlRoundProjectionCall) -> SqlRoundProjectionCall {
+        SqlRoundProjectionCall {
+            input: self.normalize_round_input(call.input),
+            scale: call.scale,
+        }
+    }
+
+    // Round-input normalization shares the same operand/arithmetic rewrite
+    // rules used by the wider projection and HAVING surfaces.
+    fn normalize_round_input(self, input: SqlRoundProjectionInput) -> SqlRoundProjectionInput {
+        match input {
+            SqlRoundProjectionInput::Operand(operand) => {
+                SqlRoundProjectionInput::Operand(self.normalize_projection_operand(operand))
+            }
+            SqlRoundProjectionInput::Arithmetic(call) => {
+                SqlRoundProjectionInput::Arithmetic(self.normalize_arithmetic_call(call))
+            }
+        }
+    }
+
+    // Text SQL functions only rewrite their field target, while literal
+    // arguments stay parser-owned and already normalized as values.
+    fn normalize_text_function_call(self, call: SqlTextFunctionCall) -> SqlTextFunctionCall {
+        SqlTextFunctionCall {
+            function: call.function,
+            field: self.normalize_identifier(call.field),
+            literal: call.literal,
+            literal2: call.literal2,
+            literal3: call.literal3,
+        }
+    }
+
+    // Preserve the parser/session distinction between entity-scope normalization
+    // and planner-owned field names.
+    fn normalize_identifier(self, identifier: String) -> String {
+        normalize_identifier(identifier, self.entity_scope)
+    }
+
+    // Some SQL surfaces rewrite directly onto the resolved entity scope instead
+    // of the broader helper used by order-expression normalization.
+    fn normalize_identifier_to_scope(self, identifier: String) -> String {
+        normalize_identifier_to_scope(identifier, self.entity_scope)
     }
 }
 

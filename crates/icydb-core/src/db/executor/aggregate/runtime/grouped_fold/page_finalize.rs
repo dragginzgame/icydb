@@ -13,8 +13,7 @@ use crate::{
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::{
-                group_matches_having, group_matches_having_expr,
-                grouped_fold::bundle::GroupedAggregateBundle,
+                group_matches_having_expr, grouped_fold::bundle::GroupedAggregateBundle,
                 grouped_output::project_grouped_values_from_compiled_projection,
             },
             group::GroupKey,
@@ -23,7 +22,7 @@ use crate::{
                 CompiledGroupedProjectionPlan, compile_grouped_projection_plan_if_needed,
             },
         },
-        query::plan::{GroupHavingExpr, GroupHavingSpec, expr::ProjectionSpec},
+        query::plan::{GroupHavingExpr, expr::ProjectionSpec},
     },
     error::InternalError,
     value::Value,
@@ -99,7 +98,6 @@ impl GroupedPageCandidate {
     // continuation resume-boundary filtering.
     fn matches_window(
         &self,
-        grouped_having: Option<&GroupHavingSpec>,
         grouped_having_expr: Option<&GroupHavingExpr>,
         group_fields: &[crate::db::query::plan::FieldSlot],
         resume_boundary: Option<&Value>,
@@ -107,16 +105,6 @@ impl GroupedPageCandidate {
         if let Some(grouped_having_expr) = grouped_having_expr
             && !group_matches_having_expr(
                 grouped_having_expr,
-                group_fields,
-                self.group_key.canonical_value(),
-                self.aggregate_values.as_slice(),
-            )?
-        {
-            return Ok(false);
-        }
-        if let Some(grouped_having) = grouped_having
-            && !group_matches_having(
-                grouped_having,
                 group_fields,
                 self.group_key.canonical_value(),
                 self.aggregate_values.as_slice(),
@@ -225,7 +213,6 @@ fn into_finalize_groups(
 
 struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
-    grouped_having: Option<&'a GroupHavingSpec>,
     grouped_having_expr: Option<&'a GroupHavingExpr>,
     group_fields: &'a [crate::db::query::plan::FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
@@ -243,7 +230,6 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
     ) -> Self {
         Self {
             direction: route.direction(),
-            grouped_having: route.grouped_having(),
             grouped_having_expr: route.grouped_having_expr(),
             group_fields: route.group_fields(),
             pagination_window,
@@ -283,7 +269,6 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
     // HAVING and continuation resume-boundary filtering.
     fn matches_window(&self, candidate: &GroupedPageCandidate) -> Result<bool, InternalError> {
         candidate.matches_window(
-            self.grouped_having,
             self.grouped_having_expr,
             self.group_fields,
             self.resume_boundary,

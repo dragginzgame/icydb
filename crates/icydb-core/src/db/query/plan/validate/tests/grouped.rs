@@ -7,9 +7,9 @@ use crate::{
     db::{
         predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
-            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause,
-            GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec,
-            LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
+            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
+            OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
             expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
@@ -105,6 +105,10 @@ fn scalar_plan(distinct: bool) -> ScalarPlan {
 
 fn schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_entity_model(model())
+}
+
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
+    GroupHavingExpr::compare_symbol(symbol, op, value)
 }
 
 fn is_group_policy_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
@@ -220,6 +224,33 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
 }
 
 #[test]
+fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy() {
+    let mut logical = scalar_with_group_order(vec![("score - 2".to_string(), OrderDirection::Asc)]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 0,
+    });
+    let group = GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model(), "score").expect("group field slot should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        },
+    };
+
+    validate_group_cursor_constraints_for_tests(&logical, &group).expect(
+        "grouped ORDER BY subtractive offsets over grouped keys should pass planner cursor policy",
+    );
+}
+
+#[test]
 fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_policy() {
     let mut logical =
         scalar_with_group_order(vec![("score + score".to_string(), OrderDirection::Asc)]);
@@ -248,15 +279,14 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
 
     assert!(is_group_policy_error(&err, |inner| matches!(
         inner,
-        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+        GroupPlanError::OrderExpressionNotAdmissible { term } if term == "score + score"
     )));
 }
 
 #[test]
 fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
-    let err =
-        validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None, None)
-            .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
+    let err = validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None)
+        .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
         inner,
@@ -266,20 +296,17 @@ fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
 
 #[test]
 fn grouped_distinct_with_having_fails_in_planner_policy() {
-    let having = GroupHavingSpec {
-        clauses: vec![GroupHavingClause {
-            symbol: GroupHavingSymbol::AggregateIndex(0),
-            op: CompareOp::Gt,
-            value: Value::Uint(1),
-        }],
-    };
+    let having = having_compare(
+        GroupHavingSymbol::AggregateIndex(0),
+        CompareOp::Gt,
+        Value::Uint(1),
+    );
 
     let err = validate_group_policy_for_tests(
         schema(),
         &scalar_plan(true),
         &grouped_spec(),
         Some(&having),
-        None,
     )
     .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
 
@@ -291,28 +318,25 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
 
 #[test]
 fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
-    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), None, None)
+    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), None)
         .expect("non-distinct grouped shapes should pass planner distinct policy gate");
 }
 
 #[test]
 fn grouped_having_contains_operator_fails_in_planner_policy() {
-    let having = GroupHavingSpec {
-        clauses: vec![GroupHavingClause {
-            symbol: GroupHavingSymbol::GroupField(
-                FieldSlot::resolve(model(), "team").expect("group field slot should resolve"),
-            ),
-            op: CompareOp::Contains,
-            value: Value::Text("A".to_string()),
-        }],
-    };
+    let having = having_compare(
+        GroupHavingSymbol::GroupField(
+            FieldSlot::resolve(model(), "team").expect("group field slot should resolve"),
+        ),
+        CompareOp::Contains,
+        Value::Text("A".to_string()),
+    );
 
     let err = validate_group_policy_for_tests(
         schema(),
         &scalar_plan(false),
         &grouped_spec(),
         Some(&having),
-        None,
     )
     .expect_err("grouped HAVING with unsupported compare operator must fail in planner");
 
@@ -347,9 +371,8 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
         alias: None,
     }]);
 
-    let err =
-        validate_group_structure_for_tests(schema(), model(), &group, &projection, None, None)
-            .expect_err("projection references outside GROUP BY keys must fail in planner");
+    let err = validate_group_structure_for_tests(schema(), model(), &group, &projection, None)
+        .expect_err("projection references outside GROUP BY keys must fail in planner");
 
     assert!(is_expr_user_error(&err, |inner| matches!(
         inner,
@@ -361,25 +384,17 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
 fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
     let group = grouped_spec();
     let projection = ProjectionSpec::default();
-    let having = GroupHavingSpec {
-        clauses: vec![GroupHavingClause {
-            symbol: GroupHavingSymbol::GroupField(
-                FieldSlot::resolve(model(), "region").expect("field slot should resolve"),
-            ),
-            op: CompareOp::Eq,
-            value: Value::Text("eu".to_string()),
-        }],
-    };
+    let having = having_compare(
+        GroupHavingSymbol::GroupField(
+            FieldSlot::resolve(model(), "region").expect("field slot should resolve"),
+        ),
+        CompareOp::Eq,
+        Value::Text("eu".to_string()),
+    );
 
-    let err = validate_group_structure_for_tests(
-        schema(),
-        model(),
-        &group,
-        &projection,
-        Some(&having),
-        None,
-    )
-    .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
+    let err =
+        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
+            .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,
@@ -391,23 +406,15 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
 fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
     let group = grouped_spec();
     let projection = ProjectionSpec::default();
-    let having = GroupHavingSpec {
-        clauses: vec![GroupHavingClause {
-            symbol: GroupHavingSymbol::AggregateIndex(1),
-            op: CompareOp::Gt,
-            value: Value::Uint(5),
-        }],
-    };
+    let having = having_compare(
+        GroupHavingSymbol::AggregateIndex(1),
+        CompareOp::Gt,
+        Value::Uint(5),
+    );
 
-    let err = validate_group_structure_for_tests(
-        schema(),
-        model(),
-        &group,
-        &projection,
-        Some(&having),
-        None,
-    )
-    .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
+    let err =
+        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
+            .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,

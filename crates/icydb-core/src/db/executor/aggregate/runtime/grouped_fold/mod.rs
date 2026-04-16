@@ -1574,19 +1574,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
             });
             return Ok(false);
         }
-        if let Some(grouped_having) = self.route.grouped_having()
-            && !crate::db::executor::aggregate::runtime::group_matches_having(
-                grouped_having,
-                self.route.group_fields(),
-                group_key.canonical_value(),
-                std::slice::from_ref(&aggregate_value),
-            )?
-        {
-            update_grouped_count_fold_metrics(|metrics| {
-                metrics.having_rows_rejected = metrics.having_rows_rejected.saturating_add(1);
-            });
-            return Ok(false);
-        }
         if let Some(resume_boundary) = self.resume_boundary
             && !grouped_resume_boundary_allows_candidate(
                 self.route.direction(),

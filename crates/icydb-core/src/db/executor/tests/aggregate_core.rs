@@ -1961,13 +1961,11 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
                 }],
                 execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
             },
-            Some(crate::db::query::plan::GroupHavingSpec {
-                clauses: vec![crate::db::query::plan::GroupHavingClause {
-                    symbol: crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
-                    op: CompareOp::In,
-                    value: Value::List(vec![Value::Uint(1)]),
-                }],
-            }),
+            Some(crate::db::query::plan::GroupHavingExpr::compare_symbol(
+                crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
+                CompareOp::In,
+                Value::List(vec![Value::Uint(1)]),
+            )),
         );
     let plan = crate::db::executor::PreparedExecutionPlan::<PushdownParityEntity>::new(grouped);
 

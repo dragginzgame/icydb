@@ -10,7 +10,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-            GroupDistinctPolicyReason, GroupHavingSpec, GroupSpec, GroupedExecutionConfig,
+            GroupDistinctPolicyReason, GroupSpec, GroupedExecutionConfig,
             global_distinct_group_spec_for_semantic_aggregate,
             resolve_global_distinct_field_aggregate,
         },
@@ -51,7 +51,7 @@ fn planner_distinct_resolution_projects_semantic_shape_handle() {
     let resolved = resolve_global_distinct_field_aggregate(
         group_fields.as_slice(),
         aggregates.as_slice(),
-        None::<&GroupHavingSpec>,
+        None::<&crate::db::query::plan::GroupHavingExpr>,
     )
     .expect("global distinct semantic shape should resolve without policy rejection")
     .expect("global distinct candidate should project one semantic aggregate handle");

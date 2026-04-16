@@ -54,7 +54,6 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             },
-            None,
             Some(crate::db::query::plan::GroupHavingExpr::Compare {
                 left: crate::db::query::plan::GroupHavingValueExpr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
@@ -78,7 +77,6 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             },
-            None,
             Some(crate::db::query::plan::GroupHavingExpr::Compare {
                 left: crate::db::query::plan::GroupHavingValueExpr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,

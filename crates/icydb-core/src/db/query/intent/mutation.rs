@@ -13,7 +13,7 @@ use crate::db::{
             state::{GroupedIntent, QueryIntent},
         },
         plan::{
-            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr, GroupHavingSpec,
+            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
             GroupedExecutionConfig, OrderDirection, OrderSpec,
         },
     },
@@ -142,10 +142,11 @@ impl<K> QueryIntent<K> {
             return Err(IntentError::having_requires_group_by());
         };
 
-        let having = grouped.having.get_or_insert(GroupHavingSpec {
-            clauses: Vec::new(),
+        let clause = GroupHavingExpr::from_clause(&clause);
+        grouped.having_expr = Some(match grouped.having_expr.take() {
+            Some(existing) => existing.and(clause),
+            None => clause,
         });
-        having.clauses.push(clause);
 
         Ok(())
     }
@@ -169,11 +170,7 @@ impl<K> QueryIntent<K> {
         };
 
         grouped.having_expr = Some(match grouped.having_expr.take() {
-            Some(GroupHavingExpr::And(mut children)) => {
-                children.push(expr);
-                GroupHavingExpr::And(children)
-            }
-            Some(existing) => GroupHavingExpr::And(vec![existing, expr]),
+            Some(existing) => existing.and(expr),
             None => expr,
         });
 

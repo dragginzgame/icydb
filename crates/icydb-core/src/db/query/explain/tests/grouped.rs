@@ -29,6 +29,78 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
 }
 
 #[test]
+fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("rank".to_string(), OrderDirection::Asc)],
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: "hash_group",
+            fallback_reason: Some("group_key_order_prefix_mismatch"),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_order() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("tag + tag".to_string(), OrderDirection::Asc)],
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: "hash_group",
+            fallback_reason: Some("group_key_order_expression_not_admissible"),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -291,13 +363,11 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::In,
-                value: Value::List(vec![Value::Uint(1)]),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::In,
+            Value::List(vec![Value::Uint(1)]),
+        )),
     );
 
     let explain = grouped.explain();
@@ -333,13 +403,11 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     );
 
     let explain = grouped.explain();
@@ -369,13 +437,11 @@ fn explain_grouped_having_projection_is_reported() {
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
             },
-            Some(GroupHavingSpec {
-                clauses: vec![GroupHavingClause {
-                    symbol: GroupHavingSymbol::AggregateIndex(0),
-                    op: CompareOp::Gt,
-                    value: Value::Uint(1),
-                }],
-            }),
+            Some(having_compare(
+                GroupHavingSymbol::AggregateIndex(0),
+                CompareOp::Gt,
+                Value::Uint(1),
+            )),
         );
 
     assert!(matches!(
@@ -436,13 +502,11 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     );
 
     assert_eq!(
@@ -494,7 +558,6 @@ fn explain_grouped_having_expression_projection_is_reported() {
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
         },
-        None,
         Some(crate::db::query::plan::GroupHavingExpr::Compare {
             left: crate::db::query::plan::GroupHavingValueExpr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
@@ -606,13 +669,11 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     );
 
     let actual = grouped_explain_plan_snapshot(&grouped.explain());

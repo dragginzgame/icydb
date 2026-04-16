@@ -107,6 +107,78 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
 }
 
 #[test]
+fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_order() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("label".to_string(), OrderDirection::Asc)],
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
+    );
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped_order() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("rank + rank".to_string(), OrderDirection::Asc)],
+    });
+    let route_plan = build_grouped_route_plan(&grouped);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
+    );
+    assert_eq!(
+        grouped_observability.planner_fallback_reason(),
+        Some(GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible)
+    );
+}
+
+#[test]
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -366,13 +438,11 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::In,
-                value: Value::List(vec![Value::Uint(1)]),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::In,
+            Value::List(vec![Value::Uint(1)]),
+        )),
     );
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
@@ -595,13 +665,11 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::In,
-                value: Value::List(vec![Value::Uint(1)]),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::In,
+            Value::List(vec![Value::Uint(1)]),
+        )),
     );
     assert_eq!(
         grouped_policy_snapshot(&having_rejected_grouped),
@@ -799,13 +867,11 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
             }],
             execution: GroupedExecutionConfig::with_hard_limits(17, 8192),
         },
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     );
 
     assert_eq!(

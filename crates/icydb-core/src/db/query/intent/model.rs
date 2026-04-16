@@ -544,34 +544,8 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
 ) -> Option<Predicate> {
     let predicate = normalized_predicate?;
 
-    if let Some(access_keys) = access.as_path().and_then(|path| path.as_by_keys())
-        && !access_keys.is_empty()
-        && predicate_matches_primary_key_in_set(&predicate, model.primary_key.name, access_keys)
-    {
-        return None;
-    }
-
-    if let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) {
-        let Predicate::Compare(cmp) = &predicate else {
-            return Some(predicate);
-        };
-        if cmp.field != model.primary_key.name || cmp.op != CompareOp::Eq {
-            return Some(predicate);
-        }
-        if cmp.value != *access_key {
-            return Some(predicate);
-        }
-
-        return None;
-    }
-
-    if let Some((start, end)) = access.as_primary_key_range_path()
-        && predicate_matches_primary_key_half_open_range(
-            &predicate,
-            model.primary_key.name,
-            start,
-            end,
-        )
+    if ExactPrimaryKeyAccess::from_access(access)
+        .is_some_and(|access| access.matches_predicate(&predicate, model.primary_key.name))
     {
         return None;
     }
@@ -579,9 +553,71 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
     Some(predicate)
 }
 
+///
+/// ExactPrimaryKeyAccess
+///
+/// Local exact-primary-key access shape used by query intent planning to
+/// decide whether one normalized predicate is already guaranteed by the chosen
+/// authoritative access path.
+///
+
+enum ExactPrimaryKeyAccess<'a> {
+    ByKey(&'a Value),
+    ByKeys(&'a [Value]),
+    HalfOpenRange { start: &'a Value, end: &'a Value },
+}
+
+impl<'a> ExactPrimaryKeyAccess<'a> {
+    // Project one planner access path into the exact primary-key shapes that
+    // can make a normalized predicate redundant.
+    fn from_access(access: &'a AccessPlan<Value>) -> Option<Self> {
+        if let Some(access_keys) = access.as_path().and_then(|path| path.as_by_keys())
+            && !access_keys.is_empty()
+        {
+            return Some(Self::ByKeys(access_keys));
+        }
+        if let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) {
+            return Some(Self::ByKey(access_key));
+        }
+
+        access
+            .as_primary_key_range_path()
+            .map(|(start, end)| Self::HalfOpenRange { start, end })
+    }
+
+    // Return whether one normalized predicate is exactly the same primary-key
+    // contract already guaranteed by this authoritative access path.
+    fn matches_predicate(self, predicate: &Predicate, primary_key_name: &str) -> bool {
+        match self {
+            Self::ByKey(access_key) => {
+                matches_primary_key_eq_predicate(predicate, primary_key_name, access_key)
+            }
+            Self::ByKeys(access_keys) => {
+                matches_primary_key_in_predicate(predicate, primary_key_name, access_keys)
+            }
+            Self::HalfOpenRange { start, end } => {
+                matches_primary_key_half_open_range(predicate, primary_key_name, start, end)
+            }
+        }
+    }
+}
+
+// Return whether one normalized predicate is exactly the same primary-key
+// equality already guaranteed by one canonical `ByKey` access path.
+fn matches_primary_key_eq_predicate(
+    predicate: &Predicate,
+    primary_key_name: &str,
+    access_key: &Value,
+) -> bool {
+    let Predicate::Compare(cmp) = predicate else {
+        return false;
+    };
+    cmp.field == primary_key_name && cmp.op == CompareOp::Eq && cmp.value == *access_key
+}
+
 // Return whether one normalized predicate is exactly the same primary-key IN
 // set already guaranteed by one canonical `ByKeys` access path.
-fn predicate_matches_primary_key_in_set(
+fn matches_primary_key_in_predicate(
     predicate: &Predicate,
     primary_key_name: &str,
     access_keys: &[Value],
@@ -605,7 +641,7 @@ fn predicate_matches_primary_key_in_set(
 
 // Return whether one normalized predicate is exactly the same half-open
 // primary-key range already guaranteed by one `KeyRange` access path.
-fn predicate_matches_primary_key_half_open_range(
+fn matches_primary_key_half_open_range(
     predicate: &Predicate,
     primary_key_name: &str,
     start: &Value,

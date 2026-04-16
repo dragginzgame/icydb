@@ -14,8 +14,8 @@ use crate::{
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingExpr,
-                GroupHavingSpec, GroupHavingValueExpr, GroupedPlanFallbackReason, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy,
+                GroupHavingValueExpr, GroupedPlanFallbackReason, LogicalPlan, OrderDirection,
+                OrderSpec, PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy,
             },
         },
     },
@@ -546,10 +546,7 @@ impl AccessPlannedQuery {
                                 distinct: aggregate.distinct,
                             })
                             .collect(),
-                        having: explain_group_having(
-                            logical.having.as_ref(),
-                            logical.having_expr.as_ref(),
-                        ),
+                        having: explain_group_having(logical),
                         max_groups: logical.group.execution.max_groups(),
                         max_group_bytes: logical.group.execution.max_group_bytes(),
                     },
@@ -562,16 +559,12 @@ impl AccessPlannedQuery {
     }
 }
 
-fn explain_group_having(
-    having: Option<&GroupHavingSpec>,
-    having_expr: Option<&GroupHavingExpr>,
-) -> Option<ExplainGroupHaving> {
-    let expr = match having_expr {
-        Some(expr) => explain_group_having_expr(expr),
-        None => explain_group_having_expr(&GroupHavingExpr::from_legacy_spec(having?)),
-    };
+fn explain_group_having(logical: &crate::db::query::plan::GroupPlan) -> Option<ExplainGroupHaving> {
+    let expr = logical.effective_having_expr()?;
 
-    Some(ExplainGroupHaving { expr })
+    Some(ExplainGroupHaving {
+        expr: explain_group_having_expr(expr.as_ref()),
+    })
 }
 
 fn explain_group_having_expr(expr: &GroupHavingExpr) -> ExplainGroupHavingExpr {

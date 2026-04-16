@@ -29,7 +29,6 @@ use crate::db::sql::lowering::select::{
         ResolvedHavingClause, ResolvedHavingExpr, ResolvedHavingValueExpr,
         extend_grouped_having_aggregate_calls, lower_having_clauses,
     },
-    binding::model_field_kind,
     order::apply_order_terms_structural,
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
 };
@@ -167,28 +166,9 @@ pub(in crate::db) fn apply_lowered_select_shape(
         query = query.aggregate(lower_aggregate_call(aggregate)?);
     }
 
-    // Phase 3: bind resolved HAVING clauses against grouped terminals.
+    // Phase 3: bind resolved HAVING expressions against grouped terminals.
     for clause in having {
-        match clause {
-            ResolvedHavingClause::GroupField { field, op, value } => {
-                let value = model_field_kind(model, &field)
-                    .and_then(|field_kind| {
-                        binding::canonicalize_strict_sql_literal_for_kind(&field_kind, &value)
-                    })
-                    .unwrap_or(value);
-                query = query.having_group(field, op, value)?;
-            }
-            ResolvedHavingClause::Aggregate {
-                aggregate_index,
-                op,
-                value,
-            } => {
-                query = query.having_aggregate(aggregate_index, op, value)?;
-            }
-            ResolvedHavingClause::Expr(expr) => {
-                query = query.having_expr(resolve_grouped_having_expr(model, expr)?)?;
-            }
-        }
+        query = query.having_expr(resolve_grouped_having_expr(model, clause.into_expr())?)?;
     }
 
     // Phase 4: attach the shared filter/order/page tail through the base-query lane.

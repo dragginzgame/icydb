@@ -6,7 +6,7 @@
 use crate::db::query::{
     builder::aggregate::{avg, count_by, sum},
     plan::{
-        AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupPlan, GroupSpec,
+        AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr, GroupPlan, GroupSpec,
         GroupedExecutionConfig, validate::GroupPlanError,
     },
 };
@@ -241,9 +241,9 @@ pub(crate) fn is_global_distinct_field_aggregate_candidate(
 #[cfg(test)]
 pub(crate) fn global_distinct_field_aggregate_admissibility(
     aggregates: &[GroupAggregateSpec],
-    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> GroupDistinctAdmissibility {
-    resolve_global_distinct_supported_aggregate(aggregates, having)
+    resolve_global_distinct_supported_aggregate(aggregates, having_expr)
         .map_or_else(GroupDistinctAdmissibility::Disallowed, |_| {
             GroupDistinctAdmissibility::Allowed
         })
@@ -253,12 +253,12 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
 pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
     group_fields: &'a [FieldSlot],
     aggregates: &'a [GroupAggregateSpec],
-    having: Option<&'a GroupHavingSpec>,
+    having_expr: Option<&'a GroupHavingExpr>,
 ) -> Result<Option<GlobalDistinctFieldAggregate<'a>>, GroupDistinctPolicyReason> {
     if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
         return Ok(None);
     }
-    let aggregate = resolve_global_distinct_supported_aggregate(aggregates, having)?;
+    let aggregate = resolve_global_distinct_supported_aggregate(aggregates, having_expr)?;
     let target_field = aggregate
         .target_field()
         .ok_or(GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate())?;
@@ -273,9 +273,9 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
 // policy path and semantic projection path share the same shape contract.
 fn resolve_global_distinct_supported_aggregate<'a>(
     aggregates: &'a [GroupAggregateSpec],
-    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<&'a GroupAggregateSpec, GroupDistinctPolicyReason> {
-    if having.is_some() {
+    if having_expr.is_some() {
         return Err(GroupDistinctPolicyReason::global_distinct_having_unsupported());
     }
     if aggregates.len() != 1 {
@@ -332,7 +332,7 @@ impl GroupPlan {
         resolve_global_distinct_field_aggregate(
             self.group.group_fields.as_slice(),
             self.group.aggregates.as_slice(),
-            self.having.as_ref(),
+            self.having_expr.as_ref(),
         )
         .ok()
         .flatten()

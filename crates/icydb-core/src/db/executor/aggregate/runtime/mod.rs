@@ -15,8 +15,7 @@ use crate::{
         },
         predicate::{CompareOp, evaluate_grouped_having_compare},
         query::plan::{
-            FieldSlot, GroupHavingClause, GroupHavingExpr, GroupHavingSpec, GroupHavingSymbol,
-            GroupHavingValueExpr,
+            FieldSlot, GroupHavingClause, GroupHavingExpr, GroupHavingSymbol, GroupHavingValueExpr,
         },
     },
     error::InternalError,
@@ -36,20 +35,6 @@ pub(in crate::db::executor) use grouped_output::{
 };
 
 // Evaluate one grouped HAVING expression on one finalized grouped output row.
-pub(in crate::db::executor) fn group_matches_having(
-    having: &GroupHavingSpec,
-    group_fields: &[FieldSlot],
-    group_key_value: &Value,
-    aggregate_values: &[Value],
-) -> Result<bool, InternalError> {
-    eval_group_having_expr(
-        &GroupHavingExpr::from_legacy_spec(having),
-        group_fields,
-        group_key_value,
-        aggregate_values,
-    )
-}
-
 pub(in crate::db::executor) fn group_matches_having_expr(
     expr: &GroupHavingExpr,
     group_fields: &[FieldSlot],

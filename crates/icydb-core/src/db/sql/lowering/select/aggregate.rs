@@ -53,24 +53,20 @@ pub(super) enum ResolvedHavingExpr {
 ///
 /// ResolvedHavingClause
 ///
-/// Pre-resolved HAVING clause shape after SQL projection aggregate index
-/// resolution. Simple legacy `field/aggregate op literal` clauses keep their
-/// older resolved form so parity with the fluent legacy builder remains
-/// stable, while widened grouped HAVING inputs lower through `Expr`.
+/// Entity-agnostic grouped HAVING expression after SQL projection aggregate
+/// references have been resolved to stable aggregate indexes.
 ///
 #[derive(Clone, Debug)]
-pub(super) enum ResolvedHavingClause {
-    GroupField {
-        field: String,
-        op: CompareOp,
-        value: Value,
-    },
-    Aggregate {
-        aggregate_index: usize,
-        op: CompareOp,
-        value: Value,
-    },
-    Expr(ResolvedHavingExpr),
+pub(super) struct ResolvedHavingClause {
+    expr: ResolvedHavingExpr,
+}
+
+impl ResolvedHavingClause {
+    /// Consume one resolved grouped HAVING clause into its canonical expression.
+    #[must_use]
+    pub(super) fn into_expr(self) -> ResolvedHavingExpr {
+        self.expr
+    }
 }
 
 pub(super) fn lower_having_clauses(
@@ -92,42 +88,12 @@ pub(super) fn lower_having_clauses(
 
     let mut lowered = Vec::with_capacity(having_clauses.len());
     for clause in having_clauses {
-        if let Some(clause) = lower_legacy_having_clause(&clause, grouped_aggregates)? {
-            lowered.push(clause);
-            continue;
-        }
-
-        lowered.push(ResolvedHavingClause::Expr(lower_having_expr(
-            clause,
-            grouped_aggregates,
-        )?));
+        lowered.push(ResolvedHavingClause {
+            expr: lower_having_expr(clause, grouped_aggregates)?,
+        });
     }
 
     Ok(lowered)
-}
-
-fn lower_legacy_having_clause(
-    clause: &SqlHavingClause,
-    grouped_aggregates: &[SqlAggregateCall],
-) -> Result<Option<ResolvedHavingClause>, SqlLoweringError> {
-    match (&clause.left, &clause.right) {
-        (SqlHavingValueExpr::Field(field), SqlHavingValueExpr::Literal(value)) => {
-            Ok(Some(ResolvedHavingClause::GroupField {
-                field: field.clone(),
-                op: clause.op,
-                value: value.clone(),
-            }))
-        }
-        (SqlHavingValueExpr::Aggregate(aggregate), SqlHavingValueExpr::Literal(value)) => {
-            let aggregate_index = resolve_having_aggregate_index(aggregate, grouped_aggregates)?;
-            Ok(Some(ResolvedHavingClause::Aggregate {
-                aggregate_index,
-                op: clause.op,
-                value: value.clone(),
-            }))
-        }
-        _ => Ok(None),
-    }
 }
 
 fn lower_having_expr(

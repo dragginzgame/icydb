@@ -8,7 +8,7 @@ use crate::db::{
     access::AccessPlan,
     query::plan::{
         AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec,
-        expr::order_term_preserves_group_field_order,
+        expr::{GroupedOrderTermAdmissibility, classify_grouped_order_term_for_field},
     },
 };
 
@@ -65,6 +65,8 @@ pub(crate) enum GroupedPlanFallbackReason {
     ResidualPredicateBlocksGroupedOrder,
     AggregateStreamingNotSupported,
     HavingBlocksGroupedOrder,
+    GroupKeyOrderPrefixMismatch,
+    GroupKeyOrderExpressionNotAdmissible,
     GroupKeyOrderUnavailable,
 }
 
@@ -77,6 +79,10 @@ impl GroupedPlanFallbackReason {
             Self::ResidualPredicateBlocksGroupedOrder => "residual_predicate_blocks_grouped_order",
             Self::AggregateStreamingNotSupported => "aggregate_streaming_not_supported",
             Self::HavingBlocksGroupedOrder => "having_blocks_grouped_order",
+            Self::GroupKeyOrderPrefixMismatch => "group_key_order_prefix_mismatch",
+            Self::GroupKeyOrderExpressionNotAdmissible => {
+                "group_key_order_expression_not_admissible"
+            }
             Self::GroupKeyOrderUnavailable => "group_key_order_unavailable",
         }
     }
@@ -208,7 +214,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         ));
     }
     if !crate::db::query::plan::semantics::group_having::grouped_having_streaming_compatible(
-        grouped.having.as_ref(),
+        grouped.having_expr.as_ref(),
     ) {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::HavingBlocksGroupedOrder,
@@ -217,14 +223,11 @@ pub(in crate::db) fn grouped_plan_strategy(
     }
 
     // Phase 2: require logical ORDER BY alignment and physical access-order proof for ordered grouping.
-    if !grouped_order_prefix_matches_group_fields(
+    if let Some(reason) = grouped_order_prefix_alignment_fallback_reason(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
     ) {
-        return Some(hash_group_fallback_strategy(
-            GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
-            aggregate_family,
-        ));
+        return Some(hash_group_fallback_strategy(reason, aggregate_family));
     }
     if grouped_access_path_proves_group_order(grouped.group.group_fields.as_slice(), &plan.access) {
         return Some(GroupedPlanStrategy::ordered_group_with_aggregate_family(
@@ -298,23 +301,28 @@ const fn hash_group_fallback_strategy(
     GroupedPlanStrategy::hash_group_with_aggregate_family(reason, aggregate_family)
 }
 
-fn grouped_order_prefix_matches_group_fields(
+fn grouped_order_prefix_alignment_fallback_reason(
     order: Option<&OrderSpec>,
     group_fields: &[FieldSlot],
-) -> bool {
-    let Some(order) = order else {
-        return true;
-    };
+) -> Option<GroupedPlanFallbackReason> {
+    let order = order?;
     if order.fields.len() < group_fields.len() {
-        return false;
+        return Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch);
     }
 
-    group_fields
-        .iter()
-        .zip(order.fields.iter())
-        .all(|(group_field, (order_field, _))| {
-            order_term_preserves_group_field_order(order_field, group_field.field())
-        })
+    for (group_field, (order_field, _)) in group_fields.iter().zip(order.fields.iter()) {
+        match classify_grouped_order_term_for_field(order_field, group_field.field()) {
+            GroupedOrderTermAdmissibility::Preserves(_) => {}
+            GroupedOrderTermAdmissibility::PrefixMismatch => {
+                return Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch);
+            }
+            GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                return Some(GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible);
+            }
+        }
+    }
+
+    None
 }
 
 fn grouped_access_path_proves_group_order<K>(

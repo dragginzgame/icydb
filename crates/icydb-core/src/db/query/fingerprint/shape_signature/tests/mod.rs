@@ -22,9 +22,9 @@ use crate::{
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::OrderDirection,
             plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-                GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderSpec, PageSpec, QueryMode,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
+                GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
+                OrderSpec, PageSpec, QueryMode,
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
             },
         },
@@ -91,6 +91,10 @@ fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
 
 fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
     grouped_query_with_fixed_shape().explain()
+}
+
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
+    GroupHavingExpr::compare_symbol(symbol, op, value)
 }
 
 #[test]
@@ -829,13 +833,11 @@ fn signature_changes_when_grouped_having_changes() {
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
                 },
-                Some(GroupHavingSpec {
-                    clauses: vec![GroupHavingClause {
-                        symbol: GroupHavingSymbol::AggregateIndex(0),
-                        op: CompareOp::Gt,
-                        value: Value::Uint(1),
-                    }],
-                }),
+                Some(having_compare(
+                    GroupHavingSymbol::AggregateIndex(0),
+                    CompareOp::Gt,
+                    Value::Uint(1),
+                )),
             );
     let grouped_having_gte: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
@@ -849,13 +851,11 @@ fn signature_changes_when_grouped_having_changes() {
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
                 },
-                Some(GroupHavingSpec {
-                    clauses: vec![GroupHavingClause {
-                        symbol: GroupHavingSymbol::AggregateIndex(0),
-                        op: CompareOp::Gte,
-                        value: Value::Uint(1),
-                    }],
-                }),
+                Some(having_compare(
+                    GroupHavingSymbol::AggregateIndex(0),
+                    CompareOp::Gte,
+                    Value::Uint(1),
+                )),
             );
 
     assert_ne!(
@@ -878,13 +878,11 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
                 },
-                Some(GroupHavingSpec {
-                    clauses: vec![GroupHavingClause {
-                        symbol: GroupHavingSymbol::AggregateIndex(0),
-                        op: CompareOp::Gt,
-                        value: Value::Uint(1),
-                    }],
-                }),
+                Some(having_compare(
+                    GroupHavingSymbol::AggregateIndex(0),
+                    CompareOp::Gt,
+                    Value::Uint(1),
+                )),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
     let expected = "2c6c8ee4abfc7651a78e700e2839a7b8c37677445274f54480ecf28635483d23".to_string();

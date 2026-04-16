@@ -60,10 +60,9 @@ pub(crate) fn validate_group_policy_for_tests(
     schema: &crate::db::schema::SchemaInfo,
     logical: &crate::db::query::plan::ScalarPlan,
     group: &crate::db::query::plan::GroupSpec,
-    having: Option<&crate::db::query::plan::GroupHavingSpec>,
     having_expr: Option<&crate::db::query::plan::GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    grouped::validate_group_policy(schema, logical, group, having, having_expr)
+    grouped::validate_group_policy(schema, logical, group, having_expr)
 }
 
 #[cfg(test)]
@@ -72,10 +71,9 @@ pub(crate) fn validate_group_structure_for_tests(
     model: &crate::model::entity::EntityModel,
     group: &crate::db::query::plan::GroupSpec,
     projection: &crate::db::query::plan::expr::ProjectionSpec,
-    having: Option<&crate::db::query::plan::GroupHavingSpec>,
     having_expr: Option<&crate::db::query::plan::GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    grouped::validate_group_structure(schema, model, group, projection, having, having_expr)
+    grouped::validate_group_structure(schema, model, group, projection, having_expr)
 }
 
 #[cfg(test)]

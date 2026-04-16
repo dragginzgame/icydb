@@ -7,7 +7,7 @@ use crate::db::{
     access::{AccessPlan, AccessStrategy},
     predicate::{IndexCompileTarget, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupHavingExpr, GroupHavingSpec, GroupPlan, GroupSpec,
+        AccessChoiceExplainSnapshot, GroupHavingExpr, GroupPlan, GroupSpec,
         GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
         PlannerRouteProfile,
         access_choice::project_access_choice_explain_snapshot_with_indexes,
@@ -272,26 +272,25 @@ impl AccessPlannedQuery {
     /// Convert this plan into grouped logical form with one explicit group spec.
     #[must_use]
     pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
-        self.into_grouped_with_having_expr(group, None, None)
+        self.into_grouped_with_having_expr(group, None)
     }
 
-    /// Convert this plan into grouped logical form with explicit HAVING shape.
+    /// Convert this plan into grouped logical form with explicit grouped HAVING expression.
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn into_grouped_with_having(
         self,
         group: GroupSpec,
-        having: Option<GroupHavingSpec>,
+        having_expr: Option<GroupHavingExpr>,
     ) -> Self {
-        self.into_grouped_with_having_expr(group, having, None)
+        self.into_grouped_with_having_expr(group, having_expr)
     }
 
-    /// Convert this plan into grouped logical form with explicit widened HAVING shape.
+    /// Convert this plan into grouped logical form with explicit grouped HAVING expression.
     #[must_use]
     pub(in crate::db) fn into_grouped_with_having_expr(
         self,
         group: GroupSpec,
-        having: Option<GroupHavingSpec>,
         having_expr: Option<GroupHavingExpr>,
     ) -> Self {
         let Self {
@@ -311,7 +310,6 @@ impl AccessPlannedQuery {
             LogicalPlan::Grouped(GroupPlan {
                 scalar,
                 group,
-                having,
                 having_expr,
             }),
             access,

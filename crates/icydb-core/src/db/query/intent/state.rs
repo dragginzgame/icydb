@@ -8,9 +8,9 @@ use crate::db::{
     query::{
         intent::{KeyAccessState, build_access_plan_from_keys},
         plan::{
-            AccessPlanningInputs, DeleteSpec, GroupHavingExpr, GroupHavingSpec, GroupSpec,
-            GroupedExecutionConfig, LoadSpec, LogicalPlanningInputs, OrderSpec, QueryMode,
-            expr::ProjectionSelection, has_explicit_order,
+            AccessPlanningInputs, DeleteSpec, GroupHavingExpr, GroupSpec, GroupedExecutionConfig,
+            LoadSpec, LogicalPlanningInputs, OrderSpec, QueryMode, expr::ProjectionSelection,
+            has_explicit_order,
         },
     },
 };
@@ -57,7 +57,6 @@ impl<K> ScalarIntent<K> {
 pub(in crate::db::query::intent) struct GroupedIntent<K> {
     pub(in crate::db::query::intent) scalar: ScalarIntent<K>,
     pub(in crate::db::query::intent) group: GroupSpec,
-    pub(in crate::db::query::intent) having: Option<GroupHavingSpec>,
     pub(in crate::db::query::intent) having_expr: Option<GroupHavingExpr>,
 }
 
@@ -71,7 +70,6 @@ impl<K> GroupedIntent<K> {
                 aggregates: Vec::new(),
                 execution: GroupedExecutionConfig::unbounded(),
             },
-            having: None,
             having_expr: None,
         }
     }
@@ -318,13 +316,9 @@ impl<K> QueryIntent<K> {
     /// Project logical-planning inputs from intent-owned query state.
     #[must_use]
     pub(in crate::db::query::intent) fn planning_logical_inputs(&self) -> LogicalPlanningInputs {
-        let (group, having, having_expr) = match self.grouped() {
-            Some(grouped) => (
-                Some(grouped.group.clone()),
-                grouped.having.clone(),
-                grouped.having_expr.clone(),
-            ),
-            None => (None, None, None),
+        let (group, having_expr) = match self.grouped() {
+            Some(grouped) => (Some(grouped.group.clone()), grouped.having_expr.clone()),
+            None => (None, None),
         };
 
         LogicalPlanningInputs::new(
@@ -332,7 +326,6 @@ impl<K> QueryIntent<K> {
             self.scalar().order.clone(),
             self.scalar().distinct,
             group,
-            having,
             having_expr,
         )
     }

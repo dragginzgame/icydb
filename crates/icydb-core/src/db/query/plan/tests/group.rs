@@ -10,7 +10,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec, FieldSlot,
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
-            GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
+            GroupHavingExpr, GroupHavingSymbol, GroupPlanError, GroupSpec,
             GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
             GroupedFoldPath, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             PlanPolicyError, PlanUserError, QueryMode,
@@ -109,7 +109,7 @@ fn grouped_plan_with_having(
     base: AccessPlannedQuery,
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
-    having: Option<GroupHavingSpec>,
+    having_expr: Option<GroupHavingExpr>,
 ) -> AccessPlannedQuery {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     base.into_grouped_with_having(
@@ -125,8 +125,12 @@ fn grouped_plan_with_having(
             aggregates,
             execution: GroupedExecutionConfig::unbounded(),
         },
-        having,
+        having_expr,
     )
+}
+
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
+    GroupHavingExpr::compare_symbol(symbol, op, value)
 }
 
 fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec {
@@ -361,13 +365,11 @@ fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
             target_field: Some("rank".to_string()),
             distinct: true,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     )
 }
 
@@ -545,13 +547,11 @@ fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
             target_field: None,
             distinct: false,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(0),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(0),
+        )),
     )
 }
 
@@ -884,6 +884,35 @@ fn grouped_plan_accepts_additive_group_key_order_when_limited() {
 }
 
 #[test]
+fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("rank - 2".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+            Some(1),
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+
+    validate_group_query_semantics(schema, model, &grouped).expect(
+        "grouped subtractive ORDER BY over the grouped key should be accepted when LIMIT is explicit",
+    );
+}
+
+#[test]
 fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);
@@ -902,13 +931,11 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
                 target_field: None,
                 distinct: false,
             }],
-            Some(GroupHavingSpec {
-                clauses: vec![GroupHavingClause {
-                    symbol: GroupHavingSymbol::AggregateIndex(0),
-                    op: CompareOp::Gt,
-                    value: Value::Uint(0),
-                }],
-            }),
+            Some(having_compare(
+                GroupHavingSymbol::AggregateIndex(0),
+                CompareOp::Gt,
+                Value::Uint(0),
+            )),
         )
     };
 
@@ -1105,13 +1132,11 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
         target_field: Some("rank".to_string()),
         distinct: true,
     }];
-    let having = GroupHavingSpec {
-        clauses: vec![GroupHavingClause {
-            symbol: GroupHavingSymbol::AggregateIndex(0),
-            op: CompareOp::Gt,
-            value: Value::Uint(1),
-        }],
-    };
+    let having = having_compare(
+        GroupHavingSymbol::AggregateIndex(0),
+        CompareOp::Gt,
+        Value::Uint(1),
+    );
 
     assert!(
         is_global_distinct_field_aggregate_candidate(&[], aggregates.as_slice()),
@@ -1143,16 +1168,14 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
             target_field: None,
             distinct: false,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::GroupField(
-                    FieldSlot::resolve(model, "tag")
-                        .expect("having group field slot should resolve for test"),
-                ),
-                op: CompareOp::Eq,
-                value: Value::Text("alpha".to_string()),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::GroupField(
+                FieldSlot::resolve(model, "tag")
+                    .expect("having group field slot should resolve for test"),
+            ),
+            CompareOp::Eq,
+            Value::Text("alpha".to_string()),
+        )),
     );
 
     let err = validate_group_query_semantics(schema, model, &grouped)
@@ -1175,13 +1198,11 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
             target_field: None,
             distinct: false,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(1),
-                op: CompareOp::Eq,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(1),
+            CompareOp::Eq,
+            Value::Uint(1),
+        )),
     );
 
     let err = validate_group_query_semantics(schema, model, &grouped)
@@ -1205,23 +1226,21 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
             target_field: None,
             distinct: false,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![
-                GroupHavingClause {
-                    symbol: GroupHavingSymbol::GroupField(
-                        FieldSlot::resolve(model, "rank")
-                            .expect("group field slot should resolve for test"),
-                    ),
-                    op: CompareOp::Gte,
-                    value: Value::Int(1),
-                },
-                GroupHavingClause {
-                    symbol: GroupHavingSymbol::AggregateIndex(0),
-                    op: CompareOp::Gt,
-                    value: Value::Uint(0),
-                },
-            ],
-        }),
+        Some(
+            having_compare(
+                GroupHavingSymbol::GroupField(
+                    FieldSlot::resolve(model, "rank")
+                        .expect("group field slot should resolve for test"),
+                ),
+                CompareOp::Gte,
+                Value::Int(1),
+            )
+            .and(having_compare(
+                GroupHavingSymbol::AggregateIndex(0),
+                CompareOp::Gt,
+                Value::Uint(0),
+            )),
+        ),
     );
 
     validate_group_query_semantics(schema, model, &grouped)
@@ -1386,28 +1405,24 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             target_field: None,
             distinct: false,
         }],
-        Some(GroupHavingSpec {
-            clauses: vec![GroupHavingClause {
-                symbol: GroupHavingSymbol::AggregateIndex(0),
-                op: CompareOp::Gt,
-                value: Value::Uint(1),
-            }],
-        }),
+        Some(having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
     );
 
     let finalized = finalized_grouped_plan(&grouped);
     let handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
-    let having = handoff
-        .having()
-        .expect("grouped handoff should preserve having clause payload");
-    assert_eq!(having.clauses().len(), 1);
-    assert!(matches!(
-        having.clauses()[0].symbol(),
-        GroupHavingSymbol::AggregateIndex(0)
-    ));
-    assert_eq!(having.clauses()[0].op(), CompareOp::Gt);
-    assert_eq!(having.clauses()[0].value(), &Value::Uint(1));
+    assert_eq!(
+        handoff.having_expr(),
+        Some(&having_compare(
+            GroupHavingSymbol::AggregateIndex(0),
+            CompareOp::Gt,
+            Value::Uint(1),
+        )),
+    );
 }
 
 type GroupedExecutorHandoffSnapshotVector = (

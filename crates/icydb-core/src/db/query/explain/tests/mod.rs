@@ -17,9 +17,9 @@ use crate::db::access::{
 };
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::plan::{
-    AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause,
-    GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
-    OrderDirection, OrderSpec, QueryMode,
+    AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
+    GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection,
+    OrderSpec, QueryMode,
 };
 use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;
@@ -46,4 +46,8 @@ ident = ExplainPushdownEntity,
         ("rank", FieldKind::Int),
     ],
     indexes = [&PUSHDOWN_INDEX],
+}
+
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
+    GroupHavingExpr::compare_symbol(symbol, op, value)
 }

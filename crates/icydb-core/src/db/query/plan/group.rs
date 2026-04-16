@@ -9,7 +9,7 @@ use crate::{
         plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingExpr,
-            GroupHavingSpec, GroupedExecutionConfig, GroupedPlanStrategy,
+            GroupedExecutionConfig, GroupedPlanStrategy,
             expr::{Expr, ProjectionSpec, expr_references_only_fields, projection_field_expr},
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
@@ -363,7 +363,6 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     grouped_plan_strategy: GroupedPlanStrategy,
     grouped_fold_path: GroupedFoldPath,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
-    having: Option<&'a GroupHavingSpec>,
     having_expr: Option<&'a GroupHavingExpr>,
     execution: GroupedExecutionConfig,
 }
@@ -439,13 +438,7 @@ impl<'a> GroupedExecutorHandoff<'a> {
             .violation_for_executor()
     }
 
-    /// Borrow grouped HAVING clause specification when present.
-    #[must_use]
-    pub(in crate::db) const fn having(&self) -> Option<&'a GroupHavingSpec> {
-        self.having
-    }
-
-    /// Borrow widened grouped HAVING expression when present.
+    /// Borrow grouped HAVING expression when present.
     #[must_use]
     pub(in crate::db) const fn having_expr(&self) -> Option<&'a GroupHavingExpr> {
         self.having_expr
@@ -499,10 +492,8 @@ pub(in crate::db) fn grouped_executor_handoff(
         .to_vec();
     let grouped_fold_path = GroupedFoldPath::from_plan_strategy(grouped_plan_strategy);
     let grouped_distinct_policy_contract = GroupedDistinctPolicyContract::new(
-        match grouped_distinct_admissibility(
-            grouped.scalar.distinct,
-            grouped.having.is_some() || grouped.having_expr.is_some(),
-        ) {
+        match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having_expr.is_some())
+        {
             GroupDistinctAdmissibility::Allowed => None,
             GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
         },
@@ -526,7 +517,6 @@ pub(in crate::db) fn grouped_executor_handoff(
         grouped_plan_strategy,
         grouped_fold_path,
         grouped_distinct_policy_contract,
-        having: grouped.having.as_ref(),
         having_expr: grouped.having_expr.as_ref(),
         execution: grouped.group.execution,
     })
@@ -680,9 +670,9 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
     model: &EntityModel,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
-    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
-    match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
+    match resolve_global_distinct_field_aggregate(group_fields, aggregates, having_expr) {
         Ok(Some(aggregate)) => {
             let target_field = aggregate.target_field().to_string();
             let target_slot =

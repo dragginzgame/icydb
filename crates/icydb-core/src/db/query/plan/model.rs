@@ -585,20 +585,6 @@ pub(crate) enum GroupHavingExpr {
 }
 
 ///
-/// GroupHavingSpec
-///
-/// Declarative grouped HAVING specification evaluated after grouped
-/// aggregate finalization and before grouped pagination emission.
-/// Clauses remain the stored planner contract for now while `0.86` introduces
-/// the new grouped HAVING expression model alongside them.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupHavingSpec {
-    pub(crate) clauses: Vec<GroupHavingClause>,
-}
-
-///
 /// ScalarPlan
 ///
 /// Pure scalar logical query intent produced by the planner.
@@ -653,7 +639,6 @@ pub(crate) struct ScalarPlan {
 pub(crate) struct GroupPlan {
     pub(crate) scalar: ScalarPlan,
     pub(crate) group: GroupSpec,
-    pub(crate) having: Option<GroupHavingSpec>,
     pub(crate) having_expr: Option<GroupHavingExpr>,
 }
 

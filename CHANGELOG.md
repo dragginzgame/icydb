@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.87.x] 🎚️ - 2026-04-17 - Grouped ORDER BY Proof Cleanup
+
+- `0.87.0` formalizes grouped `ORDER BY` admission so canonical grouped-key order plus the safe `group_key + constant` and `group_key - constant` forms are admitted deliberately, while unsupported grouped order expressions now fail with specific planner and explain diagnostics instead of one generic grouped-order fallback.
+
+See detailed breakdown:
+[docs/changelog/0.87.md](docs/changelog/0.87.md)
+
+---
+
 ## [0.86.x] 🧪 - 2026-04-16 - Grouped HAVING Expression Widening
 
 - `0.86.1` follows the grouped `HAVING` widening through the remaining observability and validation seams, so `EXPLAIN` now shows grouped `HAVING` as the real expression tree instead of the old clause-only shape, grouped continuation signatures now distinguish widened `HAVING` expression structure correctly, and the grouped-focused `icydb-core` sweep is green again after the snapshot and clippy fallout closeout.

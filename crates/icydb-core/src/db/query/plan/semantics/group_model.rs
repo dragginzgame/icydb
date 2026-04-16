@@ -3,13 +3,14 @@
 //! Does not own: grouped runtime fold execution or cursor token handling.
 //! Boundary: derives planner-owned grouped semantic projections from query/model inputs.
 
+use std::borrow::Cow;
+
 use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
             AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
-            GroupHavingSpec, GroupHavingSymbol, GroupHavingValueExpr, GroupSpec,
-            GroupedExecutionConfig,
+            GroupHavingSymbol, GroupHavingValueExpr, GroupPlan, GroupSpec, GroupedExecutionConfig,
         },
     },
     error::InternalError,
@@ -80,18 +81,18 @@ impl GroupSpec {
     }
 }
 
-impl GroupHavingSpec {
-    /// Borrow grouped HAVING legacy compare clauses in declaration order.
+impl GroupPlan {
+    /// Borrow the effective grouped HAVING expression for this grouped plan.
     #[must_use]
-    pub(crate) const fn clauses(&self) -> &[GroupHavingClause] {
-        self.clauses.as_slice()
+    pub(in crate::db) fn effective_having_expr(&self) -> Option<Cow<'_, GroupHavingExpr>> {
+        self.having_expr.as_ref().map(Cow::Borrowed)
     }
 }
 
 impl GroupHavingExpr {
     /// Lower one legacy compare clause into the `0.86` grouped HAVING expression model.
     #[must_use]
-    pub(in crate::db) fn from_legacy_clause(clause: &GroupHavingClause) -> Self {
+    pub(in crate::db) fn from_clause(clause: &GroupHavingClause) -> Self {
         Self::Compare {
             left: GroupHavingValueExpr::from_legacy_symbol(clause.symbol()),
             op: clause.op(),
@@ -99,21 +100,30 @@ impl GroupHavingExpr {
         }
     }
 
-    /// Lower one legacy grouped HAVING spec into the `0.86` expression model.
+    /// Append one additional grouped HAVING expression onto this tree.
     #[must_use]
-    pub(in crate::db) fn from_legacy_spec(having: &GroupHavingSpec) -> Self {
-        let mut clauses = having
-            .clauses()
-            .iter()
-            .map(Self::from_legacy_clause)
-            .collect::<Vec<_>>();
+    pub(in crate::db) fn and(self, expr: Self) -> Self {
+        match self {
+            Self::And(mut children) => {
+                children.push(expr);
+                Self::And(children)
+            }
+            existing => Self::And(vec![existing, expr]),
+        }
+    }
 
-        match clauses.len() {
-            0 => Self::And(Vec::new()),
-            1 => clauses
-                .pop()
-                .expect("single grouped HAVING clause should exist"),
-            _ => Self::And(clauses),
+    /// Construct one grouped HAVING compare expression from one grouped symbol.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn compare_symbol(
+        symbol: GroupHavingSymbol,
+        op: crate::db::predicate::CompareOp,
+        value: Value,
+    ) -> Self {
+        Self::Compare {
+            left: GroupHavingValueExpr::from_legacy_symbol(&symbol),
+            op,
+            right: GroupHavingValueExpr::Literal(value),
         }
     }
 }

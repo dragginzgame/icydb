@@ -10,9 +10,9 @@ use crate::{
         predicate::{PredicateExecutionModel, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
-            ExecutionShapeSignature, GroupHavingExpr, GroupHavingSymbol, GroupHavingValueExpr,
-            GroupPlan, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
-            LogicalPlan, PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
+            ExecutionShapeSignature, GroupHavingExpr, GroupHavingValueExpr, GroupPlan,
+            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
+            PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
@@ -504,7 +504,7 @@ fn resolve_grouped_static_planning_semantics(
             model,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
-            grouped.having.as_ref(),
+            grouped.having_expr.as_ref(),
         )?);
 
     Ok((
@@ -517,17 +517,6 @@ fn extend_grouped_having_aggregate_projection_specs(
     aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
     grouped: &GroupPlan,
 ) -> Result<(), InternalError> {
-    if let Some(having) = grouped.having.as_ref() {
-        for clause in &having.clauses {
-            if let GroupHavingSymbol::AggregateIndex(aggregate_index) = clause.symbol {
-                push_grouped_having_aggregate_projection_spec(
-                    aggregate_projection_specs,
-                    grouped,
-                    aggregate_index,
-                )?;
-            }
-        }
-    }
     if let Some(having_expr) = grouped.having_expr.as_ref() {
         collect_grouped_having_expr_aggregate_projection_specs(
             aggregate_projection_specs,

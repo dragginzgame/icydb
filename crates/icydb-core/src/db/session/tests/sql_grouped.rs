@@ -1727,7 +1727,7 @@ fn grouped_select_rejects_non_preserving_computed_order() {
                         crate::db::query::plan::validate::PlanPolicyError::Group(group)
                             if matches!(
                                 group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term } if term == "age + age"
                             )
                     )
             )

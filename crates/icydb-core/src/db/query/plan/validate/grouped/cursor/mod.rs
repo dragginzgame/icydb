@@ -5,7 +5,7 @@
 
 use crate::db::query::plan::{
     FieldSlot, GroupSpec, OrderSpec, ScalarPlan,
-    expr::order_term_preserves_group_field_order,
+    expr::{GroupedOrderTermAdmissibility, classify_grouped_order_term_for_field},
     validate::{GroupPlanError, PlanError},
 };
 
@@ -25,18 +25,37 @@ pub(in crate::db::query::plan::validate) fn validate_group_cursor_constraints(
         .and_then(|page| page.limit)
         .map(|_| ())
         .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
-    order_prefix_aligned_with_group_fields(order, group.group_fields.as_slice())
-        .then_some(())
-        .ok_or_else(|| PlanError::from(GroupPlanError::order_prefix_not_aligned_with_group_keys()))
+    validate_order_prefix_alignment(order, group.group_fields.as_slice())
 }
 
-// Return true when ORDER BY starts with GROUP BY key fields in declaration order.
-fn order_prefix_aligned_with_group_fields(order: &OrderSpec, group_fields: &[FieldSlot]) -> bool {
-    (order.fields.len() >= group_fields.len())
-        && group_fields
-            .iter()
-            .zip(order.fields.iter())
-            .all(|(group_field, (order_field, _))| {
-                order_term_preserves_group_field_order(order_field, group_field.field())
-            })
+// Validate that ORDER BY starts with GROUP BY key fields in declaration order,
+// distinguishing true prefix mismatch from unsupported-but-evaluable grouped
+// order expressions.
+fn validate_order_prefix_alignment(
+    order: &OrderSpec,
+    group_fields: &[FieldSlot],
+) -> Result<(), PlanError> {
+    if order.fields.len() < group_fields.len() {
+        return Err(PlanError::from(
+            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+        ));
+    }
+
+    for (group_field, (order_field, _)) in group_fields.iter().zip(order.fields.iter()) {
+        match classify_grouped_order_term_for_field(order_field, group_field.field()) {
+            GroupedOrderTermAdmissibility::Preserves(_) => {}
+            GroupedOrderTermAdmissibility::PrefixMismatch => {
+                return Err(PlanError::from(
+                    GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+                ));
+            }
+            GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                return Err(PlanError::from(
+                    GroupPlanError::order_expression_not_admissible(order_field.clone()),
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }

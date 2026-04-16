@@ -295,6 +295,10 @@ pub enum GroupPlanError {
     #[error("grouped ORDER BY must start with GROUP BY key prefix")]
     OrderPrefixNotAlignedWithGroupKeys,
 
+    /// GROUP BY ORDER BY expression parses but is not order-admissible in grouped v1.
+    #[error("grouped ORDER BY expression is not order-admissible in this release: '{term}'")]
+    OrderExpressionNotAdmissible { term: String },
+
     /// GROUP BY ORDER BY requires an explicit LIMIT in grouped v1.
     #[error("grouped ORDER BY requires LIMIT")]
     OrderRequiresLimit,
@@ -405,6 +409,11 @@ impl GroupPlanError {
     /// Construct one grouped ORDER BY prefix-alignment validation error.
     pub(crate) const fn order_prefix_not_aligned_with_group_keys() -> Self {
         Self::OrderPrefixNotAlignedWithGroupKeys
+    }
+
+    /// Construct one grouped ORDER BY expression admission validation error.
+    pub(crate) fn order_expression_not_admissible(term: impl Into<String>) -> Self {
+        Self::OrderExpressionNotAdmissible { term: term.into() }
     }
 
     /// Construct one grouped field-to-field predicate unsupported policy error.
@@ -856,6 +865,7 @@ impl GroupPlanError {
             Self::GlobalDistinctAggregateShapeUnsupported
                 | Self::DistinctAdjacencyEligibilityRequired
                 | Self::OrderPrefixNotAlignedWithGroupKeys
+                | Self::OrderExpressionNotAdmissible { .. }
                 | Self::OrderRequiresLimit
                 | Self::PredicateFieldCompareUnsupported
                 | Self::DistinctHavingUnsupported

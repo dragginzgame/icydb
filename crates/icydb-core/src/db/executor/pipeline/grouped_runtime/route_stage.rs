@@ -41,7 +41,6 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     let projection_layout = grouped_handoff.projection_layout().clone();
     let projection_is_identity = grouped_handoff.projection_is_identity();
     let grouped_distinct_execution_strategy = grouped_handoff.distinct_execution_strategy().clone();
-    let grouped_having = grouped_handoff.having().cloned();
     let grouped_having_expr = grouped_handoff.having_expr().cloned();
     let grouped_route_plan =
         build_execution_route_plan_for_grouped_plan(grouped_handoff.base(), grouped_plan_strategy);
@@ -89,7 +88,6 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             grouped_aggregate_execution_specs,
             projection_layout,
             projection_is_identity,
-            grouped_having,
             grouped_having_expr,
             grouped_distinct_execution_strategy,
         },

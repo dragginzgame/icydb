@@ -182,6 +182,45 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
     }
 }
 
+///
+/// GroupedOrderExprClass
+///
+/// Planner-local grouped `ORDER BY` proof result for one expression against
+/// one expected grouped key field. This keeps grouped order admission explicit:
+/// the grouped validator and grouped strategy logic consume one shared proof
+/// contract instead of open-coding additive-order special cases separately.
+///
+///
+/// GroupedOrderExprClass
+///
+/// Classifies the small grouped `ORDER BY` expression family that the planner
+/// can prove preserves canonical grouped-key order in the current grouped
+/// execution model. This stays intentionally narrower than the broader scalar
+/// computed-order surface because grouped pagination still resumes on grouped
+/// keys rather than on arbitrary computed order values.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedOrderExprClass {
+    CanonicalGroupField,
+    GroupFieldPlusConstant,
+    GroupFieldMinusConstant,
+}
+
+///
+/// GroupedOrderTermAdmissibility
+///
+/// One planner-local admission result for a grouped `ORDER BY` term against
+/// one expected grouped key. The grouped cursor validator uses this to keep
+/// plain prefix mismatch separate from expressions that parse and evaluate but
+/// still are not order-admissible under the grouped boundedness contract.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedOrderTermAdmissibility {
+    Preserves(GroupedOrderExprClass),
+    PrefixMismatch,
+    UnsupportedExpression,
+}
+
 /// Return true when one canonical `ORDER BY` term preserves the same
 /// lexicographic order as one grouped key field.
 ///
@@ -190,37 +229,83 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
 /// keys, so grouped `ORDER BY` can only admit expressions that are proven to
 /// preserve the underlying grouped-key order contract rather than merely
 /// reference grouped fields.
+#[cfg(test)]
 #[must_use]
 pub(crate) fn order_term_preserves_group_field_order(
     term: &str,
     expected_group_field: &str,
 ) -> bool {
-    parse_supported_order_expr(term)
-        .is_some_and(|expr| order_expr_preserves_group_field_order(&expr, expected_group_field))
+    matches!(
+        classify_grouped_order_term_for_field(term, expected_group_field),
+        GroupedOrderTermAdmissibility::Preserves(_)
+    )
+}
+
+// Classify one grouped ORDER BY term against one expected grouped key field
+// so grouped validation can distinguish prefix mismatch from unsupported-but-
+// evaluable grouped order expressions.
+#[must_use]
+pub(crate) fn classify_grouped_order_term_for_field(
+    term: &str,
+    expected_group_field: &str,
+) -> GroupedOrderTermAdmissibility {
+    parse_supported_order_expr(term).map_or(
+        GroupedOrderTermAdmissibility::UnsupportedExpression,
+        |expr| classify_grouped_order_expr_for_field(&expr, expected_group_field),
+    )
 }
 
 // Keep grouped-order proof intentionally syntactic and fail closed. The
 // current grouped runtime orders and resumes on canonical group keys, so only
-// one exact grouped field or one additive constant offset over that field may
-// reuse the same ordered-group contract.
-fn order_expr_preserves_group_field_order(expr: &Expr, expected_group_field: &str) -> bool {
+// one exact grouped field or one additive/subtractive constant offset over
+// that field may reuse the same ordered-group contract.
+fn classify_grouped_order_expr_for_field(
+    expr: &Expr,
+    expected_group_field: &str,
+) -> GroupedOrderTermAdmissibility {
     match expr {
-        Expr::Field(field) => field.as_str() == expected_group_field,
-        Expr::Binary { op, left, right }
-            if matches!(op, BinaryOp::Add | BinaryOp::Sub)
-                && matches!(
-                    left.as_ref(),
-                    Expr::Field(field) if field.as_str() == expected_group_field
-                )
-                && is_numeric_order_offset_literal(right.as_ref()) =>
+        Expr::Field(field) if field.as_str() == expected_group_field => {
+            GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::CanonicalGroupField)
+        }
+        Expr::Field(_) => GroupedOrderTermAdmissibility::PrefixMismatch,
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        } if matches!(
+            left.as_ref(),
+            Expr::Field(field) if field.as_str() == expected_group_field
+        ) && is_numeric_order_offset_literal(right.as_ref()) =>
         {
-            true
+            GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldPlusConstant)
+        }
+        Expr::Binary {
+            op: BinaryOp::Sub,
+            left,
+            right,
+        } if matches!(
+            left.as_ref(),
+            Expr::Field(field) if field.as_str() == expected_group_field
+        ) && is_numeric_order_offset_literal(right.as_ref()) =>
+        {
+            GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldMinusConstant)
+        }
+        Expr::Binary {
+            op: BinaryOp::Add | BinaryOp::Sub,
+            left,
+            right,
+        } if matches!(left.as_ref(), Expr::Field(_))
+            && is_numeric_order_offset_literal(right.as_ref()) =>
+        {
+            GroupedOrderTermAdmissibility::PrefixMismatch
         }
         Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
-            false
+            GroupedOrderTermAdmissibility::UnsupportedExpression
         }
         #[cfg(test)]
-        Expr::Alias { .. } | Expr::Unary { .. } => false,
+        Expr::Alias { .. } | Expr::Unary { .. } => {
+            GroupedOrderTermAdmissibility::UnsupportedExpression
+        }
     }
 }
 
@@ -242,4 +327,99 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
                 | Value::Float64(_)
         )
     )
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GroupedOrderExprClass, GroupedOrderTermAdmissibility,
+        classify_grouped_order_term_for_field, order_term_preserves_group_field_order,
+    };
+    use crate::db::query::plan::expr::ast::{Expr, parse_supported_order_expr};
+
+    fn parse(expr: &str) -> Expr {
+        parse_supported_order_expr(expr)
+            .expect("supported grouped ORDER BY test expression should parse")
+    }
+
+    #[test]
+    fn grouped_order_classifier_accepts_canonical_group_field() {
+        let _expr = parse("score");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("score", "score"),
+            GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::CanonicalGroupField),
+        );
+        assert!(order_term_preserves_group_field_order("score", "score"));
+    }
+
+    #[test]
+    fn grouped_order_classifier_accepts_group_field_plus_constant() {
+        let _expr = parse("score + 1");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("score + 1", "score"),
+            GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldPlusConstant),
+        );
+        assert!(order_term_preserves_group_field_order("score + 1", "score"));
+    }
+
+    #[test]
+    fn grouped_order_classifier_accepts_group_field_minus_constant() {
+        let _expr = parse("score - 2");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("score - 2", "score"),
+            GroupedOrderTermAdmissibility::Preserves(
+                GroupedOrderExprClass::GroupFieldMinusConstant
+            ),
+        );
+        assert!(order_term_preserves_group_field_order("score - 2", "score"));
+    }
+
+    #[test]
+    fn grouped_order_classifier_rejects_non_preserving_computed_order() {
+        let _expr = parse("score + score");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("score + score", "score"),
+            GroupedOrderTermAdmissibility::UnsupportedExpression,
+        );
+        assert!(!order_term_preserves_group_field_order(
+            "score + score",
+            "score"
+        ));
+    }
+
+    #[test]
+    fn grouped_order_classifier_reports_prefix_mismatch_for_other_field() {
+        let _expr = parse("other_score + 1");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("other_score + 1", "score"),
+            GroupedOrderTermAdmissibility::PrefixMismatch,
+        );
+        assert!(!order_term_preserves_group_field_order(
+            "other_score + 1",
+            "score"
+        ));
+    }
+
+    #[test]
+    fn grouped_order_classifier_rejects_wrapper_function_without_proof() {
+        let _expr = parse("ROUND(score, 2)");
+
+        assert_eq!(
+            classify_grouped_order_term_for_field("ROUND(score, 2)", "score"),
+            GroupedOrderTermAdmissibility::UnsupportedExpression,
+        );
+        assert!(!order_term_preserves_group_field_order(
+            "ROUND(score, 2)",
+            "score"
+        ));
+    }
 }

@@ -16,8 +16,7 @@ use crate::{
             builder::aggregate::AggregateExpr,
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
-                GroupHavingExpr, GroupHavingSpec, GroupHavingSymbol, GroupHavingValueExpr,
-                OrderDirection, OrderSpec, QueryMode,
+                GroupHavingExpr, GroupHavingValueExpr, OrderDirection, OrderSpec, QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
         },
@@ -211,16 +210,15 @@ struct AggregateExprCacheKey {
 /// GroupingCacheKey
 ///
 /// Canonical identity for the grouped-query portion of a structural cache key.
-/// This captures grouping fields, aggregate slots, legacy `HAVING` clauses,
-/// widened grouped `HAVING` expressions, and the configured grouping limits so
-/// grouped plans only reuse compatible shapes.
+/// This captures grouping fields, aggregate slots, grouped `HAVING`
+/// expressions, and the configured grouping limits so grouped plans only reuse
+/// compatible shapes.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupingCacheKey {
     group_fields: Vec<GroupFieldCacheKey>,
     aggregates: Vec<GroupAggregateCacheKey>,
-    having: Option<GroupHavingCacheKey>,
     having_expr: Option<GroupHavingExprCacheKey>,
     max_groups: u64,
     max_group_bytes: u64,
@@ -255,34 +253,6 @@ struct GroupAggregateCacheKey {
     distinct: bool,
 }
 
-///
-/// GroupHavingCacheKey
-///
-/// Canonical `HAVING` clause collection for grouped-query cache identity.
-/// This exists so grouped plan reuse remains sensitive to post-aggregation
-/// filtering while keeping that concern isolated from the main grouping shape.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct GroupHavingCacheKey {
-    clauses: Vec<GroupHavingClauseCacheKey>,
-}
-
-///
-/// GroupHavingClauseCacheKey
-///
-/// Canonical identity for one normalized `HAVING` predicate clause.
-/// It ties together the referenced grouped symbol, comparison operator, and
-/// comparison value so grouped cache hits only occur for equivalent filters.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct GroupHavingClauseCacheKey {
-    symbol: GroupHavingSymbolCacheKey,
-    op: CompareOpCacheKey,
-    value: ValueCacheKey,
-}
-
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum GroupHavingExprCacheKey {
     Compare {
@@ -307,12 +277,6 @@ enum GroupHavingValueExprCacheKey {
         left: Box<Self>,
         right: Box<Self>,
     },
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum GroupHavingSymbolCacheKey {
-    GroupField(GroupFieldCacheKey),
-    AggregateIndex(usize),
 }
 
 ///
@@ -612,10 +576,6 @@ impl GroupingCacheKey {
                 .iter()
                 .map(GroupAggregateCacheKey::from_group_aggregate_spec)
                 .collect(),
-            having: grouped
-                .having
-                .as_ref()
-                .map(GroupHavingCacheKey::from_having_spec),
             having_expr: grouped
                 .having_expr
                 .as_ref()
@@ -641,28 +601,6 @@ impl GroupAggregateCacheKey {
             kind_tag: aggregate_kind_tag(aggregate.kind),
             target_field: aggregate.target_field.clone(),
             distinct: aggregate.distinct,
-        }
-    }
-}
-
-impl GroupHavingCacheKey {
-    fn from_having_spec(having: &GroupHavingSpec) -> Self {
-        Self {
-            clauses: having
-                .clauses
-                .iter()
-                .map(GroupHavingClauseCacheKey::from_having_clause)
-                .collect(),
-        }
-    }
-}
-
-impl GroupHavingClauseCacheKey {
-    fn from_having_clause(clause: &crate::db::query::plan::GroupHavingClause) -> Self {
-        Self {
-            symbol: GroupHavingSymbolCacheKey::from_having_symbol(&clause.symbol),
-            op: CompareOpCacheKey::from_compare_op(clause.op),
-            value: ValueCacheKey::from_value(&clause.value),
         }
     }
 }
@@ -705,17 +643,6 @@ impl GroupHavingValueExprCacheKey {
                 left: Box::new(Self::from_having_value_expr(left.as_ref())),
                 right: Box::new(Self::from_having_value_expr(right.as_ref())),
             },
-        }
-    }
-}
-
-impl GroupHavingSymbolCacheKey {
-    fn from_having_symbol(symbol: &GroupHavingSymbol) -> Self {
-        match symbol {
-            GroupHavingSymbol::GroupField(field) => {
-                Self::GroupField(GroupFieldCacheKey::from_field_slot(field))
-            }
-            GroupHavingSymbol::AggregateIndex(index) => Self::AggregateIndex(*index),
         }
     }
 }
