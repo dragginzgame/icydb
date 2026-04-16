@@ -1182,7 +1182,7 @@ mod tests {
                     ),
                     GroupedRow::new(
                         vec![Value::Uint(14)],
-                        vec![Value::Decimal(Decimal::new(142000, 4))],
+                        vec![Value::Decimal(Decimal::new(142_000, 4))],
                     ),
                 ],
                 row_count: 2,
