@@ -352,6 +352,63 @@ struct ExecutionMaterializationContract<'a> {
     prepared_projection_validation: Option<&'a PreparedSlotProjectionValidation>,
 }
 
+impl<'a> ExecutionMaterializationContract<'a> {
+    // Build the cursorless row-collector materialization request from one
+    // already-aligned scalar materialization contract.
+    fn row_collector_request(
+        self,
+        continuation: &'a ScalarContinuationContext,
+        key_stream: &'a mut dyn OrderedKeyStream,
+    ) -> RowCollectorMaterializationRequest<'a> {
+        RowCollectorMaterializationRequest {
+            plan: self.plan,
+            scan_budget_hint: self.scan_budget_hint,
+            load_order_route_contract: self.load_order_route_contract,
+            continuation,
+            cursor_boundary: continuation.post_access_cursor_boundary(),
+            predicate_slots: self.predicate_slots,
+            validate_projection: self.validate_projection,
+            retain_slot_rows: self.retain_slot_rows,
+            retained_slot_layout: self.retained_slot_layout,
+            prepared_projection_validation: self.prepared_projection_validation,
+            key_stream,
+        }
+    }
+
+    // Build the canonical scalar page materialization request from one
+    // already-aligned scalar materialization contract.
+    fn runtime_page_request(
+        self,
+        emit_cursor: bool,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut dyn OrderedKeyStream,
+    ) -> RuntimePageMaterializationRequest<'a> {
+        RuntimePageMaterializationRequest {
+            plan: self.plan,
+            key_stream,
+            scan_budget_hint: self.scan_budget_hint,
+            load_order_route_contract: self.load_order_route_contract,
+            capabilities: ScalarMaterializationCapabilities {
+                predicate_slots: self.predicate_slots,
+                validate_projection: self.validate_projection,
+                retain_slot_rows: self.retain_slot_rows,
+                retained_slot_layout: self.retained_slot_layout,
+                prepared_projection_validation: self.prepared_projection_validation,
+                cursor_emission: if emit_cursor {
+                    CursorEmissionMode::Emit
+                } else {
+                    CursorEmissionMode::Suppress
+                },
+            },
+            consistency,
+            continuation,
+            direction,
+        }
+    }
+}
+
 ///
 /// ExecutionRuntimeAdapter
 ///
@@ -415,6 +472,18 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
                 "structural entity authority is required for row materialization paths",
             )
         })
+    }
+
+    // Reuse the adapter-owned scalar row runtime for one materialization call
+    // so callers do not each rebuild the same borrowed runtime-handle shell.
+    fn with_scalar_row_runtime_handle<T>(
+        &'a self,
+        run: impl FnOnce(&mut ScalarRowRuntimeHandle<'a>) -> Result<T, InternalError>,
+    ) -> Result<T, InternalError> {
+        let scalar_row_runtime = self.scalar_row_runtime()?;
+        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(scalar_row_runtime);
+
+        run(&mut row_runtime)
     }
 
     /// Resolve one primary-key fast path when the route is already verified.
@@ -511,13 +580,9 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
         &'req self,
         request: RowCollectorMaterializationRequest<'req>,
     ) -> Result<Option<MaterializedExecutionPayloadResult>, InternalError> {
-        // Reuse the adapter-owned structural row-runtime state for the whole
-        // query instead of cloning and boxing the same read-only runtime
-        // descriptor before every materialization call.
-        let scalar_row_runtime = self.scalar_row_runtime()?;
-        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(scalar_row_runtime);
-
-        ExecutionKernel::try_materialize_load_via_row_collector(request, &mut row_runtime)
+        self.with_scalar_row_runtime_handle(|row_runtime| {
+            ExecutionKernel::try_materialize_load_via_row_collector(request, row_runtime)
+        })
     }
 
     /// Materialize one ordered key stream into one structural scalar page payload.
@@ -525,26 +590,24 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
         &self,
         request: RuntimePageMaterializationRequest<'_>,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
-        // Reuse the adapter-owned structural row-runtime state for the whole
-        // query instead of cloning and boxing the same read-only runtime
-        // descriptor before every materialization call.
-        let scalar_row_runtime = self.scalar_row_runtime()?;
-        let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(scalar_row_runtime);
+        let authority = self.authority()?;
 
-        materialize_key_stream_into_execution_payload(
-            KernelPageMaterializationRequest {
-                authority: self.authority()?,
-                plan: request.plan,
-                key_stream: request.key_stream,
-                scan_budget_hint: request.scan_budget_hint,
-                load_order_route_contract: request.load_order_route_contract,
-                capabilities: request.capabilities,
-                consistency: request.consistency,
-                continuation: request.continuation,
-                direction: request.direction,
-            },
-            &mut row_runtime,
-        )
+        self.with_scalar_row_runtime_handle(|row_runtime| {
+            materialize_key_stream_into_execution_payload(
+                KernelPageMaterializationRequest {
+                    authority,
+                    plan: request.plan,
+                    key_stream: request.key_stream,
+                    scan_budget_hint: request.scan_budget_hint,
+                    load_order_route_contract: request.load_order_route_contract,
+                    capabilities: request.capabilities,
+                    consistency: request.consistency,
+                    continuation: request.continuation,
+                    direction: request.direction,
+                },
+                row_runtime,
+            )
+        })
     }
 }
 
@@ -685,21 +748,8 @@ impl<'a> ExecutionInputs<'a> {
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut dyn OrderedKeyStream,
     ) -> RowCollectorMaterializationRequest<'req> {
-        let contract = self.materialization_contract(route_plan);
-
-        RowCollectorMaterializationRequest {
-            plan: contract.plan,
-            scan_budget_hint: contract.scan_budget_hint,
-            load_order_route_contract: contract.load_order_route_contract,
-            continuation,
-            cursor_boundary: continuation.post_access_cursor_boundary(),
-            predicate_slots: contract.predicate_slots,
-            validate_projection: contract.validate_projection,
-            retain_slot_rows: contract.retain_slot_rows,
-            retained_slot_layout: contract.retained_slot_layout,
-            prepared_projection_validation: contract.prepared_projection_validation,
-            key_stream,
-        }
+        self.materialization_contract(route_plan)
+            .row_collector_request(continuation, key_stream)
     }
 
     /// Build the canonical scalar page materialization request from the
@@ -710,29 +760,14 @@ impl<'a> ExecutionInputs<'a> {
         continuation: &'req ScalarContinuationContext,
         key_stream: &'req mut dyn OrderedKeyStream,
     ) -> RuntimePageMaterializationRequest<'req> {
-        let contract = self.materialization_contract(route_plan);
-
-        RuntimePageMaterializationRequest {
-            plan: contract.plan,
-            key_stream,
-            scan_budget_hint: contract.scan_budget_hint,
-            load_order_route_contract: contract.load_order_route_contract,
-            capabilities: ScalarMaterializationCapabilities {
-                predicate_slots: contract.predicate_slots,
-                validate_projection: contract.validate_projection,
-                retain_slot_rows: contract.retain_slot_rows,
-                retained_slot_layout: contract.retained_slot_layout,
-                prepared_projection_validation: contract.prepared_projection_validation,
-                cursor_emission: if self.emit_cursor() {
-                    CursorEmissionMode::Emit
-                } else {
-                    CursorEmissionMode::Suppress
-                },
-            },
-            consistency: self.consistency(),
-            continuation,
-            direction: route_plan.direction(),
-        }
+        self.materialization_contract(route_plan)
+            .runtime_page_request(
+                self.emit_cursor(),
+                self.consistency(),
+                continuation,
+                route_plan.direction(),
+                key_stream,
+            )
     }
 }
 
@@ -770,14 +805,12 @@ fn compile_retained_slot_layout(
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
-    let mut required_slots = vec![false; model.fields().len()];
+    let mut required_slots = RetainedSlotRequirements::new(model.fields().len());
 
     // Phase 1: projection validation and retained-slot materialization both
     // need one stable slot set for later structural slot reads.
     if projection_validation_enabled || retain_slot_rows {
-        for &slot in plan.projection_referenced_slots() {
-            required_slots[slot] = true;
-        }
+        required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
     }
 
     // Phase 2: residual predicate filtering still runs on retained slot rows
@@ -785,7 +818,7 @@ fn compile_retained_slot_layout(
     if plan.has_residual_predicate()
         && let Some(predicate_program) = compiled_predicate
     {
-        predicate_program.mark_referenced_slots(&mut required_slots);
+        predicate_program.mark_referenced_slots(required_slots.flags_mut());
     }
 
     // Phase 3: ordering slots are needed for in-memory ordering and also for
@@ -797,9 +830,7 @@ fn compile_retained_slot_layout(
             !access_order_satisfied_by_route_contract(plan) || cursor_emission.enabled();
 
         if route_needs_order_slots {
-            for &slot in order_slots {
-                required_slots[slot] = true;
-            }
+            required_slots.mark_slots(order_slots.iter().copied());
         }
     }
 
@@ -810,29 +841,10 @@ fn compile_retained_slot_layout(
     if cursor_emission.enabled()
         && let Some((index, _, _, _)) = plan.access.as_index_range_path()
     {
-        match index.key_items() {
-            IndexKeyItemsRef::Fields(fields) => {
-                for field in fields {
-                    if let Some(slot) = resolve_field_slot(model, field) {
-                        required_slots[slot] = true;
-                    }
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                for key_item in items {
-                    if let Some(slot) = resolve_field_slot(model, key_item.field()) {
-                        required_slots[slot] = true;
-                    }
-                }
-            }
-        }
+        required_slots.mark_index_key_item_slots(model, index.key_items());
     }
 
-    let required_slots = required_slots
-        .into_iter()
-        .enumerate()
-        .filter_map(|(slot, required)| required.then_some(slot))
-        .collect::<Vec<_>>();
+    let required_slots = required_slots.into_slots();
 
     if required_slots.is_empty() && !retain_slot_rows {
         return None;
@@ -842,4 +854,72 @@ fn compile_retained_slot_layout(
         model.fields().len(),
         required_slots,
     ))
+}
+
+///
+/// RetainedSlotRequirements
+///
+/// RetainedSlotRequirements collects the canonical retained-slot requirement
+/// set for one scalar execution shape.
+/// It exists so projection, predicate, ordering, and index-anchor slot needs
+/// can all contribute through one owner-local boundary instead of mutating the
+/// raw bitset directly in several separate loops.
+///
+
+struct RetainedSlotRequirements {
+    flags: Vec<bool>,
+}
+
+impl RetainedSlotRequirements {
+    // Build one empty retained-slot requirement set sized to the model field
+    // count for the current execution shape.
+    fn new(field_count: usize) -> Self {
+        Self {
+            flags: vec![false; field_count],
+        }
+    }
+
+    // Borrow the raw bitset when an existing helper already knows how to mark
+    // referenced slots in place.
+    fn flags_mut(&mut self) -> &mut [bool] {
+        self.flags.as_mut_slice()
+    }
+
+    // Mark one iterator of already-resolved field slots as required.
+    fn mark_slots(&mut self, slots: impl IntoIterator<Item = usize>) {
+        for slot in slots {
+            self.flags[slot] = true;
+        }
+    }
+
+    // Mark the slots needed to reconstruct index-range cursor anchors from the
+    // full index key item set instead of only the outward order fields.
+    fn mark_index_key_item_slots(&mut self, model: &EntityModel, key_items: IndexKeyItemsRef) {
+        match key_items {
+            IndexKeyItemsRef::Fields(fields) => {
+                for field in fields {
+                    if let Some(slot) = resolve_field_slot(model, field) {
+                        self.flags[slot] = true;
+                    }
+                }
+            }
+            IndexKeyItemsRef::Items(items) => {
+                for key_item in items {
+                    if let Some(slot) = resolve_field_slot(model, key_item.field()) {
+                        self.flags[slot] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Consume the requirement set into the final sorted retained-slot vector
+    // used by the compiled layout contract.
+    fn into_slots(self) -> Vec<usize> {
+        self.flags
+            .into_iter()
+            .enumerate()
+            .filter_map(|(slot, required)| required.then_some(slot))
+            .collect()
+    }
 }

@@ -1287,7 +1287,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     // Phase 4: select the final payload shape once, then build it in one
     // explicit kernel-row shaping pass.
     let finalize_mode = scalar_materialization_plan.finalize_mode(next_cursor);
-    let payload = finalize_kernel_rows_payload(plan, rows, finalize_mode)?;
+    let payload = finalize_structural_cursor_payload(rows, finalize_mode)?;
 
     Ok((payload, rows_scanned, post_access_rows))
 }
@@ -1363,7 +1363,10 @@ impl<'a> ScalarMaterializationPlan<'a> {
 
     // Resolve the final payload family from the already-frozen plan instead
     // of re-reading retained-slot capability flags in the terminal runtime.
-    const fn finalize_mode(&self, next_cursor: Option<PageCursor>) -> KernelRowFinalizeMode {
+    const fn finalize_mode(
+        &self,
+        next_cursor: Option<PageCursor>,
+    ) -> StructuralCursorPayloadStrategy {
         self.final_payload_strategy.finalize_mode(next_cursor)
     }
 }
@@ -1541,8 +1544,11 @@ impl FinalPayloadStrategy {
 
     // Attach the already-built cursor boundary to the frozen final payload
     // family for this scalar materialization plan.
-    const fn finalize_mode(self, next_cursor: Option<PageCursor>) -> KernelRowFinalizeMode {
-        select_kernel_row_finalize_mode(self.retain_slot_rows, next_cursor)
+    const fn finalize_mode(
+        self,
+        next_cursor: Option<PageCursor>,
+    ) -> StructuralCursorPayloadStrategy {
+        select_structural_cursor_payload_strategy(self.retain_slot_rows, next_cursor)
     }
 }
 
@@ -1935,66 +1941,83 @@ fn build_scalar_page_cursor(
     .map(PageCursor::Scalar))
 }
 
-// Kernel-row payload finalization still has two families:
-// structural data-row output and structural retained-slot-row output.
-// Select that family once before the final row-shaping pass.
-enum KernelRowFinalizeMode {
-    StructuralDataRows {
+// Structural cursor payload finalization still has two families:
+// outward data-row pages and outward retained-slot-row pages.
+// The executor resolves that family once before the final row-shaping pass.
+#[derive(Clone)]
+pub(in crate::db::executor) enum StructuralCursorPayloadStrategy {
+    DataRows {
         next_cursor: Option<PageCursor>,
     },
     #[cfg(feature = "sql")]
-    StructuralSlotRows {
+    SlotRows {
         next_cursor: Option<PageCursor>,
     },
 }
 
-// Select one final payload shape before converting kernel rows into their
-// outward structural page boundary.
-const fn select_kernel_row_finalize_mode(
+impl StructuralCursorPayloadStrategy {
+    // Return whether this outward structural payload family keeps retained
+    // slot rows instead of final data rows.
+    pub(in crate::db::executor) const fn retains_slot_rows(&self) -> bool {
+        match self {
+            Self::DataRows { .. } => false,
+            #[cfg(feature = "sql")]
+            Self::SlotRows { .. } => true,
+        }
+    }
+}
+
+// Select one final structural payload family before converting kernel rows
+// into their outward cursor page boundary.
+pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
     retain_slot_rows: bool,
     next_cursor: Option<PageCursor>,
-) -> KernelRowFinalizeMode {
+) -> StructuralCursorPayloadStrategy {
     #[cfg(feature = "sql")]
     if retain_slot_rows {
-        return KernelRowFinalizeMode::StructuralSlotRows { next_cursor };
+        return StructuralCursorPayloadStrategy::SlotRows { next_cursor };
     }
 
     #[cfg(not(feature = "sql"))]
     let _ = retain_slot_rows;
 
-    KernelRowFinalizeMode::StructuralDataRows { next_cursor }
+    StructuralCursorPayloadStrategy::DataRows { next_cursor }
 }
 
-// Finalize one already-materialized kernel row set without re-branching on
-// output mode inside the per-row shaping loop.
-fn finalize_kernel_rows_payload(
-    plan: &AccessPlannedQuery,
+// Finalize one already-materialized kernel row set onto the outward
+// structural cursor page boundary without re-branching inside the row loop.
+pub(in crate::db::executor) fn finalize_structural_cursor_payload(
     rows: Vec<KernelRow>,
-    finalize_mode: KernelRowFinalizeMode,
+    finalize_mode: StructuralCursorPayloadStrategy,
 ) -> Result<MaterializedExecutionPayload, InternalError> {
-    let _ = plan;
-
     match finalize_mode {
-        KernelRowFinalizeMode::StructuralDataRows { next_cursor } => Ok(StructuralCursorPage::new(
-            collect_kernel_data_rows(rows)?,
+        StructuralCursorPayloadStrategy::DataRows { next_cursor } => Ok(StructuralCursorPage::new(
+            collect_structural_data_rows(rows)?,
             next_cursor,
         )),
         #[cfg(feature = "sql")]
-        KernelRowFinalizeMode::StructuralSlotRows { next_cursor } => Ok(
-            StructuralCursorPage::new_with_slot_rows(collect_kernel_slot_rows(rows)?, next_cursor),
-        ),
+        StructuralCursorPayloadStrategy::SlotRows { next_cursor } => {
+            Ok(StructuralCursorPage::new_with_slot_rows(
+                collect_structural_slot_rows(rows)?,
+                next_cursor,
+            ))
+        }
     }
 }
 
 // Convert kernel rows into retained slot rows in one straight-line pass.
-fn collect_kernel_slot_rows(rows: Vec<KernelRow>) -> Result<Vec<RetainedSlotRow>, InternalError> {
+pub(in crate::db::executor) fn collect_structural_slot_rows(
+    rows: Vec<KernelRow>,
+) -> Result<Vec<RetainedSlotRow>, InternalError> {
     rows.into_iter()
         .map(KernelRow::into_retained_slot_row)
         .collect()
 }
 
 // Convert kernel rows into data rows in one straight-line pass.
-fn collect_kernel_data_rows(rows: Vec<KernelRow>) -> Result<Vec<DataRow>, InternalError> {
+pub(in crate::db::executor) fn collect_structural_data_rows(
+    rows: Vec<KernelRow>,
+) -> Result<Vec<DataRow>, InternalError> {
     rows.into_iter().map(KernelRow::into_data_row).collect()
 }
 

@@ -248,17 +248,6 @@ enum QueryCompareClauses<'a> {
     Unknown,
 }
 
-///
-/// RequiredCompareClauses
-///
-/// Compare clauses extracted from one index predicate for implication checks.
-///
-
-enum RequiredCompareClauses<'a> {
-    Clauses(Vec<&'a ComparePredicate>),
-    Unsatisfiable,
-}
-
 #[derive(Clone, Copy)]
 enum CompareClauseMode {
     Query,
@@ -269,6 +258,17 @@ enum CompareClauseCollect {
     Known,
     Unsatisfiable,
     Unknown,
+}
+
+///
+/// RequiredCompareClauses
+///
+/// Compare clauses extracted from one index predicate for implication checks.
+///
+
+enum RequiredCompareClauses<'a> {
+    Clauses(Vec<&'a ComparePredicate>),
+    Unsatisfiable,
 }
 
 fn query_compare_clauses(predicate: &Predicate) -> QueryCompareClauses<'_> {
