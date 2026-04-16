@@ -11,13 +11,11 @@ use crate::{
         executor::pipeline::contracts::{FastPathKeyResult, MaterializedExecutionPayload},
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutableAccess, ExecutionKernel,
-            ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationContext,
-            projection::{
-                PreparedProjectionShape, PreparedSlotProjectionValidation,
-                prepare_projection_shape_from_plan,
-            },
+            ExecutionPlan, ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox,
+            ScalarContinuationContext,
+            projection::{PreparedSlotProjectionValidation, prepare_projection_shape_from_plan},
+            route::LoadOrderRouteContract,
             route::access_order_satisfied_by_route_contract,
-            route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
             stream::access::TraversalRuntime,
             terminal::{
@@ -54,8 +52,7 @@ type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, 
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
     retained_slot_layout: Option<RetainedSlotLayout>,
-    prepared_shape: Option<PreparedProjectionShape>,
-    projection_validation_enabled: bool,
+    projection_validation: Option<PreparedSlotProjectionValidation>,
 }
 
 impl PreparedExecutionProjection {
@@ -66,8 +63,7 @@ impl PreparedExecutionProjection {
     pub(in crate::db::executor) const fn empty() -> Self {
         Self {
             retained_slot_layout: None,
-            prepared_shape: None,
-            projection_validation_enabled: false,
+            projection_validation: None,
         }
     }
 
@@ -79,7 +75,6 @@ impl PreparedExecutionProjection {
         compiled_predicate: Option<&PredicateProgram>,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-        load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     ) -> Self {
         let retain_slot_rows = projection_materialization.retain_slot_rows();
 
@@ -90,10 +85,11 @@ impl PreparedExecutionProjection {
         let projection_validation_enabled = projection_materialization.validate_projection()
             && !plan.projection_is_model_identity();
 
-        // Phase 2: build prepared projection state only when one later lane
-        // will actually consume it for retained-slot output or non-identity
-        // shared validation.
-        let prepared_shape = (projection_validation_enabled || retain_slot_rows)
+        // Phase 2: build prepared projection validation only when the shared
+        // validation pass will actually consume it. Retained-slot row paths
+        // keep their slot layout separately and do not read the prepared
+        // projection shape back through this contract.
+        let projection_validation = projection_validation_enabled
             .then(|| prepare_projection_shape_from_plan(authority.model(), plan));
 
         // Phase 3: compile the retained-slot layout only from the effective
@@ -106,14 +102,9 @@ impl PreparedExecutionProjection {
             retain_slot_rows,
             cursor_emission,
         );
-
-        let _ = compiled_predicate;
-        let _ = load_terminal_fast_path;
-
         Self {
             retained_slot_layout,
-            prepared_shape,
-            projection_validation_enabled,
+            projection_validation,
         }
     }
 
@@ -128,14 +119,12 @@ impl PreparedExecutionProjection {
     pub(in crate::db::executor) fn projection_validation(
         &self,
     ) -> Option<&PreparedSlotProjectionValidation> {
-        self.projection_validation_enabled
-            .then_some(())
-            .and(self.prepared_shape.as_ref())
+        self.projection_validation.as_ref()
     }
 
     #[must_use]
     pub(in crate::db::executor) const fn projection_validation_enabled(&self) -> bool {
-        self.projection_validation_enabled
+        self.projection_validation.is_some()
     }
 }
 
@@ -555,29 +544,9 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     plan: &'a AccessPlannedQuery,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
-    projection_materialization: ProjectionMaterializationMode,
     prepared_projection: PreparedExecutionProjection,
+    retain_slot_rows: bool,
     emit_cursor: bool,
-}
-
-///
-/// ExecutionOutputOptions
-///
-/// ExecutionOutputOptions carries the remaining scalar execution toggle that is
-/// chosen before shared runtime dispatch.
-/// This keeps the prepared execution-input constructor under the clippy
-/// argument-count threshold without widening the execution contract itself.
-///
-
-pub(in crate::db::executor) struct ExecutionOutputOptions {
-    emit_cursor: bool,
-}
-
-impl ExecutionOutputOptions {
-    #[must_use]
-    pub(in crate::db::executor) const fn new(emit_cursor: bool) -> Self {
-        Self { emit_cursor }
-    }
 }
 
 impl<'a> ExecutionInputs<'a> {
@@ -590,16 +559,16 @@ impl<'a> ExecutionInputs<'a> {
         execution_preparation: &'a ExecutionPreparation,
         projection_materialization: ProjectionMaterializationMode,
         prepared_projection: PreparedExecutionProjection,
-        flags: ExecutionOutputOptions,
+        emit_cursor: bool,
     ) -> Self {
         Self {
             runtime,
             plan,
             stream_bindings,
             execution_preparation,
-            projection_materialization,
             prepared_projection,
-            emit_cursor: flags.emit_cursor,
+            retain_slot_rows: projection_materialization.retain_slot_rows(),
+            emit_cursor,
         }
     }
 
@@ -638,7 +607,7 @@ impl<'a> ExecutionInputs<'a> {
     /// for one outer surface-owned projection materialization step.
     #[must_use]
     pub(in crate::db::executor) const fn retain_slot_rows(&self) -> bool {
-        self.projection_materialization.retain_slot_rows()
+        self.retain_slot_rows
     }
 
     /// Borrow the precomputed retained-slot layout when this execution shape
@@ -670,6 +639,59 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(self.plan)
+    }
+
+    /// Build the cursorless row-collector materialization request owned by
+    /// this execution-input boundary so kernel callers do not reconstruct the
+    /// same projection and predicate contract ad hoc.
+    pub(in crate::db::executor) fn row_collector_materialization_request<'req>(
+        &'req self,
+        route_plan: &ExecutionPlan,
+        continuation: &'req ScalarContinuationContext,
+        key_stream: &'req mut dyn OrderedKeyStream,
+    ) -> RowCollectorMaterializationRequest<'req> {
+        RowCollectorMaterializationRequest {
+            plan: self.plan(),
+            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+            load_order_route_contract: route_plan.load_order_route_contract(),
+            continuation,
+            cursor_boundary: continuation.post_access_cursor_boundary(),
+            predicate_slots: self.execution_preparation().compiled_predicate(),
+            validate_projection: self.validate_projection(),
+            retain_slot_rows: self.retain_slot_rows(),
+            retained_slot_layout: self.retained_slot_layout(),
+            prepared_projection_validation: self.prepared_projection_validation(),
+            key_stream,
+        }
+    }
+
+    /// Build the canonical scalar page materialization request from the
+    /// already-prepared execution inputs and route-owned scan hints.
+    pub(in crate::db::executor) fn runtime_page_materialization_request<'req>(
+        &'req self,
+        route_plan: &ExecutionPlan,
+        continuation: &'req ScalarContinuationContext,
+        key_stream: &'req mut dyn OrderedKeyStream,
+    ) -> RuntimePageMaterializationRequest<'req> {
+        RuntimePageMaterializationRequest {
+            plan: self.plan(),
+            predicate_slots: self.execution_preparation().compiled_predicate(),
+            key_stream,
+            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+            load_order_route_contract: route_plan.load_order_route_contract(),
+            validate_projection: self.validate_projection(),
+            retain_slot_rows: self.retain_slot_rows(),
+            retained_slot_layout: self.retained_slot_layout(),
+            prepared_projection_validation: self.prepared_projection_validation(),
+            cursor_emission: if self.emit_cursor() {
+                CursorEmissionMode::Emit
+            } else {
+                CursorEmissionMode::Suppress
+            },
+            consistency: self.consistency(),
+            continuation,
+            direction: route_plan.direction(),
+        }
     }
 }
 

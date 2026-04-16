@@ -61,8 +61,16 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     // Normalize one generic-free query intent into the shared lower cache key
     // before session planning chooses between cache hit and miss paths.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn structural_cache_key(&self) -> StructuralQueryCacheKey {
         StructuralQueryCacheKey::from_query_model(self)
+    }
+
+    pub(in crate::db) fn structural_cache_key_with_normalized_predicate(
+        &self,
+        predicate: Option<&Predicate>,
+    ) -> StructuralQueryCacheKey {
+        StructuralQueryCacheKey::from_query_model_with_normalized_predicate(self, predicate)
     }
 
     /// Return the intent mode (load vs delete).
@@ -324,17 +332,25 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
+        let normalized_predicate = self.prepare_normalized_scalar_predicate()?;
+
+        self.build_plan_model_with_indexes_from_normalized_predicate(
+            visible_indexes,
+            normalized_predicate,
+        )
+    }
+
+    pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_normalized_predicate(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        normalized_predicate: Option<Predicate>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::cached_for_entity_model(self.model);
-        self.intent.validate_policy_shape()?;
-
-        // Phase 2: normalize scalar predicate and fold constant predicates
-        // before access planning.
         let access_inputs = self.intent.planning_access_inputs();
-        let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
-            schema_info,
-            access_inputs.predicate(),
-        )?);
+
+        // Phase 2: reuse the caller-provided normalized predicate so cache-key
+        // construction and planner misses share the same canonical predicate.
         let plan_mode = self.intent.mode();
         let limit_zero_window = is_limit_zero_load_window(plan_mode);
         let constant_false_predicate = predicate_is_constant_false(normalized_predicate.as_ref());
@@ -401,6 +417,24 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         plan.set_access_choice(access_choice);
 
         Ok(plan)
+    }
+
+    pub(in crate::db::query::intent) fn prepare_normalized_scalar_predicate(
+        &self,
+    ) -> Result<Option<Predicate>, QueryError> {
+        // Phase 1: validate query-intent policy shape before any cache or
+        // planner work so compile attribution keeps policy failures honest.
+        let schema_info = SchemaInfo::cached_for_entity_model(self.model);
+        self.intent.validate_policy_shape()?;
+
+        // Phase 2: normalize scalar predicate and fold constant predicates
+        // before the lower cache key or planner consumes it.
+        let access_inputs = self.intent.planning_access_inputs();
+
+        Ok(fold_constant_predicate(normalize_query_predicate(
+            schema_info,
+            access_inputs.predicate(),
+        )?))
     }
 }
 

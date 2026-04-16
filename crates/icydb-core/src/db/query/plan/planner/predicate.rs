@@ -9,7 +9,10 @@ use crate::{
         query::plan::{
             OrderSpec,
             key_item_match::{eq_lookup_value_for_key_item, index_key_item_at},
-            planner::{compare, index_literal_matches_schema, prefix, range},
+            planner::{
+                compare, index_literal_matches_schema, index_predicate_guarantees_compare, prefix,
+                range,
+            },
         },
         schema::SchemaInfo,
     },
@@ -20,10 +23,9 @@ use crate::{
 
 pub(super) fn plan_predicate(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: &Predicate,
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Result<AccessPlan<Value>, InternalError> {
     let plan = match predicate {
@@ -52,40 +54,25 @@ pub(super) fn plan_predicate(
         Predicate::And(children) => {
             let primary_key_range_access =
                 range::primary_key_range_from_and(model, schema, children);
-            if let Some(range_spec) = range::index_range_from_and(
-                model,
-                visible_indexes,
-                schema,
-                children,
-                query_predicate,
-                order,
-            ) {
+            if let Some(range_spec) =
+                range::index_range_from_and(model, candidate_indexes, schema, children, order)
+            {
                 return Ok(AccessPlan::index_range(range_spec));
             }
 
-            let prefix_access = prefix::index_prefix_from_and(
-                model,
-                visible_indexes,
-                schema,
-                children,
-                query_predicate,
-                order,
-            );
+            let prefix_access =
+                prefix::index_prefix_from_and(model, candidate_indexes, schema, children, order);
+            let selected_index_access = prefix_access.as_ref();
             let mut plans = children
                 .iter()
                 .filter(|child| {
-                    !eq_child_is_redundant_under_prefix(schema, prefix_access.as_ref(), child)
-                })
-                .map(|child| {
-                    plan_predicate(
-                        model,
-                        visible_indexes,
+                    !child_is_redundant_under_selected_index_access(
                         schema,
+                        selected_index_access,
                         child,
-                        query_predicate,
-                        order,
                     )
                 })
+                .map(|child| plan_predicate(model, candidate_indexes, schema, child, order))
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Composite index planning phase:
@@ -103,48 +90,50 @@ pub(super) fn plan_predicate(
         Predicate::Or(children) => AccessPlan::union(
             children
                 .iter()
-                .map(|child| {
-                    plan_predicate(
-                        model,
-                        visible_indexes,
-                        schema,
-                        child,
-                        query_predicate,
-                        order,
-                    )
-                })
+                .map(|child| plan_predicate(model, candidate_indexes, schema, child, order))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         Predicate::Compare(cmp) => {
-            compare::plan_compare(model, visible_indexes, schema, cmp, query_predicate, order)
+            compare::plan_compare(model, candidate_indexes, schema, cmp, order)
         }
     };
 
     Ok(plan)
 }
 
-// Composite prefix planning already picked one deterministic leading-slot
-// route, so redundant equality children on those same guaranteed slots do not
-// need to contribute weaker nested access shapes.
-fn eq_child_is_redundant_under_prefix(
+// Composite filtered/prefix planning can already guarantee some child compare
+// clauses through either fixed equality prefix slots or the filtered guard on
+// the chosen index. Those clauses should not contribute weaker nested access
+// shapes once the selected path already proves them.
+fn child_is_redundant_under_selected_index_access(
     schema: &SchemaInfo,
-    prefix_access: Option<&AccessPlan<Value>>,
+    selected_access: Option<&AccessPlan<Value>>,
     child: &Predicate,
 ) -> bool {
-    let Some(AccessPlan::Path(path)) = prefix_access else {
-        return false;
-    };
-    let Some((index, values)) = path.as_ref().as_index_prefix() else {
+    let Some(AccessPlan::Path(path)) = selected_access else {
         return false;
     };
     let Predicate::Compare(cmp) = child else {
         return false;
     };
-    if cmp.op != crate::db::predicate::CompareOp::Eq {
-        return false;
+
+    if let Some((index, values)) = path.as_ref().as_index_prefix()
+        && cmp.op == crate::db::predicate::CompareOp::Eq
+        && index_prefix_guarantees_eq_compare(schema, index, values, cmp)
+    {
+        return true;
     }
 
-    index_prefix_guarantees_eq_compare(schema, index, values, cmp)
+    if let Some((index, prefix_values, _, _)) = path.as_ref().as_index_range()
+        && cmp.op == crate::db::predicate::CompareOp::Eq
+        && index_prefix_guarantees_eq_compare(schema, index, prefix_values, cmp)
+    {
+        return true;
+    }
+
+    path.as_ref()
+        .selected_index_model()
+        .is_some_and(|index| index_predicate_guarantees_compare(index, cmp))
 }
 
 // Prefix guarantees are checked against canonical key-item lowering so mixed

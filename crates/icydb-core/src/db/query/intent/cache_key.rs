@@ -3,13 +3,15 @@
 //! Does not own: planner validation, executor runtime behavior, or SQL surface routing.
 //! Boundary: turns semantic query intent into one explicit derived-hash cache key.
 
+#[cfg(test)]
+use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
         access::{
             AccessPlan,
             dispatch::{AccessPathDispatch, AccessPlanDispatch, dispatch_access_plan},
         },
-        predicate::{CompareOp, MissingRowPolicy, Predicate, predicate_fingerprint},
+        predicate::{CompareOp, MissingRowPolicy, Predicate, predicate_fingerprint_normalized},
         query::{
             builder::aggregate::AggregateExpr,
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
@@ -302,7 +304,45 @@ enum ConsistencyCacheKey {
 }
 
 impl StructuralQueryCacheKey {
+    #[cfg(test)]
     pub(in crate::db) fn from_query_model<K: FieldValue>(model: &QueryModel<'_, K>) -> Self {
+        Self::from_query_model_with_predicate(
+            model,
+            model.scalar_intent_for_cache_key().predicate.as_ref(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn from_query_model_with_predicate<K: FieldValue>(
+        model: &QueryModel<'_, K>,
+        predicate: Option<&Predicate>,
+    ) -> Self {
+        Self::from_query_model_with_predicate_key(
+            model,
+            predicate,
+            PredicateCacheKey::from_predicate,
+        )
+    }
+
+    pub(in crate::db) fn from_query_model_with_normalized_predicate<K: FieldValue>(
+        model: &QueryModel<'_, K>,
+        predicate: Option<&Predicate>,
+    ) -> Self {
+        Self::from_query_model_with_predicate_key(
+            model,
+            predicate,
+            PredicateCacheKey::from_normalized_predicate,
+        )
+    }
+
+    // Build the shared structural cache key once while letting the caller
+    // choose whether predicate identity should normalize first or trust an
+    // already-normalized predicate surface.
+    fn from_query_model_with_predicate_key<K: FieldValue>(
+        model: &QueryModel<'_, K>,
+        predicate: Option<&Predicate>,
+        predicate_key: fn(&Predicate) -> PredicateCacheKey,
+    ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
         let key_access = scalar
             .key_access
@@ -311,10 +351,7 @@ impl StructuralQueryCacheKey {
 
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
-            predicate: scalar
-                .predicate
-                .as_ref()
-                .map(PredicateCacheKey::from_predicate),
+            predicate: predicate.map(predicate_key),
             key_access: key_access
                 .as_ref()
                 .map(AccessPathCacheKey::from_access_plan),
@@ -347,8 +384,13 @@ impl QueryModeCacheKey {
 }
 
 impl PredicateCacheKey {
+    #[cfg(test)]
     fn from_predicate(predicate: &Predicate) -> Self {
         Self::Canonical(predicate_fingerprint(predicate))
+    }
+
+    fn from_normalized_predicate(predicate: &Predicate) -> Self {
+        Self::Canonical(predicate_fingerprint_normalized(predicate))
     }
 }
 

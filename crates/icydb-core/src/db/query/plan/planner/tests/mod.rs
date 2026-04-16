@@ -822,6 +822,48 @@ fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_pr
 }
 
 #[test]
+fn planner_filtered_composite_index_drops_redundant_guard_compare_under_prefix_access() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+    let order = canonical_order(&[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_COMPOSITE_MODEL,
+        schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("guarded filtered composite equality-prefix planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!(
+            "guarded filtered composite equality-prefix predicate should lower to one index path"
+        );
+    };
+    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
+        panic!(
+            "guarded filtered composite equality-prefix predicate should lower to one index prefix"
+        );
+    };
+
+    assert_eq!(index.name(), "tier_handle_idx_active_only");
+    assert_eq!(values, &[Value::Text("gold".to_string())]);
+}
+
+#[test]
 fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
     let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(

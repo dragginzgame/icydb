@@ -11,9 +11,8 @@ mod stream;
 pub(in crate::db) use inputs::StructuralCursorPage;
 pub(in crate::db) use inputs::StructuralCursorPagePayload;
 pub(in crate::db::executor) use inputs::{
-    CursorEmissionMode, ExecutionInputs, ExecutionOutputOptions, ExecutionRuntimeAdapter,
-    PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest,
+    CursorEmissionMode, ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
+    ProjectionMaterializationMode, RowCollectorMaterializationRequest,
 };
 pub(in crate::db::executor) use outcomes::{
     ExecutionOutcomeMetrics, MaterializedExecutionAttempt, MaterializedExecutionPayload,

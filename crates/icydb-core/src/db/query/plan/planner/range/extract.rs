@@ -15,7 +15,6 @@ use crate::{
                         strict_text_prefix_upper_bound,
                     },
                 },
-                sorted_indexes,
             },
         },
         schema::{SchemaInfo, literal_matches_type},
@@ -88,10 +87,9 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     children: &[Predicate],
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Option<SemanticIndexRangeSpec> {
     let mut compares = Vec::with_capacity(children.len());
@@ -137,7 +135,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         Vec<Value>,
         RangeConstraint,
     )> = None;
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let Some((range_slot, prefix, range)) =
             index_range_candidate_for_index(index, schema, &compares)
         else {

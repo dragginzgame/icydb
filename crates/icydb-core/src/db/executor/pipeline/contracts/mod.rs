@@ -21,10 +21,9 @@ use crate::{
 pub(in crate::db) use execution::StructuralCursorPage;
 pub(in crate::db) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
-    CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionOutputOptions,
-    ExecutionRuntimeAdapter, MaterializedExecutionAttempt, MaterializedExecutionPayload,
-    PreparedExecutionProjection, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
-    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
+    CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
+    MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionProjection,
+    ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,

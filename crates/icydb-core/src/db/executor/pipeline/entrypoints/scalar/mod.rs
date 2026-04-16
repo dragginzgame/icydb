@@ -18,9 +18,8 @@ use crate::{
             PreparedLoadPlan, ScalarContinuationContext, StoreResolver, TraversalRuntime,
             pipeline::contracts::{
                 CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
-                ExecutionOutputOptions, ExecutionRuntimeAdapter, LoadExecutor,
-                MaterializedExecutionPayload, PreparedExecutionProjection,
-                ProjectionMaterializationMode, StructuralCursorPage,
+                ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
+                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -211,7 +210,6 @@ fn build_prepared_scalar_route_runtime(
         execution_preparation.compiled_predicate(),
         projection_runtime_mode,
         cursor_emission,
-        route_plan.load_terminal_fast_path(),
     );
 
     PreparedScalarRouteRuntime {
@@ -333,7 +331,7 @@ fn execute_prepared_scalar_path_execution(
         &execution_preparation,
         projection_runtime_mode,
         prepared_projection,
-        ExecutionOutputOptions::new(cursor_emission.enabled()),
+        cursor_emission.enabled(),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(

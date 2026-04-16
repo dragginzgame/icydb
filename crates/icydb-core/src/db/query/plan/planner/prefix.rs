@@ -14,7 +14,7 @@ use crate::{
             },
             planner::{
                 AccessCandidateScore, access_candidate_score_outranks,
-                candidate_satisfies_secondary_order, index_literal_matches_schema, sorted_indexes,
+                candidate_satisfies_secondary_order, index_literal_matches_schema,
             },
         },
         schema::SchemaInfo,
@@ -46,18 +46,17 @@ fn leading_index_prefix_lookup_value(
 )]
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
     coercion: CoercionId,
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
     let mut best: Option<(AccessCandidateScore, &'static IndexModel, Value)> = None;
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let Some(lookup_value) =
             leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
         else {
@@ -86,15 +85,14 @@ pub(super) fn index_prefix_for_eq(
 
 pub(super) fn index_multi_lookup_for_in(
     _model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
     coercion: CoercionId,
-    query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
     let mut out = Vec::new();
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let mut lookup_values = Vec::with_capacity(values.len());
         for value in values {
             let literal_compatible = index_literal_matches_schema(schema, field, value);
@@ -115,7 +113,7 @@ pub(super) fn index_multi_lookup_for_in(
             continue;
         }
 
-        out.push(AccessPlan::index_multi_lookup(*index, lookup_values));
+        out.push(AccessPlan::index_multi_lookup(**index, lookup_values));
     }
 
     if out.is_empty() { None } else { Some(out) }
@@ -123,10 +121,9 @@ pub(super) fn index_multi_lookup_for_in(
 
 pub(super) fn index_prefix_from_and(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     children: &[Predicate],
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // Cache literal/schema compatibility once per equality literal so index
@@ -155,7 +152,7 @@ pub(super) fn index_prefix_from_and(
     }
 
     let mut best: Option<(AccessCandidateScore, &IndexModel, Vec<Value>)> = None;
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
             continue;
         };

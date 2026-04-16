@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
         index::next_text_prefix,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
             OrderSpec,
             key_item_match::{
@@ -18,7 +18,6 @@ use crate::{
                 AccessCandidateScore, access_candidate_score_outranks,
                 candidate_satisfies_secondary_order, index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
-                sorted_indexes,
             },
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
@@ -30,10 +29,9 @@ use std::ops::Bound;
 
 pub(super) fn plan_compare(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> AccessPlan<Value> {
     if cmp.coercion.id == CoercionId::Strict
@@ -54,12 +52,11 @@ pub(super) fn plan_compare(
             }
             if let Some(paths) = index_prefix_for_eq(
                 model,
-                visible_indexes,
+                candidate_indexes,
                 schema,
                 &cmp.field,
                 &cmp.value,
                 cmp.coercion.id,
-                query_predicate,
                 order,
             ) {
                 return paths;
@@ -82,12 +79,11 @@ pub(super) fn plan_compare(
                 }
                 if let Some(paths) = index_multi_lookup_for_in(
                     model,
-                    visible_indexes,
+                    candidate_indexes,
                     schema,
                     &cmp.field,
                     items,
                     cmp.coercion.id,
-                    query_predicate,
                 ) {
                     return AccessPlan::union(paths);
                 }
@@ -109,9 +105,7 @@ pub(super) fn plan_compare(
             if cmp.coercion.id == CoercionId::TextCasefold && !field_type.is_text() {
                 return AccessPlan::full_scan();
             }
-            if let Some(path) =
-                plan_ordered_compare(model, visible_indexes, schema, cmp, query_predicate, order)
-            {
+            if let Some(path) = plan_ordered_compare(model, candidate_indexes, schema, cmp, order) {
                 return path;
             }
         }
@@ -130,14 +124,9 @@ pub(super) fn plan_compare(
             // - expression-key lookups still keep their lower-bounded shape
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
-            if let Some(path) = plan_starts_with_compare(
-                model,
-                visible_indexes,
-                schema,
-                cmp,
-                query_predicate,
-                order,
-            ) {
+            if let Some(path) =
+                plan_starts_with_compare(model, candidate_indexes, schema, cmp, order)
+            {
                 return path;
             }
         }
@@ -190,10 +179,9 @@ fn plan_pk_compare(
 
 fn plan_starts_with_compare(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // This helper owns the shared starts-with range lowering contract for both
@@ -209,7 +197,7 @@ fn plan_starts_with_compare(
         Bound<Value>,
         Bound<Value>,
     )> = None;
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };
@@ -267,10 +255,9 @@ fn plan_starts_with_compare(
 
 fn plan_ordered_compare(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-    query_predicate: &Predicate,
     order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // Ordered bounds must reuse the same canonical literal-lowering authority
@@ -284,7 +271,7 @@ fn plan_ordered_compare(
         Bound<Value>,
         Bound<Value>,
     )> = None;
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    for index in candidate_indexes {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };

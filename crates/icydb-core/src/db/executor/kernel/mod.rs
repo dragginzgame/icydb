@@ -9,8 +9,7 @@ use crate::{
             ExecutionPlan, ScalarContinuationContext,
             pipeline::contracts::{
                 ExecutionInputs, MaterializedExecutionAttempt, MaterializedExecutionPayload,
-                ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-                RuntimePageMaterializationRequest,
+                ResolvedExecutionKeyStream,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
             route::{IndexRangeLimitSpec, widened_residual_predicate_pushdown_fetch},
@@ -194,44 +193,24 @@ impl ExecutionKernel {
     ) -> Result<(MaterializedExecutionPayload, usize, usize), InternalError> {
         if let Some((payload, keys_scanned, post_access_rows)) = inputs
             .runtime()
-            .try_materialize_load_via_row_collector(RowCollectorMaterializationRequest {
-                plan: inputs.plan(),
-                scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-                load_order_route_contract: route_plan.load_order_route_contract(),
+            .try_materialize_load_via_row_collector(inputs.row_collector_materialization_request(
+                route_plan,
                 continuation,
-                cursor_boundary: continuation.post_access_cursor_boundary(),
-                predicate_slots: inputs.execution_preparation().compiled_predicate(),
-                validate_projection: inputs.validate_projection(),
-                retain_slot_rows: inputs.retain_slot_rows(),
-                retained_slot_layout: inputs.retained_slot_layout(),
-                prepared_projection_validation: inputs.prepared_projection_validation(),
-                key_stream: resolved.key_stream_mut(),
-            })?
+                resolved.key_stream_mut(),
+            ))?
         {
             return Ok((payload, keys_scanned, post_access_rows));
         }
 
         let (payload, keys_scanned, post_access_rows) = inputs
             .runtime()
-            .materialize_key_stream_into_structural_page(RuntimePageMaterializationRequest {
-                plan: inputs.plan(),
-                predicate_slots: inputs.execution_preparation().compiled_predicate(),
-                key_stream: resolved.key_stream_mut(),
-                scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-                load_order_route_contract: route_plan.load_order_route_contract(),
-                validate_projection: inputs.validate_projection(),
-                retain_slot_rows: inputs.retain_slot_rows(),
-                retained_slot_layout: inputs.retained_slot_layout(),
-                prepared_projection_validation: inputs.prepared_projection_validation(),
-                cursor_emission: if inputs.emit_cursor() {
-                    crate::db::executor::pipeline::contracts::CursorEmissionMode::Emit
-                } else {
-                    crate::db::executor::pipeline::contracts::CursorEmissionMode::Suppress
-                },
-                consistency: inputs.consistency(),
-                continuation,
-                direction: route_plan.direction(),
-            })?;
+            .materialize_key_stream_into_structural_page(
+                inputs.runtime_page_materialization_request(
+                    route_plan,
+                    continuation,
+                    resolved.key_stream_mut(),
+                ),
+            )?;
 
         Ok((payload, keys_scanned, post_access_rows))
     }

@@ -31,7 +31,8 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::query::plan) use index_select::{
-    index_literal_matches_schema, sorted_indexes, sorted_model_indexes,
+    index_literal_matches_schema, index_predicate_guarantees_compare, sorted_indexes,
+    sorted_model_indexes,
 };
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
@@ -90,11 +91,16 @@ pub(crate) fn plan_access_with_order(
     order: Option<&OrderSpec>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let Some(predicate) = predicate else {
+        let true_predicate = Predicate::True;
+        let eligible_indexes = sorted_indexes(visible_indexes, &true_predicate);
+
         return Ok(
-            order_select::index_range_from_order(model, visible_indexes, order, None)
+            order_select::index_range_from_order(model, eligible_indexes.as_slice(), order)
                 .unwrap_or_else(AccessPlan::full_scan),
         );
     };
+
+    let eligible_indexes = sorted_indexes(visible_indexes, predicate);
 
     // Planner determinism guarantee:
     // Given a validated EntityModel and canonical predicate, planning is pure and deterministic.
@@ -110,9 +116,8 @@ pub(crate) fn plan_access_with_order(
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
     let plan = normalize_access_plan_value(predicate::plan_predicate(
         model,
-        visible_indexes,
+        eligible_indexes.as_slice(),
         schema,
-        predicate,
         predicate,
         order,
     )?);
@@ -121,7 +126,7 @@ pub(crate) fn plan_access_with_order(
     }
 
     if let Some(order_plan) =
-        order_select::index_range_from_order(model, visible_indexes, order, Some(predicate))
+        order_select::index_range_from_order(model, eligible_indexes.as_slice(), order)
     {
         return Ok(order_plan);
     }

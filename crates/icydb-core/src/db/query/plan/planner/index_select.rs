@@ -61,6 +61,17 @@ fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predic
     filtered_index_predicate_query_relation(index, query_predicate)
 }
 
+pub(in crate::db::query::plan) fn index_predicate_guarantees_compare(
+    index: &IndexModel,
+    cmp: &ComparePredicate,
+) -> bool {
+    let Some(index_predicate) = canonical_index_predicate(index) else {
+        return false;
+    };
+
+    predicate_implies_predicate(index_predicate, &Predicate::Compare(cmp.clone()))
+}
+
 pub(in crate::db) fn residual_query_predicate_after_filtered_access(
     index: &IndexModel,
     query_predicate: &Predicate,

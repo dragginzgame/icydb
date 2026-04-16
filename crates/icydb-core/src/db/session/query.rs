@@ -249,8 +249,15 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
     ) -> Result<(QueryPlanCacheEntry, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let cache_key =
-            QueryPlanCacheKey::for_authority(authority, schema_fingerprint, visibility, query);
+        let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
+        let normalized_predicate = query.prepare_normalized_scalar_predicate()?;
+        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate(
+            authority,
+            schema_fingerprint,
+            visibility,
+            query,
+            normalized_predicate.as_ref(),
+        );
 
         {
             let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
@@ -259,8 +266,10 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
-        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
+        let plan = query.build_plan_with_visible_indexes_from_normalized_predicate(
+            &visible_indexes,
+            normalized_predicate,
+        )?;
         let entry = QueryPlanCacheEntry::new(
             plan.clone(),
             SharedPreparedExecutionPlan::from_plan(authority, plan),
@@ -912,26 +921,31 @@ impl<C: CanisterKind> DbSession<C> {
 }
 
 impl QueryPlanCacheKey {
-    fn for_authority(
+    fn for_authority_with_normalized_predicate(
         authority: crate::db::executor::EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
+        normalized_predicate: Option<&crate::db::predicate::Predicate>,
     ) -> Self {
-        Self::for_authority_with_method_version(
+        Self::for_authority_with_normalized_predicate_and_method_version(
             authority,
             schema_fingerprint,
             visibility,
             query,
+            normalized_predicate,
             SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
         )
     }
 
-    fn for_authority_with_method_version(
+    // Assemble the canonical cache-key shell once so the test and
+    // normalized-predicate constructors only decide which structural query key
+    // they feed into the shared session cache identity.
+    fn from_authority_parts(
         authority: crate::db::executor::EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
+        structural_query: crate::db::query::intent::StructuralQueryCacheKey,
         cache_method_version: u8,
     ) -> Self {
         Self {
@@ -939,7 +953,41 @@ impl QueryPlanCacheKey {
             entity_path: authority.entity_path(),
             schema_fingerprint,
             visibility,
-            structural_query: query.structural_cache_key(),
+            structural_query,
         }
+    }
+
+    #[cfg(test)]
+    fn for_authority_with_method_version(
+        authority: crate::db::executor::EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        cache_method_version: u8,
+    ) -> Self {
+        Self::from_authority_parts(
+            authority,
+            schema_fingerprint,
+            visibility,
+            query.structural_cache_key(),
+            cache_method_version,
+        )
+    }
+
+    fn for_authority_with_normalized_predicate_and_method_version(
+        authority: crate::db::executor::EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+        normalized_predicate: Option<&crate::db::predicate::Predicate>,
+        cache_method_version: u8,
+    ) -> Self {
+        Self::from_authority_parts(
+            authority,
+            schema_fingerprint,
+            visibility,
+            query.structural_cache_key_with_normalized_predicate(normalized_predicate),
+            cache_method_version,
+        )
     }
 }

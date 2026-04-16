@@ -13,9 +13,18 @@ pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) 
 }
 
 /// Return one canonical SHA-256 predicate digest for cache and plan identity.
+#[cfg(test)]
 pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hash_predicate(&mut hasher, predicate);
+
+    crate::db::codec::finalize_hash_sha256(hasher)
+}
+
+/// Return one canonical SHA-256 digest for a predicate that is already normalized.
+pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hash_predicate_structural(&mut hasher, predicate);
 
     crate::db::codec::finalize_hash_sha256(hasher)
 }

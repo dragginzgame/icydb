@@ -6,8 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        predicate::Predicate,
-        query::plan::{OrderSpec, index_order_terms, planner::sorted_indexes},
+        query::plan::{OrderSpec, index_order_terms},
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
@@ -19,22 +18,17 @@ use std::ops::Bound;
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    candidate_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
-    query_predicate: Option<&Predicate>,
 ) -> Option<AccessPlan<Value>> {
     let order_contract = order
         .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))?;
 
     // Order-driven access fallback is only valid when the canonical ORDER BY
-    // already carries one uniform-direction `..., primary_key` tie-break shape.
-    // Filtered indexes remain eligible only when the full query predicate
-    // implies their guard. When no predicate exists, evaluate against `True`
-    // so filtered indexes fail closed instead of being scanned unconditionally.
-    let true_predicate = Predicate::True;
-    let query_predicate = query_predicate.unwrap_or(&true_predicate);
-
-    for index in sorted_indexes(visible_indexes, query_predicate) {
+    // already carries one uniform-direction `..., primary_key` tie-break
+    // shape. The caller prefilters candidate indexes so filtered guards are
+    // checked once at the planner entry boundary.
+    for index in candidate_indexes {
         let index_terms = index_order_terms(index);
         if !order_contract.matches_index_full(&index_terms) {
             continue;
@@ -44,7 +38,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
         // zero equality prefix. The first index slot becomes the range anchor
         // while lower layers own forward vs reverse traversal from ORDER BY.
         let spec = SemanticIndexRangeSpec::new(
-            *index,
+            **index,
             vec![0usize],
             Vec::new(),
             Bound::Unbounded,

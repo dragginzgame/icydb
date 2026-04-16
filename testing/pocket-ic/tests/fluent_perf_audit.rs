@@ -694,6 +694,14 @@ fn account_fluent_scenarios() -> Vec<FluentPerfScenario> {
             r#"db().load::<PerfAuditAccount>().filter(FieldRef::new("active").eq(true)).order_by("handle").order_by("id").limit(3)"#,
             100,
         ),
+        repeat_scenario(
+            "repeat.account.gold_active.order_handle.asc.limit3.runs100",
+            "account.gold_active.order_handle.asc.limit3",
+            FluentPerfSurface::Account,
+            "repeat_compound_predicate",
+            r#"db().load::<PerfAuditAccount>().filter(Predicate::and(vec![FieldRef::new("active").eq(true), FieldRef::new("tier").eq("gold")])).order_by("handle").order_by("id").limit(3)"#,
+            100,
+        ),
     ]
 }
 

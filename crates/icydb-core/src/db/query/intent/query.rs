@@ -57,6 +57,31 @@ impl StructuralQuery {
         }
     }
 
+    // Rewrap one updated generic-free intent model back into the structural
+    // query shell so local transformation helpers do not rebuild `Self`
+    // ad hoc at each boundary method.
+    const fn from_intent(intent: QueryModel<'static, Value>) -> Self {
+        Self { intent }
+    }
+
+    // Apply one infallible intent transformation while preserving the
+    // structural query shell at this boundary.
+    fn map_intent(
+        self,
+        map: impl FnOnce(QueryModel<'static, Value>) -> QueryModel<'static, Value>,
+    ) -> Self {
+        Self::from_intent(map(self.intent))
+    }
+
+    // Apply one fallible intent transformation while keeping result wrapping
+    // local to the structural query boundary.
+    fn try_map_intent(
+        self,
+        map: impl FnOnce(QueryModel<'static, Value>) -> Result<QueryModel<'static, Value>, QueryError>,
+    ) -> Result<Self, QueryError> {
+        map(self.intent).map(Self::from_intent)
+    }
+
     #[must_use]
     const fn mode(&self) -> QueryMode {
         self.intent.mode()
@@ -87,17 +112,11 @@ impl StructuralQuery {
     }
 
     fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.filter_expr(expr)?;
-
-        Ok(Self { intent })
+        self.try_map_intent(|intent| intent.filter_expr(expr))
     }
 
     fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.sort_expr(expr)?;
-
-        Ok(Self { intent })
+        self.try_map_intent(|intent| intent.sort_expr(expr))
     }
 
     #[must_use]
@@ -137,10 +156,7 @@ impl StructuralQuery {
     }
 
     pub(in crate::db) fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.push_group_field(field.as_ref())?;
-
-        Ok(Self { intent })
+        self.try_map_intent(|intent| intent.push_group_field(field.as_ref()))
     }
 
     #[must_use]
@@ -162,10 +178,7 @@ impl StructuralQuery {
         value: Value,
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
-        let Self { intent } = self;
-        let intent = intent.push_having_group_clause(&field, op, value)?;
-
-        Ok(Self { intent })
+        self.try_map_intent(|intent| intent.push_having_group_clause(&field, op, value))
     }
 
     pub(in crate::db) fn having_aggregate(
@@ -174,18 +187,14 @@ impl StructuralQuery {
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.push_having_aggregate_clause(aggregate_index, op, value)?;
-
-        Ok(Self { intent })
+        self.try_map_intent(|intent| {
+            intent.push_having_aggregate_clause(aggregate_index, op, value)
+        })
     }
 
     #[must_use]
     fn by_id(self, id: Value) -> Self {
-        let Self { intent } = self;
-        Self {
-            intent: intent.by_id(id),
-        }
+        self.map_intent(|intent| intent.by_id(id))
     }
 
     #[must_use]
@@ -193,19 +202,12 @@ impl StructuralQuery {
     where
         I: IntoIterator<Item = Value>,
     {
-        let Self { intent } = self;
-        Self {
-            intent: intent.by_ids(ids),
-        }
+        self.map_intent(|intent| intent.by_ids(ids))
     }
 
     #[must_use]
     fn only(self, id: Value) -> Self {
-        let Self { intent } = self;
-
-        Self {
-            intent: intent.only(id),
-        }
+        self.map_intent(|intent| intent.only(id))
     }
 
     #[must_use]
@@ -237,11 +239,39 @@ impl StructuralQuery {
         self.intent.build_plan_model_with_indexes(visible_indexes)
     }
 
+    pub(in crate::db) fn prepare_normalized_scalar_predicate(
+        &self,
+    ) -> Result<Option<Predicate>, QueryError> {
+        self.intent.prepare_normalized_scalar_predicate()
+    }
+
+    pub(in crate::db) fn build_plan_with_visible_indexes_from_normalized_predicate(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        normalized_predicate: Option<Predicate>,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        self.intent
+            .build_plan_model_with_indexes_from_normalized_predicate(
+                visible_indexes,
+                normalized_predicate,
+            )
+    }
+
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn structural_cache_key(
         &self,
     ) -> crate::db::query::intent::StructuralQueryCacheKey {
         self.intent.structural_cache_key()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn structural_cache_key_with_normalized_predicate(
+        &self,
+        predicate: Option<&Predicate>,
+    ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        self.intent
+            .structural_cache_key_with_normalized_predicate(predicate)
     }
 
     // Build one access plan using either schema-owned indexes or the session
@@ -332,6 +362,28 @@ impl StructuralQuery {
         Ok(lines.join("\n"))
     }
 
+    // Build one execution descriptor after resolving the caller-visible index
+    // slice so text/json explain surfaces do not each duplicate plan assembly.
+    fn explain_execution_descriptor_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let plan = self.build_plan_for_visibility(visible_indexes)?;
+
+        self.explain_execution_descriptor_from_plan(&plan)
+    }
+
+    // Render one verbose execution payload after resolving the caller-visible
+    // index slice exactly once at the structural query boundary.
+    fn explain_execution_verbose_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<String, QueryError> {
+        let plan = self.build_plan_for_visibility(visible_indexes)?;
+
+        self.explain_execution_verbose_from_plan(&plan)
+    }
+
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
@@ -343,9 +395,7 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-
-        self.explain_execution_descriptor_from_plan(&plan)
+        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
     }
 
     // Explain one load execution shape through the structural query core.
@@ -353,48 +403,14 @@ impl StructuralQuery {
     pub(in crate::db) fn explain_execution(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.build_plan_for_visibility(None)?;
-
-        self.explain_execution_descriptor_from_plan(&plan)
-    }
-
-    // Render one deterministic scalar load execution tree through the shared
-    // structural descriptor path.
-    pub(in crate::db) fn explain_execution_text(&self) -> Result<String, QueryError> {
-        Ok(self.explain_execution()?.render_text_tree())
-    }
-
-    pub(in crate::db) fn explain_execution_text_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError> {
-        Ok(self
-            .explain_execution_with_visible_indexes(visible_indexes)?
-            .render_text_tree())
-    }
-
-    // Render one canonical scalar load execution JSON payload through the shared
-    // structural descriptor path.
-    pub(in crate::db) fn explain_execution_json(&self) -> Result<String, QueryError> {
-        Ok(self.explain_execution()?.render_json_canonical())
-    }
-
-    pub(in crate::db) fn explain_execution_json_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError> {
-        Ok(self
-            .explain_execution_with_visible_indexes(visible_indexes)?
-            .render_json_canonical())
+        self.explain_execution_descriptor_for_visibility(None)
     }
 
     // Render one verbose scalar load execution payload through the shared
     // structural descriptor and route-diagnostics paths.
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
-        let plan = self.build_plan_for_visibility(None)?;
-
-        self.explain_execution_verbose_from_plan(&plan)
+        self.explain_execution_verbose_for_visibility(None)
     }
 
     #[inline(never)]
@@ -402,9 +418,7 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-
-        self.explain_execution_verbose_from_plan(&plan)
+        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
     }
 
     #[inline(never)]
@@ -902,12 +916,61 @@ impl<E: EntityKind> Query<E> {
         Ok(plan.fingerprint().to_string())
     }
 
+    // Resolve the structural execution descriptor through either the default
+    // schema-owned visibility lane or one caller-provided visible-index slice.
+    fn explain_execution_descriptor_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        match visible_indexes {
+            Some(visible_indexes) => self
+                .inner
+                .explain_execution_with_visible_indexes(visible_indexes),
+            None => self.inner.explain_execution(),
+        }
+    }
+
+    // Render one descriptor-derived execution surface after resolving the
+    // visibility slice once at the typed query boundary.
+    fn render_execution_descriptor_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+        render: impl FnOnce(ExplainExecutionNodeDescriptor) -> String,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        let descriptor = self.explain_execution_descriptor_for_visibility(visible_indexes)?;
+
+        Ok(render(descriptor))
+    }
+
+    // Render one verbose execution explain payload after choosing the
+    // appropriate structural visibility lane once.
+    fn explain_execution_verbose_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        match visible_indexes {
+            Some(visible_indexes) => self
+                .inner
+                .explain_execution_verbose_with_visible_indexes(visible_indexes),
+            None => self.inner.explain_execution_verbose(),
+        }
+    }
+
     /// Explain executor-selected load execution shape without running it.
     pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
     {
-        self.inner.explain_execution()
+        self.explain_execution_descriptor_for_visibility(None)
     }
 
     pub(in crate::db) fn explain_execution_with_visible_indexes(
@@ -917,8 +980,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .explain_execution_with_visible_indexes(visible_indexes)
+        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
     }
 
     /// Explain executor-selected load execution shape as deterministic text.
@@ -926,7 +988,9 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner.explain_execution_text()
+        self.render_execution_descriptor_for_visibility(None, |descriptor| {
+            descriptor.render_text_tree()
+        })
     }
 
     pub(in crate::db) fn explain_execution_text_with_visible_indexes(
@@ -936,8 +1000,9 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .explain_execution_text_with_visible_indexes(visible_indexes)
+        self.render_execution_descriptor_for_visibility(Some(visible_indexes), |descriptor| {
+            descriptor.render_text_tree()
+        })
     }
 
     /// Explain executor-selected load execution shape as canonical JSON.
@@ -945,7 +1010,9 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner.explain_execution_json()
+        self.render_execution_descriptor_for_visibility(None, |descriptor| {
+            descriptor.render_json_canonical()
+        })
     }
 
     pub(in crate::db) fn explain_execution_json_with_visible_indexes(
@@ -955,8 +1022,9 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .explain_execution_json_with_visible_indexes(visible_indexes)
+        self.render_execution_descriptor_for_visibility(Some(visible_indexes), |descriptor| {
+            descriptor.render_json_canonical()
+        })
     }
 
     /// Explain executor-selected load execution shape with route diagnostics.
@@ -965,7 +1033,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner.explain_execution_verbose()
+        self.explain_execution_verbose_for_visibility(None)
     }
 
     // Build one aggregate-terminal explain payload without executing the query.
@@ -996,8 +1064,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .explain_execution_verbose_with_visible_indexes(visible_indexes)
+        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
     }
 
     pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(

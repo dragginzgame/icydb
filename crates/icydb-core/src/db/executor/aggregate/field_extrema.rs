@@ -19,8 +19,8 @@ use crate::{
                 },
             },
             pipeline::contracts::{
-                ExecutionInputs, ExecutionOutputOptions, ExecutionRuntimeAdapter,
-                PreparedExecutionProjection, ProjectionMaterializationMode,
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
+                ProjectionMaterializationMode,
             },
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
@@ -271,7 +271,7 @@ impl ExecutionKernel {
             &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             PreparedExecutionProjection::empty(),
-            ExecutionOutputOptions::new(false),
+            false,
         );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,

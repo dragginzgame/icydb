@@ -437,49 +437,139 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     // Phase 1: emit top-level entity identity metadata.
     lines.push(format!("entity: {}", description.entity_name()));
     lines.push(format!("path: {}", description.entity_path()));
-    lines.push(format!("primary_key: {}", description.primary_key()));
 
-    // Phase 2: emit field descriptors in stable model order.
+    // Phase 2: emit field descriptors in stable model order using the same
+    // padded ASCII table shape as shell query results.
+    lines.push(String::new());
     lines.push("fields:".to_string());
-    for field in description.fields() {
-        lines.push(format!(
-            "  - {}: {} (primary_key={}, queryable={})",
-            field.name(),
-            field.kind(),
-            field.primary_key(),
-            field.queryable(),
-        ));
+    let headers = vec![
+        "name".to_string(),
+        "type".to_string(),
+        "pk".to_string(),
+        "queryable".to_string(),
+    ];
+    let field_rows = description
+        .fields()
+        .iter()
+        .map(|field| {
+            vec![
+                field.name().to_string(),
+                field.kind().to_string(),
+                if field.primary_key() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
+                if field.queryable() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
+    for row in &field_rows {
+        for (index, value) in row.iter().enumerate() {
+            widths[index] = widths[index].max(value.len());
+        }
+    }
+    let separator = render_table_separator(widths.as_slice());
+    lines.push(separator.clone());
+    lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
+    lines.push(separator.clone());
+    for row in &field_rows {
+        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
+    }
+    if !field_rows.is_empty() {
+        lines.push(separator);
     }
 
     // Phase 3: emit index descriptors or explicit empty marker.
     if description.indexes().is_empty() {
+        lines.push(String::new());
         lines.push("indexes: []".to_string());
     } else {
+        lines.push(String::new());
         lines.push("indexes:".to_string());
-        for index in description.indexes() {
-            let unique = if index.unique() { ", unique" } else { "" };
-            lines.push(format!(
-                "  - {}({}){}",
-                index.name(),
-                index.fields().join(", "),
-                unique,
-            ));
+        let headers = vec![
+            "name".to_string(),
+            "fields".to_string(),
+            "unique".to_string(),
+        ];
+        let index_rows = description
+            .indexes()
+            .iter()
+            .map(|index| {
+                vec![
+                    index.name().to_string(),
+                    index.fields().join(", "),
+                    if index.unique() {
+                        "yes".to_string()
+                    } else {
+                        "no".to_string()
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
+        let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
+        for row in &index_rows {
+            for (index, value) in row.iter().enumerate() {
+                widths[index] = widths[index].max(value.len());
+            }
+        }
+        let separator = render_table_separator(widths.as_slice());
+        lines.push(separator.clone());
+        lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
+        lines.push(separator.clone());
+        for row in &index_rows {
+            lines.push(render_table_row(row.as_slice(), widths.as_slice()));
+        }
+        if !index_rows.is_empty() {
+            lines.push(separator);
         }
     }
 
     // Phase 4: emit relation descriptors or explicit empty marker.
     if description.relations().is_empty() {
+        lines.push(String::new());
         lines.push("relations: []".to_string());
     } else {
+        lines.push(String::new());
         lines.push("relations:".to_string());
-        for relation in description.relations() {
-            lines.push(format!(
-                "  - {} -> {} ({:?}, {:?})",
-                relation.field(),
-                relation.target_entity_name(),
-                relation.strength(),
-                relation.cardinality(),
-            ));
+        let headers = vec![
+            "field".to_string(),
+            "target".to_string(),
+            "strength".to_string(),
+            "cardinality".to_string(),
+        ];
+        let relation_rows = description
+            .relations()
+            .iter()
+            .map(|relation| {
+                vec![
+                    relation.field().to_string(),
+                    relation.target_entity_name().to_string(),
+                    format!("{:?}", relation.strength()),
+                    format!("{:?}", relation.cardinality()),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
+        for row in &relation_rows {
+            for (index, value) in row.iter().enumerate() {
+                widths[index] = widths[index].max(value.len());
+            }
+        }
+        let separator = render_table_separator(widths.as_slice());
+        lines.push(separator.clone());
+        lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
+        lines.push(separator.clone());
+        for row in &relation_rows {
+            lines.push(render_table_row(row.as_slice(), widths.as_slice()));
+        }
+        if !relation_rows.is_empty() {
+            lines.push(separator);
         }
     }
 
@@ -771,15 +861,29 @@ mod tests {
             vec![
                 "entity: ExampleEntity".to_string(),
                 "path: schema.public.ExampleEntity".to_string(),
-                "primary_key: id".to_string(),
+                String::new(),
                 "fields:".to_string(),
-                "  - id: Ulid (primary_key=true, queryable=true)".to_string(),
-                "  - name: Text (primary_key=false, queryable=true)".to_string(),
+                "+------+------+-----+-----------+".to_string(),
+                "| name | type | pk  | queryable |".to_string(),
+                "+------+------+-----+-----------+".to_string(),
+                "| id   | Ulid | yes | yes       |".to_string(),
+                "| name | Text | no  | yes       |".to_string(),
+                "+------+------+-----+-----------+".to_string(),
+                String::new(),
                 "indexes:".to_string(),
-                "  - example_entity_name_idx(name)".to_string(),
-                "  - example_entity_pk(id), unique".to_string(),
+                "+-------------------------+--------+--------+".to_string(),
+                "| name                    | fields | unique |".to_string(),
+                "+-------------------------+--------+--------+".to_string(),
+                "| example_entity_name_idx | name   | no     |".to_string(),
+                "| example_entity_pk       | id     | yes    |".to_string(),
+                "+-------------------------+--------+--------+".to_string(),
+                String::new(),
                 "relations:".to_string(),
-                "  - mentor_id -> User (Strong, Single)".to_string(),
+                "+-----------+--------+----------+-------------+".to_string(),
+                "| field     | target | strength | cardinality |".to_string(),
+                "+-----------+--------+----------+-------------+".to_string(),
+                "| mentor_id | User   | Strong   | Single      |".to_string(),
+                "+-----------+--------+----------+-------------+".to_string(),
             ],
             "describe shell output must remain contract-stable across release lines",
         );
