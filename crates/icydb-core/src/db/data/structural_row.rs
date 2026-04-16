@@ -285,13 +285,16 @@ fn decode_row_field_spans(
     Ok((payload, spans))
 }
 
+type SparseRequiredRowFieldSpans<'a> =
+    Result<(Cow<'a, [u8]>, (usize, usize), (usize, usize)), StructuralRowDecodeError>;
+
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
 fn decode_sparse_required_row_field_spans(
     payload: Cow<'_, [u8]>,
     contract: StructuralRowContract,
     required_slot: usize,
-) -> Result<(Cow<'_, [u8]>, (usize, usize), (usize, usize)), StructuralRowDecodeError> {
+) -> SparseRequiredRowFieldSpans<'_> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
         .get(..2)

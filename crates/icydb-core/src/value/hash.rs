@@ -33,6 +33,16 @@ fn feed_u8(h: &mut Xxh3, x: u8) {
 fn feed_u32(h: &mut Xxh3, x: u32) {
     h.update(&x.to_be_bytes());
 }
+fn feed_len_u32(h: &mut Xxh3, len: usize) -> Result<(), InternalError> {
+    let len = u32::try_from(len).map_err(|_| {
+        InternalError::query_executor_invariant(
+            "canonical value hash length exceeded u32 framing capacity",
+        )
+    })?;
+    feed_u32(h, len);
+
+    Ok(())
+}
 fn feed_u64(h: &mut Xxh3, x: u64) {
     h.update(&x.to_be_bytes());
 }
@@ -124,7 +134,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         }
         Value::Blob(bytes) => {
             feed_u8(&mut hasher, 0x01);
-            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_len_u32(&mut hasher, bytes.len())?;
             feed_bytes(&mut hasher, bytes);
         }
         Value::Bool(value) => feed_u8(&mut hasher, u8::from(*value)),
@@ -136,19 +146,19 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Int128(value) => feed_i128(&mut hasher, value.get()),
         Value::IntBig(value) => {
             let bytes = value.to_leb128();
-            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_len_u32(&mut hasher, bytes.len())?;
             feed_bytes(&mut hasher, &bytes);
         }
         Value::Principal(value) => {
             let raw = value
                 .stored_bytes()
                 .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
-            feed_u32(&mut hasher, raw.len() as u32);
+            feed_len_u32(&mut hasher, raw.len())?;
             feed_bytes(&mut hasher, raw);
         }
         Value::Subaccount(value) => feed_bytes(&mut hasher, &value.to_bytes()),
         Value::Text(value) => {
-            feed_u32(&mut hasher, value.len() as u32);
+            feed_len_u32(&mut hasher, value.len())?;
             feed_bytes(&mut hasher, value.as_bytes());
         }
         Value::Timestamp(value) => feed_i64(&mut hasher, value.repr()),
@@ -156,7 +166,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Uint128(value) => feed_u128(&mut hasher, value.get()),
         Value::UintBig(value) => {
             let bytes = value.to_leb128();
-            feed_u32(&mut hasher, bytes.len() as u32);
+            feed_len_u32(&mut hasher, bytes.len())?;
             feed_bytes(&mut hasher, &bytes);
         }
         Value::Ulid(value) => feed_bytes(&mut hasher, &value.to_bytes()),

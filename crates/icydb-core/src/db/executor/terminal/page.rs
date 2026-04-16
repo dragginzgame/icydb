@@ -1217,7 +1217,6 @@ impl ResidualPredicateScanMode {
 }
 
 /// Materialize one ordered key stream into one execution payload.
-#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>(
     request: KernelPageMaterializationRequest<'a>,
     row_runtime: &mut ScalarRowRuntimeHandle<'a>,
@@ -1589,8 +1588,9 @@ fn resolve_direct_data_row_path<'a>(
                     },
                 )
             }
-            ResidualPredicateScanMode::DeferredPostAccess => None,
-            _ => None,
+            ResidualPredicateScanMode::Absent | ResidualPredicateScanMode::DeferredPostAccess => {
+                None
+            }
         });
     }
 
@@ -1722,6 +1722,8 @@ fn resolve_post_access_strategy<'a>(
 
 // Execute one already-resolved direct `DataRow` strategy through the shared
 // direct-lane scan and page-window shell.
+#[expect(clippy::too_many_arguments)]
+#[expect(clippy::too_many_lines)]
 fn execute_direct_data_row_path(
     plan: &AccessPlannedQuery,
     key_stream: &mut dyn OrderedKeyStream,
@@ -2551,6 +2553,7 @@ fn scan_materialized_order_direct_data_rows(
 // Run one direct data-row scan through the shared residual-predicate timing
 // contract so plain, filtered, and materialized-order raw lanes all choose
 // the same row reader in one place.
+#[expect(clippy::too_many_arguments)]
 fn scan_direct_data_rows_with_residual_policy(
     key_stream: &mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
@@ -2628,9 +2631,9 @@ fn scan_full_retained_rows_into_kernel(
 fn scan_full_retained_rows_into_kernel_with_reader(
     key_stream: &mut dyn OrderedKeyStream,
     row_keep_cap: Option<usize>,
-    mut read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, row_keep_cap, |key| read_row(key))
+    scan_kernel_rows_with(key_stream, row_keep_cap, read_row)
 }
 
 // Scan keys into retained full structural rows while applying the residual
@@ -2672,9 +2675,9 @@ fn scan_slot_rows_into_kernel(
 fn scan_slot_rows_into_kernel_with_reader(
     key_stream: &mut dyn OrderedKeyStream,
     row_keep_cap: Option<usize>,
-    mut read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
-    scan_kernel_rows_with(key_stream, row_keep_cap, |key| read_row(key))
+    scan_kernel_rows_with(key_stream, row_keep_cap, read_row)
 }
 
 // Scan keys into compact slot-only rows while applying the residual predicate
