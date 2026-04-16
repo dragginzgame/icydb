@@ -170,6 +170,7 @@ fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldM
     feature = "structural-read-metrics",
     feature = "perf-attribution"
 ))]
+#[allow(dead_code)]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {
