@@ -181,22 +181,8 @@ fn evaluate_starts_with_range_compare_candidate(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::TextCasefold
-    ) {
-        return Err(AccessChoiceRejectedReason::NonStrictCoercion);
-    }
-    let Some(leading_key_item) = leading_index_key_item(index) else {
-        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
-    };
-    if matches!(leading_key_item, IndexKeyItem::Expression(_))
-        && cmp.coercion.id == CoercionId::Strict
-    {
-        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-    }
-
-    let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+    let (leading_key_item, literal_compatible) =
+        prepare_single_range_compare_context(index, schema, cmp)?;
 
     if starts_with_lookup_value_for_key_item(
         leading_key_item,
@@ -210,12 +196,12 @@ fn evaluate_starts_with_range_compare_candidate(
         return Ok(());
     }
 
-    if !key_item_matches_field_and_coercion(leading_key_item, cmp.field.as_str(), cmp.coercion.id) {
-        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
-    }
-    if !literal_compatible {
-        return Err(AccessChoiceRejectedReason::LiteralIncompatible);
-    }
+    ensure_leading_lookup_match(
+        leading_key_item,
+        cmp.field.as_str(),
+        cmp.coercion.id,
+        literal_compatible,
+    )?;
 
     Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid)
 }
@@ -225,21 +211,8 @@ fn evaluate_ordered_range_compare_candidate(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::TextCasefold
-    ) {
-        return Err(AccessChoiceRejectedReason::NonStrictCoercion);
-    }
-    let Some(leading_key_item) = leading_index_key_item(index) else {
-        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
-    };
-    if matches!(leading_key_item, IndexKeyItem::Expression(_))
-        && cmp.coercion.id == CoercionId::Strict
-    {
-        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-    }
-    let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+    let (leading_key_item, literal_compatible) =
+        prepare_single_range_compare_context(index, schema, cmp)?;
 
     if eq_lookup_value_for_key_item(
         leading_key_item,
@@ -250,16 +223,12 @@ fn evaluate_ordered_range_compare_candidate(
     )
     .is_none()
     {
-        if !key_item_matches_field_and_coercion(
+        ensure_leading_lookup_match(
             leading_key_item,
             cmp.field.as_str(),
             cmp.coercion.id,
-        ) {
-            return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
-        }
-        if !literal_compatible {
-            return Err(AccessChoiceRejectedReason::LiteralIncompatible);
-        }
+            literal_compatible,
+        )?;
 
         return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
@@ -285,6 +254,55 @@ fn evaluate_ordered_range_compare_candidate(
 
     if index_key_item_count(index) != 1 {
         return Err(AccessChoiceRejectedReason::SingleFieldRangeRequired);
+    }
+
+    Ok(())
+}
+
+// Prepare the shared single-clause range evaluation context once so starts-with
+// and ordered range candidates keep the same coercion, leading-key, and
+// literal-compatibility gates before they diverge on operator-specific checks.
+fn prepare_single_range_compare_context(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> Result<(IndexKeyItem, bool), AccessChoiceRejectedReason> {
+    if !matches!(
+        cmp.coercion.id,
+        CoercionId::Strict | CoercionId::TextCasefold
+    ) {
+        return Err(AccessChoiceRejectedReason::NonStrictCoercion);
+    }
+
+    let Some(leading_key_item) = leading_index_key_item(index) else {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    };
+    if matches!(leading_key_item, IndexKeyItem::Expression(_))
+        && cmp.coercion.id == CoercionId::Strict
+    {
+        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+    }
+
+    Ok((
+        leading_key_item,
+        index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
+    ))
+}
+
+// Validate the shared leading-key and literal gates after one operator-specific
+// lookup attempt failed so the caller can return its own final operator reason
+// without duplicating the mismatch checks.
+fn ensure_leading_lookup_match(
+    leading_key_item: IndexKeyItem,
+    field: &str,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> Result<(), AccessChoiceRejectedReason> {
+    if !key_item_matches_field_and_coercion(leading_key_item, field, coercion) {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    }
+    if !literal_compatible {
+        return Err(AccessChoiceRejectedReason::LiteralIncompatible);
     }
 
     Ok(())

@@ -156,7 +156,7 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
     }
 
     let execution_preparation =
-        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+        ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
     let strict_predicate_compatible = covering_strict_predicate_compatible(
         plan,
         execution_preparation

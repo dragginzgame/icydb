@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `minimal` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-04/2026-04-03/wasm-footprint.md`
-- code snapshot identifier: `b93b44407`
+- code snapshot identifier: `ab418057d`
 - method tag/version: `WASM-1.0`
 - comparability status: `comparable`
 
@@ -24,10 +24,10 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| dfx-built `.wasm` | 779,081 | 710,014 | -69,067 |
-| dfx-built deterministic `.wasm.gz` | 273,045 | 249,544 | -23,501 |
-| dfx-shrunk `.wasm` | 722,820 | 659,919 | -62,901 |
-| dfx-shrunk `.wasm.gz` | 256,632 | 234,526 | -22,106 |
+| dfx-built `.wasm` | 779,081 | 709,693 | -69,388 |
+| dfx-built deterministic `.wasm.gz` | 273,045 | 248,863 | -24,182 |
+| dfx-shrunk `.wasm` | 722,820 | 659,648 | -63,172 |
+| dfx-shrunk `.wasm.gz` | 256,632 | 234,463 | -22,169 |
 
 ## Structural Snapshot (ic-wasm)
 
@@ -58,16 +58,16 @@ PASS=5, PARTIAL=0, FAIL=0
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | export "canister_query icydb_snapshot" | 160,263 | 24.29% |
-| 2 | code[1872] | 160,230 | 24.28% |
-| 3 | code[12] | 160,221 | 24.28% |
-| 4 | code[0] | 154,298 | 23.38% |
-| 5 | table[0] | 108,326 | 16.42% |
-| 6 | elem[0] | 108,320 | 16.41% |
+| 1 | export "canister_query icydb_snapshot" | 160,072 | 24.27% |
+| 2 | code[1872] | 160,039 | 24.26% |
+| 3 | code[12] | 160,030 | 24.26% |
+| 4 | code[0] | 154,107 | 23.36% |
+| 5 | table[0] | 108,246 | 16.41% |
+| 6 | elem[0] | 108,240 | 16.41% |
 | 7 | data[0] | 102,130 | 15.48% |
 | 8 | export "canister_query icydb_metrics" | 89,725 | 13.60% |
-| 9 | code[1871] | 89,693 | 13.59% |
-| 10 | code[2] | 89,684 | 13.59% |
+| 9 | code[1871] | 89,693 | 13.60% |
+| 10 | code[2] | 89,684 | 13.60% |
 
 ## Artifacts
 

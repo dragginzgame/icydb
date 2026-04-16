@@ -68,6 +68,30 @@ impl ExecutionPreparation {
         )
     }
 
+    /// Build the lighter planner preparation needed by scalar covering-route
+    /// admission during load route derivation.
+    ///
+    /// This path keeps the execution-preparation predicate view plus the
+    /// indexability capability snapshot used by covering-read eligibility, but
+    /// it intentionally skips strict/conservative index predicate program
+    /// compilation because scalar load route planning does not consume them.
+    #[must_use]
+    pub(in crate::db::executor) fn from_covering_route_plan(
+        plan: &AccessPlannedQuery,
+        slot_map: Option<Vec<usize>>,
+    ) -> Self {
+        Self::build(
+            plan,
+            slot_map,
+            PreparationBuildConfig {
+                predicate_source: PreparationPredicateSource::ExecutionPreparation,
+                include_predicate_capability_profile: true,
+                strict_policy: None,
+                conservative_policy: None,
+            },
+        )
+    }
+
     /// Build the lighter runtime execution preparation needed by shared scalar
     /// load execution.
     ///

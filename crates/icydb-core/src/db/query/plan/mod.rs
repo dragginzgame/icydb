@@ -26,9 +26,7 @@ pub(crate) mod validate;
 
 use crate::{db::Predicate, model::index::IndexModel};
 
-pub(in crate::db) use access_choice::{
-    AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot_with_indexes,
-};
+pub(in crate::db) use access_choice::AccessChoiceExplainSnapshot;
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
     ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource, StaticPlanningShape,

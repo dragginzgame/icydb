@@ -10,6 +10,7 @@ use crate::db::{
         AccessChoiceExplainSnapshot, GroupHavingSpec, GroupPlan, GroupSpec,
         GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
         PlannerRouteProfile,
+        access_choice::project_access_choice_explain_snapshot_with_indexes,
         expr::{
             ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
             extend_scalar_projection_referenced_slots,
@@ -17,7 +18,11 @@ use crate::db::{
         model::OrderDirection,
     },
 };
-use crate::{traits::FieldValue, value::Value};
+use crate::{
+    model::{entity::EntityModel, index::IndexModel},
+    traits::FieldValue,
+    value::Value,
+};
 
 #[cfg(test)]
 use crate::db::{
@@ -288,9 +293,15 @@ impl AccessPlannedQuery {
         &self.access_choice
     }
 
-    /// Attach one planner-owned access-choice diagnostics snapshot.
-    pub(in crate::db) fn set_access_choice(&mut self, access_choice: AccessChoiceExplainSnapshot) {
-        self.access_choice = access_choice;
+    /// Freeze one explain-only access-choice snapshot for the caller-visible
+    /// index slice after normal planning has already selected the winner.
+    pub(in crate::db) fn finalize_access_choice_for_model_with_indexes(
+        &mut self,
+        model: &EntityModel,
+        visible_indexes: &[&'static IndexModel],
+    ) {
+        self.access_choice =
+            project_access_choice_explain_snapshot_with_indexes(model, visible_indexes, self);
     }
 
     /// Borrow the frozen planner-owned route profile.

@@ -82,12 +82,8 @@ fn evaluate_order_only_range_candidate(
     model: &EntityModel,
     order: Option<&OrderSpec>,
 ) -> CandidateEvaluation {
-    CandidateEvaluation::Eligible(crate::db::query::plan::planner::AccessCandidateScore::new(
-        0,
-        false,
-        crate::db::query::plan::planner::candidate_satisfies_secondary_order(
-            model, order, index, 0,
-        ),
+    CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
+        model, order, index, 0, false,
     ))
 }
 
@@ -98,18 +94,34 @@ fn augment_candidate_with_order_compatibility(
     index: &IndexModel,
 ) -> CandidateEvaluation {
     match evaluation {
-        CandidateEvaluation::Eligible(score) => CandidateEvaluation::Eligible(
-            crate::db::query::plan::planner::AccessCandidateScore::new(
+        CandidateEvaluation::Eligible(score) => {
+            CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
+                model,
+                order,
+                index,
                 score.prefix_len,
                 score.exact,
-                crate::db::query::plan::planner::candidate_satisfies_secondary_order(
-                    model,
-                    order,
-                    index,
-                    score.prefix_len,
-                ),
-            ),
-        ),
+            ))
+        }
         CandidateEvaluation::Rejected(reason) => CandidateEvaluation::Rejected(reason),
     }
+}
+
+// Rebuild one candidate score with secondary-order compatibility projected
+// from the visible order contract so order-only fallback and normal eligible
+// candidate augmentation stay on the same scoring path.
+fn candidate_score_with_order_compatibility(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+    prefix_len: usize,
+    exact: bool,
+) -> crate::db::query::plan::planner::AccessCandidateScore {
+    crate::db::query::plan::planner::AccessCandidateScore::new(
+        prefix_len,
+        exact,
+        crate::db::query::plan::planner::candidate_satisfies_secondary_order(
+            model, order, index, prefix_len,
+        ),
+    )
 }

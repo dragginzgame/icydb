@@ -2,13 +2,13 @@
 
 | Artifact | Bytes |
 | --- | ---: |
-| dfx-built `.wasm` | 940948 |
-| dfx-built deterministic `.wasm.gz` | 330398 |
+| dfx-built `.wasm` | 935150 |
+| dfx-built deterministic `.wasm.gz` | 327580 |
 | candid export | available |
-| dfx-shrunk `.wasm` (canonical) | 878105 |
-| dfx-shrunk `.wasm.gz` (canonical) | 314279 |
-| Shrink delta `.wasm` | 62843 |
-| Shrink delta `.wasm.gz` | 16119 |
+| dfx-shrunk `.wasm` (canonical) | 872665 |
+| dfx-shrunk `.wasm.gz` (canonical) | 311648 |
+| Shrink delta `.wasm` | 62485 |
+| Shrink delta `.wasm.gz` | 15932 |
 
 SQL variant: `sql-on`
 

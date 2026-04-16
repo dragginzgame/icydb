@@ -345,6 +345,22 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
+    // Resolve one cached structural plan for the typed entity and then
+    // project it into one caller-owned wrapper so planned vs compiled session
+    // surfaces do not each duplicate the same cache lookup and entity wiring.
+    fn map_cached_structural_plan_for_entity<E, T>(
+        &self,
+        query: &StructuralQuery,
+        map: impl FnOnce(AccessPlannedQuery) -> T,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let plan = self.cached_structural_plan_for_entity::<E>(query)?;
+
+        Ok(map(plan))
+    }
+
     pub(in crate::db::session) fn cached_prepared_query_plan_for_entity<E>(
         &self,
         query: &StructuralQuery,
@@ -370,9 +386,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let plan = self.cached_structural_plan_for_entity::<E>(query.structural())?;
-
-        Ok(Query::<E>::compiled_query_from_plan(plan))
+        self.map_cached_structural_plan_for_entity::<E, _>(
+            query.structural(),
+            Query::<E>::compiled_query_from_plan,
+        )
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -384,9 +401,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let plan = self.cached_structural_plan_for_entity::<E>(query.structural())?;
-
-        Ok(Query::<E>::planned_query_from_plan(plan))
+        self.map_cached_structural_plan_for_entity::<E, _>(
+            query.structural(),
+            Query::<E>::planned_query_from_plan,
+        )
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -427,34 +445,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
             query.explain_execution_with_visible_indexes(visible_indexes)
-        })
-    }
-
-    // Render one load execution descriptor as deterministic text using
-    // only planner-visible indexes from the recovered store state.
-    pub(in crate::db) fn explain_query_execution_text_with_visible_indexes<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue + EntityKind<Canister = C>,
-    {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_execution_text_with_visible_indexes(visible_indexes)
-        })
-    }
-
-    // Render one load execution descriptor as canonical JSON using
-    // only planner-visible indexes from the recovered store state.
-    pub(in crate::db) fn explain_query_execution_json_with_visible_indexes<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue + EntityKind<Canister = C>,
-    {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_execution_json_with_visible_indexes(visible_indexes)
         })
     }
 

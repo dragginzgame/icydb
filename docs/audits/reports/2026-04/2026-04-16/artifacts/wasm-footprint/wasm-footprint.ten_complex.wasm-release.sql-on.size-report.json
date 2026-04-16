@@ -1,34 +1,34 @@
 {
-  "canister": "ten_simple",
+  "canister": "ten_complex",
   "profile": "wasm-release",
   "sql_variant": "sql-on",
   "artifacts": {
     "did": {
-      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.did",
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.did",
       "bytes": 3056,
       "sha256": "1cee34b34d0937156e88557aec65bdd63b4e09952be31231539af60d1068bdf0"
     },
     "candid_export": "available",
     "dfx_built_wasm": {
-      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.dfx-built.wasm",
-      "bytes": 951725,
-      "sha256": "af42bfeb71455802c30941c5bdfe089b99ed944e237bea143804154a011b3a1a"
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.dfx-built.wasm",
+      "bytes": 952699,
+      "sha256": "208b300e977b0471a017f11dad9060a51954a2853b2d5df90e3e5923c02d6f5a"
     },
     "dfx_built_wasm_gz_deterministic": {
-      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.dfx-built.wasm.gz",
-      "bytes": 329226,
-      "sha256": "2288a5514cf9d17c38f04f354fc97fa6ca2cdc0c46c6cb42cf24c69b7d0d34a3"
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.dfx-built.wasm.gz",
+      "bytes": 329512,
+      "sha256": "2411aea302e0c9992fa41d02f7accfc8100da8db937cb3c847f088a1e86d02a9"
     },
     "dfx_built_wasm_gz_emitted": null,
     "dfx_shrunk_wasm": {
-      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.dfx-shrunk.wasm",
-      "bytes": 887923,
-      "sha256": "ca8578504fbd518c4915bedba3e0ed980606d86bd69d21074dd28ce7de78af5d"
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.dfx-shrunk.wasm",
+      "bytes": 888897,
+      "sha256": "13f9d2c89a577910c05f53ccd7b6ea88d76191ea42a6534a7d656c98546f6132"
     },
     "dfx_shrunk_wasm_gz": {
-      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_simple.wasm-release.dfx-shrunk.wasm.gz",
-      "bytes": 313001,
-      "sha256": "abff0b4460005588ae2c3bbfc46d14039456146d3ed82c794e4b02148439a249"
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/ten_complex.wasm-release.dfx-shrunk.wasm.gz",
+      "bytes": 313253,
+      "sha256": "5b4b116efa7631d45e054a8d9cec6f50a42ef02bc21f033597f7371527f98776"
     }
   },
   "analysis": {
@@ -36,7 +36,7 @@
       "function_count": 2306,
       "callback_count": 1,
       "data_section_count": 2,
-      "data_section_bytes": 134904,
+      "data_section_bytes": 135928,
       "exported_method_count": 6,
       "exported_methods": [
         "canister_query icydb_metrics (func_2300)",
@@ -51,7 +51,7 @@
       "function_count": 2306,
       "callback_count": 1,
       "data_section_count": 2,
-      "data_section_bytes": 134904,
+      "data_section_bytes": 135928,
       "exported_method_count": 6,
       "exported_methods": [
         "canister_query icydb_metrics (func_2293)",
@@ -65,6 +65,6 @@
   },
   "deltas": {
     "shrink_wasm_bytes": 63802,
-    "shrink_wasm_gz_bytes": 16225
+    "shrink_wasm_gz_bytes": 16259
   }
 }

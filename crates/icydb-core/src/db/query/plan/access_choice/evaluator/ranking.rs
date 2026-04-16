@@ -61,36 +61,14 @@ pub(in crate::db::query::plan::access_choice) fn chosen_selection_reason(
         return AccessChoiceSelectedReason::BestPrefixLen;
     }
 
-    if matches!(
+    AccessChoiceSelectedReason::Ranked(ranked_preference_reason(
         family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::MultiLookup
-    ) && chosen_score.exact
-        && eligible_other_scores
-            .iter()
-            .any(|score| score.prefix_len == chosen_score.prefix_len && !score.exact)
-    {
-        return AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::ExactMatchPreferred);
-    }
-
-    if matches!(
-        family,
-        AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
-    ) && chosen_score.order_compatible
-        && eligible_other_scores.iter().any(|score| {
-            score.prefix_len == chosen_score.prefix_len
-                && score.exact == chosen_score.exact
-                && !score.order_compatible
-        })
-    {
-        return AccessChoiceSelectedReason::Ranked(
-            AccessChoiceRankingReason::OrderCompatiblePreferred,
-        );
-    }
-
-    AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::LexicographicTiebreak)
+        chosen_score,
+        eligible_other_scores,
+    ))
 }
 
-pub(in crate::db::query::plan::access_choice) const fn ranked_rejection_reason(
+pub(in crate::db::query::plan::access_choice) fn ranked_rejection_reason(
     family: AccessChoiceFamily,
     candidate: CandidateScore,
     chosen: CandidateScore,
@@ -99,28 +77,40 @@ pub(in crate::db::query::plan::access_choice) const fn ranked_rejection_reason(
         return AccessChoiceRejectedReason::ShorterPrefix;
     }
 
+    AccessChoiceRejectedReason::Ranked(ranked_preference_reason(family, chosen, &[candidate]))
+}
+
+// Resolve the canonical ranking reason once from the winning candidate and
+// the competing same-prefix candidates so selected and rejected explain paths
+// do not re-encode the same tie-break policy separately.
+fn ranked_preference_reason(
+    family: AccessChoiceFamily,
+    chosen_score: CandidateScore,
+    competing_scores: &[CandidateScore],
+) -> AccessChoiceRankingReason {
     if matches!(
         family,
         AccessChoiceFamily::Prefix | AccessChoiceFamily::MultiLookup
-    ) && !candidate.exact
-        && chosen.exact
-        && candidate.prefix_len == chosen.prefix_len
+    ) && chosen_score.exact
+        && competing_scores
+            .iter()
+            .any(|score| score.prefix_len == chosen_score.prefix_len && !score.exact)
     {
-        return AccessChoiceRejectedReason::Ranked(AccessChoiceRankingReason::ExactMatchPreferred);
+        return AccessChoiceRankingReason::ExactMatchPreferred;
     }
 
     if matches!(
         family,
         AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
-    ) && !candidate.order_compatible
-        && chosen.order_compatible
-        && candidate.prefix_len == chosen.prefix_len
-        && candidate.exact == chosen.exact
+    ) && chosen_score.order_compatible
+        && competing_scores.iter().any(|score| {
+            score.prefix_len == chosen_score.prefix_len
+                && score.exact == chosen_score.exact
+                && !score.order_compatible
+        })
     {
-        return AccessChoiceRejectedReason::Ranked(
-            AccessChoiceRankingReason::OrderCompatiblePreferred,
-        );
+        return AccessChoiceRankingReason::OrderCompatiblePreferred;
     }
 
-    AccessChoiceRejectedReason::Ranked(AccessChoiceRankingReason::LexicographicTiebreak)
+    AccessChoiceRankingReason::LexicographicTiebreak
 }

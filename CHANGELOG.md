@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.83.x] 🧱 - 2026-04-15 - Serialization Boundary Cleanup
 
+- `0.83.5` finishes the last cold fluent compile cleanup by moving access-choice ranking behind the explain boundary, narrowing scalar load route preparation, and then trimming more executor, query, fluent, and access-choice wrapper duplication so the remaining `0.83` compile-path cleanup leaves less internal indirection behind.
 - `0.83.4` makes the local SQL shell easier to read by rendering `DESCRIBE` fields, indexes, and relations as padded ASCII tables, and it keeps trimming executor, query-cache, and explain-wrapper indirection so shared planning and runtime paths carry fewer redundant internal contracts.
 - `0.83.3` follows the binary cutover by removing ambient `Serialize` policy from core and schema generation, hardening the new structural binary owners with broader malformed-payload coverage, cleaning a few remaining query encode/decode redundancies, and tightening several type-local codecs so `Ulid`, `Date`, `Timestamp`, `Principal`, and `Account` use smaller or less allocation-heavy runtime byte paths.
 - `0.83.2` is the hard cut that replaces the last CBOR-shaped structural field contracts with engine-owned structural binary codecs, deletes the generic `serde_cbor` and `crate::serialize` layers from `icydb-core`, removes the final persisted-row CBOR semantics and stale CBOR naming, and tightens legacy `PersistedRow` so old-style derives must use explicit storage hints instead of silently falling back to CBOR.

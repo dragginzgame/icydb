@@ -72,6 +72,28 @@ where
         Ok(self)
     }
 
+    // Run one read-only session/query projection without mutating the fluent
+    // builder shell so diagnostic and planning surfaces share one handoff
+    // shape from the builder boundary into the session/query layer.
+    fn map_session_query_output<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError> {
+        map(self.session, self.query())
+    }
+
+    // Run one session/query projection after enforcing cursor-mode builder
+    // invariants so compiled and planned outputs do not each duplicate the
+    // same readiness check.
+    fn map_cursor_ready_query_output<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError> {
+        self.ensure_cursor_mode_ready()?;
+
+        self.map_session_query_output(map)
+    }
+
     // ------------------------------------------------------------------
     // Intent builders (pure)
     // ------------------------------------------------------------------
@@ -80,21 +102,19 @@ where
     ///
     /// `Id<E>` is treated as a plain query input value here. It does not grant access.
     #[must_use]
-    pub fn by_id(mut self, id: Id<E>) -> Self {
-        self.query = self.query.by_id(id.key());
-        self
+    pub fn by_id(self, id: Id<E>) -> Self {
+        self.map_query(|query| query.by_id(id.key()))
     }
 
     /// Set the access path to multiple typed primary-key values.
     ///
     /// IDs are public and may come from untrusted input sources.
     #[must_use]
-    pub fn by_ids<I>(mut self, ids: I) -> Self
+    pub fn by_ids<I>(self, ids: I) -> Self
     where
         I: IntoIterator<Item = Id<E>>,
     {
-        self.query = self.query.by_ids(ids.into_iter().map(|id| id.key()));
-        self
+        self.map_query(|query| query.by_ids(ids.into_iter().map(|id| id.key())))
     }
 
     // ------------------------------------------------------------------
@@ -205,35 +225,35 @@ where
 
     /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        self.session
-            .explain_query_with_visible_indexes(self.query())
+        self.map_session_query_output(|session, query| {
+            session.explain_query_with_visible_indexes(query)
+        })
     }
 
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        self.session
-            .query_plan_hash_hex_with_visible_indexes(self.query())
+        self.map_session_query_output(|session, query| {
+            session.query_plan_hash_hex_with_visible_indexes(query)
+        })
     }
 
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
-        self.session.trace_query(self.query())
+        self.map_session_query_output(|session, query| session.trace_query(query))
     }
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.ensure_cursor_mode_ready()?;
-
-        self.session
-            .planned_query_with_visible_indexes(self.query())
+        self.map_cursor_ready_query_output(|session, query| {
+            session.planned_query_with_visible_indexes(query)
+        })
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.ensure_cursor_mode_ready()?;
-
-        self.session
-            .compile_query_with_visible_indexes(self.query())
+        self.map_cursor_ready_query_output(|session, query| {
+            session.compile_query_with_visible_indexes(query)
+        })
     }
 }
 

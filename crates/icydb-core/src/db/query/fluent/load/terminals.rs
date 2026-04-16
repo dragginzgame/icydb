@@ -111,6 +111,40 @@ where
             .explain_query_prepared_projection_terminal_with_visible_indexes(self.query(), strategy)
     }
 
+    // Resolve the structural execution descriptor for this fluent load query
+    // through the session-owned visible-index explain path once.
+    fn explain_execution_descriptor(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session
+            .explain_query_execution_with_visible_indexes(self.query())
+    }
+
+    // Render one descriptor-derived execution surface so text/json explain
+    // terminals do not each forward the same session explain call ad hoc.
+    fn render_execution_descriptor(
+        &self,
+        render: impl FnOnce(ExplainExecutionNodeDescriptor) -> String,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        let descriptor = self.explain_execution_descriptor()?;
+
+        Ok(render(descriptor))
+    }
+
+    // Render one verbose execution explain payload through the same
+    // session-owned visible-index lane used by the other fluent explain forms.
+    fn explain_execution_verbose_text(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session
+            .explain_query_execution_verbose_with_visible_indexes(self.query())
+    }
+
     // Execute one prepared fluent scalar terminal through the canonical
     // non-paged fluent policy gate using the prepared runtime request as the
     // single execution source.
@@ -121,14 +155,7 @@ where
     where
         E: EntityValue,
     {
-        let runtime_request = strategy.into_runtime_request();
-
-        self.execute_scalar_non_paged_terminal(move |load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                scalar_terminal_boundary_request_from_prepared(runtime_request),
-            )
-        })
+        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
     }
 
     // Execute one prepared fluent existing-rows terminal through the
@@ -141,14 +168,7 @@ where
     where
         E: EntityValue,
     {
-        let runtime_request = strategy.into_runtime_request();
-
-        self.execute_scalar_non_paged_terminal(move |load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                existing_rows_terminal_boundary_request_from_prepared(runtime_request),
-            )
-        })
+        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
     }
 
     // Execute one prepared fluent numeric-field terminal through the canonical
@@ -164,11 +184,7 @@ where
         let (target_field, runtime_request) = strategy.into_runtime_parts();
 
         self.execute_scalar_non_paged_terminal(move |load, plan| {
-            load.execute_numeric_field_boundary(
-                plan,
-                target_field,
-                numeric_field_boundary_request_from_prepared(runtime_request),
-            )
+            load.execute_numeric_field_boundary(plan, target_field, runtime_request.into())
         })
     }
 
@@ -182,14 +198,7 @@ where
     where
         E: EntityValue,
     {
-        let runtime_request = strategy.into_runtime_request();
-
-        self.execute_scalar_non_paged_terminal(move |load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                order_sensitive_terminal_boundary_request_from_prepared(runtime_request),
-            )
-        })
+        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
     }
 
     // Execute one prepared fluent projection/distinct terminal through the
@@ -205,11 +214,23 @@ where
         let (target_field, runtime_request) = strategy.into_runtime_parts();
 
         self.execute_scalar_non_paged_terminal(move |load, plan| {
-            load.execute_scalar_projection_boundary(
-                plan,
-                target_field,
-                projection_boundary_request_from_prepared(runtime_request),
-            )
+            load.execute_scalar_projection_boundary(plan, target_field, runtime_request.into())
+        })
+    }
+
+    // Execute one already-lowered scalar terminal boundary request through
+    // the canonical non-paged fluent policy gate so terminal families that
+    // share the same scalar executor contract do not each rebuild it.
+    fn execute_scalar_terminal_boundary_output<R>(
+        &self,
+        runtime_request: R,
+    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
+    where
+        E: EntityValue,
+        R: Into<ScalarTerminalBoundaryRequest>,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_scalar_terminal_request(plan, runtime_request.into())
         })
     }
 
@@ -286,8 +307,7 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_with_visible_indexes(self.query())
+        self.explain_execution_descriptor()
     }
 
     /// Explain scalar load execution shape as deterministic text.
@@ -295,8 +315,7 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_text_with_visible_indexes(self.query())
+        self.render_execution_descriptor(|descriptor| descriptor.render_text_tree())
     }
 
     /// Explain scalar load execution shape as canonical JSON.
@@ -304,8 +323,7 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_json_with_visible_indexes(self.query())
+        self.render_execution_descriptor(|descriptor| descriptor.render_json_canonical())
     }
 
     /// Explain scalar load execution shape as verbose text with diagnostics.
@@ -313,8 +331,7 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_verbose_with_visible_indexes(self.query())
+        self.explain_execution_verbose_text()
     }
 
     /// Execute and return the number of matching rows.
@@ -1174,82 +1191,68 @@ where
     }
 }
 
-fn scalar_terminal_boundary_request_from_prepared(
-    request: PreparedFluentScalarTerminalRuntimeRequest,
-) -> ScalarTerminalBoundaryRequest {
-    match request {
-        PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
-            ScalarTerminalBoundaryRequest::IdTerminal { kind }
-        }
-        PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
-            ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
-        }
-    }
-}
-
-const fn existing_rows_terminal_boundary_request_from_prepared(
-    request: PreparedFluentExistingRowsTerminalRuntimeRequest,
-) -> ScalarTerminalBoundaryRequest {
-    match request {
-        PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => {
-            ScalarTerminalBoundaryRequest::Count
-        }
-        PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => {
-            ScalarTerminalBoundaryRequest::Exists
+impl From<PreparedFluentScalarTerminalRuntimeRequest> for ScalarTerminalBoundaryRequest {
+    fn from(value: PreparedFluentScalarTerminalRuntimeRequest) -> Self {
+        match value {
+            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
+                Self::IdTerminal { kind }
+            }
+            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
+                Self::IdBySlot { kind, target_field }
+            }
         }
     }
 }
 
-const fn numeric_field_boundary_request_from_prepared(
-    request: PreparedFluentNumericFieldRuntimeRequest,
-) -> ScalarNumericFieldBoundaryRequest {
-    match request {
-        PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
-        PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
-            ScalarNumericFieldBoundaryRequest::SumDistinct
-        }
-        PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
-        PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
-            ScalarNumericFieldBoundaryRequest::AvgDistinct
+impl From<PreparedFluentExistingRowsTerminalRuntimeRequest> for ScalarTerminalBoundaryRequest {
+    fn from(value: PreparedFluentExistingRowsTerminalRuntimeRequest) -> Self {
+        match value {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => Self::Count,
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => Self::Exists,
         }
     }
 }
 
-fn order_sensitive_terminal_boundary_request_from_prepared(
-    request: PreparedFluentOrderSensitiveTerminalRuntimeRequest,
-) -> ScalarTerminalBoundaryRequest {
-    match request {
-        PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
-            ScalarTerminalBoundaryRequest::IdTerminal { kind }
-        }
-        PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
-            ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth }
-        }
-        PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
-            ScalarTerminalBoundaryRequest::MedianBySlot { target_field }
-        }
-        PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
-            ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field }
+impl From<PreparedFluentNumericFieldRuntimeRequest> for ScalarNumericFieldBoundaryRequest {
+    fn from(value: PreparedFluentNumericFieldRuntimeRequest) -> Self {
+        match value {
+            PreparedFluentNumericFieldRuntimeRequest::Sum => Self::Sum,
+            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => Self::SumDistinct,
+            PreparedFluentNumericFieldRuntimeRequest::Avg => Self::Avg,
+            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => Self::AvgDistinct,
         }
     }
 }
 
-const fn projection_boundary_request_from_prepared(
-    request: PreparedFluentProjectionRuntimeRequest,
-) -> ScalarProjectionBoundaryRequest {
-    match request {
-        PreparedFluentProjectionRuntimeRequest::Values => ScalarProjectionBoundaryRequest::Values,
-        PreparedFluentProjectionRuntimeRequest::DistinctValues => {
-            ScalarProjectionBoundaryRequest::DistinctValues
+impl From<PreparedFluentOrderSensitiveTerminalRuntimeRequest> for ScalarTerminalBoundaryRequest {
+    fn from(value: PreparedFluentOrderSensitiveTerminalRuntimeRequest) -> Self {
+        match value {
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+                Self::IdTerminal { kind }
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
+                Self::NthBySlot { target_field, nth }
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
+                Self::MedianBySlot { target_field }
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
+                Self::MinMaxBySlot { target_field }
+            }
         }
-        PreparedFluentProjectionRuntimeRequest::CountDistinct => {
-            ScalarProjectionBoundaryRequest::CountDistinct
-        }
-        PreparedFluentProjectionRuntimeRequest::ValuesWithIds => {
-            ScalarProjectionBoundaryRequest::ValuesWithIds
-        }
-        PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => {
-            ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind }
+    }
+}
+
+impl From<PreparedFluentProjectionRuntimeRequest> for ScalarProjectionBoundaryRequest {
+    fn from(value: PreparedFluentProjectionRuntimeRequest) -> Self {
+        match value {
+            PreparedFluentProjectionRuntimeRequest::Values => Self::Values,
+            PreparedFluentProjectionRuntimeRequest::DistinctValues => Self::DistinctValues,
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => Self::CountDistinct,
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => Self::ValuesWithIds,
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => {
+                Self::TerminalValue { terminal_kind }
+            }
         }
     }
 }

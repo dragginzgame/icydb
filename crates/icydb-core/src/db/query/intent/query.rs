@@ -362,13 +362,29 @@ impl StructuralQuery {
         Ok(lines.join("\n"))
     }
 
+    // Freeze one explain-only access-choice snapshot from the effective
+    // planner-visible index slice before building descriptor diagnostics.
+    fn finalize_explain_access_choice_for_visibility(
+        &self,
+        plan: &mut AccessPlannedQuery,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) {
+        let visible_indexes = match visible_indexes {
+            Some(visible_indexes) => visible_indexes.as_slice(),
+            None => self.intent.model().indexes(),
+        };
+
+        plan.finalize_access_choice_for_model_with_indexes(self.intent.model(), visible_indexes);
+    }
+
     // Build one execution descriptor after resolving the caller-visible index
     // slice so text/json explain surfaces do not each duplicate plan assembly.
     fn explain_execution_descriptor_for_visibility(
         &self,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let plan = self.build_plan_for_visibility(visible_indexes)?;
+        let mut plan = self.build_plan_for_visibility(visible_indexes)?;
+        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
 
         self.explain_execution_descriptor_from_plan(&plan)
     }
@@ -379,7 +395,8 @@ impl StructuralQuery {
         &self,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<String, QueryError> {
-        let plan = self.build_plan_for_visibility(visible_indexes)?;
+        let mut plan = self.build_plan_for_visibility(visible_indexes)?;
+        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
 
         self.explain_execution_verbose_from_plan(&plan)
     }
@@ -713,6 +730,19 @@ impl<E: EntityKind> Query<E> {
         self.inner.build_plan_for_visibility(visible_indexes)
     }
 
+    // Build one structural plan for the requested visibility lane and then
+    // project it into one typed query-owned contract so planned vs compiled
+    // outputs do not each duplicate the same plan handoff shape.
+    fn map_plan_for_visibility<T>(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+        map: impl FnOnce(AccessPlannedQuery) -> T,
+    ) -> Result<T, QueryError> {
+        let plan = self.build_plan_for_visibility(visible_indexes)?;
+
+        Ok(map(plan))
+    }
+
     // Wrap one built plan as the typed planned-query DTO.
     pub(in crate::db) fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
         let _projection = plan.projection_spec(E::MODEL);
@@ -993,36 +1023,12 @@ impl<E: EntityKind> Query<E> {
         })
     }
 
-    pub(in crate::db) fn explain_execution_text_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.render_execution_descriptor_for_visibility(Some(visible_indexes), |descriptor| {
-            descriptor.render_text_tree()
-        })
-    }
-
     /// Explain executor-selected load execution shape as canonical JSON.
     pub fn explain_execution_json(&self) -> Result<String, QueryError>
     where
         E: EntityValue,
     {
         self.render_execution_descriptor_for_visibility(None, |descriptor| {
-            descriptor.render_json_canonical()
-        })
-    }
-
-    pub(in crate::db) fn explain_execution_json_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.render_execution_descriptor_for_visibility(Some(visible_indexes), |descriptor| {
             descriptor.render_json_canonical()
         })
     }
@@ -1153,27 +1159,21 @@ impl<E: EntityKind> Query<E> {
 
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        let plan = self.build_plan_for_visibility(None)?;
-
-        Ok(Self::planned_query_from_plan(plan))
+        self.map_plan_for_visibility(None, Self::planned_query_from_plan)
     }
 
     /// Compile this intent into query-owned handoff state.
     ///
     /// This boundary intentionally does not expose executor runtime shape.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        let plan = self.build_plan_for_visibility(None)?;
-
-        Ok(Self::compiled_query_from_plan(plan))
+        self.map_plan_for_visibility(None, Self::compiled_query_from_plan)
     }
 
     pub(in crate::db) fn plan_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<CompiledQuery<E>, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
-
-        Ok(Self::compiled_query_from_plan(plan))
+        self.map_plan_for_visibility(Some(visible_indexes), Self::compiled_query_from_plan)
     }
 }
 

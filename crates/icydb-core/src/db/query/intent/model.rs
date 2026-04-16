@@ -22,9 +22,8 @@ use crate::{
                 LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
                 expr::ProjectionSelection, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, project_access_choice_explain_snapshot_with_indexes,
-                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
-                validate_query_semantics,
+                predicate_is_constant_false, resolve_group_field_slot,
+                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -405,16 +404,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // planner-domain failures instead of executor invariant violations.
         plan.finalize_static_planning_shape_for_model(self.model)
             .map_err(QueryError::execute)?;
-
-        // Phase 7: freeze the access-choice explain snapshot after validation
-        // so downstream execution and explain surfaces reuse the exact planner
-        // winner metadata for the accepted plan.
-        let access_choice = project_access_choice_explain_snapshot_with_indexes(
-            self.model,
-            visible_indexes.as_slice(),
-            &plan,
-        );
-        plan.set_access_choice(access_choice);
 
         Ok(plan)
     }

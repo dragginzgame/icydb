@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-04/2026-04-03/wasm-footprint.md`
-- code snapshot identifier: `b93b44407`
+- code snapshot identifier: `ab418057d`
 - method tag/version: `WASM-1.0`
 - comparability status: `non-comparable (baseline report exists but baseline size artifact is missing)`
 
@@ -24,50 +24,50 @@ PASS=4, PARTIAL=1, FAIL=0
 
 | Metric | Previous | Current | Delta |
 | --- | ---: | ---: | ---: |
-| dfx-built `.wasm` | N/A | 940,948 | N/A |
-| dfx-built deterministic `.wasm.gz` | N/A | 330,398 | N/A |
-| dfx-shrunk `.wasm` | N/A | 878,105 | N/A |
-| dfx-shrunk `.wasm.gz` | N/A | 314,279 | N/A |
+| dfx-built `.wasm` | N/A | 935,150 | N/A |
+| dfx-built deterministic `.wasm.gz` | N/A | 327,580 | N/A |
+| dfx-shrunk `.wasm` | N/A | 872,665 | N/A |
+| dfx-shrunk `.wasm.gz` | N/A | 311,648 | N/A |
 
 ## Structural Snapshot (ic-wasm)
 
 | Metric | dfx-built | dfx-shrunk |
 | --- | ---: | ---: |
-| Function count | 2,291 | 2,291 |
+| Function count | 2,280 | 2,280 |
 | Callback count | 1 | 1 |
 | Data section count | 2 | 2 |
-| Data section bytes | 135,416 | 135,416 |
+| Data section bytes | 134,136 | 134,136 |
 | Exported methods | 6 | 6 |
 
 ## Twiggy Top Offenders (Shallow Size)
 
 | Rank | Item | Shallow Bytes | Shallow % |
 | ---: | --- | ---: | ---: |
-| 1 | data[0] | 135,266 | 15.40% |
-| 2 | code[0] | 26,812 | 3.05% |
-| 3 | code[1] | 23,074 | 2.63% |
-| 4 | code[2] | 16,910 | 1.93% |
-| 5 | code[3] | 14,882 | 1.69% |
-| 6 | code[4] | 12,633 | 1.44% |
+| 1 | data[0] | 133,986 | 15.35% |
+| 2 | code[0] | 26,812 | 3.07% |
+| 3 | code[1] | 23,040 | 2.64% |
+| 4 | code[2] | 16,910 | 1.94% |
+| 5 | code[3] | 14,882 | 1.71% |
+| 6 | code[4] | 12,554 | 1.44% |
 | 7 | code[5] | 9,457 | 1.08% |
-| 8 | code[6] | 6,775 | 0.77% |
-| 9 | code[7] | 5,490 | 0.63% |
-| 10 | code[8] | 5,473 | 0.62% |
+| 8 | code[6] | 5,490 | 0.63% |
+| 9 | code[7] | 5,473 | 0.63% |
+| 10 | code[9] | 5,430 | 0.62% |
 
 ## Twiggy Retained Hotspots
 
 | Rank | Item | Retained Bytes | Retained % |
 | ---: | --- | ---: | ---: |
-| 1 | table[0] | 291,977 | 33.25% |
-| 2 | elem[0] | 291,971 | 33.25% |
-| 3 | data[0] | 135,266 | 15.40% |
-| 4 | export "canister_query icydb_snapshot" | 99,433 | 11.32% |
-| 5 | code[2252] | 99,400 | 11.32% |
-| 6 | code[18] | 99,391 | 11.32% |
-| 7 | code[0] | 93,492 | 10.65% |
-| 8 | export "canister_query icydb_metrics" | 89,298 | 10.17% |
-| 9 | code[2251] | 89,266 | 10.17% |
-| 10 | code[3] | 89,257 | 10.16% |
+| 1 | table[0] | 288,006 | 33.00% |
+| 2 | elem[0] | 288,000 | 33.00% |
+| 3 | data[0] | 133,986 | 15.35% |
+| 4 | export "canister_query icydb_snapshot" | 99,433 | 11.39% |
+| 5 | code[2241] | 99,400 | 11.39% |
+| 6 | code[17] | 99,391 | 11.39% |
+| 7 | code[0] | 93,492 | 10.71% |
+| 8 | export "canister_query icydb_metrics" | 89,298 | 10.23% |
+| 9 | code[2240] | 89,266 | 10.23% |
+| 10 | code[3] | 89,257 | 10.23% |
 
 ## Artifacts
 

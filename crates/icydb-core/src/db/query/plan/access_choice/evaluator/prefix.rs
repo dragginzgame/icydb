@@ -36,11 +36,8 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> CandidateEvaluation {
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::TextCasefold
-    ) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
+    if let Err(reason) = ensure_lookup_coercion_supported(cmp.coercion.id) {
+        return CandidateEvaluation::Rejected(reason);
     }
     if cmp.op != CompareOp::Eq {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotPrefixEq);
@@ -48,7 +45,9 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
     if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
     }
-    let Some(leading_key_item) = leading_index_key_item(index) else {
+    let Ok(leading_key_item) =
+        resolve_leading_lookup_key_item(index, cmp.field.as_str(), cmp.coercion.id)
+    else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
     if eq_lookup_value_for_key_item(
@@ -63,11 +62,7 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     }
 
-    CandidateEvaluation::Eligible(CandidateScore {
-        prefix_len: 1,
-        exact: crate::db::query::plan::key_item_match::index_key_item_count(index) == 1,
-        order_compatible: false,
-    })
+    eligible_single_lookup_candidate(index)
 }
 
 fn evaluate_prefix_and_candidate(
@@ -210,21 +205,17 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate
             AccessChoiceRejectedReason::PredicateShapeNotMultiLookup,
         );
     };
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::TextCasefold
-    ) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
+    if let Err(reason) = ensure_lookup_coercion_supported(cmp.coercion.id) {
+        return CandidateEvaluation::Rejected(reason);
     }
     if cmp.op != CompareOp::In {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotMultiLookupIn);
     }
-    let Some(leading_key_item) = leading_index_key_item(index) else {
+    let Ok(leading_key_item) =
+        resolve_leading_lookup_key_item(index, cmp.field.as_str(), cmp.coercion.id)
+    else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
-    if !key_item_matches_field_and_coercion(leading_key_item, cmp.field.as_str(), cmp.coercion.id) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
-    }
 
     let Value::List(values) = cmp.value() else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralNotList);
@@ -249,6 +240,43 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate
         }
     }
 
+    eligible_single_lookup_candidate(index)
+}
+
+// Keep single-field lookup families on one shared coercion gate so prefix and
+// multi-lookup evaluation do not drift on which coercions still qualify as
+// deterministic leading-key lookups.
+const fn ensure_lookup_coercion_supported(
+    coercion: CoercionId,
+) -> Result<(), AccessChoiceRejectedReason> {
+    if matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold) {
+        return Ok(());
+    }
+
+    Err(AccessChoiceRejectedReason::NonStrictCoercion)
+}
+
+// Resolve the leading key item only when it still matches the requested field
+// and coercion family, since both prefix and multi-lookup paths require the
+// same leading-slot ownership before they inspect literal values.
+fn resolve_leading_lookup_key_item(
+    index: &IndexModel,
+    field: &str,
+    coercion: CoercionId,
+) -> Result<IndexKeyItem, AccessChoiceRejectedReason> {
+    let Some(leading_key_item) = leading_index_key_item(index) else {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    };
+    if !key_item_matches_field_and_coercion(leading_key_item, field, coercion) {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    }
+
+    Ok(leading_key_item)
+}
+
+// Emit the canonical single-slot eligible score shared by exact prefix and
+// multi-lookup candidates after the leading key item has matched.
+const fn eligible_single_lookup_candidate(index: &IndexModel) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len: 1,
         exact: crate::db::query::plan::key_item_match::index_key_item_count(index) == 1,
