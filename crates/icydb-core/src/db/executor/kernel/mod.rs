@@ -37,40 +37,6 @@ impl ExecutionKernel {
 
         residual_retry.materialize(route_plan)
     }
-
-    // Merge retry attempts under canonical residual-retry accounting.
-    fn merge_retry_attempts(
-        mut accumulated_attempt: MaterializedExecutionAttempt,
-        latest_attempt: MaterializedExecutionAttempt,
-    ) -> MaterializedExecutionAttempt {
-        accumulated_attempt.rows_scanned = accumulated_attempt
-            .rows_scanned
-            .saturating_add(latest_attempt.rows_scanned);
-        accumulated_attempt.optimization = latest_attempt.optimization;
-        accumulated_attempt.index_predicate_applied =
-            accumulated_attempt.index_predicate_applied || latest_attempt.index_predicate_applied;
-        accumulated_attempt.index_predicate_keys_rejected = accumulated_attempt
-            .index_predicate_keys_rejected
-            .saturating_add(latest_attempt.index_predicate_keys_rejected);
-        accumulated_attempt.distinct_keys_deduped = accumulated_attempt
-            .distinct_keys_deduped
-            .saturating_add(latest_attempt.distinct_keys_deduped);
-        accumulated_attempt.payload = latest_attempt.payload;
-        accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
-
-        accumulated_attempt
-    }
-
-    // Build the terminal residual-retry fallback plan by clearing the bounded
-    // pushdown spec and coupled scan-budget hints before re-materialization.
-    fn unbounded_residual_retry_route_plan(route_plan: &ExecutionPlan) -> ExecutionPlan {
-        let mut fallback_route_plan = route_plan.clone();
-        fallback_route_plan.index_range_limit_spec = None;
-        fallback_route_plan.scan_hints.load_scan_budget_hint = None;
-        fallback_route_plan.scan_hints.physical_fetch_hint = None;
-
-        fallback_route_plan
-    }
 }
 
 ///
@@ -122,8 +88,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
                 .route_attempt_materializer
                 .materialize_route_attempt(&retry_route_plan)?;
             let retry_decision = self.retry_decision(&retry_route_plan, &retry_attempt);
-            accumulated_attempt =
-                ExecutionKernel::merge_retry_attempts(accumulated_attempt, retry_attempt);
+            accumulated_attempt = Self::merge_attempts(accumulated_attempt, retry_attempt);
 
             if let Some(next_retry_fetch) = retry_decision.widened_fetch() {
                 retry_fetch = next_retry_fetch;
@@ -147,13 +112,33 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
                 .route_attempt_materializer
                 .materialize_unbounded_retry_fallback(route_plan)?;
 
-            return Ok(ExecutionKernel::merge_retry_attempts(
-                accumulated_attempt,
-                fallback_attempt,
-            ));
+            return Ok(Self::merge_attempts(accumulated_attempt, fallback_attempt));
         }
 
         Ok(accumulated_attempt)
+    }
+
+    // Merge retry attempts under canonical residual-retry accounting.
+    fn merge_attempts(
+        mut accumulated_attempt: MaterializedExecutionAttempt,
+        latest_attempt: MaterializedExecutionAttempt,
+    ) -> MaterializedExecutionAttempt {
+        accumulated_attempt.rows_scanned = accumulated_attempt
+            .rows_scanned
+            .saturating_add(latest_attempt.rows_scanned);
+        accumulated_attempt.optimization = latest_attempt.optimization;
+        accumulated_attempt.index_predicate_applied =
+            accumulated_attempt.index_predicate_applied || latest_attempt.index_predicate_applied;
+        accumulated_attempt.index_predicate_keys_rejected = accumulated_attempt
+            .index_predicate_keys_rejected
+            .saturating_add(latest_attempt.index_predicate_keys_rejected);
+        accumulated_attempt.distinct_keys_deduped = accumulated_attempt
+            .distinct_keys_deduped
+            .saturating_add(latest_attempt.distinct_keys_deduped);
+        accumulated_attempt.payload = latest_attempt.payload;
+        accumulated_attempt.post_access_rows = latest_attempt.post_access_rows;
+
+        accumulated_attempt
     }
 
     // Decide whether residual underfill should stop, widen the bounded fetch,
@@ -269,9 +254,18 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
         &self,
         route_plan: &ExecutionPlan,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
-        self.materialize_route_attempt(&ExecutionKernel::unbounded_residual_retry_route_plan(
-            route_plan,
-        ))
+        self.materialize_route_attempt(&Self::unbounded_retry_route_plan(route_plan))
+    }
+
+    // Build the terminal residual-retry fallback plan by clearing the bounded
+    // pushdown spec and coupled scan-budget hints before re-materialization.
+    fn unbounded_retry_route_plan(route_plan: &ExecutionPlan) -> ExecutionPlan {
+        let mut fallback_route_plan = route_plan.clone();
+        fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.scan_hints.load_scan_budget_hint = None;
+        fallback_route_plan.scan_hints.physical_fetch_hint = None;
+
+        fallback_route_plan
     }
 }
 
