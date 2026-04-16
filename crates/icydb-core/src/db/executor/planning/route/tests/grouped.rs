@@ -40,7 +40,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     assert_eq!(grouped_observability.rejection_reason(), None);
     assert_eq!(
         grouped_observability.planner_fallback_reason(),
-        Some(GroupedPlanFallbackReason::GroupKeyOrderUnavailable)
+        Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
     );
     assert!(grouped_observability.eligible());
     assert_eq!(
@@ -93,7 +93,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     assert_eq!(grouped_observability.rejection_reason(), None);
     assert_eq!(
         grouped_observability.planner_fallback_reason(),
-        Some(GroupedPlanFallbackReason::GroupKeyOrderUnavailable)
+        Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch)
     );
     assert!(grouped_observability.eligible());
     assert_eq!(
