@@ -442,12 +442,6 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     // padded ASCII table shape as shell query results.
     lines.push(String::new());
     lines.push("fields:".to_string());
-    let headers = vec![
-        "name".to_string(),
-        "type".to_string(),
-        "pk".to_string(),
-        "queryable".to_string(),
-    ];
     let field_rows = description
         .fields()
         .iter()
@@ -468,35 +462,23 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
             ]
         })
         .collect::<Vec<_>>();
-    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
-    for row in &field_rows {
-        for (index, value) in row.iter().enumerate() {
-            widths[index] = widths[index].max(value.len());
-        }
-    }
-    let separator = render_table_separator(widths.as_slice());
-    lines.push(separator.clone());
-    lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
-    lines.push(separator.clone());
-    for row in &field_rows {
-        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-    }
-    if !field_rows.is_empty() {
-        lines.push(separator);
-    }
+    render_describe_table_section(
+        &mut lines,
+        &[
+            "name".to_string(),
+            "type".to_string(),
+            "pk".to_string(),
+            "queryable".to_string(),
+        ],
+        &field_rows,
+    );
 
     // Phase 3: emit index descriptors or explicit empty marker.
+    lines.push(String::new());
     if description.indexes().is_empty() {
-        lines.push(String::new());
         lines.push("indexes: []".to_string());
     } else {
-        lines.push(String::new());
         lines.push("indexes:".to_string());
-        let headers = vec![
-            "name".to_string(),
-            "fields".to_string(),
-            "unique".to_string(),
-        ];
         let index_rows = description
             .indexes()
             .iter()
@@ -512,37 +494,23 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 ]
             })
             .collect::<Vec<_>>();
-        let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
-        for row in &index_rows {
-            for (index, value) in row.iter().enumerate() {
-                widths[index] = widths[index].max(value.len());
-            }
-        }
-        let separator = render_table_separator(widths.as_slice());
-        lines.push(separator.clone());
-        lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
-        lines.push(separator.clone());
-        for row in &index_rows {
-            lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-        }
-        if !index_rows.is_empty() {
-            lines.push(separator);
-        }
+        render_describe_table_section(
+            &mut lines,
+            &[
+                "name".to_string(),
+                "fields".to_string(),
+                "unique".to_string(),
+            ],
+            &index_rows,
+        );
     }
 
     // Phase 4: emit relation descriptors or explicit empty marker.
+    lines.push(String::new());
     if description.relations().is_empty() {
-        lines.push(String::new());
         lines.push("relations: []".to_string());
     } else {
-        lines.push(String::new());
         lines.push("relations:".to_string());
-        let headers = vec![
-            "field".to_string(),
-            "target".to_string(),
-            "strength".to_string(),
-            "cardinality".to_string(),
-        ];
         let relation_rows = description
             .relations()
             .iter()
@@ -555,25 +523,45 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 ]
             })
             .collect::<Vec<_>>();
-        let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
-        for row in &relation_rows {
-            for (index, value) in row.iter().enumerate() {
-                widths[index] = widths[index].max(value.len());
-            }
-        }
-        let separator = render_table_separator(widths.as_slice());
-        lines.push(separator.clone());
-        lines.push(render_table_row(headers.as_slice(), widths.as_slice()));
-        lines.push(separator.clone());
-        for row in &relation_rows {
-            lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-        }
-        if !relation_rows.is_empty() {
-            lines.push(separator);
-        }
+        render_describe_table_section(
+            &mut lines,
+            &[
+                "field".to_string(),
+                "target".to_string(),
+                "strength".to_string(),
+                "cardinality".to_string(),
+            ],
+            &relation_rows,
+        );
     }
 
     lines
+}
+
+// Render one `DESCRIBE` subsection as the same deterministic ASCII table shape
+// used by shell-facing projection output.
+fn render_describe_table_section(
+    lines: &mut Vec<String>,
+    headers: &[String],
+    rows: &[Vec<String>],
+) {
+    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
+    for row in rows {
+        for (index, value) in row.iter().enumerate() {
+            widths[index] = widths[index].max(value.len());
+        }
+    }
+
+    let separator = render_table_separator(widths.as_slice());
+    lines.push(separator.clone());
+    lines.push(render_table_row(headers, widths.as_slice()));
+    lines.push(separator.clone());
+    for row in rows {
+        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
+    }
+    if !rows.is_empty() {
+        lines.push(separator);
+    }
 }
 
 #[cfg_attr(
