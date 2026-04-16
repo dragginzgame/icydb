@@ -57,13 +57,13 @@ pub struct Field {
     ident: &'static str,
     value: Value,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     default: Option<Arg>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     generated: Option<FieldGeneration>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     write_management: Option<FieldWriteManagement>,
 }
 

@@ -43,7 +43,7 @@ where
     pub fn page(self) -> Result<PagedLoadQuery<'a, E>, QueryError> {
         self.ensure_paged_mode_ready()?;
 
-        Ok(PagedLoadQuery { inner: self })
+        Ok(PagedLoadQuery::from_inner(self))
     }
 
     /// Execute this query as cursor pagination and return items + next cursor.
@@ -57,10 +57,25 @@ where
     }
 }
 
-impl<E> PagedLoadQuery<'_, E>
+impl<'a, E> PagedLoadQuery<'a, E>
 where
     E: PersistedRow,
 {
+    // Rebind one already-validated fluent load query to the paged wrapper.
+    const fn from_inner(inner: FluentLoadQuery<'a, E>) -> Self {
+        Self { inner }
+    }
+
+    // Apply one immutable fluent-load transformation while preserving the
+    // paged-query wrapper that already owns the paged-mode invariant.
+    fn map_inner(
+        mut self,
+        map: impl FnOnce(FluentLoadQuery<'a, E>) -> FluentLoadQuery<'a, E>,
+    ) -> Self {
+        self.inner = map(self.inner);
+        self
+    }
+
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -76,9 +91,8 @@ where
 
     /// Attach an opaque continuation token for the next page.
     #[must_use]
-    pub fn cursor(mut self, token: impl Into<String>) -> Self {
-        self.inner = self.inner.cursor(token);
-        self
+    pub fn cursor(self, token: impl Into<String>) -> Self {
+        self.map_inner(|query| query.cursor(token))
     }
 
     // ------------------------------------------------------------------
@@ -107,8 +121,8 @@ where
     where
         E: PersistedRow + EntityValue,
     {
-        self.inner.ensure_paged_mode_ready()?;
-
+        // `PagedLoadQuery` can only be constructed through `FluentLoadQuery::page`,
+        // so the paged-mode validation already happened before this wrapper existed.
         self.inner.session.execute_load_query_paged_with_trace(
             self.inner.query(),
             self.inner.cursor_token.as_deref(),

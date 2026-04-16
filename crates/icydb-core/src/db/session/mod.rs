@@ -90,6 +90,25 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
+    // Shared fluent load wrapper construction keeps the session boundary in
+    // one place when load entry points differ only by missing-row policy.
+    const fn fluent_load_query<E>(&self, consistency: MissingRowPolicy) -> FluentLoadQuery<'_, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        FluentLoadQuery::new(self, Query::new(consistency))
+    }
+
+    // Shared fluent delete wrapper construction keeps the delete-mode handoff
+    // explicit at the session boundary instead of reassembling the same query
+    // shell in each public entry point.
+    fn fluent_delete_query<E>(&self, consistency: MissingRowPolicy) -> FluentDeleteQuery<'_, E>
+    where
+        E: PersistedRow<Canister = C>,
+    {
+        FluentDeleteQuery::new(self, Query::new(consistency).delete())
+    }
+
     fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
         if let Some(sink) = self.metrics {
             with_metrics_sink(sink, f)
@@ -143,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        FluentLoadQuery::new(self, Query::new(MissingRowPolicy::Ignore))
+        self.fluent_load_query(MissingRowPolicy::Ignore)
     }
 
     /// Start a fluent load query with explicit missing-row policy.
@@ -155,7 +174,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        FluentLoadQuery::new(self, Query::new(consistency))
+        self.fluent_load_query(consistency)
     }
 
     /// Start a fluent delete query with default missing-row policy (`Ignore`).
@@ -164,7 +183,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        FluentDeleteQuery::new(self, Query::new(MissingRowPolicy::Ignore).delete())
+        self.fluent_delete_query(MissingRowPolicy::Ignore)
     }
 
     /// Start a fluent delete query with explicit missing-row policy.
@@ -176,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C>,
     {
-        FluentDeleteQuery::new(self, Query::new(consistency).delete())
+        self.fluent_delete_query(consistency)
     }
 
     /// Return one constant scalar row equivalent to SQL `SELECT 1`.

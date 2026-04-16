@@ -74,13 +74,13 @@ impl VisitableNode for Enum {
 pub struct EnumVariant {
     ident: &'static str,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<Value>,
 
-    #[serde(default, skip_serializing_if = "Not::not")]
+    #[serde(skip_serializing_if = "Not::not")]
     default: bool,
 
-    #[serde(default, skip_serializing_if = "Not::not")]
+    #[serde(skip_serializing_if = "Not::not")]
     unspecified: bool,
 }
 

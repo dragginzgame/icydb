@@ -49,7 +49,7 @@ use crate::db::executor::terminal::{RowDecoder, RowLayout};
 /// still resolving slot reads in O(1) time.
 ///
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(in crate::db::executor) struct RetainedSlotLayout {
     data: Arc<RetainedSlotLayoutData>,
 }
@@ -62,6 +62,7 @@ pub(in crate::db::executor) struct RetainedSlotLayout {
 /// lookup so row decode does not rebuild either structure per row.
 ///
 
+#[derive(Debug)]
 struct RetainedSlotLayoutData {
     required_slots: Box<[usize]>,
     slot_to_value_index: Box<[Option<usize>]>,

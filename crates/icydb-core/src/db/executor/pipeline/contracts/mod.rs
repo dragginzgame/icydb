@@ -24,6 +24,7 @@ pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionProjection,
     ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
+    compile_retained_slot_layout_for_mode,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,

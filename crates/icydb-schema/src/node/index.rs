@@ -107,15 +107,15 @@ pub enum IndexKeyItemsRef {
 pub struct Index {
     fields: &'static [&'static str],
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     key_items: Option<&'static [IndexKeyItem]>,
 
-    #[serde(default, skip_serializing_if = "Not::not")]
+    #[serde(skip_serializing_if = "Not::not")]
     unique: bool,
 
     // Raw predicate SQL remains input metadata until lowered into canonical
     // predicate semantics at runtime schema boundary.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     predicate: Option<&'static str>,
 }
 

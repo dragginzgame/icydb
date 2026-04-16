@@ -90,6 +90,11 @@ impl QueryPlanCacheEntry {
     pub(in crate::db) fn typed_prepared_plan<E: EntityKind>(&self) -> PreparedExecutionPlan<E> {
         self.prepared_plan.typed_clone::<E>()
     }
+
+    #[must_use]
+    pub(in crate::db) const fn prepared_plan(&self) -> &SharedPreparedExecutionPlan {
+        &self.prepared_plan
+    }
 }
 
 pub(in crate::db) type QueryPlanCache =
@@ -415,9 +420,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_with_visible_indexes(visible_indexes)
-        })
+        self.with_query_visible_indexes(query, Query::<E>::explain_with_visible_indexes)
     }
 
     // Hash one typed query plan using only the indexes currently visible for
@@ -429,9 +432,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.plan_hash_hex_with_visible_indexes(visible_indexes)
-        })
+        self.with_query_visible_indexes(query, Query::<E>::plan_hash_hex_with_visible_indexes)
     }
 
     // Explain one load execution shape using only planner-visible
@@ -443,9 +444,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_execution_with_visible_indexes(visible_indexes)
-        })
+        self.with_query_visible_indexes(query, Query::<E>::explain_execution_with_visible_indexes)
     }
 
     // Render one load execution descriptor plus route diagnostics using
@@ -457,9 +456,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_execution_verbose_with_visible_indexes(visible_indexes)
-        })
+        self.with_query_visible_indexes(
+            query,
+            Query::<E>::explain_execution_verbose_with_visible_indexes,
+        )
     }
 
     // Explain one prepared fluent aggregate terminal using only
@@ -537,6 +537,108 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    // Finalize one grouped cursor page into the outward grouped execution
+    // payload so grouped cursor encoding and continuation-shape validation
+    // stay owned by the session boundary.
+    fn finalize_grouped_execution_page(
+        page: GroupedCursorPage,
+        trace: Option<ExecutionTrace>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
+        let next_cursor = page
+            .next_cursor
+            .map(|token| {
+                let Some(token) = token.as_grouped() else {
+                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
+                };
+
+                token.encode().map_err(|err| {
+                    QueryError::serialize_internal(format!(
+                        "failed to serialize grouped continuation cursor: {err}"
+                    ))
+                })
+            })
+            .transpose()?;
+
+        Ok(PagedGroupedExecutionWithTrace::new(
+            page.rows,
+            next_cursor,
+            trace,
+        ))
+    }
+
+    // Execute one prepared grouped query result and finalize the outward
+    // grouped payload at the session boundary so fluent callers do not
+    // reassemble grouped result wrappers themselves.
+    fn execute_grouped_query_result<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<LoadQueryResult<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_grouped(query, cursor_token)
+            .map(LoadQueryResult::grouped)
+    }
+
+    // Execute one prepared grouped query result while returning the same empty
+    // scalar-attribution shell used by the grouped execution path in the
+    // perf-attribution surface.
+    #[cfg(feature = "perf-attribution")]
+    fn execute_grouped_query_result_with_attribution<E>(
+        &self,
+        plan: PreparedExecutionPlan<E>,
+    ) -> Result<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (page, trace) = self.execute_grouped_plan_with_trace(plan, None)?;
+        let grouped = Self::finalize_grouped_execution_page(page, trace)?;
+
+        Ok((
+            LoadQueryResult::grouped(grouped),
+            Self::empty_scalar_execute_phase_attribution(),
+            0,
+        ))
+    }
+
+    // Execute one non-grouped prepared query result while normalizing load vs
+    // delete output into the shared outward load-result contract plus the
+    // scalar execution attribution tuple expected by the perf surface.
+    #[cfg(feature = "perf-attribution")]
+    fn execute_scalar_query_result_with_attribution<E>(
+        &self,
+        mode: QueryMode,
+        plan: PreparedExecutionPlan<E>,
+    ) -> Result<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match mode {
+            QueryMode::Load(_) => {
+                let (rows, phase_attribution, response_decode_local_instructions) = self
+                    .load_executor::<E>()
+                    .execute_with_phase_attribution(plan)
+                    .map_err(QueryError::execute)?;
+
+                Ok((
+                    LoadQueryResult::rows(rows),
+                    phase_attribution,
+                    response_decode_local_instructions,
+                ))
+            }
+            QueryMode::Delete(_) => {
+                let result = self.execute_query_dyn(mode, plan)?;
+
+                Ok((
+                    LoadQueryResult::rows(result),
+                    Self::empty_scalar_execute_phase_attribution(),
+                    0,
+                ))
+            }
+        }
+    }
+
     /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
@@ -574,63 +676,9 @@ impl<C: CanisterKind> DbSession<C> {
         // by the compile/cache boundary above.
         let (execute_local_instructions, result) = measure_query_stage(|| {
             if query.has_grouping() {
-                self.execute_grouped_plan_with_trace(plan, None)
-                    .map(|(page, trace)| {
-                        let next_cursor = page
-                            .next_cursor
-                            .map(|token| {
-                                let Some(token) = token.as_grouped() else {
-                                    return Err(
-                                        QueryError::grouped_paged_emitted_scalar_continuation(),
-                                    );
-                                };
-
-                                token.encode().map_err(|err| {
-                                    QueryError::serialize_internal(format!(
-                                        "failed to serialize grouped continuation cursor: {err}"
-                                    ))
-                                })
-                            })
-                            .transpose()?;
-
-                        Ok::<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>(
-                            (
-                                LoadQueryResult::Grouped(PagedGroupedExecutionWithTrace::new(
-                                    page.rows,
-                                    next_cursor,
-                                    trace,
-                                )),
-                                Self::empty_scalar_execute_phase_attribution(),
-                                0,
-                            ),
-                        )
-                    })?
+                self.execute_grouped_query_result_with_attribution(plan)
             } else {
-                match query.mode() {
-                    QueryMode::Load(_) => {
-                        let (rows, phase_attribution, response_decode_local_instructions) = self
-                            .load_executor::<E>()
-                            .execute_with_phase_attribution(plan)
-                            .map_err(QueryError::execute)?;
-
-                        Ok::<(LoadQueryResult<E>, ScalarExecutePhaseAttribution, u64), QueryError>(
-                            (
-                                LoadQueryResult::Rows(rows),
-                                phase_attribution,
-                                response_decode_local_instructions,
-                            ),
-                        )
-                    }
-                    QueryMode::Delete(_) => {
-                        let result = self.execute_query_dyn(query.mode(), plan)?;
-
-                        Ok((
-                            LoadQueryResult::Rows(result),
-                            Self::empty_scalar_execute_phase_attribution(),
-                            0,
-                        ))
-                    }
-                }
+                self.execute_scalar_query_result_with_attribution(query.mode(), plan)
             }
         });
         let (result, execute_phase_attribution, response_decode_local_instructions) = result?;
@@ -677,12 +725,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if query.has_grouping() {
-            return self
-                .execute_grouped(query, None)
-                .map(LoadQueryResult::Grouped);
+            return self.execute_grouped_query_result(query, None);
         }
 
-        self.execute_query(query).map(LoadQueryResult::Rows)
+        self.execute_query(query).map(LoadQueryResult::rows)
     }
 
     /// Execute one typed delete query and return only the affected-row count.
@@ -838,26 +884,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (page, trace) = self.execute_grouped_page_with_trace(query, cursor_token)?;
-        let next_cursor = page
-            .next_cursor
-            .map(|token| {
-                let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-                };
-
-                token.encode().map_err(|err| {
-                    QueryError::serialize_internal(format!(
-                        "failed to serialize grouped continuation cursor: {err}"
-                    ))
-                })
-            })
-            .transpose()?;
-
-        Ok(PagedGroupedExecutionWithTrace::new(
-            page.rows,
-            next_cursor,
-            trace,
-        ))
+        Self::finalize_grouped_execution_page(page, trace)
     }
 
     // Execute the canonical grouped query core and return the raw grouped page

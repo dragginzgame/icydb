@@ -34,7 +34,7 @@ use crate::{
     db::{
         DbSession, GroupedRow, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
-        executor::EntityAuthority,
+        executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
@@ -289,7 +289,7 @@ pub(in crate::db) struct SqlSelectPlanCacheKey {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct SqlSelectPlanCacheEntry {
-    plan: AccessPlannedQuery,
+    prepared_plan: SharedPreparedExecutionPlan,
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
 }
@@ -297,20 +297,22 @@ pub(in crate::db) struct SqlSelectPlanCacheEntry {
 impl SqlSelectPlanCacheEntry {
     #[must_use]
     pub(in crate::db) const fn new(
-        plan: AccessPlannedQuery,
+        prepared_plan: SharedPreparedExecutionPlan,
         columns: Vec<String>,
         fixed_scales: Vec<Option<u32>>,
     ) -> Self {
         Self {
-            plan,
+            prepared_plan,
             columns,
             fixed_scales,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (AccessPlannedQuery, Vec<String>, Vec<Option<u32>>) {
-        (self.plan, self.columns, self.fixed_scales)
+    pub(in crate::db) fn into_parts(
+        self,
+    ) -> (SharedPreparedExecutionPlan, Vec<String>, Vec<Option<u32>>) {
+        (self.prepared_plan, self.columns, self.fixed_scales)
     }
 }
 
@@ -570,7 +572,7 @@ impl<C: CanisterKind> DbSession<C> {
             let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
 
             return Ok((
-                SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns, fixed_scales),
+                SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales),
                 SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
             ));
         };
@@ -591,7 +593,7 @@ impl<C: CanisterKind> DbSession<C> {
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
         let entry =
-            SqlSelectPlanCacheEntry::new(entry.logical_plan().clone(), columns, fixed_scales);
+            SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales);
         self.with_sql_select_plan_cache(|cache| {
             cache.insert(plan_cache_key, entry.clone());
         });

@@ -72,7 +72,6 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
         for tr in self.traits() {
             // Each trait can either have an explicit map or fallback to default.
             let strat = self.map_trait(tr).or_else(|| self.default_strategy(tr));
-            let attr = self.map_attribute(tr);
 
             if let Some(strategy) = strat {
                 if let Some(ts) = strategy.imp {
@@ -93,9 +92,8 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
                 }
                 derive_traits.push(path);
             }
-
-            if let Some(attr_tokens) = attr {
-                attrs.push(attr_tokens);
+            if matches!(tr, TraitKind::Sorted) {
+                attrs.push(quote!(#[::icydb::__reexports::remain::sorted]));
             }
         }
 
@@ -161,11 +159,6 @@ pub trait HasTraits: HasType {
     /// Map a specific trait to a custom implementation.
     /// Return `None` to use the `default_strategy` fallback.
     fn map_trait(&self, _: TraitKind) -> Option<TraitStrategy> {
-        None
-    }
-
-    /// Emit a custom `#[attribute(...)]` for this trait.
-    fn map_attribute(&self, _: TraitKind) -> Option<TokenStream> {
         None
     }
 

@@ -13,6 +13,7 @@ pub(in crate::db) use inputs::StructuralCursorPagePayload;
 pub(in crate::db::executor) use inputs::{
     CursorEmissionMode, ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
     ProjectionMaterializationMode, RowCollectorMaterializationRequest,
+    compile_retained_slot_layout_for_mode,
 };
 pub(in crate::db::executor) use outcomes::{
     ExecutionOutcomeMetrics, MaterializedExecutionAttempt, MaterializedExecutionPayload,

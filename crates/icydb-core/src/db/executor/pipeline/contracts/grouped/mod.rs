@@ -11,4 +11,5 @@ pub(in crate::db::executor) use route_stage::{
 };
 pub(in crate::db::executor) use stages::{
     GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
+    compile_grouped_row_slot_layout_from_parts,
 };

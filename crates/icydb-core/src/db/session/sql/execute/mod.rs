@@ -20,7 +20,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         executor::EntityAuthority,
-        query::{intent::StructuralQuery, plan::AccessPlannedQuery},
+        query::intent::StructuralQuery,
         session::sql::{
             CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandCacheKey,
             SqlStatementResult,
@@ -33,7 +33,7 @@ use crate::{
 type PreparedStructuralSqlProjectionExecution = (
     Vec<String>,
     Vec<Option<u32>>,
-    AccessPlannedQuery,
+    crate::db::executor::SharedPreparedExecutionPlan,
     SqlCacheAttribution,
 );
 
@@ -79,6 +79,8 @@ fn measure_execute_phase_with_physical_access<T, E>(
 impl<C: CanisterKind> DbSession<C> {
     // Build the shared structural SQL projection execution inputs once so
     // value-row and rendered-row statement surfaces only differ in final packaging.
+    // This keeps the SQL select cache aligned with the shared prepared-plan
+    // boundary instead of discarding the frozen scalar projection resident.
     fn prepare_structural_sql_projection_execution(
         &self,
         query: StructuralQuery,
@@ -89,9 +91,9 @@ impl<C: CanisterKind> DbSession<C> {
         // column contract for all projection materialization surfaces.
         let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
-        let (plan, columns, fixed_scales) = entry.into_parts();
+        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
 
-        Ok((columns, fixed_scales, plan, cache_attribution))
+        Ok((columns, fixed_scales, prepared_plan, cache_attribution))
     }
 
     // Execute one structural SQL load query and return only row-oriented SQL
@@ -104,13 +106,13 @@ impl<C: CanisterKind> DbSession<C> {
         compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         // Phase 1: build the shared structural plan and outward column contract once.
-        let (columns, fixed_scales, plan, cache_attribution) =
+        let (columns, fixed_scales, prepared_plan, cache_attribution) =
             self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)?;
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics.
         let projected =
-            execute_sql_projection_rows_for_canister(&self.db, self.debug, authority, plan)
+            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
         let (rows, row_count) = projected.into_parts();
 
@@ -152,12 +154,12 @@ impl<C: CanisterKind> DbSession<C> {
         let (planner_local_instructions, prepared) = measure_execute_phase(|| {
             self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)
         });
-        let (columns, fixed_scales, plan, cache_attribution) = prepared?;
+        let (columns, fixed_scales, prepared_plan, cache_attribution) = prepared?;
 
         let ((execute_local_instructions, store_local_instructions), payload) =
             measure_execute_phase_with_physical_access(move || {
                 let projected =
-                    execute_sql_projection_rows_for_canister(&self.db, self.debug, authority, plan)
+                    execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                         .map_err(QueryError::execute)?;
                 let (rows, row_count) = projected.into_parts();
 
@@ -202,7 +204,8 @@ impl<C: CanisterKind> DbSession<C> {
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)
         });
         let (entry, cache_attribution) = prepared?;
-        let (plan, columns, _) = entry.into_parts();
+        let (prepared_plan, columns, _) = entry.into_parts();
+        let plan = prepared_plan.logical_plan().clone();
 
         let ((execute_local_instructions, store_local_instructions), statement_result) =
             measure_execute_phase_with_physical_access(move || {

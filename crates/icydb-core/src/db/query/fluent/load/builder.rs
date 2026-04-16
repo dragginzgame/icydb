@@ -225,16 +225,12 @@ where
 
     /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        self.map_session_query_output(|session, query| {
-            session.explain_query_with_visible_indexes(query)
-        })
+        self.map_session_query_output(DbSession::explain_query_with_visible_indexes)
     }
 
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        self.map_session_query_output(|session, query| {
-            session.query_plan_hash_hex_with_visible_indexes(query)
-        })
+        self.map_session_query_output(DbSession::query_plan_hash_hex_with_visible_indexes)
     }
 
     /// Build one trace payload without executing the query.
@@ -244,16 +240,12 @@ where
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.map_cursor_ready_query_output(|session, query| {
-            session.planned_query_with_visible_indexes(query)
-        })
+        self.map_cursor_ready_query_output(DbSession::planned_query_with_visible_indexes)
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.map_cursor_ready_query_output(|session, query| {
-            session.compile_query_with_visible_indexes(query)
-        })
+        self.map_cursor_ready_query_output(DbSession::compile_query_with_visible_indexes)
     }
 }
 

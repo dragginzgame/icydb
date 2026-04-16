@@ -11,10 +11,10 @@ pub struct Entity {
     store: &'static str,
     primary_key: PrimaryKey,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'static str>,
 
-    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     indexes: &'static [Index],
 
     fields: FieldList,

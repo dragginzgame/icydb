@@ -135,8 +135,14 @@ where
                 Ok(ExecutionSpec::scalar(prepared))
             }
             PreparedLoadCursor::Grouped(cursor) => {
+                let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
+                let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
                 let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
-                let prepared = self.prepare_grouped_route_runtime(route)?;
+                let prepared = self.prepare_grouped_route_runtime(
+                    route,
+                    prepared_execution_preparation,
+                    prepared_grouped_slot_layout,
+                )?;
 
                 Ok(ExecutionSpec::grouped(prepared))
             }

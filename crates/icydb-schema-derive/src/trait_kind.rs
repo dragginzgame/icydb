@@ -201,17 +201,6 @@ impl TraitKind {
             }
         }
     }
-
-    pub(crate) fn derive_attribute(self) -> Option<TokenStream> {
-        match self {
-            Self::Sorted => Some(quote!(#[::icydb::__reexports::remain::sorted])),
-            Self::Default => Some(quote!(#[serde(default)])),
-            _ => {
-                // NOTE: Only specific traits emit derive attributes.
-                None
-            }
-        }
-    }
 }
 
 impl FromMeta for TraitKind {

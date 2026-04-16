@@ -17,7 +17,10 @@ use crate::{
             terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::FieldSlot as PlannedFieldSlot,
+        query::plan::{
+            FieldSlot as PlannedFieldSlot, GroupedAggregateExecutionSpec,
+            GroupedDistinctExecutionStrategy,
+        },
         registry::StoreHandle,
     },
     error::InternalError,
@@ -34,6 +37,59 @@ use crate::{
 
 pub(in crate::db::executor) struct RowView {
     storage: RowViewStorage,
+}
+
+// Compile one grouped ingest slot layout from the planner-owned grouped
+// runtime shape plus the already selected predicate program.
+pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
+    row_layout: RowLayout,
+    group_fields: &[PlannedFieldSlot],
+    grouped_aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
+    grouped_distinct_execution_strategy: &GroupedDistinctExecutionStrategy,
+    compiled_predicate: Option<&PredicateProgram>,
+) -> RetainedSlotLayout {
+    let field_count = row_layout.field_count();
+    let mut required_slots = vec![false; field_count];
+
+    // Phase 1: every grouped path needs the group key slots themselves.
+    for field in group_fields {
+        if let Some(required_slot) = required_slots.get_mut(field.index()) {
+            *required_slot = true;
+        }
+    }
+
+    // Phase 2: residual predicate evaluation still runs on grouped row views.
+    if let Some(compiled_predicate) = compiled_predicate {
+        compiled_predicate.mark_referenced_slots(&mut required_slots);
+    }
+
+    // Phase 3: grouped reducer state only needs field-target slots for
+    // aggregates whose update contract actually reads row values.
+    for aggregate in grouped_aggregate_execution_specs {
+        let Some(target_field) = aggregate.target_field() else {
+            continue;
+        };
+        if let Some(required_slot) = required_slots.get_mut(target_field.index()) {
+            *required_slot = true;
+        }
+    }
+
+    // Phase 4: the dedicated grouped DISTINCT path still reads its target
+    // field from the shared grouped row view when active.
+    if let Some(target_field) = grouped_distinct_execution_strategy.global_distinct_target_slot()
+        && let Some(required_slot) = required_slots.get_mut(target_field.index())
+    {
+        *required_slot = true;
+    }
+
+    RetainedSlotLayout::compile(
+        field_count,
+        required_slots
+            .into_iter()
+            .enumerate()
+            .filter_map(|(slot, required)| required.then_some(slot))
+            .collect(),
+    )
 }
 
 // Grouped row views either keep one dense field-width slot image for tests and

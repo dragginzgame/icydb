@@ -5,6 +5,8 @@
 
 mod hints;
 
+use std::sync::Arc;
+
 use crate::{
     db::{
         Db, PersistedRow,
@@ -192,6 +194,10 @@ impl PreparedScalarMaterializedBoundary<'_> {
 fn build_prepared_scalar_route_runtime(
     store: StoreHandle,
     authority: EntityAuthority,
+    prepared_projection_validation: Option<
+        Arc<crate::db::executor::projection::PreparedProjectionShape>,
+    >,
+    prepared_retained_slot_layout: Option<crate::db::executor::RetainedSlotLayout>,
     plan: AccessPlannedQuery,
     route_plan: ExecutionPlan,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
@@ -207,7 +213,8 @@ fn build_prepared_scalar_route_runtime(
     let prepared_projection = PreparedExecutionProjection::compile(
         authority,
         &plan,
-        execution_preparation.compiled_predicate(),
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
         projection_runtime_mode,
         cursor_emission,
     );
@@ -457,6 +464,11 @@ where
     C: CanisterKind,
 {
     let authority = plan.authority();
+    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
+    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+        ScalarProjectionRuntimeMode::SharedValidation,
+        CursorEmissionMode::Emit,
+    );
     let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
     let index_range_specs = plan.index_range_specs()?.to_vec();
     let logical_plan = plan.into_plan();
@@ -477,6 +489,8 @@ where
     Ok(build_prepared_scalar_route_runtime(
         store,
         authority,
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
         logical_plan,
         route_plan,
         index_prefix_specs,
@@ -501,6 +515,11 @@ where
 {
     let continuation_signature = plan.continuation_signature_for_runtime()?;
     let authority = plan.authority();
+    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
+    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+        ScalarProjectionRuntimeMode::None,
+        CursorEmissionMode::Suppress,
+    );
     let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
     let index_range_specs = plan.index_range_specs()?.to_vec();
     let logical_plan = plan.into_plan();
@@ -515,6 +534,8 @@ where
     Ok(build_prepared_scalar_route_runtime(
         store,
         authority,
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
         logical_plan,
         route_plan,
         index_prefix_specs,
@@ -608,6 +629,8 @@ where
     let prepared = build_prepared_scalar_route_runtime(
         store,
         authority,
+        None,
+        None,
         plan,
         route_plan,
         index_prefix_specs,
@@ -665,6 +688,8 @@ where
     let prepared = build_prepared_scalar_route_runtime(
         store,
         authority,
+        None,
+        None,
         logical_plan,
         route_plan,
         index_prefix_specs,

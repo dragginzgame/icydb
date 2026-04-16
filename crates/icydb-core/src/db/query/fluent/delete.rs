@@ -67,6 +67,40 @@ where
         Ok(self)
     }
 
+    // Run one read-only session/query projection without mutating the delete
+    // builder shell so diagnostics and planning surfaces share one handoff
+    // shape from the fluent delete boundary into the session/query layer.
+    fn map_session_query_output<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError> {
+        map(self.session, self.query())
+    }
+
+    // Shared delete-count execution keeps the mutation contract in one place
+    // for public row-count terminals that differ only in response shaping.
+    fn execute_delete_count(&self) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_delete_count(self.query())
+    }
+
+    // Shared row-count classification keeps the delete facade aligned on the
+    // same not-found vs not-unique contract for exact-row requirements.
+    fn require_delete_row_count(&self, expected: u32) -> Result<(), QueryError>
+    where
+        E: EntityValue,
+    {
+        let row_count = self.execute_delete_count()?;
+
+        match row_count {
+            count if count == expected => Ok(()),
+            0 => Err(ResponseError::not_found(E::PATH).into()),
+            count => Err(ResponseError::not_unique(E::PATH, count).into()),
+        }
+    }
+
     // ------------------------------------------------------------------
     // Intent builders (pure)
     // ------------------------------------------------------------------
@@ -134,31 +168,27 @@ where
 
     /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        self.session
-            .explain_query_with_visible_indexes(self.query())
+        self.map_session_query_output(DbSession::explain_query_with_visible_indexes)
     }
 
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        self.session
-            .query_plan_hash_hex_with_visible_indexes(self.query())
+        self.map_session_query_output(DbSession::query_plan_hash_hex_with_visible_indexes)
     }
 
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
-        self.session.trace_query(self.query())
+        self.map_session_query_output(DbSession::trace_query)
     }
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.session
-            .planned_query_with_visible_indexes(self.query())
+        self.map_session_query_output(DbSession::planned_query_with_visible_indexes)
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.session
-            .compile_query_with_visible_indexes(self.query())
+        self.map_session_query_output(DbSession::compile_query_with_visible_indexes)
     }
 
     // ------------------------------------------------------------------
@@ -170,7 +200,7 @@ where
     where
         E: EntityValue,
     {
-        self.session.execute_delete_count(self.query())
+        self.execute_delete_count()
     }
 
     /// Execute this delete and materialize deleted rows for one explicit
@@ -195,7 +225,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute()
+        self.execute_delete_count()
     }
 
     /// Execute and require exactly one affected row.
@@ -203,12 +233,7 @@ where
     where
         E: EntityValue,
     {
-        let row_count = self.execute()?;
-        match row_count {
-            1 => Ok(()),
-            0 => Err(ResponseError::not_found(E::PATH).into()),
-            count => Err(ResponseError::not_unique(E::PATH, count).into()),
-        }
+        self.require_delete_row_count(1)
     }
 
     /// Execute and require at least one affected row.

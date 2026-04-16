@@ -17,13 +17,13 @@ use crate::{
             pipeline::contracts::{
                 ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
                 GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
+                grouped::compile_grouped_row_slot_layout_from_parts,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::orchestrator::LoadExecutionSurface,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             stream::access::TraversalRuntime,
-            terminal::RowLayout,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -62,6 +62,7 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     route: GroupedRouteStage,
     runtime: GroupedPathRuntimeCore,
     execution_preparation: ExecutionPreparation,
+    grouped_slot_layout: RetainedSlotLayout,
 }
 
 impl GroupedPathRuntimeCore {
@@ -83,17 +84,12 @@ impl GroupedPathRuntimeCore {
         &self,
         route: &GroupedRouteStage,
         execution_preparation: ExecutionPreparation,
+        grouped_slot_layout: RetainedSlotLayout,
     ) -> Result<GroupedStreamStage, InternalError> {
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             &route.plan().access,
             self.traversal_runtime,
         );
-        let grouped_slot_layout = compile_grouped_row_slot_layout(
-            self.authority.row_layout(),
-            route,
-            &execution_preparation,
-        );
-
         build_grouped_stream_with_runtime(
             route,
             &runtime,
@@ -125,72 +121,35 @@ impl GroupedPathRuntimeCore {
 impl PreparedGroupedRouteRuntime {
     // Build one prepared grouped runtime bundle from one resolved route and
     // one structural grouped runtime core without duplicating plan prep logic.
-    fn new(route: GroupedRouteStage, runtime: GroupedPathRuntimeCore) -> Self {
-        let execution_preparation = ExecutionPreparation::from_runtime_plan(
-            route.plan(),
-            route.plan().slot_map().map(<[usize]>::to_vec),
-        );
+    fn new(
+        route: GroupedRouteStage,
+        runtime: GroupedPathRuntimeCore,
+        prepared_execution_preparation: Option<ExecutionPreparation>,
+        prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
+    ) -> Self {
+        let execution_preparation = prepared_execution_preparation.unwrap_or_else(|| {
+            ExecutionPreparation::from_runtime_plan(
+                route.plan(),
+                route.plan().slot_map().map(<[usize]>::to_vec),
+            )
+        });
+        let grouped_slot_layout = prepared_grouped_slot_layout.unwrap_or_else(|| {
+            compile_grouped_row_slot_layout_from_parts(
+                runtime.authority.row_layout(),
+                route.group_fields(),
+                route.grouped_aggregate_execution_specs(),
+                route.grouped_distinct_execution_strategy(),
+                execution_preparation.compiled_predicate(),
+            )
+        });
 
         Self {
             route,
             runtime,
             execution_preparation,
+            grouped_slot_layout,
         }
     }
-}
-
-// Compile the grouped ingest slot layout once from planner-owned route
-// metadata so grouped row decode only materializes the slots the runtime can
-// actually touch.
-fn compile_grouped_row_slot_layout(
-    row_layout: RowLayout,
-    route: &GroupedRouteStage,
-    execution_preparation: &ExecutionPreparation,
-) -> RetainedSlotLayout {
-    let field_count = row_layout.field_count();
-    let mut required_slots = vec![false; field_count];
-
-    // Phase 1: every grouped path needs the group key slots themselves.
-    for field in route.group_fields() {
-        if let Some(required_slot) = required_slots.get_mut(field.index()) {
-            *required_slot = true;
-        }
-    }
-
-    // Phase 2: residual predicate evaluation still runs on grouped row views.
-    if let Some(compiled_predicate) = execution_preparation.compiled_predicate() {
-        compiled_predicate.mark_referenced_slots(&mut required_slots);
-    }
-
-    // Phase 3: grouped reducer state only needs field-target slots for
-    // aggregates whose update contract actually reads row values.
-    for aggregate in route.grouped_aggregate_execution_specs() {
-        let Some(target_field) = aggregate.target_field() else {
-            continue;
-        };
-        if let Some(required_slot) = required_slots.get_mut(target_field.index()) {
-            *required_slot = true;
-        }
-    }
-
-    // Phase 4: the dedicated grouped DISTINCT path still reads its target
-    // field from the shared grouped row view when active.
-    if let Some(target_field) = route
-        .grouped_distinct_execution_strategy()
-        .global_distinct_target_slot()
-        && let Some(required_slot) = required_slots.get_mut(target_field.index())
-    {
-        *required_slot = true;
-    }
-
-    RetainedSlotLayout::compile(
-        field_count,
-        required_slots
-            .into_iter()
-            .enumerate()
-            .filter_map(|(slot, required)| required.then_some(slot))
-            .collect(),
-    )
 }
 
 // Execute one fully resolved grouped route through the canonical grouped
@@ -200,9 +159,11 @@ fn execute_grouped_route_path(
     runtime: &GroupedPathRuntimeCore,
     route: GroupedRouteStage,
     execution_preparation: ExecutionPreparation,
+    grouped_slot_layout: RetainedSlotLayout,
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
     let execution_started_at = start_execution_timer();
-    let stream = runtime.build_grouped_stream(&route, execution_preparation)?;
+    let stream =
+        runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
     let folded = execute_group_fold_stage(&route, stream)?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
@@ -218,9 +179,10 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
         route,
         runtime,
         execution_preparation,
+        grouped_slot_layout,
     } = prepared;
 
-    execute_grouped_route_path(&runtime, route, execution_preparation)
+    execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)
 }
 
 /// Execute one initial grouped rows path directly from one structural load plan.
@@ -240,6 +202,8 @@ where
     // Phase 1: finalize one generic-free grouped route from the initial
     // continuation state and structural authority.
     let plan = PreparedLoadPlan::from_plan(authority, plan);
+    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
+    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
     let route = resolve_grouped_route_for_plan(
         plan,
         crate::db::cursor::GroupedPlannedCursor::none(),
@@ -249,6 +213,8 @@ where
     let prepared = PreparedGroupedRouteRuntime::new(
         route,
         GroupedPathRuntimeCore::from_store(store, authority),
+        prepared_execution_preparation,
+        prepared_grouped_slot_layout,
     );
 
     // Phase 2: execute one grouped page and return the grouped cursor payload
@@ -274,10 +240,14 @@ where
     pub(in crate::db::executor) fn prepare_grouped_route_runtime(
         &self,
         route: GroupedRouteStage,
+        prepared_execution_preparation: Option<ExecutionPreparation>,
+        prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
         Ok(PreparedGroupedRouteRuntime::new(
             route,
             self.grouped_path_runtime()?,
+            prepared_execution_preparation,
+            prepared_grouped_slot_layout,
         ))
     }
 

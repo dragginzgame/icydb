@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        PersistedRow,
+        DbSession, PersistedRow, Query,
         executor::{
             LoadExecutor, PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
             ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
@@ -53,17 +53,7 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-
-        if self.query().has_grouping() {
-            return self
-                .session
-                .execute_grouped(self.query(), self.cursor_token.as_deref())
-                .map(LoadQueryResult::Grouped);
-        }
-
-        self.session
-            .execute_query(self.query())
-            .map(LoadQueryResult::Rows)
+        self.session.execute_query_result(self.query())
     }
 
     // Run one scalar terminal through the canonical non-paged fluent policy
@@ -78,6 +68,20 @@ where
         self.session.execute_load_query_with(self.query(), execute)
     }
 
+    // Run one read-only query/session projection through the canonical
+    // non-paged fluent policy gate so explain-style helpers do not each
+    // repeat the same readiness check and session handoff shell.
+    fn map_non_paged_query_output<T>(
+        &self,
+        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+        map(self.session, self.query())
+    }
+
     // Run one explain-visible aggregate terminal through the canonical
     // non-paged fluent policy gate using the prepared aggregate strategy as
     // the single explain projection source.
@@ -89,10 +93,9 @@ where
         E: EntityValue,
         S: PreparedFluentAggregateExplainStrategy,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .explain_query_prepared_aggregate_terminal_with_visible_indexes(self.query(), strategy)
+        self.map_non_paged_query_output(|session, query| {
+            session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, strategy)
+        })
     }
 
     // Run one prepared projection/distinct explain terminal through the
@@ -105,10 +108,9 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .explain_query_prepared_projection_terminal_with_visible_indexes(self.query(), strategy)
+        self.map_non_paged_query_output(|session, query| {
+            session.explain_query_prepared_projection_terminal_with_visible_indexes(query, strategy)
+        })
     }
 
     // Resolve the structural execution descriptor for this fluent load query
@@ -117,8 +119,7 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_with_visible_indexes(self.query())
+        self.map_non_paged_query_output(DbSession::explain_query_execution_with_visible_indexes)
     }
 
     // Render one descriptor-derived execution surface so text/json explain
@@ -141,8 +142,9 @@ where
     where
         E: EntityValue,
     {
-        self.session
-            .explain_query_execution_verbose_with_visible_indexes(self.query())
+        self.map_non_paged_query_output(
+            DbSession::explain_query_execution_verbose_with_visible_indexes,
+        )
     }
 
     // Execute one prepared fluent scalar terminal through the canonical
@@ -361,9 +363,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bytes_by_slot(plan, target_slot)
@@ -379,9 +379,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .explain_query_bytes_by_with_visible_indexes(self.query(), target_slot.field())
         })
@@ -416,9 +414,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_scalar_terminal_output(
                 PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
             )?
@@ -456,9 +452,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_scalar_terminal_output(
                 PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
             )?
@@ -473,9 +467,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
             )?
@@ -489,9 +481,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
             )
@@ -506,9 +496,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
                 &PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
             )
@@ -520,9 +508,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
             )
@@ -537,9 +523,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
                 &PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
             )
@@ -551,9 +535,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
             )
@@ -568,9 +550,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
                 &PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
             )
@@ -582,9 +562,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
             )
@@ -599,9 +577,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
                 &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
             )
@@ -616,9 +592,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::median_by_slot(target_slot),
             )?
@@ -633,9 +607,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
             )?
@@ -652,9 +624,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
             )
@@ -668,9 +638,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
             )?
@@ -684,9 +652,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::values_by_slot(target_slot),
             )?
@@ -702,9 +668,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(projection.field(), |target_slot| {
+        self.with_non_paged_slot(projection.field(), |target_slot| {
             let values = self
                 .execute_prepared_projection_terminal_output(
                     PreparedFluentProjectionStrategy::values_by_slot(target_slot),
@@ -727,9 +691,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(projection.field(), |target_slot| {
+        self.with_non_paged_slot(projection.field(), |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
             )
@@ -744,9 +706,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
             )
@@ -776,9 +736,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.top_k_by_slot(plan, target_slot, take_count)
@@ -801,9 +759,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bottom_k_by_slot(plan, target_slot, take_count)
@@ -826,9 +782,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.top_k_by_values_slot(plan, target_slot, take_count)
@@ -851,9 +805,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bottom_k_by_values_slot(plan, target_slot, take_count)
@@ -876,9 +828,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.top_k_by_with_ids_slot(plan, target_slot, take_count)
@@ -901,9 +851,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
@@ -917,9 +865,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
             )?
@@ -936,9 +882,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
             )
@@ -954,9 +898,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
             )?
@@ -975,9 +917,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(projection.field(), |target_slot| {
+        self.with_non_paged_slot(projection.field(), |target_slot| {
             let values = self
                 .execute_prepared_projection_terminal_output(
                     PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
@@ -999,9 +939,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
             )
@@ -1014,9 +952,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
             )?
@@ -1032,9 +968,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(projection.field(), |target_slot| {
+        self.with_non_paged_slot(projection.field(), |target_slot| {
             let value = self
                 .execute_prepared_projection_terminal_output(
                     PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
@@ -1059,9 +993,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
             )
@@ -1074,9 +1006,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
             )?
@@ -1092,9 +1022,7 @@ where
         E: EntityValue,
         P: ValueProjectionExpr,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(projection.field(), |target_slot| {
+        self.with_non_paged_slot(projection.field(), |target_slot| {
             let value = self
                 .execute_prepared_projection_terminal_output(
                     PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
@@ -1119,9 +1047,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        Self::with_slot(field, |target_slot| {
+        self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
                 &PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
             )

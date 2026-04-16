@@ -41,6 +41,7 @@ use crate::db::query::plan::expr::compile_scalar_projection_expr;
 /// field-resolve fallback.
 ///
 
+#[derive(Debug)]
 pub(in crate::db) enum PreparedProjectionPlan {
     Scalar(Vec<ScalarProjectionExpr>),
 }
@@ -54,6 +55,7 @@ pub(in crate::db) enum PreparedProjectionPlan {
 /// slot layouts needed by compiled scalar projection flow.
 ///
 
+#[derive(Debug)]
 pub(in crate::db) struct PreparedProjectionShape {
     projection: ProjectionSpec,
     prepared: PreparedProjectionPlan,

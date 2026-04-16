@@ -12,19 +12,19 @@ use std::ops::Not;
 pub struct Item {
     target: ItemTarget,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     relation: Option<&'static str>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     scale: Option<u32>,
 
-    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
 
-    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     sanitizers: &'static [TypeSanitizer],
 
-    #[serde(default, skip_serializing_if = "Not::not")]
+    #[serde(skip_serializing_if = "Not::not")]
     indirect: bool,
 }
 

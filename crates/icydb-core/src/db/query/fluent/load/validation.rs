@@ -35,6 +35,18 @@ where
         f(target_slot)
     }
 
+    // Enforce non-paged intent readiness before resolving one terminal slot so
+    // field-based scalar terminals do not each repeat the same policy gate and
+    // planner slot lookup shell.
+    pub(super) fn with_non_paged_slot<T>(
+        &self,
+        field: impl AsRef<str>,
+        f: impl FnOnce(FieldSlot) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError> {
+        self.ensure_non_paged_mode_ready()?;
+        Self::with_slot(field, f)
+    }
+
     pub(super) fn non_paged_intent_error(&self) -> Option<IntentError> {
         validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
             .err()

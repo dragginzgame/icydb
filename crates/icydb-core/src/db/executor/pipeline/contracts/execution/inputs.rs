@@ -3,6 +3,8 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use std::sync::Arc;
+
 use crate::{
     db::{
         cursor::CursorBoundary,
@@ -13,7 +15,7 @@ use crate::{
             AccessStreamBindings, EntityAuthority, ExecutableAccess, ExecutionKernel,
             ExecutionPlan, ExecutionPreparation, OrderedKeyStream, OrderedKeyStreamBox,
             ScalarContinuationContext,
-            projection::{PreparedSlotProjectionValidation, prepare_projection_shape_from_plan},
+            projection::PreparedSlotProjectionValidation,
             route::LoadOrderRouteContract,
             route::access_order_satisfied_by_route_contract,
             scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
@@ -52,7 +54,7 @@ type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, 
 
 pub(in crate::db::executor) struct PreparedExecutionProjection {
     retained_slot_layout: Option<RetainedSlotLayout>,
-    projection_validation: Option<PreparedSlotProjectionValidation>,
+    projection_validation: Option<Arc<PreparedSlotProjectionValidation>>,
 }
 
 impl PreparedExecutionProjection {
@@ -72,12 +74,11 @@ impl PreparedExecutionProjection {
     pub(in crate::db::executor) fn compile(
         authority: EntityAuthority,
         plan: &AccessPlannedQuery,
-        compiled_predicate: Option<&PredicateProgram>,
+        prepared_projection_validation: Option<Arc<PreparedSlotProjectionValidation>>,
+        prepared_retained_slot_layout: Option<RetainedSlotLayout>,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
     ) -> Self {
-        let retain_slot_rows = projection_materialization.retain_slot_rows();
-
         // Phase 1: projection validation is only meaningful when the frozen
         // projection is not already model identity. Identity projections would
         // immediately no-op inside the validator, so skip building projection
@@ -89,19 +90,25 @@ impl PreparedExecutionProjection {
         // validation pass will actually consume it. Retained-slot row paths
         // keep their slot layout separately and do not read the prepared
         // projection shape back through this contract.
-        let projection_validation = projection_validation_enabled
-            .then(|| prepare_projection_shape_from_plan(authority.model(), plan));
+        let projection_validation = if projection_validation_enabled {
+            Some(prepared_projection_validation.expect(
+                "shared scalar execution requires one frozen prepared projection validation shape",
+            ))
+        } else {
+            None
+        };
 
-        // Phase 3: compile the retained-slot layout only from the effective
-        // execution needs, not from the broader pre-optimization mode enum.
-        let retained_slot_layout = compile_retained_slot_layout(
-            authority.model(),
-            plan,
-            compiled_predicate,
-            projection_validation_enabled,
-            retain_slot_rows,
-            cursor_emission,
-        );
+        // Phase 3: reuse one frozen retained-slot layout whenever the
+        // prepared-plan boundary already compiled the canonical scalar
+        // execution shape. Non-prepared callers still compile on demand.
+        let retained_slot_layout = prepared_retained_slot_layout.or_else(|| {
+            compile_retained_slot_layout_for_mode(
+                authority.model(),
+                plan,
+                projection_materialization,
+                cursor_emission,
+            )
+        });
         Self {
             retained_slot_layout,
             projection_validation,
@@ -116,10 +123,10 @@ impl PreparedExecutionProjection {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn projection_validation(
+    pub(in crate::db::executor) fn projection_validation(
         &self,
     ) -> Option<&PreparedSlotProjectionValidation> {
-        self.projection_validation.as_ref()
+        self.projection_validation.as_deref()
     }
 
     #[must_use]
@@ -622,7 +629,7 @@ impl<'a> ExecutionInputs<'a> {
     /// Borrow one prepared slot-row projection validation bundle when this
     /// execution attempt still requires shared projection validation.
     #[must_use]
-    pub(in crate::db::executor) const fn prepared_projection_validation(
+    pub(in crate::db::executor) fn prepared_projection_validation(
         &self,
     ) -> Option<&PreparedSlotProjectionValidation> {
         self.prepared_projection.projection_validation()
@@ -693,6 +700,28 @@ impl<'a> ExecutionInputs<'a> {
             direction: route_plan.direction(),
         }
     }
+}
+
+/// Compile the canonical retained-slot layout for one explicit scalar
+/// projection and cursor-emission mode pair.
+pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    projection_materialization: ProjectionMaterializationMode,
+    cursor_emission: CursorEmissionMode,
+) -> Option<RetainedSlotLayout> {
+    let projection_validation_enabled =
+        projection_materialization.validate_projection() && !plan.projection_is_model_identity();
+    let retain_slot_rows = projection_materialization.retain_slot_rows();
+
+    compile_retained_slot_layout(
+        model,
+        plan,
+        plan.effective_runtime_compiled_predicate(),
+        projection_validation_enabled,
+        retain_slot_rows,
+        cursor_emission,
+    )
 }
 
 // Compile the canonical retained-slot layout once per execution shape so

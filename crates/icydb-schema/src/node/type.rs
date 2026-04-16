@@ -9,10 +9,10 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Type {
-    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     sanitizers: &'static [TypeSanitizer],
 
-    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
 }
 

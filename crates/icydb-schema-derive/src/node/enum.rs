@@ -135,13 +135,6 @@ impl HasTraits for Enum {
             _ => None,
         }
     }
-
-    fn map_attribute(&self, t: TraitKind) -> Option<TokenStream> {
-        match t {
-            TraitKind::Sorted => TraitKind::Sorted.derive_attribute(),
-            _ => None,
-        }
-    }
 }
 
 impl HasType for Enum {

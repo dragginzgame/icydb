@@ -6,9 +6,9 @@
 //! SQL-specific value/text shaping above that boundary.
 
 #[cfg(all(feature = "sql", feature = "perf-attribution"))]
-use crate::value::ValueEnum;
+use crate::{db::executor::projection::prepare_projection_shape_from_plan, value::ValueEnum};
 use crate::{
-    db::{Db, query::plan::AccessPlannedQuery},
+    db::{Db, executor::SharedPreparedExecutionPlan, query::plan::AccessPlannedQuery},
     error::InternalError,
     traits::CanisterKind,
 };
@@ -25,7 +25,6 @@ use crate::{
             projection::{
                 PreparedProjectionShape, ProjectionEvalError, ScalarProjectionExpr,
                 eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-                prepare_projection_shape_from_plan,
                 visit_prepared_projection_values_with_required_value_reader_cow,
             },
             reorder_covering_projection_pairs,
@@ -226,39 +225,45 @@ where
 pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
+    prepared_plan: SharedPreparedExecutionPlan,
 ) -> Result<SqlProjectionRows, InternalError>
 where
     C: CanisterKind,
 {
+    let authority = prepared_plan.authority();
+    let plan = prepared_plan.logical_plan();
+
     if let Some(projected) =
-        try_execute_covering_sql_projection_rows_for_canister(db, authority, &plan)?
+        try_execute_covering_sql_projection_rows_for_canister(db, authority, plan)?
     {
-        let projected = finalize_sql_projection_rows(&plan, projected)?;
+        let projected = finalize_sql_projection_rows(plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
     }
 
     if let Some(projected) =
-        try_execute_hybrid_covering_sql_projection_rows_for_canister(db, authority, &plan)?
+        try_execute_hybrid_covering_sql_projection_rows_for_canister(db, authority, plan)?
     {
-        let projected = finalize_sql_projection_rows(&plan, projected)?;
+        let projected = finalize_sql_projection_rows(plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
     }
 
     let row_layout = authority.row_layout();
-    let prepared_projection = prepare_projection_shape_from_plan(authority.model(), &plan);
+    let prepared_projection = prepared_plan.prepared_projection_shape().ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "structural SQL projection execution requires one frozen scalar projection shape",
+        )
+    })?;
 
     // Execute the canonical scalar runtime and then shape the resulting
     // structural page into projected SQL values.
     let page =
         execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan.clone())?;
-    let projected = project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
-    let projected = finalize_sql_projection_rows(&plan, projected)?;
+    let projected = project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
+    let projected = finalize_sql_projection_rows(plan, projected)?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))

@@ -74,14 +74,6 @@ impl HasTraits for Record {
             _ => None,
         }
     }
-
-    fn map_attribute(&self, t: TraitKind) -> Option<TokenStream> {
-        match t {
-            TraitKind::Default => TraitKind::Default.derive_attribute(),
-
-            _ => None,
-        }
-    }
 }
 
 impl HasType for Record {

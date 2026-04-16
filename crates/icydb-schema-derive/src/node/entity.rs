@@ -430,13 +430,6 @@ impl HasTraits for Entity {
             _ => None,
         }
     }
-
-    fn map_attribute(&self, t: TraitKind) -> Option<TokenStream> {
-        match t {
-            TraitKind::Default => TraitKind::Default.derive_attribute(),
-            _ => None,
-        }
-    }
 }
 
 impl HasType for Entity {
@@ -512,7 +505,7 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
             Default,
             ::icydb::__reexports::serde::Deserialize
         )]
-        #[serde(crate = "::icydb::__reexports::serde", default)]
+        #[serde(crate = "::icydb::__reexports::serde")]
         pub struct #create_ident {
             #(#insert_struct_fields),*
         }

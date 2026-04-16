@@ -9,8 +9,6 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct PrimaryKey {
     field: &'static str,
-
-    #[serde(default)]
     source: PrimaryKeySource,
 }
 

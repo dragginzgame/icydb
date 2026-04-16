@@ -12,8 +12,16 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            explain::assemble_load_execution_node_descriptor, lower_index_prefix_specs,
-            lower_index_range_specs, planning::preparation::slot_map_for_model_plan,
+            explain::assemble_load_execution_node_descriptor,
+            lower_index_prefix_specs, lower_index_range_specs,
+            pipeline::contracts::{
+                CursorEmissionMode, ProjectionMaterializationMode,
+                compile_retained_slot_layout_for_mode,
+                grouped::compile_grouped_row_slot_layout_from_parts,
+            },
+            planning::preparation::slot_map_for_model_plan,
+            projection::{PreparedProjectionShape, prepare_projection_shape_from_plan},
+            terminal::RetainedSlotLayout,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -101,6 +109,11 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
 #[derive(Debug)]
 struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
+    prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+    prepared_grouped_runtime_residents: Option<Arc<PreparedGroupedRuntimeResidents>>,
+    shared_validation_emit_retained_slot_layout: Option<RetainedSlotLayout>,
+    retain_slot_rows_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
+    none_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
     continuation: Option<PlannedContinuationContract>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
@@ -111,6 +124,38 @@ struct PreparedExecutionPlanCoreShared {
 #[derive(Clone, Debug)]
 struct PreparedExecutionPlanCore {
     shared: Arc<PreparedExecutionPlanCoreShared>,
+}
+
+#[derive(Clone)]
+struct PreparedGroupedRuntimeResidents {
+    execution_preparation: ExecutionPreparation,
+    grouped_slot_layout: RetainedSlotLayout,
+}
+
+impl std::fmt::Debug for PreparedGroupedRuntimeResidents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PreparedGroupedRuntimeResidents(..)")
+    }
+}
+
+impl PreparedGroupedRuntimeResidents {
+    const fn new(
+        execution_preparation: ExecutionPreparation,
+        grouped_slot_layout: RetainedSlotLayout,
+    ) -> Self {
+        Self {
+            execution_preparation,
+            grouped_slot_layout,
+        }
+    }
+
+    fn execution_preparation(&self) -> ExecutionPreparation {
+        self.execution_preparation.clone()
+    }
+
+    fn grouped_slot_layout(&self) -> RetainedSlotLayout {
+        self.grouped_slot_layout.clone()
+    }
 }
 
 ///
@@ -157,12 +202,36 @@ impl SharedPreparedExecutionPlan {
             marker: PhantomData,
         }
     }
+
+    #[must_use]
+    pub(in crate::db) const fn authority(&self) -> EntityAuthority {
+        self.authority
+    }
+
+    #[must_use]
+    pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn prepared_projection_shape(&self) -> Option<&PreparedProjectionShape> {
+        self.core.prepared_projection_shape()
+    }
 }
 
 impl PreparedExecutionPlanCore {
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "prepared plan core assembly freezes all shared lowered residents at one boundary"
+    )]
     fn new(
         plan: AccessPlannedQuery,
+        prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+        prepared_grouped_runtime_residents: Option<Arc<PreparedGroupedRuntimeResidents>>,
+        shared_validation_emit_retained_slot_layout: Option<RetainedSlotLayout>,
+        retain_slot_rows_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
+        none_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
         index_prefix_spec_invalid: bool,
@@ -172,6 +241,11 @@ impl PreparedExecutionPlanCore {
         Self {
             shared: Arc::new(PreparedExecutionPlanCoreShared {
                 plan,
+                prepared_projection_shape,
+                prepared_grouped_runtime_residents,
+                shared_validation_emit_retained_slot_layout,
+                retain_slot_rows_suppress_retained_slot_layout,
+                none_suppress_retained_slot_layout,
                 continuation,
                 index_prefix_specs,
                 index_prefix_spec_invalid,
@@ -184,6 +258,47 @@ impl PreparedExecutionPlanCore {
     #[must_use]
     fn plan(&self) -> &AccessPlannedQuery {
         &self.shared.plan
+    }
+
+    #[must_use]
+    fn prepared_projection_shape(&self) -> Option<&PreparedProjectionShape> {
+        self.shared.prepared_projection_shape.as_deref()
+    }
+
+    fn grouped_runtime_residents(&self) -> Option<&PreparedGroupedRuntimeResidents> {
+        self.shared.prepared_grouped_runtime_residents.as_deref()
+    }
+
+    fn grouped_execution_preparation(&self) -> Option<ExecutionPreparation> {
+        self.grouped_runtime_residents()
+            .map(PreparedGroupedRuntimeResidents::execution_preparation)
+    }
+
+    fn grouped_slot_layout(&self) -> Option<RetainedSlotLayout> {
+        self.grouped_runtime_residents()
+            .map(PreparedGroupedRuntimeResidents::grouped_slot_layout)
+    }
+
+    #[must_use]
+    fn retained_slot_layout(
+        &self,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+    ) -> Option<RetainedSlotLayout> {
+        match (projection_materialization, cursor_emission) {
+            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => self
+                .shared
+                .shared_validation_emit_retained_slot_layout
+                .clone(),
+            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => self
+                .shared
+                .retain_slot_rows_suppress_retained_slot_layout
+                .clone(),
+            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
+                self.shared.none_suppress_retained_slot_layout.clone()
+            }
+            _ => None,
+        }
     }
 
     #[must_use]
@@ -357,17 +472,65 @@ fn build_prepared_execution_plan_core(
 ) -> PreparedExecutionPlanCore {
     authority.finalize_static_planning_shape(&mut plan);
 
-    // Phase 0: derive immutable continuation contract once from planner semantics.
+    // Phase 0: freeze the shared projection materialization shape once at the
+    // canonical prepared-plan boundary so repeated structural SQL execution
+    // can reuse it without rebuilding projection prep per request.
+    let prepared_projection_shape = plan
+        .scalar_projection_plan()
+        .map(|_| Arc::new(prepare_projection_shape_from_plan(authority.model(), &plan)));
+
+    // Phase 1: freeze the grouped runtime residents once for grouped plans.
+    let prepared_grouped_runtime_residents = plan.grouped_plan().and_then(|grouped_plan| {
+        let grouped_distinct_execution_strategy = plan.grouped_distinct_execution_strategy()?;
+        let execution_preparation =
+            ExecutionPreparation::from_runtime_plan(&plan, plan.slot_map().map(<[usize]>::to_vec));
+        let grouped_slot_layout = compile_grouped_row_slot_layout_from_parts(
+            authority.row_layout(),
+            grouped_plan.group.group_fields.as_slice(),
+            plan.grouped_aggregate_execution_specs().unwrap_or(&[]),
+            grouped_distinct_execution_strategy,
+            execution_preparation.compiled_predicate(),
+        );
+
+        Some(Arc::new(PreparedGroupedRuntimeResidents::new(
+            execution_preparation,
+            grouped_slot_layout,
+        )))
+    });
+
+    // Phase 2: freeze the canonical retained-slot layouts once for the
+    // three scalar execution shapes that currently reuse the shared load-plan
+    // boundary.
+    let shared_validation_emit_retained_slot_layout = compile_retained_slot_layout_for_mode(
+        authority.model(),
+        &plan,
+        ProjectionMaterializationMode::SharedValidation,
+        CursorEmissionMode::Emit,
+    );
+    let retain_slot_rows_suppress_retained_slot_layout = compile_retained_slot_layout_for_mode(
+        authority.model(),
+        &plan,
+        ProjectionMaterializationMode::RetainSlotRows,
+        CursorEmissionMode::Suppress,
+    );
+    let none_suppress_retained_slot_layout = compile_retained_slot_layout_for_mode(
+        authority.model(),
+        &plan,
+        ProjectionMaterializationMode::None,
+        CursorEmissionMode::Suppress,
+    );
+
+    // Phase 3: derive immutable continuation contract once from planner semantics.
     let continuation = plan.planned_continuation_contract(authority.entity_path());
 
-    // Phase 1: lower index-prefix specs once and retain invariant state.
+    // Phase 4: lower index-prefix specs once and retain invariant state.
     let (index_prefix_specs, index_prefix_spec_invalid) =
         match lower_index_prefix_specs(authority.entity_tag(), &plan.access) {
             Ok(specs) => (specs, false),
             Err(_) => (Vec::new(), true),
         };
 
-    // Phase 2: lower index-range specs once and retain invariant state.
+    // Phase 5: lower index-range specs once and retain invariant state.
     let (index_range_specs, index_range_spec_invalid) =
         match lower_index_range_specs(authority.entity_tag(), &plan.access) {
             Ok(specs) => (specs, false),
@@ -376,6 +539,11 @@ fn build_prepared_execution_plan_core(
 
     PreparedExecutionPlanCore::new(
         plan,
+        prepared_projection_shape,
+        prepared_grouped_runtime_residents,
+        shared_validation_emit_retained_slot_layout,
+        retain_slot_rows_suppress_retained_slot_layout,
+        none_suppress_retained_slot_layout,
         continuation,
         index_prefix_specs,
         index_prefix_spec_invalid,
@@ -486,6 +654,35 @@ impl PreparedLoadPlan {
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
         self.core.index_range_specs()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn cloned_prepared_projection_shape(
+        &self,
+    ) -> Option<Arc<PreparedProjectionShape>> {
+        self.core.shared.prepared_projection_shape.clone()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn cloned_retained_slot_layout(
+        &self,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+    ) -> Option<RetainedSlotLayout> {
+        self.core
+            .retained_slot_layout(projection_materialization, cursor_emission)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn cloned_grouped_execution_preparation(
+        &self,
+    ) -> Option<ExecutionPreparation> {
+        self.core.grouped_execution_preparation()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn cloned_grouped_slot_layout(&self) -> Option<RetainedSlotLayout> {
+        self.core.grouped_slot_layout()
     }
 
     #[must_use]
