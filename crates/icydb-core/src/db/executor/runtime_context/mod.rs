@@ -17,7 +17,7 @@ use crate::{
 };
 #[cfg(test)]
 use crate::{types::EntityTag, value::StorageKey};
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 use std::ops::Bound;
 
@@ -104,11 +104,8 @@ impl<'a> StoreResolver<'a> {
 /// and authoritative row-presence probes without changing runtime policy.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RowCheckMetrics {
     pub index_entries_scanned: u64,
@@ -125,14 +122,14 @@ pub struct RowCheckMetrics {
     pub row_presence_key_to_raw_encodes: u64,
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static ROW_CHECK_METRICS: RefCell<Option<RowCheckMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn update_row_check_metrics(update: impl FnOnce(&mut RowCheckMetrics)) {
     ROW_CHECK_METRICS.with(|metrics| {
         let mut metrics = metrics.borrow_mut();
@@ -228,17 +225,17 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
     }
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_index_entry_scanned() {
     update_row_check_metrics(|metrics| {
         metrics.index_entries_scanned = metrics.index_entries_scanned.saturating_add(1);
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_index_entry_scanned() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_single_key_entries = metrics
@@ -247,10 +244,10 @@ pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_index_membership_single_key_entry() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_multi_key_entries =
@@ -258,10 +255,10 @@ pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_index_membership_multi_key_entry() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_keys_decoded =
@@ -269,10 +266,10 @@ pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_index_membership_key_decoded() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_covering_candidate_seen() {
     update_row_check_metrics(|metrics| {
         metrics.row_check_covering_candidates_seen =
@@ -280,20 +277,20 @@ pub(in crate::db) fn record_row_check_covering_candidate_seen() {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_covering_candidate_seen() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db) fn record_row_check_row_emitted() {
     update_row_check_metrics(|metrics| {
         metrics.row_check_rows_emitted = metrics.row_check_rows_emitted.saturating_add(1);
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 pub(in crate::db) const fn record_row_check_row_emitted() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
     update_row_check_metrics(|metrics| match source {
         RowPresenceProbeSource::BorrowedDataStore => {
@@ -310,10 +307,10 @@ fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 const fn record_row_presence_probe_source(_source: RowPresenceProbeSource) {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_row_presence_key_to_raw_encode() {
     update_row_check_metrics(|metrics| {
         metrics.row_presence_key_to_raw_encodes =
@@ -321,10 +318,10 @@ fn record_row_presence_key_to_raw_encode() {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 const fn record_row_presence_key_to_raw_encode() {}
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_row_presence_probe_result(row_exists: bool) {
     update_row_check_metrics(|metrics| {
         metrics.row_presence_probe_count = metrics.row_presence_probe_count.saturating_add(1);
@@ -336,7 +333,7 @@ fn record_row_presence_probe_result(row_exists: bool) {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 const fn record_row_presence_probe_result(_row_exists: bool) {}
 
 ///
@@ -347,11 +344,8 @@ const fn record_row_presence_probe_result(_row_exists: bool) {}
 /// aggregated snapshot.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 pub fn with_row_check_metrics<T>(f: impl FnOnce() -> T) -> (T, RowCheckMetrics) {
     ROW_CHECK_METRICS.with(|metrics| {
         debug_assert!(

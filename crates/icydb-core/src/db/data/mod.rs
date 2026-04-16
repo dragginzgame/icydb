@@ -69,7 +69,7 @@ macro_rules! impl_scalar_only_test_slot_reader_get_value {
 
 #[cfg(test)]
 pub(crate) use impl_scalar_only_test_slot_reader_get_value;
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 pub use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};

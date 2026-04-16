@@ -31,9 +31,9 @@ pub(in crate::db) use patch::{
 };
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use reader::CachedSlotValue;
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use reader::{StructuralReadMetrics, with_structural_read_metrics};
 pub(in crate::db) use reader::{
     StructuralSlotReader, decode_dense_raw_row_with_contract,

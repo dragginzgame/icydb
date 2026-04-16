@@ -11,11 +11,7 @@ use std::{
     collections::{BinaryHeap, HashMap},
 };
 
-#[cfg(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-))]
+#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
 use std::cell::RefCell;
 
 use crate::{
@@ -66,40 +62,7 @@ use crate::{
 /// behavior.
 ///
 
-#[cfg(feature = "structural-read-metrics")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct GroupedCountFoldMetrics {
-    pub fold_stage_runs: u64,
-    pub rows_folded: u64,
-    pub borrowed_probe_rows: u64,
-    pub borrowed_hash_computations: u64,
-    pub owned_group_fallback_rows: u64,
-    pub owned_key_materializations: u64,
-    pub bucket_candidate_checks: u64,
-    pub existing_group_hits: u64,
-    pub new_group_inserts: u64,
-    pub row_materialization_local_instructions: u64,
-    pub group_lookup_local_instructions: u64,
-    pub existing_group_update_local_instructions: u64,
-    pub new_group_insert_local_instructions: u64,
-    pub finalize_stage_runs: u64,
-    pub finalized_group_count: u64,
-    pub window_rows_considered: u64,
-    pub having_rows_rejected: u64,
-    pub resume_boundary_rows_rejected: u64,
-    pub candidate_rows_qualified: u64,
-    pub bounded_selection_candidates_seen: u64,
-    pub bounded_selection_heap_replacements: u64,
-    pub bounded_selection_rows_sorted: u64,
-    pub unbounded_selection_rows_sorted: u64,
-    pub page_rows_skipped_for_offset: u64,
-    pub projection_rows_input: u64,
-    pub page_rows_emitted: u64,
-    pub cursor_construction_attempts: u64,
-    pub next_cursor_emitted: u64,
-}
-
-#[cfg(not(feature = "structural-read-metrics"))]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GroupedCountFoldMetrics {
     pub fold_stage_runs: u64,
@@ -132,22 +95,47 @@ pub(crate) struct GroupedCountFoldMetrics {
     pub next_cursor_emitted: u64,
 }
 
-#[cfg(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-))]
+#[cfg(not(feature = "diagnostics"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct GroupedCountFoldMetrics {
+    pub fold_stage_runs: u64,
+    pub rows_folded: u64,
+    pub borrowed_probe_rows: u64,
+    pub borrowed_hash_computations: u64,
+    pub owned_group_fallback_rows: u64,
+    pub owned_key_materializations: u64,
+    pub bucket_candidate_checks: u64,
+    pub existing_group_hits: u64,
+    pub new_group_inserts: u64,
+    pub row_materialization_local_instructions: u64,
+    pub group_lookup_local_instructions: u64,
+    pub existing_group_update_local_instructions: u64,
+    pub new_group_insert_local_instructions: u64,
+    pub finalize_stage_runs: u64,
+    pub finalized_group_count: u64,
+    pub window_rows_considered: u64,
+    pub having_rows_rejected: u64,
+    pub resume_boundary_rows_rejected: u64,
+    pub candidate_rows_qualified: u64,
+    pub bounded_selection_candidates_seen: u64,
+    pub bounded_selection_heap_replacements: u64,
+    pub bounded_selection_rows_sorted: u64,
+    pub unbounded_selection_rows_sorted: u64,
+    pub page_rows_skipped_for_offset: u64,
+    pub projection_rows_input: u64,
+    pub page_rows_emitted: u64,
+    pub cursor_construction_attempts: u64,
+    pub next_cursor_emitted: u64,
+}
+
+#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
 std::thread_local! {
     static GROUPED_COUNT_FOLD_METRICS: RefCell<Option<GroupedCountFoldMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-))]
+#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
 fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMetrics)) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
         let mut metrics = metrics.borrow_mut();
@@ -159,18 +147,10 @@ fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMe
     });
 }
 
-#[cfg(not(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-)))]
+#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
 fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldMetrics)) {}
 
-#[cfg(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-))]
+#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -187,11 +167,7 @@ fn read_grouped_count_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(not(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-)))]
+#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
 const fn read_grouped_count_local_instruction_counter() -> u64 {
     0
 }
@@ -243,11 +219,7 @@ fn record_grouped_count_new_group_insert_local_instructions(delta: u64) {
 /// snapshot.
 ///
 
-#[cfg(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-))]
+#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
 #[allow(dead_code)]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
@@ -267,11 +239,7 @@ pub(crate) fn with_grouped_count_fold_metrics<T>(
     (result, metrics)
 }
 
-#[cfg(not(any(
-    test,
-    feature = "structural-read-metrics",
-    feature = "perf-attribution"
-)))]
+#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
 #[allow(dead_code)]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,

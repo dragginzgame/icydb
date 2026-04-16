@@ -13,15 +13,15 @@ use crate::{
     value::Value,
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use std::cell::Cell;
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 thread_local! {
     static DATA_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn record_data_store_get_call() {
     DATA_STORE_GET_CALL_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -68,7 +68,7 @@ impl DataStore {
 
     /// Load one row by raw key.
     pub fn get(&self, key: &RawDataKey) -> Option<RawRow> {
-        #[cfg(feature = "perf-attribution")]
+        #[cfg(feature = "diagnostics")]
         record_data_store_get_call();
 
         self.map.get(key)
@@ -131,7 +131,7 @@ impl DataStore {
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }

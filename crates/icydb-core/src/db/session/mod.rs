@@ -35,13 +35,13 @@ use crate::{
 };
 use std::thread::LocalKey;
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub use query::QueryExecutionAttribution;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
 pub use sql::SqlStatementResult;
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
 
 ///

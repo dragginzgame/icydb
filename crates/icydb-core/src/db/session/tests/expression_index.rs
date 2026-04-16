@@ -250,7 +250,7 @@ fn execute_sql_projection_expression_order_pk_plus_row_field_uses_sparse_sql_pat
     );
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[test]
 fn execute_sql_projection_expression_order_key_only_covering_query_avoids_store_gets() {
     reset_indexed_session_sql_store();

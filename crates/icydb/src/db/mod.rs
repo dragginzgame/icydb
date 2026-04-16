@@ -5,11 +5,11 @@ mod session;
 pub mod sql;
 
 // re-exports
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::QueryExecutionAttribution;
 pub use icydb_core::db::Row;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::SqlQueryExecutionAttribution;
 #[doc(hidden)]
@@ -35,12 +35,12 @@ pub use icydb_core::db::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
     RowCheckMetrics, StructuralReadMetrics, with_row_check_metrics, with_structural_read_metrics,
 };
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,

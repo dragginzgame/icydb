@@ -9,7 +9,7 @@ pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(crate) mod physical_access;
 pub(crate) mod predicate;
 pub(crate) mod query;
@@ -60,10 +60,10 @@ pub use data::{
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
     encode_persisted_slot_payload_by_meta,
 };
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use data::{StructuralReadMetrics, with_structural_read_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
@@ -74,16 +74,16 @@ pub use diagnostics::{
 pub use executor::EntityAuthority;
 pub use executor::MutationMode;
 pub use executor::{ExecutionFamily, RouteExecutionMode};
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use executor::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 #[expect(unused_imports)]
 pub(crate) use executor::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
@@ -137,15 +137,15 @@ pub use schema::{
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub use session::QueryExecutionAttribution;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlStatementResult, debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use session::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,

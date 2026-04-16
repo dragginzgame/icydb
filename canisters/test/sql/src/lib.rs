@@ -8,9 +8,9 @@ use candid::CandidType;
 #[cfg(feature = "sql")]
 use canic_cdk::query;
 use canic_cdk::update;
-#[cfg(all(feature = "sql", not(feature = "perf-attribution")))]
+#[cfg(all(feature = "sql", not(feature = "diagnostics")))]
 use icydb::db::sql::SqlQueryResult;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 use icydb::db::{SqlQueryExecutionAttribution, sql::SqlQueryResult};
 use icydb_testing_test_sql_fixtures::sql::SqlTestUser;
 
@@ -33,7 +33,7 @@ struct SqlQueryPerfResult {
     compiler_instructions: u64,
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 impl SqlQueryPerfResult {
     const fn from_attribution(
         result: SqlQueryResult,
@@ -105,7 +105,7 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 /// Execute one SqlTestUser-only reduced SQL query and return one dev-shell
 /// compile/planner/store/executor/decode attribution split alongside the
 /// normal SQL result payload.
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[query]
 fn query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     let (result, attribution) =

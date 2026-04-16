@@ -9,14 +9,14 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql", "perf-attribution"]
+default = ["sql", "diagnostics"]
 sql = ["icydb/sql"]
-perf-attribution = ["icydb/perf-attribution"]
+diagnostics = ["icydb/diagnostics"]
 
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false, features = ["sql", "perf-attribution"] }
+icydb = { path = "../../../crates/icydb", default-features = false, features = ["sql", "diagnostics"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 
 [build-dependencies]

@@ -1,3 +1,6 @@
+use crate::db::executor::terminal::page::{
+    KernelRow, KernelRowScanStrategy, ResidualPredicateScanMode, ScalarRowRuntimeHandle,
+};
 use crate::{
     db::{
         data::{DataKey, DataRow},
@@ -12,16 +15,12 @@ use crate::{
     value::Value,
 };
 
-use crate::db::executor::terminal::page::{
-    KernelRow, KernelRowScanStrategy, ResidualPredicateScanMode, ScalarRowRuntimeHandle,
-};
-
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use super::metrics::{
     measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
     record_direct_data_row_row_read_local_instructions,
 };
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 use super::metrics::{
     record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
     record_kernel_slots_only_path_hit,
@@ -76,7 +75,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
     // loop does not branch on payload shape or predicate mode per row.
     match scan_strategy {
         KernelRowScanStrategy::DataRows => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_data_row_path_hit();
 
             execute_scalar_page_read_loop(key_stream, scan_budget_hint, |key_stream| {
@@ -86,7 +85,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         KernelRowScanStrategy::RetainedFullRows {
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_full_row_retained_path_hit();
 
             execute_retained_kernel_scan(
@@ -109,7 +108,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             predicate_program,
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_full_row_retained_path_hit();
 
             execute_retained_kernel_scan(
@@ -132,7 +131,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         KernelRowScanStrategy::SlotOnlyRows {
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_slots_only_path_hit();
 
             execute_retained_kernel_scan(
@@ -155,7 +154,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             predicate_program,
             retained_slot_layout,
         } => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_kernel_slots_only_path_hit();
 
             execute_retained_kernel_scan(
@@ -342,24 +341,24 @@ fn scan_data_rows_direct_with_reader(
     let mut data_rows = Vec::with_capacity(staged_capacity);
 
     loop {
-        #[cfg(feature = "perf-attribution")]
+        #[cfg(feature = "diagnostics")]
         let (key_stream_local_instructions, read_result) =
             measure_direct_data_row_phase(|| key_stream.next_key());
-        #[cfg(not(feature = "perf-attribution"))]
+        #[cfg(not(feature = "diagnostics"))]
         let read_result = key_stream.next_key();
         let Some(key) = read_result? else {
             break;
         };
-        #[cfg(feature = "perf-attribution")]
+        #[cfg(feature = "diagnostics")]
         record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
 
         rows_scanned = rows_scanned.saturating_add(1);
-        #[cfg(feature = "perf-attribution")]
+        #[cfg(feature = "diagnostics")]
         let (row_read_local_instructions, row_read_result) =
             measure_direct_data_row_phase(|| read_data_row(key));
-        #[cfg(not(feature = "perf-attribution"))]
+        #[cfg(not(feature = "diagnostics"))]
         let row_read_result = read_data_row(key);
-        #[cfg(feature = "perf-attribution")]
+        #[cfg(feature = "diagnostics")]
         record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
         let Some(data_row) = row_read_result? else {
             continue;

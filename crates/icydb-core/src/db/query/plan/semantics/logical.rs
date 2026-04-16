@@ -274,7 +274,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-frozen mask for direct projected output slots.
     #[must_use]
-    #[cfg(any(test, feature = "perf-attribution"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.static_planning_shape().projected_slot_mask.as_slice()
     }

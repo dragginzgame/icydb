@@ -4,7 +4,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 use crate::db::registry::StoreHandle;
 use crate::{
@@ -78,7 +78,7 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
 /// the repeated-query floor.
 ///
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct GroupedCountAttribution {
     pub(in crate::db) borrowed_hash_computations: u64,
@@ -91,7 +91,7 @@ pub(in crate::db) struct GroupedCountAttribution {
     pub(in crate::db) new_group_insert_local_instructions: u64,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 impl GroupedCountAttribution {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
@@ -123,7 +123,7 @@ impl GroupedCountAttribution {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) stream_local_instructions: u64,
@@ -132,7 +132,7 @@ pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) grouped_count: GroupedCountAttribution,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -149,7 +149,7 @@ fn read_grouped_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_grouped_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_grouped_local_instruction_counter();
     let result = run();
@@ -311,7 +311,7 @@ where
 
 /// Execute one prepared grouped runtime bundle while reporting the internal
 /// stream/fold/finalize split for perf-only grouped attribution surfaces.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase_attribution(
     prepared: PreparedGroupedRouteRuntime,
 ) -> Result<
@@ -395,7 +395,7 @@ where
 
 /// Execute one initial grouped rows path directly from one structural load plan
 /// while reporting the grouped runtime phase split for perf-only SQL surfaces.
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn execute_initial_grouped_rows_for_canister_with_phase_attribution<C>(
     db: &crate::db::Db<C>,
     debug: bool,
@@ -457,7 +457,7 @@ where
 
     // Execute one traced paged grouped load while reporting the grouped runtime
     // stream/fold/finalize split for perf-only attribution surfaces.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     pub(in crate::db::executor) fn execute_load_grouped_page_with_trace_with_phase_attribution(
         &self,
         plan: PreparedLoadPlan,

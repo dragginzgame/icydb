@@ -4,7 +4,7 @@
 //! Does not own: query intent construction or executor runtime semantics.
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
 };
@@ -37,10 +37,10 @@ use crate::{
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use candid::CandidType;
 use icydb_utils::Xxh3;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use serde::Deserialize;
 use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
 
@@ -135,7 +135,7 @@ impl QueryPlanCacheAttribution {
 /// QueryExecutionAttribution records the top-level compile/execute split for
 /// typed/fluent query execution at the session boundary.
 ///
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct QueryExecutionAttribution {
     pub compile_local_instructions: u64,
@@ -166,7 +166,7 @@ pub struct QueryExecutionAttribution {
     pub shared_query_plan_cache_misses: u64,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct QueryExecutePhaseAttribution {
     runtime_local_instructions: u64,
@@ -184,7 +184,7 @@ struct QueryExecutePhaseAttribution {
     grouped_count: GroupedCountAttribution,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -201,7 +201,7 @@ fn read_query_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_query_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_query_local_instruction_counter();
     let result = run();
@@ -211,7 +211,7 @@ fn measure_query_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     const fn empty_query_execute_phase_attribution() -> QueryExecutePhaseAttribution {
         QueryExecutePhaseAttribution {
             runtime_local_instructions: 0,
@@ -230,7 +230,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     const fn scalar_query_execute_phase_attribution(
         phase: ScalarExecutePhaseAttribution,
     ) -> QueryExecutePhaseAttribution {
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     const fn grouped_query_execute_phase_attribution(
         phase: GroupedExecutePhaseAttribution,
     ) -> QueryExecutePhaseAttribution {
@@ -668,8 +668,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one prepared grouped query result while returning the same empty
     // scalar-attribution shell used by the grouped execution path in the
-    // perf-attribution surface.
-    #[cfg(feature = "perf-attribution")]
+    // diagnostics surface.
+    #[cfg(feature = "diagnostics")]
     fn execute_grouped_query_result_with_attribution<E>(
         &self,
         plan: PreparedExecutionPlan<E>,
@@ -691,7 +691,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one non-grouped prepared query result while normalizing load vs
     // delete output into the shared outward load-result contract plus the
     // scalar execution attribution tuple expected by the perf surface.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     fn execute_scalar_query_result_with_attribution<E>(
         &self,
         mode: QueryMode,
@@ -740,7 +740,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one typed query while reporting the compile/execute split at
     /// the shared fluent query seam.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn execute_query_result_with_attribution<E>(
         &self,
@@ -1052,7 +1052,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::execute)
     }
 
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     fn execute_grouped_plan_with_trace_with_phase_attribution<E>(
         &self,
         plan: PreparedExecutionPlan<E>,

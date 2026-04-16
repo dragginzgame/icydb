@@ -47,7 +47,7 @@ use crate::{
 };
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::terminal::with_direct_data_row_phase_attribution;
 
 type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
@@ -74,7 +74,7 @@ type ScalarPathExecution = (
 /// floor lives in runtime traversal or page finalization.
 ///
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
@@ -89,7 +89,7 @@ pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) direct_data_row_page_window_local_instructions: u64,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -106,7 +106,7 @@ fn read_scalar_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_scalar_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_scalar_local_instruction_counter();
     let result = run();
@@ -398,7 +398,7 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
 
 /// Execute one prepared scalar runtime bundle while reporting the internal
 /// runtime/finalize split for perf-only attribution surfaces.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_attribution(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<
@@ -570,7 +570,7 @@ where
 
 /// Execute one unpaged scalar rows path once per canister while reporting the
 /// internal runtime/finalize split for perf-only fluent attribution.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) fn execute_prepared_scalar_rows_for_canister_with_phase_attribution<C>(
     db: &Db<C>,
     debug: bool,

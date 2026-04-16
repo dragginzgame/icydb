@@ -4,11 +4,11 @@
 //! Does not own: lowered SQL parsing or public session API classification.
 //! Boundary: keeps lowered-command execution bridges explicit and authority-aware.
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::projection::{
     SqlProjectionTextExecutorAttribution, attribute_sql_projection_text_rows_for_canister,
 };
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::sql::lowering::{LoweredSqlCommand, LoweredSqlQuery};
 use crate::{
     db::{
@@ -35,7 +35,7 @@ use crate::{
 /// instead of scattering measurement logic across unrelated callers.
 ///
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoweredSqlStatementExecutorAttribution {
     pub bind_local_instructions: u64,
@@ -47,7 +47,7 @@ pub struct LoweredSqlStatementExecutorAttribution {
     pub total_local_instructions: u64,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -64,7 +64,7 @@ fn read_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_statement_result<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_local_instruction_counter();
     let result = run();
@@ -121,7 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn attribute_lowered_sql_statement_query_for_authority(
         &self,

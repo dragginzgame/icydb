@@ -103,7 +103,7 @@ pub struct DbSession<C: CanisterKind> {
     inner: core::db::DbSession<C>,
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[expect(clippy::missing_const_for_fn)]
 fn read_sql_response_decode_local_instruction_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
@@ -117,7 +117,7 @@ fn read_sql_response_decode_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     let start = read_sql_response_decode_local_instruction_counter();
     let result = run();
@@ -129,7 +129,7 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
 // Fold the public SQL response-packaging phase onto the outward top-level perf
 // contract so shell-facing totals remain exhaustive across compile, planner,
 // store, executor, and decode.
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 const fn finalize_public_sql_query_attribution(
     mut attribution: crate::db::SqlQueryExecutionAttribution,
     response_decode_local_instructions: u64,
@@ -205,7 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one typed/fluent query while reporting the compile/execute
     /// split at the shared query seam.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn execute_query_result_with_attribution<E>(
         &self,
@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one reduced SQL query and report the top-level compile/execute
     /// cost split at the SQL seam.
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[doc(hidden)]
     pub fn execute_sql_query_with_attribution<E>(
         &self,
@@ -715,7 +715,7 @@ impl<C: CanisterKind> DbSession<C> {
 /// TESTS
 ///
 
-#[cfg(all(test, feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 mod tests {
     use super::finalize_public_sql_query_attribution;
     use crate::db::SqlQueryExecutionAttribution;

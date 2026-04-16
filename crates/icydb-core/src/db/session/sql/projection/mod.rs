@@ -9,13 +9,13 @@ mod labels;
 mod payload;
 mod runtime;
 
-#[cfg(all(test, feature = "sql", not(feature = "structural-read-metrics")))]
+#[cfg(all(test, feature = "sql", not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::with_sql_projection_materialization_metrics;
-#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use crate::db::session::sql::projection::runtime::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use crate::db::session::sql::projection::runtime::{
     SqlProjectionTextExecutorAttribution, attribute_sql_projection_text_rows_for_canister,
     current_pure_covering_decode_local_instructions,

@@ -37,7 +37,7 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
@@ -71,7 +71,7 @@ pub(in crate::db::executor) use order::{
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
 };
@@ -100,9 +100,9 @@ pub(in crate::db) use runtime_context::{
     record_row_check_index_membership_multi_key_entry,
     record_row_check_index_membership_single_key_entry, record_row_check_row_emitted,
 };
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(in crate::db::executor) use runtime_context::{
     read_data_row_with_consistency_from_store, read_row_presence_with_consistency_from_data_store,
@@ -120,9 +120,9 @@ pub(in crate::db::executor) use stream::key::{
 pub(in crate::db) use terminal::KernelRow;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use terminal::RetainedSlotLayout;
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use terminal::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
 };

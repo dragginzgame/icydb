@@ -8,7 +8,7 @@
 use canic_cdk::api::performance_counter;
 use std::cell::{Cell, RefCell};
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 std::thread_local! {
     static PHYSICAL_ACCESS_ATTRIBUTION_STACK: RefCell<Vec<u64>> = const {
         RefCell::new(Vec::new())
@@ -16,7 +16,7 @@ std::thread_local! {
     static PHYSICAL_ACCESS_MEASURE_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -33,7 +33,7 @@ fn read_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn record_physical_access_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -51,7 +51,7 @@ fn record_physical_access_local_instructions(delta: u64) {
 
 /// Run one query/session phase while collecting nested physical store/index
 /// access instructions separately from the surrounding phase total.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T) -> (u64, T) {
     PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| {
         stack.borrow_mut().push(0);
@@ -77,7 +77,7 @@ pub(in crate::db) fn with_physical_access_attribution<T>(run: impl FnOnce() -> T
 
 /// Measure one physical store/index operation when the surrounding query phase
 /// opted into physical-access attribution.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) fn measure_physical_access_operation<T>(run: impl FnOnce() -> T) -> T {
     let has_active_attribution =
         PHYSICAL_ACCESS_ATTRIBUTION_STACK.with(|stack| !stack.borrow().is_empty());

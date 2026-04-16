@@ -5,7 +5,7 @@
 
 mod grouped;
 mod scalar;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::pipeline::entrypoints::scalar::execute_prepared_scalar_rows_for_canister_with_phase_attribution;
 use crate::{
     db::{
@@ -31,14 +31,14 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister_with_phase_attribution;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db) use scalar::ScalarExecutePhaseAttribution;
 #[cfg(feature = "sql")]
 pub(in crate::db) use scalar::execute_initial_scalar_retained_slot_page_for_canister;
@@ -47,7 +47,7 @@ pub(in crate::db::executor) use scalar::{
     execute_prepared_scalar_route_runtime, execute_prepared_scalar_rows_for_canister,
 };
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -64,7 +64,7 @@ fn read_load_entry_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_load_entry_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_load_entry_local_instruction_counter();
     let result = run();
@@ -73,7 +73,7 @@ fn measure_load_entry_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, R
     (delta, result)
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn resolve_grouped_perf_cursor(
     plan: &crate::db::executor::PreparedLoadPlan,
     cursor: LoadCursorInput,
@@ -107,7 +107,7 @@ where
     /// Execute one scalar load plan while reporting the internal execute split
     /// between runtime materialization, structural page finalization, and
     /// typed response decode.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn execute_with_phase_attribution(
         &self,
         plan: PreparedExecutionPlan<E>,
@@ -172,7 +172,7 @@ where
 
     /// Execute one grouped load plan while reporting the grouped runtime
     /// stream/fold/finalize split for perf-only attribution surfaces.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn execute_grouped_paged_with_cursor_traced_with_phase_attribution(
         &self,
         plan: PreparedExecutionPlan<E>,

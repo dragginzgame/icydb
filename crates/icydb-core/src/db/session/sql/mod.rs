@@ -8,10 +8,10 @@ mod execute;
 mod explain;
 mod projection;
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use candid::CandidType;
 use icydb_utils::Xxh3;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use serde::Deserialize;
 use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
 
@@ -22,11 +22,11 @@ type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 const SQL_SELECT_PLAN_CACHE_METHOD_VERSION: u8 = 1;
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::GroupedCountAttribution;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
@@ -60,9 +60,9 @@ use crate::db::{
     },
 };
 
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
-#[cfg(feature = "structural-read-metrics")]
+#[cfg(feature = "diagnostics")]
 pub use crate::db::session::sql::projection::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
@@ -107,7 +107,7 @@ pub enum SqlStatementResult {
 /// otherwise comparable.
 ///
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryExecutionAttribution {
     pub compile_local_instructions: u64,
@@ -142,7 +142,7 @@ pub struct SqlQueryExecutionAttribution {
 // SqlExecutePhaseAttribution keeps the execute side split into select-plan
 // work, physical store/index access, and narrower runtime execution so shell
 // tooling can show all three.
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
@@ -154,7 +154,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_count: GroupedCountAttribution,
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 impl SqlExecutePhaseAttribution {
     #[must_use]
     pub(in crate::db) const fn from_execute_total_and_store_total(
@@ -493,7 +493,7 @@ pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, Quer
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -510,7 +510,7 @@ fn read_sql_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_sql_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_sql_local_instruction_counter();
     let result = run();
@@ -703,7 +703,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one reduced SQL query while reporting the compile/execute split
     /// at the top-level SQL seam.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
     pub fn execute_sql_query_with_attribution<E>(
         &self,

@@ -1,6 +1,6 @@
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use std::cell::Cell;
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 
 ///
@@ -14,12 +14,8 @@ use std::cell::RefCell;
 /// totals alone.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
-#[expect(clippy::struct_field_names)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScalarMaterializationLaneMetrics {
     pub direct_data_row_path_hits: u64,
@@ -39,7 +35,7 @@ pub struct ScalarMaterializationLaneMetrics {
 /// surface stays lane-local instead of pretending to describe every runtime.
 ///
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
@@ -52,14 +48,14 @@ pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
     pub(in crate::db::executor) page_window_local_instructions: u64,
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static SCALAR_MATERIALIZATION_LANE_METRICS: RefCell<Option<ScalarMaterializationLaneMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 std::thread_local! {
     static DIRECT_DATA_ROW_PHASE_ATTRIBUTION: Cell<DirectDataRowPhaseAttribution> = const {
         Cell::new(DirectDataRowPhaseAttribution {
@@ -74,7 +70,7 @@ std::thread_local! {
     };
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn update_scalar_materialization_lane_metrics(
     update: impl FnOnce(&mut ScalarMaterializationLaneMetrics),
 ) {
@@ -88,14 +84,14 @@ fn update_scalar_materialization_lane_metrics(
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_direct_data_row_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.direct_data_row_path_hits = metrics.direct_data_row_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_direct_filtered_data_row_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.direct_filtered_data_row_path_hits =
@@ -103,14 +99,14 @@ pub(super) fn record_direct_filtered_data_row_path_hit() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_kernel_data_row_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.kernel_data_row_path_hits = metrics.kernel_data_row_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_kernel_full_row_retained_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.kernel_full_row_retained_path_hits =
@@ -118,7 +114,7 @@ pub(super) fn record_kernel_full_row_retained_path_hit() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 pub(super) fn record_kernel_slots_only_path_hit() {
     update_scalar_materialization_lane_metrics(|metrics| {
         metrics.kernel_slots_only_path_hits = metrics.kernel_slots_only_path_hits.saturating_add(1);
@@ -133,11 +129,8 @@ pub(super) fn record_kernel_slots_only_path_hit() {
 /// aggregated snapshot.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 pub fn with_scalar_materialization_lane_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, ScalarMaterializationLaneMetrics) {
@@ -156,7 +149,7 @@ pub fn with_scalar_materialization_lane_metrics<T>(
     (result, metrics)
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -173,7 +166,7 @@ fn read_direct_data_row_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn measure_direct_data_row_phase<T, E>(
     run: impl FnOnce() -> Result<T, E>,
 ) -> (u64, Result<T, E>) {
@@ -184,7 +177,7 @@ pub(super) fn measure_direct_data_row_phase<T, E>(
     (delta, result)
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_scan_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -199,7 +192,7 @@ pub(super) fn record_direct_data_row_scan_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_key_stream_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -216,7 +209,7 @@ pub(super) fn record_direct_data_row_key_stream_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_row_read_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -231,7 +224,7 @@ pub(super) fn record_direct_data_row_row_read_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_key_encode_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -248,7 +241,7 @@ pub(super) fn record_direct_data_row_key_encode_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_store_get_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -265,7 +258,7 @@ pub(super) fn record_direct_data_row_store_get_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_order_window_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -282,7 +275,7 @@ pub(super) fn record_direct_data_row_order_window_local_instructions(delta: u64)
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_page_window_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -299,7 +292,7 @@ pub(super) fn record_direct_data_row_page_window_local_instructions(delta: u64) 
     });
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) fn with_direct_data_row_phase_attribution<T>(
     f: impl FnOnce() -> T,
 ) -> (T, DirectDataRowPhaseAttribution) {

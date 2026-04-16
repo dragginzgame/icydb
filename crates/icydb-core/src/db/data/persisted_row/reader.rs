@@ -10,7 +10,7 @@ use crate::{
     },
     value::{StorageKey, Value},
 };
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 use std::cell::{Cell, RefCell};
 use std::{borrow::Cow, cell::OnceCell};
 
@@ -38,7 +38,7 @@ pub(in crate::db) struct StructuralSlotReader<'a> {
     contract: StructuralRowContract,
     field_bytes: StructuralRowFieldBytes<'a>,
     pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue>,
-    #[cfg(any(test, feature = "structural-read-metrics"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     metrics: StructuralReadProbe,
 }
 
@@ -77,7 +77,7 @@ impl<'a> StructuralSlotReader<'a> {
             contract,
             field_bytes,
             cached_values: build_initial_slot_cache(contract),
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             metrics: StructuralReadProbe::begin(contract.field_count()),
         };
 
@@ -98,7 +98,7 @@ impl<'a> StructuralSlotReader<'a> {
             contract,
             field_bytes,
             cached_values: build_initial_slot_cache(contract),
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             metrics: StructuralReadProbe::begin(contract.field_count()),
         };
 
@@ -234,7 +234,7 @@ impl<'a> StructuralSlotReader<'a> {
                 "validated scalar cache routed through non-scalar field contract: slot={slot}",
             )));
         };
-        #[cfg(any(test, feature = "structural-read-metrics"))]
+        #[cfg(any(test, feature = "diagnostics"))]
         self.metrics.record_validated_slot();
         let validated_value =
             validated_scalar_slot_value(decode_scalar_slot_value(raw_value, codec, field.name())?);
@@ -283,7 +283,7 @@ impl<'a> StructuralSlotReader<'a> {
                 let field = self.field_model(slot)?;
                 let raw_value = self.required_field_bytes(slot, field.name())?;
                 if materialized.get().is_none() {
-                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    #[cfg(any(test, feature = "diagnostics"))]
                     {
                         self.metrics.record_validated_slot();
                         self.metrics.record_validated_non_scalar();
@@ -324,12 +324,12 @@ impl<'a> StructuralSlotReader<'a> {
 
             match field.leaf_codec() {
                 LeafCodec::Scalar(codec) => {
-                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    #[cfg(any(test, feature = "diagnostics"))]
                     self.metrics.record_validated_slot();
                     decode_scalar_slot_value(raw_value, codec, field.name())?;
                 }
                 LeafCodec::StructuralFallback => {
-                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    #[cfg(any(test, feature = "diagnostics"))]
                     {
                         self.metrics.record_validated_slot();
                         self.metrics.record_validated_non_scalar();
@@ -778,7 +778,7 @@ fn build_initial_slot_cache(contract: StructuralRowContract) -> Vec<CachedSlotVa
 // Flush one direct sparse-read probe into the thread-local structural metrics
 // aggregator so executor sparse decode paths preserve the same observability
 // contract as reader-backed lazy decode paths.
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn finish_direct_probe(probe: &StructuralReadProbe) {
     if !probe.collect {
         return;
@@ -809,7 +809,7 @@ fn finish_direct_probe(probe: &StructuralReadProbe) {
     });
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 const fn finish_direct_probe(_probe: &StructuralReadProbe) {}
 
 // Freeze one validated scalar slot into a compact cache state that preserves
@@ -1049,11 +1049,8 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
 /// touches.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StructuralReadMetrics {
     pub rows_opened: u64,
@@ -1063,7 +1060,7 @@ pub struct StructuralReadMetrics {
     pub rows_without_lazy_non_scalar_materializations: u64,
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static STRUCTURAL_READ_METRICS: RefCell<Option<StructuralReadMetrics>> = const {
         RefCell::new(None)
@@ -1078,7 +1075,7 @@ std::thread_local! {
 /// capture is active.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 #[derive(Debug)]
 struct StructuralReadProbe {
     collect: bool,
@@ -1087,11 +1084,11 @@ struct StructuralReadProbe {
     materialized_non_scalar_slots: Cell<u64>,
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 #[derive(Debug)]
 struct StructuralReadProbe;
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 impl StructuralReadProbe {
     // Begin one optional per-reader metrics probe when a test-scoped capture
     // is active on the current thread.
@@ -1137,7 +1134,7 @@ impl StructuralReadProbe {
     }
 }
 
-#[cfg(not(any(test, feature = "structural-read-metrics")))]
+#[cfg(not(any(test, feature = "diagnostics")))]
 impl StructuralReadProbe {
     // Build one no-op probe when structural read metrics are not compiled in.
     const fn begin(_field_count: usize) -> Self {
@@ -1160,7 +1157,7 @@ impl StructuralReadProbe {
     }
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 impl Drop for StructuralSlotReader<'_> {
     fn drop(&mut self) {
         if !self.metrics.collect {
@@ -1200,11 +1197,8 @@ impl Drop for StructuralSlotReader<'_> {
 /// thread, then return the closure result plus the aggregated snapshot.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 pub fn with_structural_read_metrics<T>(f: impl FnOnce() -> T) -> (T, StructuralReadMetrics) {
     STRUCTURAL_READ_METRICS.with(|metrics| {
         debug_assert!(

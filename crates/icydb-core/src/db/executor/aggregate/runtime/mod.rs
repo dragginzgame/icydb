@@ -16,7 +16,7 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use grouped_fold::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };

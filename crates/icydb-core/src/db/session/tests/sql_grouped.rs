@@ -1742,7 +1742,7 @@ fn explain_sql_grouped_qualified_identifier_matrix_matches_unqualified_output() 
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[test]
 fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
     reset_session_sql_store();
@@ -1765,7 +1765,7 @@ fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
     );
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[test]
 fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
     reset_session_sql_store();

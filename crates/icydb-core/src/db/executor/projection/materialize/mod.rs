@@ -62,7 +62,7 @@ pub(in crate::db) struct PreparedProjectionShape {
     projection_is_model_identity: bool,
     retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
     data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
-    #[cfg(any(test, feature = "perf-attribution"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
 }
 
@@ -103,7 +103,7 @@ impl PreparedProjectionShape {
         self.data_row_direct_projection_field_slots.as_deref()
     }
 
-    #[cfg(any(test, feature = "perf-attribution"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     #[must_use]
     pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
         self.projected_slot_mask.as_slice()
@@ -182,10 +182,10 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
         );
     let data_row_direct_projection_field_slots =
         data_row_direct_projection_field_slots_from_projection(model, &projection);
-    #[cfg(any(test, feature = "perf-attribution"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(model.fields().len(), plan.projected_slot_mask());
-    #[cfg(not(any(test, feature = "perf-attribution")))]
+    #[cfg(not(any(test, feature = "diagnostics")))]
     let _ = model;
 
     PreparedProjectionShape {
@@ -194,7 +194,7 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
         projection_is_model_identity: plan.projection_is_model_identity(),
         retained_slot_direct_projection_field_slots,
         data_row_direct_projection_field_slots,
-        #[cfg(any(test, feature = "perf-attribution"))]
+        #[cfg(any(test, feature = "diagnostics"))]
         projected_slot_mask,
     }
 }
@@ -255,7 +255,7 @@ fn data_row_direct_projection_field_slots_from_projection(
     Some(field_slots)
 }
 
-#[cfg(any(test, feature = "perf-attribution"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn projected_slot_mask_from_slots(field_count: usize, projected_slots: &[bool]) -> Vec<bool> {
     let mut mask = vec![false; field_count];
 

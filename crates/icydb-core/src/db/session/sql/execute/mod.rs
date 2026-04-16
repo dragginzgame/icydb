@@ -10,11 +10,11 @@ mod lowered;
 mod route;
 mod write;
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister_with_phase_attribution;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::physical_access::with_physical_access_attribution;
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 use crate::{
     db::{
@@ -37,7 +37,7 @@ type PreparedStructuralSqlProjectionExecution = (
     SqlCacheAttribution,
 );
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -54,7 +54,7 @@ fn read_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_local_instruction_counter();
     let result = run();
@@ -63,7 +63,7 @@ fn measure_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Resu
     (delta, result)
 }
 
-#[cfg(feature = "perf-attribution")]
+#[cfg(feature = "diagnostics")]
 fn measure_execute_phase_with_physical_access<T, E>(
     run: impl FnOnce() -> Result<T, E>,
 ) -> ((u64, u64), Result<T, E>) {
@@ -137,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Split scalar SELECT execution into plan construction and runtime work so
     // perf tooling can show the planner cost separately from row execution.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     fn execute_structural_sql_projection_with_phase_attribution(
         &self,
         query: StructuralQuery,
@@ -190,7 +190,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Split grouped SELECT execution at the same session boundary: first plan
     // selection/cache resolution, then grouped runtime plus result packaging.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     fn execute_structural_sql_grouped_statement_select_with_phase_attribution(
         &self,
         query: StructuralQuery,
@@ -270,7 +270,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Keep one perf-only execution entrypoint that returns cache attribution
     // together with planner/runtime instruction splits for shell-facing tools.
-    #[cfg(feature = "perf-attribution")]
+    #[cfg(feature = "diagnostics")]
     #[expect(
         clippy::too_many_lines,
         reason = "the compiled SQL execution matrix keeps every statement family on one explicit perf-attributed seam"

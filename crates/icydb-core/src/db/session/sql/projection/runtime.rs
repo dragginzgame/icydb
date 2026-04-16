@@ -5,7 +5,7 @@
 //! Boundary: consumes structural pages from the executor and performs the
 //! SQL-specific value/text shaping above that boundary.
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 use crate::{db::executor::projection::prepare_projection_shape_from_plan, value::ValueEnum};
 use crate::{
     db::{Db, executor::SharedPreparedExecutionPlan, query::plan::AccessPlannedQuery},
@@ -39,9 +39,9 @@ use crate::{
     },
     value::Value,
 };
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 use std::{borrow::Cow, collections::BTreeMap};
 
@@ -84,7 +84,7 @@ impl SqlProjectionRows {
 /// fast path without reopening the session or SQL layers above it.
 ///
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SqlProjectionTextExecutorAttribution {
     pub prepare_projection: u64,
@@ -94,13 +94,13 @@ pub struct SqlProjectionTextExecutorAttribution {
     pub total: u64,
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 std::thread_local! {
     static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
     static PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn record_pure_covering_decode_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -111,7 +111,7 @@ fn record_pure_covering_decode_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
     if delta == 0 {
         return;
@@ -122,31 +122,27 @@ fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
     });
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
     PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(Cell::get)
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
     PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution", target_arch = "wasm32"))]
+#[cfg(all(feature = "sql", feature = "diagnostics", target_arch = "wasm32"))]
 fn read_local_instruction_counter() -> u64 {
     canic_cdk::api::performance_counter(1)
 }
 
-#[cfg(all(
-    feature = "sql",
-    feature = "perf-attribution",
-    not(target_arch = "wasm32")
-))]
+#[cfg(all(feature = "sql", feature = "diagnostics", not(target_arch = "wasm32")))]
 const fn read_local_instruction_counter() -> u64 {
     0
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn measure_structural_result<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
     let start = read_local_instruction_counter();
     let result = run();
@@ -155,7 +151,7 @@ fn measure_structural_result<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, 
     (delta, result)
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 /// Execute one scalar load plan through the shared rendered SQL projection
 /// path and return both the rendered rows and one executor-only phase split.
 pub(in crate::db) fn attribute_sql_projection_text_rows_for_canister<C>(
@@ -333,7 +329,7 @@ where
     )?;
 
     if component_indices.is_empty() {
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (decode_local_instructions, projected_keys) = measure_structural_result(|| {
             map_covering_projection_pairs(
                 raw_pairs,
@@ -343,14 +339,14 @@ where
                 |_components| Ok::<Option<()>, InternalError>(Some(())),
             )
         });
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let Some(projected_keys): Option<Vec<(DataKey, ())>> = projected_keys? else {
             return Ok(None);
         };
 
-        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
         let Some(projected_keys) = map_covering_projection_pairs(
             raw_pairs,
             store,
@@ -366,7 +362,7 @@ where
             covering.order_contract,
             CoveringProjectionOrder::IndexOrder(_)
         ) {
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             let (row_assembly_local_instructions, projected_rows) =
                 measure_structural_result(|| {
                     projected_keys
@@ -381,12 +377,12 @@ where
                         })
                         .collect::<Result<Vec<_>, _>>()
                 });
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             let mut projected_rows = projected_rows?;
 
-            #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+            #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
             let mut projected_rows = projected_keys
                 .into_iter()
                 .map(|(data_key, ())| {
@@ -408,7 +404,7 @@ where
             return Ok(Some(projected_rows));
         }
 
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
             projected_keys
                 .into_iter()
@@ -424,12 +420,12 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()
         });
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_rows?;
 
-        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
         let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_keys
             .into_iter()
             .map(|(data_key, ())| {
@@ -464,7 +460,7 @@ where
     if component_indices.len() == 1 {
         let component_index = component_indices[0];
 
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
             decode_single_covering_projection_pairs(
                 raw_pairs,
@@ -475,14 +471,14 @@ where
                 Ok::<Value, InternalError>,
             )
         });
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let Some(decoded_rows): Option<Vec<(DataKey, Value)>> = decoded_rows? else {
             return Ok(None);
         };
 
-        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
         let Some(decoded_rows) = decode_single_covering_projection_pairs(
             raw_pairs,
             store,
@@ -499,7 +495,7 @@ where
             covering.order_contract,
             CoveringProjectionOrder::IndexOrder(_)
         ) {
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             let (row_assembly_local_instructions, projected_rows) =
                 measure_structural_result(|| {
                     decoded_rows
@@ -514,12 +510,12 @@ where
                         })
                         .collect::<Result<Vec<_>, _>>()
                 });
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-            #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+            #[cfg(all(feature = "sql", feature = "diagnostics"))]
             let mut projected_rows: Vec<Vec<Value>> = projected_rows?;
 
-            #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+            #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
             let mut projected_rows = decoded_rows
                 .into_iter()
                 .map(|(data_key, decoded_value)| {
@@ -541,7 +537,7 @@ where
             return Ok(Some(projected_rows));
         }
 
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
             decoded_rows
                 .into_iter()
@@ -557,12 +553,12 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()
         });
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let mut projected_rows: Vec<(DataKey, Vec<Value>)> = projected_rows?;
 
-        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
         let mut projected_rows: Vec<(DataKey, Vec<Value>)> = decoded_rows
             .into_iter()
             .map(|(data_key, decoded_value)| {
@@ -594,7 +590,7 @@ where
     // Phase 3: reuse the executor-owned covering decode contract so planner-
     // proven routes avoid row-store reads entirely while row-check-required
     // routes still preserve missing-row consistency rules.
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
         decode_covering_projection_pairs(
             raw_pairs,
@@ -604,14 +600,14 @@ where
             Ok::<Vec<Value>, InternalError>,
         )
     });
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_pure_covering_decode_local_instructions(decode_local_instructions);
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let Some(decoded_rows) = decoded_rows? else {
         return Ok(None);
     };
 
-    #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
     let Some(decoded_rows) = decode_covering_projection_pairs(
         raw_pairs,
         store,
@@ -627,7 +623,7 @@ where
         covering.order_contract,
         CoveringProjectionOrder::IndexOrder(_)
     ) {
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
             decoded_rows
                 .into_iter()
@@ -641,12 +637,12 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()
         });
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-        #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let mut projected_rows = projected_rows?;
 
-        #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+        #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
         let mut projected_rows = decoded_rows
             .into_iter()
             .map(|(data_key, decoded_values)| {
@@ -668,7 +664,7 @@ where
         return Ok(Some(projected_rows));
     }
 
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         decoded_rows
             .into_iter()
@@ -684,12 +680,12 @@ where
             })
             .collect::<Result<Vec<_>, _>>()
     });
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(all(feature = "sql", feature = "perf-attribution"))]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut projected_rows = projected_rows?;
 
-    #[cfg(not(all(feature = "sql", feature = "perf-attribution")))]
+    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
     let mut projected_rows: Vec<(DataKey, Vec<Value>)> = decoded_rows
         .into_iter()
         .map(|(data_key, decoded_values)| {
@@ -770,7 +766,7 @@ where
 
     // Phase 3: assemble final projected rows by mixing decoded covering
     // values with sparse row-backed field reads for uncovered slots.
-    #[cfg(any(test, feature = "structural-read-metrics"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     record_sql_projection_hybrid_covering_path_hit();
     let mut projected_rows = store.with_data(|data_store| {
         let mut projected_rows = Vec::with_capacity(raw_pairs.len());
@@ -1067,7 +1063,7 @@ fn project_hybrid_covering_row(
     for field in fields {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index } => {
-                #[cfg(any(test, feature = "structural-read-metrics"))]
+                #[cfg(any(test, feature = "diagnostics"))]
                 record_sql_projection_hybrid_covering_index_field_access();
 
                 decoded_components
@@ -1082,7 +1078,7 @@ fn project_hybrid_covering_row(
             CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
-                #[cfg(any(test, feature = "structural-read-metrics"))]
+                #[cfg(any(test, feature = "diagnostics"))]
                 record_sql_projection_hybrid_covering_row_field_access();
 
                 row_fields
@@ -1137,13 +1133,13 @@ fn shape_structural_sql_projection_page<T>(
     // inside the selected shaping path.
     match payload {
         StructuralCursorPagePayload::SlotRows(slot_rows) => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_slot_rows_path_hit();
 
             shape_slot_rows(prepared_projection, slot_rows)
         }
         StructuralCursorPagePayload::DataRows(data_rows) => {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_data_rows_path_hit();
 
             shape_data_rows(row_layout, prepared_projection, data_rows.as_slice())
@@ -1151,7 +1147,7 @@ fn shape_structural_sql_projection_page<T>(
     }
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_value_text(value: &Value) -> String {
     match value {
         Value::Account(v) => v.to_string(),
@@ -1181,7 +1177,7 @@ fn render_sql_projection_value_text(value: &Value) -> String {
     }
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_projected_sql_rows_text(rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
     rows.into_iter()
         .map(|row| {
@@ -1192,7 +1188,7 @@ fn render_projected_sql_rows_text(rows: Vec<Vec<Value>>) -> Vec<Vec<String>> {
         .collect()
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_blob(bytes: &[u8]) -> String {
     let mut rendered = String::from("0x");
     rendered.push_str(sql_projection_hex_encode(bytes).as_str());
@@ -1200,7 +1196,7 @@ fn render_sql_projection_blob(bytes: &[u8]) -> String {
     rendered
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_duration(millis: u64) -> String {
     let mut rendered = millis.to_string();
     rendered.push_str("ms");
@@ -1208,7 +1204,7 @@ fn render_sql_projection_duration(millis: u64) -> String {
     rendered
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_list(items: &[Value]) -> String {
     let mut rendered = String::from("[");
 
@@ -1225,7 +1221,7 @@ fn render_sql_projection_list(items: &[Value]) -> String {
     rendered
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_map(entries: &[(Value, Value)]) -> String {
     let mut rendered = String::from("{");
 
@@ -1244,7 +1240,7 @@ fn render_sql_projection_map(entries: &[(Value, Value)]) -> String {
     rendered
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn sql_projection_hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len().saturating_mul(2));
@@ -1256,7 +1252,7 @@ fn sql_projection_hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-#[cfg(all(feature = "sql", feature = "perf-attribution"))]
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
 fn render_sql_projection_enum(value: &ValueEnum) -> String {
     let mut rendered = String::new();
     if let Some(path) = value.path() {
@@ -1380,12 +1376,12 @@ fn project_data_rows_from_projection_structural(
     }
 
     let compiled_fields = prepared_projection.scalar_projection_exprs();
-    #[cfg(any(test, feature = "perf-attribution"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, feature = "perf-attribution")))]
+    #[cfg(not(any(test, feature = "diagnostics")))]
     let projected_slot_mask = &[];
 
-    #[cfg(any(test, feature = "structural-read-metrics"))]
+    #[cfg(any(test, feature = "diagnostics"))]
     record_sql_projection_data_rows_scalar_fallback_hit();
     let mut emit_value = std::convert::identity;
     shape_scalar_data_rows_from_projection_structural(
@@ -1415,7 +1411,7 @@ fn shape_data_rows_from_direct_field_slots<T>(
 
         let mut shaped = Vec::with_capacity(field_slots.len());
         for (_field_name, slot) in field_slots {
-            #[cfg(any(test, feature = "structural-read-metrics"))]
+            #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_data_rows_slot_access(true);
 
             let value = row_fields.required_value_by_contract(*slot)?;
@@ -1437,7 +1433,7 @@ fn shape_scalar_data_rows_from_projection_structural<T>(
 ) -> Result<Vec<Vec<T>>, InternalError> {
     let mut shaped_rows = Vec::with_capacity(rows.len());
 
-    #[cfg(not(any(test, feature = "structural-read-metrics")))]
+    #[cfg(not(any(test, feature = "diagnostics")))]
     let _ = projected_slot_mask;
 
     // Phase 1: evaluate fully scalar projections through the compiled scalar
@@ -1451,7 +1447,7 @@ fn shape_scalar_data_rows_from_projection_structural<T>(
             let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
                 compiled,
                 &mut |slot| {
-                    #[cfg(any(test, feature = "structural-read-metrics"))]
+                    #[cfg(any(test, feature = "diagnostics"))]
                     record_sql_projection_data_rows_slot_access(
                         projected_slot_mask.get(slot).copied().unwrap_or(false),
                     );
@@ -1522,11 +1518,8 @@ fn apply_sql_projection_page_window<T>(rows: &mut Vec<T>, offset: u32, limit: Op
 /// rows, and `data_rows` fallback execution without changing runtime policy.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SqlProjectionMaterializationMetrics {
     pub hybrid_covering_path_hits: u64,
@@ -1542,14 +1535,14 @@ pub struct SqlProjectionMaterializationMetrics {
     pub full_row_decode_materializations: u64,
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 std::thread_local! {
     static SQL_PROJECTION_MATERIALIZATION_METRICS: RefCell<Option<SqlProjectionMaterializationMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn update_sql_projection_materialization_metrics(
     update: impl FnOnce(&mut SqlProjectionMaterializationMetrics),
 ) {
@@ -1563,28 +1556,28 @@ fn update_sql_projection_materialization_metrics(
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_slot_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.slot_rows_path_hits = metrics.slot_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_data_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_path_hits = metrics.data_rows_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_hybrid_covering_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.hybrid_covering_path_hits = metrics.hybrid_covering_path_hits.saturating_add(1);
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_hybrid_covering_index_field_access() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.hybrid_covering_index_field_accesses = metrics
@@ -1593,7 +1586,7 @@ fn record_sql_projection_hybrid_covering_index_field_access() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_hybrid_covering_row_field_access() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.hybrid_covering_row_field_accesses =
@@ -1601,7 +1594,7 @@ fn record_sql_projection_hybrid_covering_row_field_access() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_data_rows_scalar_fallback_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_scalar_fallback_hits =
@@ -1609,7 +1602,7 @@ fn record_sql_projection_data_rows_scalar_fallback_hit() {
     });
 }
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg(any(test, feature = "diagnostics"))]
 fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
     update_sql_projection_materialization_metrics(|metrics| {
         if projected_slot {
@@ -1631,8 +1624,8 @@ fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
 /// snapshot.
 ///
 
-#[cfg(feature = "structural-read-metrics")]
-pub(crate) fn with_sql_projection_materialization_metrics<T>(
+#[cfg(feature = "diagnostics")]
+pub fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {
     SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {
@@ -1650,7 +1643,7 @@ pub(crate) fn with_sql_projection_materialization_metrics<T>(
     (result, metrics)
 }
 
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {

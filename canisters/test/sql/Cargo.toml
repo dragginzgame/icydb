@@ -9,9 +9,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-default = ["sql", "perf-attribution"]
+default = ["sql", "diagnostics"]
 sql = ["icydb/sql"]
-perf-attribution = ["icydb/perf-attribution"]
+diagnostics = ["icydb/diagnostics"]
 
 [dependencies]
 candid = { workspace = true }
