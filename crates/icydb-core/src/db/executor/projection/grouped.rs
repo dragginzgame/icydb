@@ -142,7 +142,7 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
     /// Build one compiled grouped projection contract from already-compiled expressions.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db::executor) fn from_parts_for_test(
+    pub(in crate::db::executor) const fn from_parts_for_test(
         compiled_projection: Vec<GroupedProjectionExpr>,
         projection_layout: &'a PlannedProjectionLayout,
         group_fields: &'a [FieldSlot],
