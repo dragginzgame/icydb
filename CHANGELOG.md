@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.84.x] 🧊 - 2026-04-16 - Prepared Execution Residents
 
 - `0.84.2` follows the resident and grouped-attribution work by trimming a broad slice of duplicate query-planner, validation, expression, and fingerprint scaffolding, so the `db/query` planning boundary is smaller and easier to maintain without changing query behavior.
-- `0.84.1` now exposes grouped stream/fold/finalize counters plus dedicated grouped `COUNT(*)` fold submetrics in the SQL and fluent perf audits, and uses that data to trim one repeated fold-path probe from grouped runtime without changing query behavior.
+- `0.84.1` turns grouped runtime into a measured and then tightened path: SQL and fluent perf audits now expose grouped stream/fold/finalize plus grouped `COUNT(*)` fold metrics, and the follow-through trims repeated grouped fold and one-slot grouped-read work enough to make the repeated grouped SQL row materially cheaper than its original baseline.
 - `0.84.0` starts the line by freezing shared prepared SQL projection, scalar retained-slot, and grouped prep/layout residents onto prepared plans, which cuts repeated SQL setup work without widening query behavior.
 
 See detailed breakdown:
