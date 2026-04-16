@@ -7,8 +7,9 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
-            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig,
+            AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
+            GroupHavingSpec, GroupHavingSymbol, GroupHavingValueExpr, GroupSpec,
+            GroupedExecutionConfig,
         },
     },
     error::InternalError,
@@ -80,10 +81,51 @@ impl GroupSpec {
 }
 
 impl GroupHavingSpec {
-    /// Borrow grouped HAVING clauses in declaration order.
+    /// Borrow grouped HAVING legacy compare clauses in declaration order.
     #[must_use]
     pub(crate) const fn clauses(&self) -> &[GroupHavingClause] {
         self.clauses.as_slice()
+    }
+}
+
+impl GroupHavingExpr {
+    /// Lower one legacy compare clause into the `0.86` grouped HAVING expression model.
+    #[must_use]
+    pub(in crate::db) fn from_legacy_clause(clause: &GroupHavingClause) -> Self {
+        Self::Compare {
+            left: GroupHavingValueExpr::from_legacy_symbol(clause.symbol()),
+            op: clause.op(),
+            right: GroupHavingValueExpr::Literal(clause.value().clone()),
+        }
+    }
+
+    /// Lower one legacy grouped HAVING spec into the `0.86` expression model.
+    #[must_use]
+    pub(in crate::db) fn from_legacy_spec(having: &GroupHavingSpec) -> Self {
+        let mut clauses = having
+            .clauses()
+            .iter()
+            .map(Self::from_legacy_clause)
+            .collect::<Vec<_>>();
+
+        match clauses.len() {
+            0 => Self::And(Vec::new()),
+            1 => clauses
+                .pop()
+                .expect("single grouped HAVING clause should exist"),
+            _ => Self::And(clauses),
+        }
+    }
+}
+
+impl GroupHavingValueExpr {
+    /// Lower one legacy grouped HAVING symbol into the slot-resolved value-expression model.
+    #[must_use]
+    pub(in crate::db) fn from_legacy_symbol(symbol: &GroupHavingSymbol) -> Self {
+        match symbol {
+            GroupHavingSymbol::GroupField(field_slot) => Self::GroupField(field_slot.clone()),
+            GroupHavingSymbol::AggregateIndex(index) => Self::AggregateIndex(*index),
+        }
     }
 }
 

@@ -2070,6 +2070,27 @@ fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_inten
 }
 
 #[test]
+fn compile_sql_command_select_grouped_post_aggregate_having_exprs_lowers() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING ROUND(AVG(age), 2) >= 10 AND COUNT(*) + 1 > 1 \
+         ORDER BY age DESC LIMIT 3",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped post-aggregate HAVING SQL query should lower");
+
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered grouped HAVING SQL query command");
+    };
+
+    sql_query
+        .plan()
+        .expect("grouped post-aggregate HAVING SQL plan should build");
+}
+
+#[test]
 fn compile_sql_command_select_having_without_group_by_rejects() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity HAVING COUNT(*) > 1",

@@ -13,7 +13,7 @@ use crate::db::{
             state::{GroupedIntent, QueryIntent},
         },
         plan::{
-            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
+            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr, GroupHavingSpec,
             GroupedExecutionConfig, OrderDirection, OrderSpec,
         },
     },
@@ -146,6 +146,36 @@ impl<K> QueryIntent<K> {
             clauses: Vec::new(),
         });
         having.clauses.push(clause);
+
+        Ok(())
+    }
+
+    /// Record one widened grouped HAVING expression when grouped shape is present.
+    pub(in crate::db::query::intent) fn push_having_expr(
+        &mut self,
+        expr: GroupHavingExpr,
+    ) -> Result<(), IntentError> {
+        if matches!(self, Self::Delete(_)) {
+            if self.is_grouped() {
+                self.mark_delete_grouping_requested();
+                return Ok(());
+            }
+
+            return Err(IntentError::having_requires_group_by());
+        }
+
+        let Some(grouped) = self.grouped_mut() else {
+            return Err(IntentError::having_requires_group_by());
+        };
+
+        grouped.having_expr = Some(match grouped.having_expr.take() {
+            Some(GroupHavingExpr::And(mut children)) => {
+                children.push(expr);
+                GroupHavingExpr::And(children)
+            }
+            Some(existing) => GroupHavingExpr::And(vec![existing, expr]),
+            None => expr,
+        });
 
         Ok(())
     }

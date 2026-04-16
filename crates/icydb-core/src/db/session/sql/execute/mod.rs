@@ -208,7 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)
         });
         let (entry, cache_attribution) = prepared?;
-        let (prepared_plan, columns, _) = entry.into_parts();
+        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
         let plan = prepared_plan.logical_plan().clone();
 
         let ((execute_local_instructions, store_local_instructions), statement_result) =
@@ -242,6 +242,7 @@ impl<C: CanisterKind> DbSession<C> {
                 >((
                     crate::db::session::sql::projection::grouped_sql_statement_result(
                         columns,
+                        fixed_scales,
                         page.rows,
                         next_cursor,
                     ),

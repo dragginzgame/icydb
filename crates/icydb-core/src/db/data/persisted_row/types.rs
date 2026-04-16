@@ -12,7 +12,6 @@ use crate::{
 ///
 /// FieldSlot
 ///
-/// FieldSlot
 ///
 /// FieldSlot is the structural stable slot reference used by the `0.64`
 /// patching path.
@@ -87,7 +86,6 @@ impl FieldUpdate {
 ///
 /// UpdatePatch
 ///
-/// UpdatePatch
 ///
 /// UpdatePatch is the ordered structural mutation program applied to one
 /// persisted row.

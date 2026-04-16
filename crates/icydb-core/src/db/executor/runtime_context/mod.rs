@@ -158,7 +158,6 @@ enum RowPresenceProbeSource {
 ///
 /// FusedSecondaryCoveringAuthority
 ///
-/// FusedSecondaryCoveringAuthority
 ///
 /// Executor-owned borrowed data-store authority for stale-fallback secondary
 /// covering reads. It keeps row-visibility policy in the executor while

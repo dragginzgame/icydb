@@ -101,3 +101,45 @@ fn structural_query_cache_key_distinguishes_order_direction() {
         "order direction must remain part of shared query cache identity",
     );
 }
+
+#[test]
+fn structural_query_cache_key_distinguishes_grouped_having_expr() {
+    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_expr(crate::db::query::plan::GroupHavingExpr::Compare {
+            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
+                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                    Value::Uint(1),
+                )),
+            },
+            op: crate::db::CompareOp::Gt,
+            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+        })
+        .expect("widened grouped having should append");
+    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_expr(crate::db::query::plan::GroupHavingExpr::Compare {
+            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
+                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                    Value::Uint(2),
+                )),
+            },
+            op: crate::db::CompareOp::Gt,
+            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+        })
+        .expect("widened grouped having should append");
+
+    assert_ne!(
+        left.structural_cache_key(),
+        right.structural_cache_key(),
+        "grouped having expressions must remain part of shared grouped cache identity",
+    );
+}

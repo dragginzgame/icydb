@@ -6,7 +6,7 @@
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
     SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
+    SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement,
     SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlProjectionOperand,
     SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
     SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
@@ -1767,18 +1767,18 @@ fn parse_select_grouped_statement_with_having_clauses() {
             group_by: vec!["age".to_string()],
             having: vec![
                 SqlHavingClause {
-                    symbol: SqlHavingSymbol::Field("age".to_string()),
+                    left: SqlHavingValueExpr::Field("age".to_string()),
                     op: CompareOp::Gte,
-                    value: Value::Int(21),
+                    right: SqlHavingValueExpr::Literal(Value::Int(21)),
                 },
                 SqlHavingClause {
-                    symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
+                    left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         field: None,
                         distinct: false,
                     }),
                     op: CompareOp::Gt,
-                    value: Value::Int(1),
+                    right: SqlHavingValueExpr::Literal(Value::Int(1)),
                 },
             ],
             order_by: vec![SqlOrderTerm {
@@ -1820,18 +1820,18 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
             group_by: vec!["age".to_string()],
             having: vec![
                 SqlHavingClause {
-                    symbol: SqlHavingSymbol::Field("age".to_string()),
+                    left: SqlHavingValueExpr::Field("age".to_string()),
                     op: CompareOp::Ne,
-                    value: Value::Null,
+                    right: SqlHavingValueExpr::Literal(Value::Null),
                 },
                 SqlHavingClause {
-                    symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
+                    left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         field: None,
                         distinct: false,
                     }),
                     op: CompareOp::Eq,
-                    value: Value::Null,
+                    right: SqlHavingValueExpr::Literal(Value::Null),
                 },
             ],
             order_by: vec![SqlOrderTerm {
@@ -1842,6 +1842,24 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
             offset: None,
         }),
     );
+}
+
+#[test]
+fn parse_select_grouped_statement_with_post_aggregate_having_exprs() {
+    let statement = parse_sql(
+        "SELECT class_name, AVG(strength) \
+         FROM character \
+         GROUP BY class_name \
+         HAVING ROUND(AVG(strength), 2) >= 10 AND COUNT(*) + 1 > 5 \
+         ORDER BY class_name ASC LIMIT 100",
+    )
+    .expect("grouped post-aggregate HAVING expressions should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("expected grouped SELECT statement");
+    };
+
+    assert_eq!(statement.having.len(), 2);
 }
 
 #[test]

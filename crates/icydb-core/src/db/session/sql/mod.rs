@@ -86,6 +86,7 @@ pub enum SqlStatementResult {
     },
     Grouped {
         columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
         rows: Vec<GroupedRow>,
         row_count: u32,
         next_cursor: Option<String>,

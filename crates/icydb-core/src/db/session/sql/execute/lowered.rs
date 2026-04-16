@@ -204,7 +204,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
-        let (prepared_plan, columns, _) = entry.into_parts();
+        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
             .map_err(QueryError::execute)?;
@@ -223,7 +223,7 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .transpose()?;
         Ok((
-            grouped_sql_statement_result(columns, page.rows, next_cursor),
+            grouped_sql_statement_result(columns, fixed_scales, page.rows, next_cursor),
             cache_attribution,
         ))
     }

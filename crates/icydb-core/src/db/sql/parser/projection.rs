@@ -311,7 +311,7 @@ impl Parser {
         ))
     }
 
-    fn parse_projection_operand(
+    pub(super) fn parse_projection_operand(
         &mut self,
     ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
         if let Some(kind) = self.parse_aggregate_kind() {
@@ -323,7 +323,7 @@ impl Parser {
         self.expect_identifier().map(SqlProjectionOperand::Field)
     }
 
-    fn parse_projection_operand_or_literal(
+    pub(super) fn parse_projection_operand_or_literal(
         &mut self,
     ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
         if self.parse_aggregate_kind().is_some() {

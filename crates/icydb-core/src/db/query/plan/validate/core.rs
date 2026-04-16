@@ -79,8 +79,13 @@ pub(crate) fn validate_group_query_semantics(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<(), PlanError> {
-    let (logical, group, having) = match &plan.logical {
-        LogicalPlan::Grouped(grouped) => (&grouped.scalar, &grouped.group, grouped.having.as_ref()),
+    let (logical, group, having, having_expr) = match &plan.logical {
+        LogicalPlan::Grouped(grouped) => (
+            &grouped.scalar,
+            &grouped.group,
+            grouped.having.as_ref(),
+            grouped.having_expr.as_ref(),
+        ),
         LogicalPlan::Scalar(_) => {
             return Err(PlanError::from(
                 GroupPlanError::grouped_logical_plan_required(),
@@ -97,8 +102,8 @@ pub(crate) fn validate_group_query_semantics(
         validate_order,
         validate_access_structure_for_plan,
     )?;
-    validate_group_structure(schema, model, group, &projection, having)?;
-    validate_group_policy(schema, logical, group, having)?;
+    validate_group_structure(schema, model, group, &projection, having, having_expr)?;
+    validate_group_policy(schema, logical, group, having, having_expr)?;
     validate_group_cursor_constraints(logical, group)?;
     validate_projection_expr_types(schema, &projection)?;
 

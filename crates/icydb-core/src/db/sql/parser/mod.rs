@@ -23,7 +23,7 @@ pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
     SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlInsertSource, SqlInsertStatement,
+    SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement,
     SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
     SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
     SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,

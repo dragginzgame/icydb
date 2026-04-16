@@ -25,7 +25,7 @@ use crate::{
             },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, model::QueryModel},
-            plan::{AccessPlannedQuery, LoadSpec, QueryMode, VisibleIndexes},
+            plan::{AccessPlannedQuery, GroupHavingExpr, LoadSpec, QueryMode, VisibleIndexes},
         },
     },
     traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
@@ -190,6 +190,10 @@ impl StructuralQuery {
         self.try_map_intent(|intent| {
             intent.push_having_aggregate_clause(aggregate_index, op, value)
         })
+    }
+
+    pub(in crate::db) fn having_expr(self, expr: GroupHavingExpr) -> Result<Self, QueryError> {
+        self.try_map_intent(|intent| intent.push_having_expr(expr))
     }
 
     #[must_use]

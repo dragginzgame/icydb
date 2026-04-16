@@ -6,7 +6,7 @@
 use crate::db::{
     contracts::first_violated_rule,
     query::plan::{
-        AggregateKind, GroupAggregateSpec, grouped_having_compare_op_supported,
+        AggregateKind, GroupAggregateSpec, GroupHavingExpr, grouped_having_compare_op_supported,
         validate::{GroupPlanError, resolve_group_aggregate_target_field_type},
     },
     schema::SchemaInfo,
@@ -87,6 +87,29 @@ impl<'a> GlobalDistinctAggregatePolicyContext<'a> {
             target_field,
         }
     }
+}
+
+pub(super) fn first_grouped_having_expr_policy_violation(
+    index: usize,
+    expr: &GroupHavingExpr,
+) -> Option<GroupPlanError> {
+    fn walk(expr: &GroupHavingExpr, next_index: &mut usize) -> Option<GroupPlanError> {
+        match expr {
+            GroupHavingExpr::Compare { op, .. } => {
+                let current = *next_index;
+                *next_index = next_index.saturating_add(1);
+                (!grouped_having_compare_op_supported(*op)).then(|| {
+                    GroupPlanError::having_unsupported_compare_op(current, format!("{:?}", op))
+                })
+            }
+            GroupHavingExpr::And(children) => {
+                children.iter().find_map(|child| walk(child, next_index))
+            }
+        }
+    }
+
+    let mut next_index = index;
+    walk(expr, &mut next_index)
 }
 
 pub(super) fn first_grouped_having_policy_violation(

@@ -35,7 +35,6 @@ pub(super) use commit_window::{
 ///
 /// MutationInput
 ///
-/// MutationInput
 ///
 /// MutationInput is the shared internal mutation payload staged above
 /// the persisted-row patch boundary.

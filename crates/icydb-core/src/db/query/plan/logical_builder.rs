@@ -7,8 +7,8 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::plan::{
-            DeleteLimitSpec, GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan, OrderDirection,
-            OrderSpec, PageSpec, QueryMode, ScalarPlan,
+            DeleteLimitSpec, GroupHavingExpr, GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan,
+            OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
         },
     },
     model::entity::EntityModel,
@@ -29,6 +29,7 @@ pub(in crate::db::query) struct LogicalPlanningInputs {
     distinct: bool,
     group: Option<GroupSpec>,
     having: Option<GroupHavingSpec>,
+    having_expr: Option<GroupHavingExpr>,
 }
 
 impl LogicalPlanningInputs {
@@ -40,6 +41,7 @@ impl LogicalPlanningInputs {
         distinct: bool,
         group: Option<GroupSpec>,
         having: Option<GroupHavingSpec>,
+        having_expr: Option<GroupHavingExpr>,
     ) -> Self {
         Self {
             mode,
@@ -47,6 +49,7 @@ impl LogicalPlanningInputs {
             distinct,
             group,
             having,
+            having_expr,
         }
     }
 }
@@ -67,6 +70,7 @@ pub(in crate::db::query) struct LogicalQuery {
     pub(in crate::db::query) distinct: bool,
     pub(in crate::db::query) group: Option<GroupSpec>,
     pub(in crate::db::query) having: Option<GroupHavingSpec>,
+    pub(in crate::db::query) having_expr: Option<GroupHavingExpr>,
     pub(in crate::db::query) consistency: MissingRowPolicy,
 }
 
@@ -83,6 +87,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
         distinct,
         group,
         having,
+        having_expr,
     } = inputs;
 
     LogicalQuery {
@@ -92,6 +97,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
         distinct,
         group,
         having,
+        having_expr,
         consistency,
     }
 }
@@ -109,6 +115,7 @@ pub(in crate::db::query) fn build_logical_plan(
         distinct,
         group,
         having,
+        having_expr,
         consistency,
     } = query;
 
@@ -130,10 +137,11 @@ pub(in crate::db::query) fn build_logical_plan(
             scalar,
             group,
             having,
+            having_expr,
         })
     } else {
         debug_assert!(
-            having.is_none(),
+            having.is_none() && having_expr.is_none(),
             "HAVING clauses require grouped shape before logical plan assembly"
         );
 

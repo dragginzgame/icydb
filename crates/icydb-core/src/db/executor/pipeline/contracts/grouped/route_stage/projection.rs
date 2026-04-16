@@ -14,7 +14,7 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
+            AccessPlannedQuery, GroupHavingExpr, GroupHavingSpec, GroupedDistinctExecutionStrategy,
             GroupedExecutionConfig, GroupedFoldPath, PlannedProjectionLayout,
         },
     },
@@ -77,6 +77,11 @@ impl GroupedRouteStage {
     /// Borrow grouped HAVING contract when present.
     pub(in crate::db::executor) const fn grouped_having(&self) -> Option<&GroupHavingSpec> {
         self.planner_payload.grouped_having.as_ref()
+    }
+
+    /// Borrow widened grouped HAVING expression when present.
+    pub(in crate::db::executor) const fn grouped_having_expr(&self) -> Option<&GroupHavingExpr> {
+        self.planner_payload.grouped_having_expr.as_ref()
     }
 
     /// Borrow grouped DISTINCT execution strategy contract.
@@ -169,5 +174,75 @@ impl GroupedRouteStage {
     /// Consume stage and return final grouped execution trace payload.
     pub(in crate::db::executor) fn into_execution_trace(self) -> Option<ExecutionTrace> {
         self.execution_trace
+    }
+
+    /// Build one minimal grouped route stage for grouped runtime tests that
+    /// only need window-selection semantics.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db::executor) fn new_for_test(
+        direction: Direction,
+        selection_bound: Option<usize>,
+    ) -> Self {
+        use crate::{
+            db::{
+                access::AccessPath,
+                cursor::ContinuationSignature,
+                executor::{
+                    GroupedContinuationContext, GroupedPaginationWindow,
+                    route::GroupedExecutionMode,
+                },
+                predicate::MissingRowPolicy,
+                query::plan::{
+                    AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
+                    GroupedFoldPath, PlannedProjectionLayout,
+                },
+            },
+            value::Value,
+        };
+
+        let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let grouped_pagination_window =
+            GroupedPaginationWindow::new(None, 0, selection_bound, 0, None);
+        let continuation = GroupedContinuationContext::new(
+            ContinuationSignature::from_bytes([0; 32]),
+            1,
+            grouped_pagination_window,
+            direction,
+        );
+        let grouped_route_plan =
+            crate::db::executor::route::ExecutionRoutePlan::grouped_for_test(direction);
+
+        Self {
+            planner_payload: crate::db::executor::pipeline::contracts::GroupedPlannerPayload {
+                plan,
+                grouped_execution: GroupedExecutionConfig {
+                    max_groups: 128,
+                    max_group_bytes: 8 * 1024,
+                },
+                grouped_fold_path: GroupedFoldPath::CountRowsDedicated,
+                group_fields: Vec::new(),
+                grouped_aggregate_execution_specs: Vec::new(),
+                projection_layout: PlannedProjectionLayout {
+                    group_field_positions: Vec::new(),
+                    aggregate_positions: Vec::new(),
+                },
+                projection_is_identity: true,
+                grouped_having: None,
+                grouped_having_expr: None,
+                grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy::None,
+            },
+            route_payload: crate::db::executor::pipeline::contracts::GroupedRoutePayload {
+                grouped_route_plan,
+            },
+            index_specs: crate::db::executor::pipeline::contracts::IndexSpecBundle {
+                index_prefix_specs: Vec::new(),
+                index_range_specs: Vec::new(),
+            },
+            continuation,
+            direction,
+            grouped_execution_mode: GroupedExecutionMode::HashMaterialized,
+            execution_trace: None,
+        }
     }
 }

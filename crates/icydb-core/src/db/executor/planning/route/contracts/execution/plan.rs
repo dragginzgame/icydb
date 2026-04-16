@@ -56,6 +56,45 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
 }
 
 impl ExecutionRoutePlan {
+    /// Construct one grouped route plan for executor tests that only need
+    /// grouped runtime window semantics without full route derivation.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db::executor) const fn grouped_for_test(direction: Direction) -> Self {
+        Self {
+            direction,
+            route_shape_kind: RouteShapeKind::AggregateGrouped,
+            continuation: RouteContinuationPlan::initial_for_mutation(),
+            execution_mode: RouteExecutionMode::Materialized,
+            desc_physical_reverse_supported: false,
+            secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
+            index_range_limit_spec: None,
+            capabilities: RouteCapabilities {
+                load_order_route_contract: LoadOrderRouteContract::MaterializedFallback,
+                load_order_route_reason: LoadOrderRouteReason::None,
+                pk_order_fast_path_eligible: false,
+                count_pushdown_shape_supported: false,
+                composite_aggregate_fast_path_eligible: false,
+                bounded_probe_hint_safe: false,
+                field_min_fast_path_eligible: false,
+                field_max_fast_path_eligible: false,
+                field_min_fast_path_ineligibility_reason: None,
+                field_max_fast_path_ineligibility_reason: None,
+            },
+            fast_path_order: &[],
+            top_n_seek_spec: None,
+            aggregate_seek_spec: None,
+            scan_hints: ScanHintPlan {
+                physical_fetch_hint: None,
+                load_scan_budget_hint: None,
+            },
+            aggregate_fold_mode: AggregateFoldMode::ExistingRows,
+            grouped_plan_strategy: None,
+            grouped_execution_mode: Some(GroupedExecutionMode::HashMaterialized),
+            load_terminal_fast_path: None,
+        }
+    }
+
     /// Construct one mutation-route plan with mutation-safe defaults.
     pub(in crate::db::executor::planning::route) const fn for_mutation(
         capabilities: RouteCapabilities,

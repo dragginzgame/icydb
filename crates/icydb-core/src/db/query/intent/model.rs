@@ -18,12 +18,13 @@ use crate::{
             expr::{FilterExpr, SortExpr},
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
-                AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
-                expr::ProjectionSelection, fold_constant_predicate, is_limit_zero_load_window,
-                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, resolve_group_field_slot,
-                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
+                AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
+                GroupHavingSymbol, LogicalPlan, OrderSpec, QueryMode, VisibleIndexes,
+                build_logical_plan, expr::ProjectionSelection, fold_constant_predicate,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
+                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
+                validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -267,6 +268,18 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             op,
             value,
         })
+    }
+
+    // Append one widened grouped HAVING expression after GROUP BY terminal declaration.
+    pub(in crate::db::query::intent) fn push_having_expr(
+        mut self,
+        expr: GroupHavingExpr,
+    ) -> Result<Self, QueryError> {
+        self.intent
+            .push_having_expr(expr)
+            .map_err(QueryError::intent)?;
+
+        Ok(self)
     }
 
     /// Set the access path to a single primary key lookup.

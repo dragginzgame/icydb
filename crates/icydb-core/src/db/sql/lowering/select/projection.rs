@@ -325,6 +325,7 @@ pub(super) fn lower_grouped_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
     group_by: &[String],
+    allow_identity_fast_path: bool,
     model: &'static EntityModel,
 ) -> Result<ProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
@@ -357,7 +358,8 @@ pub(super) fn lower_grouped_projection_selection(
         return Err(SqlLoweringError::unsupported_select_group_by());
     }
 
-    if projection_aliases.iter().all(Option::is_none)
+    if allow_identity_fast_path
+        && projection_aliases.iter().all(Option::is_none)
         && grouped_projection_is_canonical_identity(fields.as_slice(), group_by)
     {
         return Ok(ProjectionSelection::All);

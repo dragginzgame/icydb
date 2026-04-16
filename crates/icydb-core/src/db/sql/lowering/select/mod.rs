@@ -9,10 +9,14 @@ use crate::db::sql::lowering::{
 };
 use crate::{
     db::{
+        QueryError,
         predicate::{MissingRowPolicy, Predicate},
         query::{
             intent::{Query, StructuralQuery},
-            plan::expr::ProjectionSelection,
+            plan::{
+                GroupHavingExpr, GroupHavingValueExpr, expr::ProjectionSelection,
+                resolve_group_field_slot,
+            },
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlOrderTerm, SqlSelectStatement},
     },
@@ -21,7 +25,10 @@ use crate::{
 };
 
 use crate::db::sql::lowering::select::{
-    aggregate::{ResolvedHavingClause, lower_having_clauses},
+    aggregate::{
+        ResolvedHavingClause, ResolvedHavingExpr, ResolvedHavingValueExpr,
+        extend_grouped_having_aggregate_calls, lower_having_clauses,
+    },
     binding::model_field_kind,
     order::apply_order_terms_structural,
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
@@ -41,7 +48,7 @@ pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredSelectShape {
     projection_selection: ProjectionSelection,
-    grouped_projection_aggregates: Vec<SqlAggregateCall>,
+    grouped_aggregates: Vec<SqlAggregateCall>,
     group_by_fields: Vec<String>,
     distinct: bool,
     having: Vec<ResolvedHavingClause>,
@@ -88,16 +95,19 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     // Phase 1: resolve scalar/grouped projection shape.
     let is_grouped = !group_by.is_empty();
-    let (projection_selection, grouped_projection_aggregates, normalized_distinct) = if is_grouped {
+    let (projection_selection, grouped_aggregates, normalized_distinct) = if is_grouped {
+        let projection_aggregates =
+            grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
+        let mut grouped_aggregates = projection_aggregates.clone();
+        extend_grouped_having_aggregate_calls(&mut grouped_aggregates, having.as_slice());
         let projection_selection = lower_grouped_projection_selection(
             projection.clone(),
             projection_aliases.as_slice(),
             group_by.as_slice(),
+            projection_aggregates.len() == grouped_aggregates.len(),
             model,
         )?;
-        let grouped_projection_aggregates =
-            grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
-        (projection_selection, grouped_projection_aggregates, false)
+        (projection_selection, grouped_aggregates, false)
     } else {
         let projection_selection =
             lower_scalar_projection_selection(projection, projection_aliases.as_slice(), distinct)?;
@@ -109,12 +119,12 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         having,
         &projection_for_having,
         group_by.as_slice(),
-        grouped_projection_aggregates.as_slice(),
+        grouped_aggregates.as_slice(),
     )?;
 
     Ok(LoweredSelectShape {
         projection_selection,
-        grouped_projection_aggregates,
+        grouped_aggregates,
         group_by_fields: group_by,
         distinct: normalized_distinct,
         having,
@@ -132,7 +142,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let LoweredSelectShape {
         projection_selection,
-        grouped_projection_aggregates,
+        grouped_aggregates,
         group_by_fields,
         distinct,
         having,
@@ -153,7 +163,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
         query = query.distinct();
     }
     query = query.projection_selection(projection_selection);
-    for aggregate in grouped_projection_aggregates {
+    for aggregate in grouped_aggregates {
         query = query.aggregate(lower_aggregate_call(aggregate)?);
     }
 
@@ -174,6 +184,9 @@ pub(in crate::db) fn apply_lowered_select_shape(
                 value,
             } => {
                 query = query.having_aggregate(aggregate_index, op, value)?;
+            }
+            ResolvedHavingClause::Expr(expr) => {
+                query = query.having_expr(resolve_grouped_having_expr(model, expr)?)?;
             }
         }
     }
@@ -280,5 +293,47 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         order_by,
         limit,
         offset,
+    }
+}
+
+fn resolve_grouped_having_expr(
+    model: &'static EntityModel,
+    expr: ResolvedHavingExpr,
+) -> Result<GroupHavingExpr, SqlLoweringError> {
+    match expr {
+        ResolvedHavingExpr::Compare { left, op, right } => Ok(GroupHavingExpr::Compare {
+            left: resolve_grouped_having_value_expr(model, left)?,
+            op,
+            right: resolve_grouped_having_value_expr(model, right)?,
+        }),
+    }
+}
+
+fn resolve_grouped_having_value_expr(
+    model: &'static EntityModel,
+    expr: ResolvedHavingValueExpr,
+) -> Result<GroupHavingValueExpr, SqlLoweringError> {
+    match expr {
+        ResolvedHavingValueExpr::GroupField(field) => Ok(GroupHavingValueExpr::GroupField(
+            resolve_group_field_slot(model, &field).map_err(QueryError::from)?,
+        )),
+        ResolvedHavingValueExpr::AggregateIndex(index) => {
+            Ok(GroupHavingValueExpr::AggregateIndex(index))
+        }
+        ResolvedHavingValueExpr::Literal(value) => Ok(GroupHavingValueExpr::Literal(value)),
+        ResolvedHavingValueExpr::FunctionCall { function, args } => {
+            Ok(GroupHavingValueExpr::FunctionCall {
+                function,
+                args: args
+                    .into_iter()
+                    .map(|arg| resolve_grouped_having_value_expr(model, arg))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        }
+        ResolvedHavingValueExpr::Binary { op, left, right } => Ok(GroupHavingValueExpr::Binary {
+            op,
+            left: Box::new(resolve_grouped_having_value_expr(model, *left)?),
+            right: Box::new(resolve_grouped_having_value_expr(model, *right)?),
+        }),
     }
 }

@@ -254,8 +254,9 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
 
 #[test]
 fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
-    let err = validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None)
-        .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
+    let err =
+        validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None, None)
+            .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
         inner,
@@ -278,6 +279,7 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
         &scalar_plan(true),
         &grouped_spec(),
         Some(&having),
+        None,
     )
     .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
 
@@ -289,7 +291,7 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
 
 #[test]
 fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
-    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), None)
+    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), None, None)
         .expect("non-distinct grouped shapes should pass planner distinct policy gate");
 }
 
@@ -310,6 +312,7 @@ fn grouped_having_contains_operator_fails_in_planner_policy() {
         &scalar_plan(false),
         &grouped_spec(),
         Some(&having),
+        None,
     )
     .expect_err("grouped HAVING with unsupported compare operator must fail in planner");
 
@@ -344,8 +347,9 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
         alias: None,
     }]);
 
-    let err = validate_group_structure_for_tests(schema(), model(), &group, &projection, None)
-        .expect_err("projection references outside GROUP BY keys must fail in planner");
+    let err =
+        validate_group_structure_for_tests(schema(), model(), &group, &projection, None, None)
+            .expect_err("projection references outside GROUP BY keys must fail in planner");
 
     assert!(is_expr_user_error(&err, |inner| matches!(
         inner,
@@ -367,9 +371,15 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
         }],
     };
 
-    let err =
-        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
-            .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
+    let err = validate_group_structure_for_tests(
+        schema(),
+        model(),
+        &group,
+        &projection,
+        Some(&having),
+        None,
+    )
+    .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,
@@ -389,9 +399,15 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
         }],
     };
 
-    let err =
-        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
-            .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
+    let err = validate_group_structure_for_tests(
+        schema(),
+        model(),
+        &group,
+        &projection,
+        Some(&having),
+        None,
+    )
+    .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,

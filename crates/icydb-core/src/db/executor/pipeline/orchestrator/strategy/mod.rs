@@ -5,7 +5,8 @@
 
 use crate::{
     db::executor::{
-        LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, PreparedLoadPlan,
+        ExecutionTrace, LoadCursorInput, LoadCursorResolver, PreparedLoadCursor, PreparedLoadPlan,
+        ScalarContinuationContext,
         pipeline::{
             contracts::LoadExecutor,
             entrypoints::{
@@ -53,21 +54,41 @@ impl ExecutionSpec {
         Self::Grouped(prepared)
     }
 
+    // Execute one variant-owned prepared runtime and return the payload plus
+    // trace pair before the shared outer execution state is rebuilt.
+    fn execute_payload(
+        self,
+    ) -> Result<(LoadExecutionPayload, Option<ExecutionTrace>), InternalError> {
+        match self {
+            Self::Scalar(prepared) => Self::execute_scalar(prepared),
+            Self::Grouped(prepared) => Self::execute_grouped(prepared),
+        }
+    }
+
+    // Execute one prepared scalar runtime and wrap the resulting page in the
+    // scalar payload family.
+    fn execute_scalar(
+        prepared: PreparedScalarRouteRuntime,
+    ) -> Result<(LoadExecutionPayload, Option<ExecutionTrace>), InternalError> {
+        let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
+
+        Ok((LoadExecutionPayload::Scalar(page), trace))
+    }
+
+    // Execute one prepared grouped runtime and wrap the resulting page in the
+    // grouped payload family.
+    fn execute_grouped(
+        prepared: PreparedGroupedRouteRuntime,
+    ) -> Result<(LoadExecutionPayload, Option<ExecutionTrace>), InternalError> {
+        let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+
+        Ok((LoadExecutionPayload::Grouped(page), trace))
+    }
+
     // Execute one canonical kernel dispatch over one pre-bound scalar or
     // grouped runtime descriptor.
     fn execute(self, context: LoadExecutionContext) -> Result<LoadPayloadState, InternalError> {
-        let (payload, trace) = match self {
-            Self::Scalar(prepared) => {
-                let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
-
-                (LoadExecutionPayload::Scalar(page), trace)
-            }
-            Self::Grouped(prepared) => {
-                let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
-
-                (LoadExecutionPayload::Grouped(page), trace)
-            }
-        };
+        let (payload, trace) = self.execute_payload()?;
 
         Ok(LoadPayloadState {
             context,
@@ -124,16 +145,24 @@ where
     ) -> Result<ExecutionSpec, InternalError> {
         match cursor {
             PreparedLoadCursor::Scalar(resolved_continuation) => {
-                let prepared = self.prepare_scalar_route_runtime(
-                    plan,
-                    *resolved_continuation,
-                    scalar_rows_mode,
-                )?;
-
-                Ok(ExecutionSpec::scalar(prepared))
+                self.build_scalar_execution_spec(plan, *resolved_continuation, scalar_rows_mode)
             }
             PreparedLoadCursor::Grouped(cursor) => self.build_grouped_execution_spec(plan, cursor),
         }
+    }
+
+    // Build one scalar execution descriptor from one prepared scalar cursor
+    // while keeping scalar runtime assembly under one local owner.
+    fn build_scalar_execution_spec(
+        &self,
+        plan: PreparedLoadPlan,
+        resolved_continuation: ScalarContinuationContext,
+        scalar_rows_mode: bool,
+    ) -> Result<ExecutionSpec, InternalError> {
+        let prepared =
+            self.prepare_scalar_route_runtime(plan, resolved_continuation, scalar_rows_mode)?;
+
+        Ok(ExecutionSpec::scalar(prepared))
     }
 
     // Build one grouped execution descriptor from one prepared grouped cursor

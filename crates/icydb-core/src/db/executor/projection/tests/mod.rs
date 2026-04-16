@@ -181,7 +181,6 @@ fn grouped_execution_specs<const N: usize>(
 ///
 /// ProjectionMissingDeclaredSlotReader
 ///
-/// ProjectionMissingDeclaredSlotReader
 ///
 /// ProjectionMissingDeclaredSlotReader simulates one canonical structural row
 /// whose declared slots are absent so projection evaluators can prove they

@@ -16,7 +16,8 @@ use crate::{
             builder::aggregate::AggregateExpr,
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
-                GroupHavingSpec, GroupHavingSymbol, OrderDirection, OrderSpec, QueryMode,
+                GroupHavingExpr, GroupHavingSpec, GroupHavingSymbol, GroupHavingValueExpr,
+                OrderDirection, OrderSpec, QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
         },
@@ -210,8 +211,9 @@ struct AggregateExprCacheKey {
 /// GroupingCacheKey
 ///
 /// Canonical identity for the grouped-query portion of a structural cache key.
-/// This captures grouping fields, aggregate slots, `HAVING` clauses, and the
-/// configured grouping limits so grouped plans only reuse compatible shapes.
+/// This captures grouping fields, aggregate slots, legacy `HAVING` clauses,
+/// widened grouped `HAVING` expressions, and the configured grouping limits so
+/// grouped plans only reuse compatible shapes.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -219,6 +221,7 @@ struct GroupingCacheKey {
     group_fields: Vec<GroupFieldCacheKey>,
     aggregates: Vec<GroupAggregateCacheKey>,
     having: Option<GroupHavingCacheKey>,
+    having_expr: Option<GroupHavingExprCacheKey>,
     max_groups: u64,
     max_group_bytes: u64,
 }
@@ -278,6 +281,32 @@ struct GroupHavingClauseCacheKey {
     symbol: GroupHavingSymbolCacheKey,
     op: CompareOpCacheKey,
     value: ValueCacheKey,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum GroupHavingExprCacheKey {
+    Compare {
+        left: GroupHavingValueExprCacheKey,
+        op: CompareOpCacheKey,
+        right: GroupHavingValueExprCacheKey,
+    },
+    And(Vec<Self>),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum GroupHavingValueExprCacheKey {
+    GroupField(GroupFieldCacheKey),
+    AggregateIndex(usize),
+    Literal(ValueCacheKey),
+    FunctionCall {
+        function: Function,
+        args: Vec<Self>,
+    },
+    Binary {
+        op: BinaryOpCacheKey,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -587,6 +616,10 @@ impl GroupingCacheKey {
                 .having
                 .as_ref()
                 .map(GroupHavingCacheKey::from_having_spec),
+            having_expr: grouped
+                .having_expr
+                .as_ref()
+                .map(GroupHavingExprCacheKey::from_having_expr),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
         }
@@ -630,6 +663,48 @@ impl GroupHavingClauseCacheKey {
             symbol: GroupHavingSymbolCacheKey::from_having_symbol(&clause.symbol),
             op: CompareOpCacheKey::from_compare_op(clause.op),
             value: ValueCacheKey::from_value(&clause.value),
+        }
+    }
+}
+
+impl GroupHavingExprCacheKey {
+    fn from_having_expr(expr: &GroupHavingExpr) -> Self {
+        match expr {
+            GroupHavingExpr::Compare { left, op, right } => Self::Compare {
+                left: GroupHavingValueExprCacheKey::from_having_value_expr(left),
+                op: CompareOpCacheKey::from_compare_op(*op),
+                right: GroupHavingValueExprCacheKey::from_having_value_expr(right),
+            },
+            GroupHavingExpr::And(children) => Self::And(
+                children
+                    .iter()
+                    .map(Self::from_having_expr)
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+impl GroupHavingValueExprCacheKey {
+    fn from_having_value_expr(expr: &GroupHavingValueExpr) -> Self {
+        match expr {
+            GroupHavingValueExpr::GroupField(field) => {
+                Self::GroupField(GroupFieldCacheKey::from_field_slot(field))
+            }
+            GroupHavingValueExpr::AggregateIndex(index) => Self::AggregateIndex(*index),
+            GroupHavingValueExpr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)),
+            GroupHavingValueExpr::FunctionCall { function, args } => Self::FunctionCall {
+                function: *function,
+                args: args
+                    .iter()
+                    .map(Self::from_having_value_expr)
+                    .collect::<Vec<_>>(),
+            },
+            GroupHavingValueExpr::Binary { op, left, right } => Self::Binary {
+                op: BinaryOpCacheKey::from_binary_op(*op),
+                left: Box::new(Self::from_having_value_expr(left.as_ref())),
+                right: Box::new(Self::from_having_value_expr(right.as_ref())),
+            },
         }
     }
 }

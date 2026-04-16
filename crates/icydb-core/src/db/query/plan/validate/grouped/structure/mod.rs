@@ -6,7 +6,8 @@
 use crate::{
     db::{
         query::plan::{
-            GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
+            GroupAggregateSpec, GroupHavingExpr, GroupHavingSpec, GroupHavingSymbol,
+            GroupHavingValueExpr, GroupSpec,
             expr::ProjectionSpec,
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -23,8 +24,9 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
     group: &GroupSpec,
     projection: &ProjectionSpec,
     having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    if group.group_fields.is_empty() && having.is_some() {
+    if group.group_fields.is_empty() && (having.is_some() || having_expr.is_some()) {
         return Err(PlanError::from(
             GroupPlanError::global_distinct_aggregate_shape_unsupported(),
         ));
@@ -32,7 +34,7 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
 
     validate_group_spec_structure(schema, model, group)?;
     validate_group_projection_expr_compatibility(group, projection)?;
-    validate_grouped_having_structure(group, having)?;
+    validate_grouped_having_structure(group, having, having_expr)?;
 
     Ok(())
 }
@@ -41,7 +43,13 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
 fn validate_grouped_having_structure(
     group: &GroupSpec,
     having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
+    if let Some(having_expr) = having_expr {
+        let mut compare_index = 0;
+        validate_grouped_having_expr_structure(group, having_expr, &mut compare_index)?;
+    }
+
     let Some(having) = having else {
         return Ok(());
     };
@@ -145,4 +153,51 @@ fn validate_group_spec_structure(
     }
 
     Ok(())
+}
+
+fn validate_grouped_having_expr_structure(
+    group: &GroupSpec,
+    expr: &GroupHavingExpr,
+    compare_index: &mut usize,
+) -> Result<(), PlanError> {
+    match expr {
+        GroupHavingExpr::Compare { left, right, .. } => {
+            validate_grouped_having_value_expr_structure(group, left, *compare_index)?;
+            validate_grouped_having_value_expr_structure(group, right, *compare_index)?;
+            *compare_index = compare_index.saturating_add(1);
+            Ok(())
+        }
+        GroupHavingExpr::And(children) => {
+            for child in children {
+                validate_grouped_having_expr_structure(group, child, compare_index)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_grouped_having_value_expr_structure(
+    group: &GroupSpec,
+    expr: &GroupHavingValueExpr,
+    compare_index: usize,
+) -> Result<(), PlanError> {
+    match expr {
+        GroupHavingValueExpr::GroupField(field_slot) => {
+            validate_having_group_field_reference(group, field_slot, compare_index)
+        }
+        GroupHavingValueExpr::AggregateIndex(aggregate_index) => {
+            validate_having_aggregate_index(group, *aggregate_index, compare_index)
+        }
+        GroupHavingValueExpr::Literal(_) => Ok(()),
+        GroupHavingValueExpr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_grouped_having_value_expr_structure(group, arg, compare_index)?;
+            }
+            Ok(())
+        }
+        GroupHavingValueExpr::Binary { left, right, .. } => {
+            validate_grouped_having_value_expr_structure(group, left, compare_index)?;
+            validate_grouped_having_value_expr_structure(group, right, compare_index)
+        }
+    }
 }

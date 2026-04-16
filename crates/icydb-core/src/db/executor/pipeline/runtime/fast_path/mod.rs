@@ -25,7 +25,6 @@ use crate::db::executor::pipeline::runtime::fast_path::strategy::FastPathResolut
 ///
 /// ResolvedIndexPredicateProgram
 ///
-/// ResolvedIndexPredicateProgram
 ///
 /// ResolvedIndexPredicateProgram keeps fast-path index predicate preparation
 /// behind one explicit execution-input-owned boundary.
@@ -68,7 +67,6 @@ impl<'a> ResolvedIndexPredicateProgram<'a> {
 ///
 /// FastPathResolutionContext
 ///
-/// FastPathResolutionContext
 ///
 /// FastPathResolutionContext freezes the execution state shared by fast-path
 /// hit handling and canonical fallback stream resolution.

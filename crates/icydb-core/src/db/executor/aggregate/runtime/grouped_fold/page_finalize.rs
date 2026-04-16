@@ -13,7 +13,8 @@ use crate::{
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::{
-                group_matches_having, grouped_fold::bundle::GroupedAggregateBundle,
+                group_matches_having, group_matches_having_expr,
+                grouped_fold::bundle::GroupedAggregateBundle,
                 grouped_output::project_grouped_values_from_compiled_projection,
             },
             group::GroupKey,
@@ -22,7 +23,7 @@ use crate::{
                 CompiledGroupedProjectionPlan, compile_grouped_projection_plan_if_needed,
             },
         },
-        query::plan::{GroupHavingSpec, expr::ProjectionSpec},
+        query::plan::{GroupHavingExpr, GroupHavingSpec, expr::ProjectionSpec},
     },
     error::InternalError,
     value::Value,
@@ -99,9 +100,20 @@ impl GroupedPageCandidate {
     fn matches_window(
         &self,
         grouped_having: Option<&GroupHavingSpec>,
+        grouped_having_expr: Option<&GroupHavingExpr>,
         group_fields: &[crate::db::query::plan::FieldSlot],
         resume_boundary: Option<&Value>,
     ) -> Result<bool, InternalError> {
+        if let Some(grouped_having_expr) = grouped_having_expr
+            && !group_matches_having_expr(
+                grouped_having_expr,
+                group_fields,
+                self.group_key.canonical_value(),
+                self.aggregate_values.as_slice(),
+            )?
+        {
+            return Ok(false);
+        }
         if let Some(grouped_having) = grouped_having
             && !group_matches_having(
                 grouped_having,
@@ -150,6 +162,7 @@ pub(super) fn finalize_grouped_page(
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError> {
     let grouped_having = route.grouped_having();
+    let grouped_having_expr = route.grouped_having_expr();
     let group_fields = route.group_fields();
     let compiled_projection = compile_grouped_projection_plan_if_needed(
         grouped_projection_spec,
@@ -164,6 +177,7 @@ pub(super) fn finalize_grouped_page(
         finalize_bounded_grouped_page_rows(
             route.direction(),
             grouped_having,
+            grouped_having_expr,
             grouped_bundle,
             group_fields,
             pagination_window,
@@ -175,6 +189,7 @@ pub(super) fn finalize_grouped_page(
         finalize_unbounded_grouped_page_rows(
             route.direction(),
             grouped_having,
+            grouped_having_expr,
             grouped_bundle,
             group_fields,
             pagination_window,
@@ -215,7 +230,7 @@ fn into_finalize_groups(
     if sorted {
         grouped_bundle.into_sorted_groups()
     } else {
-        grouped_bundle.into_groups().collect()
+        grouped_bundle.into_groups()
     }
 }
 
@@ -229,6 +244,7 @@ fn into_finalize_groups(
 fn finalize_bounded_grouped_page_rows(
     direction: Direction,
     grouped_having: Option<&GroupHavingSpec>,
+    grouped_having_expr: Option<&GroupHavingExpr>,
     grouped_bundle: GroupedAggregateBundle,
     group_fields: &[crate::db::query::plan::FieldSlot],
     pagination_window: &GroupedPaginationWindow,
@@ -239,6 +255,7 @@ fn finalize_bounded_grouped_page_rows(
     let selected_candidates = retain_smallest_grouped_page_candidates(
         into_grouped_page_candidates(grouped_bundle, false, direction).into_iter(),
         grouped_having,
+        grouped_having_expr,
         group_fields,
         resume_boundary,
         selection_bound,
@@ -258,6 +275,7 @@ fn finalize_bounded_grouped_page_rows(
 fn finalize_unbounded_grouped_page_rows(
     direction: Direction,
     grouped_having: Option<&GroupHavingSpec>,
+    grouped_having_expr: Option<&GroupHavingExpr>,
     grouped_bundle: GroupedAggregateBundle,
     group_fields: &[crate::db::query::plan::FieldSlot],
     pagination_window: &GroupedPaginationWindow,
@@ -268,7 +286,14 @@ fn finalize_unbounded_grouped_page_rows(
         into_grouped_page_candidates(grouped_bundle, true, direction).into_iter(),
         pagination_window.limit(),
         pagination_window.initial_offset_for_page(),
-        |candidate| candidate.matches_window(grouped_having, group_fields, resume_boundary),
+        |candidate| {
+            candidate.matches_window(
+                grouped_having,
+                grouped_having_expr,
+                group_fields,
+                resume_boundary,
+            )
+        },
         compiled_projection,
     )
 }
@@ -278,6 +303,7 @@ fn finalize_unbounded_grouped_page_rows(
 fn retain_smallest_grouped_page_candidates<I>(
     finalized_candidates: I,
     grouped_having: Option<&GroupHavingSpec>,
+    grouped_having_expr: Option<&GroupHavingExpr>,
     group_fields: &[crate::db::query::plan::FieldSlot],
     resume_boundary: Option<&Value>,
     selection_bound: usize,
@@ -290,7 +316,12 @@ where
     // Phase 1: keep only the smallest `selection_bound` qualifying groups so
     // bounded grouped pages do not sort every finalized group up front.
     for candidate in finalized_candidates {
-        if !candidate.matches_window(grouped_having, group_fields, resume_boundary)? {
+        if !candidate.matches_window(
+            grouped_having,
+            grouped_having_expr,
+            group_fields,
+            resume_boundary,
+        )? {
             continue;
         }
         if retained.len() < selection_bound {

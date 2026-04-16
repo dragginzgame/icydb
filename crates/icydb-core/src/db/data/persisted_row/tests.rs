@@ -48,7 +48,6 @@ crate::test_store! {
 ///
 /// PersistedRowPatchBridgeEntity
 ///
-/// PersistedRowPatchBridgeEntity
 ///
 /// PersistedRowPatchBridgeEntity is the smallest derive-owned entity used
 /// to validate the typed-entity -> serialized-patch bridge.

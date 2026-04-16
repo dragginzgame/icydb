@@ -8,8 +8,9 @@ mod rules;
 use crate::db::{
     predicate::Predicate,
     query::plan::{
-        GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingSpec, GroupSpec, ScalarPlan,
-        grouped_distinct_admissibility, resolve_global_distinct_field_aggregate,
+        GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingExpr, GroupHavingSpec,
+        GroupSpec, ScalarPlan, grouped_distinct_admissibility,
+        resolve_global_distinct_field_aggregate,
         validate::{GroupPlanError, PlanError},
     },
     schema::SchemaInfo,
@@ -17,7 +18,7 @@ use crate::db::{
 
 use crate::db::query::plan::validate::grouped::policy::rules::{
     first_global_distinct_aggregate_policy_violation, first_grouped_aggregate_policy_violation,
-    first_grouped_having_policy_violation,
+    first_grouped_having_expr_policy_violation, first_grouped_having_policy_violation,
 };
 
 // Validate grouped policy gates independent from structural shape checks.
@@ -26,10 +27,11 @@ pub(in crate::db::query::plan::validate) fn validate_group_policy(
     logical: &ScalarPlan,
     group: &GroupSpec,
     having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
-    validate_grouped_distinct_policy(logical, having.is_some())?;
+    validate_grouped_distinct_policy(logical, having.is_some() || having_expr.is_some())?;
     validate_grouped_predicate_policy(logical.predicate.as_ref())?;
-    validate_grouped_having_policy(having)?;
+    validate_grouped_having_policy(having, having_expr)?;
     validate_group_spec_policy(schema, group, having)?;
 
     Ok(())
@@ -93,7 +95,17 @@ fn predicate_contains_compare_fields(predicate: &Predicate) -> bool {
 }
 
 // Validate grouped HAVING policy gates and operator support.
-fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<(), PlanError> {
+fn validate_grouped_having_policy(
+    having: Option<&GroupHavingSpec>,
+    having_expr: Option<&GroupHavingExpr>,
+) -> Result<(), PlanError> {
+    if let Some(having_expr) = having_expr {
+        validate_group_policy_violation(first_grouped_having_expr_policy_violation(
+            0,
+            having_expr,
+        ))?;
+    }
+
     let Some(having) = having else {
         return Ok(());
     };

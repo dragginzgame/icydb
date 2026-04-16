@@ -10,7 +10,7 @@ use crate::db::{
         CompareOp,
         grouped_having_compare_op_supported as predicate_grouped_having_compare_op_supported,
     },
-    query::plan::{GroupHavingSpec, GroupPlan},
+    query::plan::{GroupHavingExpr, GroupHavingSpec, GroupPlan},
 };
 
 ///
@@ -83,9 +83,15 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
     having: Option<&GroupHavingSpec>,
 ) -> bool {
     having.is_none_or(|having| {
-        having
-            .clauses()
-            .iter()
-            .all(|clause| grouped_having_compare_op_supported(clause.op()))
+        grouped_having_expr_streaming_compatible(&GroupHavingExpr::from_legacy_spec(having))
     })
+}
+
+fn grouped_having_expr_streaming_compatible(expr: &GroupHavingExpr) -> bool {
+    match expr {
+        GroupHavingExpr::Compare { op, .. } => grouped_having_compare_op_supported(*op),
+        GroupHavingExpr::And(children) => children
+            .iter()
+            .all(grouped_having_expr_streaming_compatible),
+    }
 }

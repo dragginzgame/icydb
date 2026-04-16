@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.86.x] 🧪 - 2026-04-16 - Grouped HAVING Expression Widening
+
+- `0.86.0` widens grouped SQL `HAVING` from simple symbol-to-literal checks to bounded post-aggregate expressions like `ROUND(AVG(strength), 2) >= 10` and `COUNT(*) + 1 > 5`, while intentionally leaving grouped `ORDER BY`, aggregate-input expressions, and non-grouped field access unchanged.
+
+See detailed breakdown:
+[docs/changelog/0.86.md](docs/changelog/0.86.md)
+
+---
+
 ## [0.85.x] 🧮 - 2026-04-16 - Grouped Post-Aggregate Projection Expressions
 
 - `0.85.3` keeps the executor cleanup moving by making prepared execution inputs own stream resolution and single-attempt materialization more directly, so the kernel is now mostly just retry policy while the fast-path and scalar read boundaries read as clearer, more deliberate owners.

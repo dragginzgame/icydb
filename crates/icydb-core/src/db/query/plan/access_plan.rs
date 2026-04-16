@@ -7,7 +7,7 @@ use crate::db::{
     access::{AccessPlan, AccessStrategy},
     predicate::{IndexCompileTarget, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupHavingSpec, GroupPlan, GroupSpec,
+        AccessChoiceExplainSnapshot, GroupHavingExpr, GroupHavingSpec, GroupPlan, GroupSpec,
         GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
         PlannerRouteProfile,
         access_choice::project_access_choice_explain_snapshot_with_indexes,
@@ -264,15 +264,27 @@ impl AccessPlannedQuery {
     /// Convert this plan into grouped logical form with one explicit group spec.
     #[must_use]
     pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
-        self.into_grouped_with_having(group, None)
+        self.into_grouped_with_having_expr(group, None, None)
     }
 
     /// Convert this plan into grouped logical form with explicit HAVING shape.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn into_grouped_with_having(
         self,
         group: GroupSpec,
         having: Option<GroupHavingSpec>,
+    ) -> Self {
+        self.into_grouped_with_having_expr(group, having, None)
+    }
+
+    /// Convert this plan into grouped logical form with explicit widened HAVING shape.
+    #[must_use]
+    pub(in crate::db) fn into_grouped_with_having_expr(
+        self,
+        group: GroupSpec,
+        having: Option<GroupHavingSpec>,
+        having_expr: Option<GroupHavingExpr>,
     ) -> Self {
         let Self {
             logical,
@@ -292,6 +304,7 @@ impl AccessPlannedQuery {
                 scalar,
                 group,
                 having,
+                having_expr,
             }),
             access,
             projection_selection,

@@ -9,6 +9,7 @@ use crate::{
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
         query::plan::{
+            expr::{BinaryOp, Function},
             order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
         },
@@ -539,11 +540,54 @@ pub(crate) struct GroupHavingClause {
 }
 
 ///
+/// GroupHavingValueExpr
+///
+/// Slot-resolved grouped HAVING value expression.
+/// Leaves are restricted to grouped key slots, finalized aggregate outputs,
+/// and literals so grouped HAVING stays on the post-aggregate surface.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum GroupHavingValueExpr {
+    GroupField(FieldSlot),
+    AggregateIndex(usize),
+    Literal(Value),
+    FunctionCall {
+        function: Function,
+        args: Vec<Self>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
+}
+
+///
+/// GroupHavingExpr
+///
+/// Post-aggregate grouped HAVING boolean expression.
+/// This is the `0.86` grouped HAVING backbone: grouped runtime evaluates this
+/// tree over finalized grouped outputs without changing grouping mechanics.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum GroupHavingExpr {
+    Compare {
+        left: GroupHavingValueExpr,
+        op: CompareOp,
+        right: GroupHavingValueExpr,
+    },
+    And(Vec<Self>),
+}
+
+///
 /// GroupHavingSpec
 ///
 /// Declarative grouped HAVING specification evaluated after grouped
 /// aggregate finalization and before grouped pagination emission.
-/// Clauses are AND-composed in declaration order.
+/// Clauses remain the stored planner contract for now while `0.86` introduces
+/// the new grouped HAVING expression model alongside them.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -607,6 +651,7 @@ pub(crate) struct GroupPlan {
     pub(crate) scalar: ScalarPlan,
     pub(crate) group: GroupSpec,
     pub(crate) having: Option<GroupHavingSpec>,
+    pub(crate) having_expr: Option<GroupHavingExpr>,
 }
 
 ///

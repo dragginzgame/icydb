@@ -12,7 +12,7 @@ use crate::db::{
             rewrite_field_identifiers,
         },
         parser::{
-            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingSymbol,
+            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingValueExpr,
             SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
             SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
             SqlTextFunctionCall,
@@ -51,21 +51,43 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
     clauses
         .into_iter()
         .map(|clause| SqlHavingClause {
-            symbol: normalize_having_symbol(clause.symbol, entity_scope),
+            left: normalize_having_value_expr(clause.left, entity_scope),
             op: clause.op,
-            value: clause.value,
+            right: normalize_having_value_expr(clause.right, entity_scope),
         })
         .collect()
 }
 
-fn normalize_having_symbol(symbol: SqlHavingSymbol, entity_scope: &[String]) -> SqlHavingSymbol {
-    match symbol {
-        SqlHavingSymbol::Field(field) => {
-            SqlHavingSymbol::Field(normalize_identifier_to_scope(field, entity_scope))
+fn normalize_having_value_expr(
+    expr: SqlHavingValueExpr,
+    entity_scope: &[String],
+) -> SqlHavingValueExpr {
+    match expr {
+        SqlHavingValueExpr::Field(field) => {
+            SqlHavingValueExpr::Field(normalize_identifier_to_scope(field, entity_scope))
         }
-        SqlHavingSymbol::Aggregate(aggregate) => SqlHavingSymbol::Aggregate(
+        SqlHavingValueExpr::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(
             normalize_aggregate_call_identifiers(aggregate, entity_scope),
         ),
+        SqlHavingValueExpr::Literal(literal) => SqlHavingValueExpr::Literal(literal),
+        SqlHavingValueExpr::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(
+            normalize_arithmetic_projection_call_identifiers(call, entity_scope),
+        ),
+        SqlHavingValueExpr::Round(SqlRoundProjectionCall { input, scale }) => {
+            SqlHavingValueExpr::Round(SqlRoundProjectionCall {
+                input: match input {
+                    SqlRoundProjectionInput::Operand(operand) => SqlRoundProjectionInput::Operand(
+                        normalize_projection_operand_identifiers(operand, entity_scope),
+                    ),
+                    SqlRoundProjectionInput::Arithmetic(call) => {
+                        SqlRoundProjectionInput::Arithmetic(
+                            normalize_arithmetic_projection_call_identifiers(call, entity_scope),
+                        )
+                    }
+                },
+                scale,
+            })
+        }
     }
 }
 

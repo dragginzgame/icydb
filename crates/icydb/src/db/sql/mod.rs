@@ -188,12 +188,14 @@ pub(crate) fn sql_query_result_from_statement(
         )),
         SqlStatementResult::Grouped {
             columns,
+            fixed_scales,
             rows,
             row_count,
             next_cursor,
         } => SqlQueryResult::Grouped(sql_grouped_rows_output(
             entity_name,
             columns,
+            fixed_scales,
             rows,
             row_count,
             next_cursor,
@@ -342,6 +344,7 @@ fn decimal_digits_with_scale(digits: &str, current_scale: u32, target_scale: u32
 fn sql_grouped_rows_output(
     entity_name: String,
     columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
     rows: Vec<GroupedRow>,
     row_count: u32,
     next_cursor: Option<String>,
@@ -352,7 +355,14 @@ fn sql_grouped_rows_output(
             row.group_key()
                 .iter()
                 .chain(row.aggregate_values().iter())
-                .map(render_value_text)
+                .enumerate()
+                .map(|(index, value)| {
+                    render_projection_value_text(
+                        columns.get(index),
+                        fixed_scales.get(index).copied().flatten(),
+                        value,
+                    )
+                })
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -1160,10 +1170,49 @@ mod tests {
     }
 
     #[test]
+    fn sql_query_result_from_statement_preserves_fixed_scale_for_grouped_round_rows() {
+        let result = sql_query_result_from_statement(
+            SqlStatementResult::Grouped {
+                columns: vec!["age".to_string(), "ROUND(AVG(age), 4)".to_string()],
+                fixed_scales: vec![None, Some(4)],
+                rows: vec![
+                    GroupedRow::new(
+                        vec![Value::Uint(12)],
+                        vec![Value::Decimal(Decimal::from_i128(12).expect("12 decimal"))],
+                    ),
+                    GroupedRow::new(
+                        vec![Value::Uint(14)],
+                        vec![Value::Decimal(Decimal::new(142000, 4))],
+                    ),
+                ],
+                row_count: 2,
+                next_cursor: None,
+            },
+            "User".to_string(),
+        );
+
+        assert_eq!(
+            result,
+            SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+                entity: "User".to_string(),
+                columns: vec!["age".to_string(), "ROUND(AVG(age), 4)".to_string()],
+                rows: vec![
+                    vec!["12".to_string(), "12.0000".to_string()],
+                    vec!["14".to_string(), "14.2000".to_string()],
+                ],
+                row_count: 2,
+                next_cursor: None,
+            }),
+            "public grouped SQL packaging must preserve fixed ROUND projection scale for grouped rows",
+        );
+    }
+
+    #[test]
     fn sql_query_result_from_statement_preserves_grouped_rows_and_cursor() {
         let result = sql_query_result_from_statement(
             SqlStatementResult::Grouped {
                 columns: vec!["age".to_string(), "count(*)".to_string()],
+                fixed_scales: vec![None, None],
                 rows: vec![
                     GroupedRow::new(vec![Value::Uint(24)], vec![Value::Uint(1)]),
                     GroupedRow::new(vec![Value::Uint(31)], vec![Value::Uint(2)]),

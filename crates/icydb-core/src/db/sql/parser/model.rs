@@ -127,28 +127,34 @@ pub(crate) struct SqlRoundProjectionCall {
 }
 
 ///
-/// SqlHavingSymbol
+/// SqlHavingValueExpr
 ///
-/// One grouped HAVING symbol reference (`group_field` or aggregate terminal).
+/// Bounded grouped HAVING value expression admitted on either side of one
+/// grouped HAVING compare clause.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlHavingSymbol {
+pub(crate) enum SqlHavingValueExpr {
     Field(String),
     Aggregate(SqlAggregateCall),
+    Literal(Value),
+    Arithmetic(SqlArithmeticProjectionCall),
+    Round(SqlRoundProjectionCall),
 }
 
 ///
 /// SqlHavingClause
 ///
 /// One reduced grouped HAVING compare clause.
+/// `0.86` keeps boolean composition at `AND` while widening compare inputs to
+/// bounded post-aggregate value expressions.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlHavingClause {
-    pub(crate) symbol: SqlHavingSymbol,
+    pub(crate) left: SqlHavingValueExpr,
     pub(crate) op: CompareOp,
-    pub(crate) value: Value,
+    pub(crate) right: SqlHavingValueExpr,
 }
 
 ///

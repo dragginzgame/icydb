@@ -8,7 +8,7 @@ use crate::{
         predicate::CompareOp,
         sql::parser::{
             Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlHavingClause,
-            SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm, SqlProjectionOperand,
+            SqlHavingValueExpr, SqlOrderDirection, SqlOrderTerm, SqlProjectionOperand,
             SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
         },
         sql_shared::{Keyword, SqlParseError},
@@ -142,38 +142,79 @@ impl Parser {
     }
 
     fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {
-        let symbol = self.parse_having_symbol()?;
+        let left = self.parse_having_value_expr()?;
 
         if self.eat_keyword(Keyword::Is) {
             let is_not = self.eat_keyword(Keyword::Not);
             self.expect_keyword(Keyword::Null)?;
 
             return Ok(SqlHavingClause {
-                symbol,
+                left,
                 op: if is_not { CompareOp::Ne } else { CompareOp::Eq },
-                value: Value::Null,
+                right: SqlHavingValueExpr::Literal(Value::Null),
             });
         }
 
         let op = self.parse_compare_operator()?;
-        let value = self.parse_literal()?;
+        let right = self.parse_having_value_expr()?;
 
-        Ok(SqlHavingClause { symbol, op, value })
+        Ok(SqlHavingClause { left, op, right })
     }
 
-    fn parse_having_symbol(&mut self) -> Result<SqlHavingSymbol, SqlParseError> {
-        if let Some(kind) = self.parse_aggregate_kind() {
-            return Ok(SqlHavingSymbol::Aggregate(self.parse_aggregate_call(kind)?));
+    fn parse_having_value_expr(&mut self) -> Result<SqlHavingValueExpr, SqlParseError> {
+        if !matches!(
+            self.peek_kind(),
+            Some(crate::db::sql_shared::TokenKind::Identifier(_))
+        ) && self.parse_aggregate_kind().is_none()
+        {
+            return self.parse_literal().map(SqlHavingValueExpr::Literal);
         }
 
-        let field = self.expect_identifier()?;
-        if self.peek_lparen() {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate forms",
+        let left = if let Some(kind) = self.parse_aggregate_kind() {
+            SqlProjectionOperand::Aggregate(self.parse_aggregate_call(kind)?)
+        } else {
+            let field = self.expect_identifier()?;
+            if self.peek_lparen() {
+                if field.eq_ignore_ascii_case("ROUND") {
+                    return Ok(SqlHavingValueExpr::Round(
+                        self.parse_round_projection_call()?,
+                    ));
+                }
+
+                return Err(SqlParseError::unsupported_feature(
+                    "SQL function namespace beyond supported aggregate, ROUND, or grouped HAVING forms",
+                ));
+            }
+
+            SqlProjectionOperand::Field(field)
+        };
+
+        if self.eat_plus() {
+            return Ok(SqlHavingValueExpr::Arithmetic(
+                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Add)?,
+            ));
+        }
+        if self.eat_minus() {
+            return Ok(SqlHavingValueExpr::Arithmetic(
+                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Sub)?,
+            ));
+        }
+        if self.eat_star() {
+            return Ok(SqlHavingValueExpr::Arithmetic(
+                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Mul)?,
+            ));
+        }
+        if self.eat_slash() {
+            return Ok(SqlHavingValueExpr::Arithmetic(
+                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Div)?,
             ));
         }
 
-        Ok(SqlHavingSymbol::Field(field))
+        Ok(match left {
+            SqlProjectionOperand::Field(field) => SqlHavingValueExpr::Field(field),
+            SqlProjectionOperand::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(aggregate),
+            SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
+        })
     }
 }
 

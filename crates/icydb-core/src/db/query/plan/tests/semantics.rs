@@ -709,6 +709,7 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
         false,
         None,
         None,
+        None,
     );
     let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
     let logical_plan = build_logical_plan(model, logical_query);

@@ -127,6 +127,7 @@ fn assert_grouped_statement_payload_case(
         rows,
         row_count,
         next_cursor,
+        ..
     } = payload
     else {
         panic!("{context} should return grouped payload");
@@ -1366,6 +1367,7 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
             rows,
             row_count,
             next_cursor,
+            ..
         } = payload
         else {
             panic!("{context} should return grouped payload");
@@ -1569,6 +1571,69 @@ fn grouped_select_allows_post_aggregate_projection_expressions() {
 }
 
 #[test]
+fn grouped_statement_sql_preserves_fixed_scale_for_post_aggregate_round_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 12), ("bravo", 12), ("charlie", 14)]);
+
+    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, ROUND(AVG(age), 4) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped ROUND projection statement SQL should execute");
+
+    let SqlStatementResult::Grouped {
+        columns,
+        fixed_scales,
+        rows,
+        row_count,
+        next_cursor,
+    } = payload
+    else {
+        panic!("grouped ROUND projection statement SQL should return grouped payload");
+    };
+
+    assert_eq!(
+        columns,
+        vec!["age".to_string(), "ROUND(AVG(age), 4)".to_string()],
+        "grouped ROUND projection should preserve grouped projection labels",
+    );
+    assert_eq!(
+        fixed_scales,
+        vec![None, Some(4)],
+        "grouped ROUND projection should carry fixed display scale into grouped SQL packaging",
+    );
+    assert_eq!(
+        row_count, 2,
+        "grouped ROUND projection should preserve grouped row count"
+    );
+    assert!(
+        next_cursor.is_none(),
+        "grouped ROUND projection should fully materialize"
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                vec![Value::Uint(12)],
+                vec![Value::Decimal(crate::types::Decimal::new(120000, 4))],
+            ),
+            (
+                vec![Value::Uint(14)],
+                vec![Value::Decimal(crate::types::Decimal::new(140000, 4))],
+            ),
+        ],
+        "grouped ROUND projection should preserve rounded decimal payload values",
+    );
+}
+
+#[test]
 fn grouped_select_reuses_repeated_aggregate_leaf_outputs() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1603,6 +1668,34 @@ fn grouped_select_reuses_repeated_aggregate_leaf_outputs() {
             ),
         ],
         "grouped repeated aggregate leaf projection expressions should reuse one grouped aggregate output slot",
+    );
+}
+
+#[test]
+fn grouped_select_allows_post_aggregate_having_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING ROUND(AVG(age), 2) >= 10 AND COUNT(*) + 1 > 1 \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped post-aggregate HAVING expressions should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Uint(10), vec![Value::Uint(2)]),
+            (Value::Uint(20), vec![Value::Uint(1)]),
+        ],
+        "grouped post-aggregate HAVING expressions should filter on finalized grouped outputs",
     );
 }
 

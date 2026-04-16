@@ -141,6 +141,50 @@ impl GroupedAggregateGroupEntry {
 }
 
 ///
+/// GroupedBundleIngestPolicy
+///
+/// GroupedBundleIngestPolicy freezes the route-derived grouped-key ingest
+/// policy for the generic grouped reducer path.
+/// It keeps grouped field ownership and borrowed-probe eligibility together so
+/// the stream loop can hand rows straight to the bundle without re-deriving
+/// borrowed hash setup at each callsite.
+///
+
+pub(super) struct GroupedBundleIngestPolicy<'a> {
+    group_fields: &'a [FieldSlot],
+    borrowed_group_probe_supported: bool,
+}
+
+impl<'a> GroupedBundleIngestPolicy<'a> {
+    /// Build one generic grouped ingest policy from route-owned group fields.
+    #[must_use]
+    pub(super) fn new(group_fields: &'a [FieldSlot], borrowed_group_probe_supported: bool) -> Self {
+        Self {
+            group_fields,
+            borrowed_group_probe_supported,
+        }
+    }
+
+    // Return the planner-frozen grouped fields for this generic ingest path.
+    const fn group_fields(&self) -> &'a [FieldSlot] {
+        self.group_fields
+    }
+
+    // Resolve the borrowed grouped hash when this grouped route can stay on
+    // the allocation-free existing-group probe path.
+    fn borrowed_group_hash(&self, row_view: &RowView) -> Result<Option<StableHash>, GroupError> {
+        if !self.borrowed_group_probe_supported {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            super::stable_hash_group_values_from_row_view(row_view, self.group_fields)
+                .map_err(GroupError::from)?,
+        ))
+    }
+}
+
+///
 /// GroupedFinalizeGroup
 ///
 /// GroupedFinalizeGroup carries one canonical group key plus its per-group
@@ -246,15 +290,14 @@ impl GroupedAggregateBundle {
         Ok(true)
     }
 
-    // Search one borrowed stable-hash bucket for an existing canonical group
-    // entry without first materializing a fresh owned key for this row.
-    fn find_matching_borrowed_group_index(
+    // Search one stable-hash bucket for a canonical grouped entry using one
+    // caller-supplied borrowed grouped-key equality contract.
+    fn find_matching_group_in_bucket(
         &self,
-        borrowed_group_hash: StableHash,
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
+        bucket: Option<&Vec<usize>>,
+        mut matches_group: impl FnMut(&GroupKey) -> Result<bool, GroupError>,
     ) -> Result<Option<usize>, GroupError> {
-        let Some(bucket) = self.bucket_index.get(&borrowed_group_hash) else {
+        let Some(bucket) = bucket else {
             return Ok(None);
         };
 
@@ -268,12 +311,29 @@ impl GroupedAggregateBundle {
                     ),
                 )));
             };
-            if Self::group_key_matches_row_view(&group_entry.group_key, row_view, group_fields)? {
+            if matches_group(&group_entry.group_key)? {
                 return Ok(Some(*group_index));
             }
         }
 
         Ok(None)
+    }
+
+    // Search one borrowed stable-hash bucket for an existing canonical group
+    // entry without first materializing a fresh owned key for this row.
+    fn find_matching_borrowed_group_index(
+        &self,
+        borrowed_group_hash: StableHash,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+    ) -> Result<Option<usize>, GroupError> {
+        self.find_matching_group_in_bucket(
+            self.bucket_index.get(&borrowed_group_hash),
+            |group_key| {
+                Self::group_key_matches_row_view(group_key, row_view, group_fields)
+                    .map_err(GroupError::from)
+            },
+        )
     }
 
     // Materialize one owned canonical group key only when the borrowed lookup
@@ -325,6 +385,46 @@ impl GroupedAggregateBundle {
         Ok(new_index)
     }
 
+    // Resolve one grouped bundle row to an existing or newly inserted group
+    // index under the shared borrowed-probe and owned-key fallback contract.
+    fn resolve_group_index_with_policy(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        row_view: &RowView,
+        ingest_policy: &GroupedBundleIngestPolicy<'_>,
+        owned_group_key: &mut Option<GroupKey>,
+    ) -> Result<usize, GroupError> {
+        let borrowed_group_hash = ingest_policy.borrowed_group_hash(row_view)?;
+
+        if let Some(borrowed_group_hash) = borrowed_group_hash {
+            if let Some(group_index) = self.find_matching_borrowed_group_index(
+                borrowed_group_hash,
+                row_view,
+                ingest_policy.group_fields(),
+            )? {
+                return Ok(group_index);
+            }
+
+            let group_key = Self::materialize_owned_group_key(
+                row_view,
+                ingest_policy.group_fields(),
+                owned_group_key,
+            )?
+            .clone();
+
+            return self.insert_new_group(group_key, execution_context);
+        }
+
+        let group_key = Self::materialize_owned_group_key(
+            row_view,
+            ingest_policy.group_fields(),
+            owned_group_key,
+        )?
+        .clone();
+
+        self.insert_new_group(group_key, execution_context)
+    }
+
     // Apply one grouped input row to the resolved per-group aggregate states.
     fn apply_row_to_group(
         group_state: &mut GroupedAggregateGroupState,
@@ -355,35 +455,23 @@ impl GroupedAggregateBundle {
     }
 
     /// Ingest one grouped row into the shared grouped bundle.
-    pub(super) fn ingest_row(
+    pub(super) fn ingest_row_with_policy(
         &mut self,
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
         row_view: &RowView,
-        group_fields: &[FieldSlot],
-        borrowed_group_hash: Option<StableHash>,
-        owned_group_key: &mut Option<GroupKey>,
+        ingest_policy: &GroupedBundleIngestPolicy<'_>,
     ) -> Result<(), GroupError> {
+        let mut owned_group_key = None;
+
         // Phase 1: resolve the group through borrowed row-slot hashing when
         // possible so existing-group hits stay allocation-free.
-        let group_index = if let Some(borrowed_group_hash) = borrowed_group_hash {
-            if let Some(group_index) = self.find_matching_borrowed_group_index(
-                borrowed_group_hash,
-                row_view,
-                group_fields,
-            )? {
-                group_index
-            } else {
-                let group_key =
-                    Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?
-                        .clone();
-                self.insert_new_group(group_key, execution_context)?
-            }
-        } else {
-            let group_key =
-                Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
-            self.insert_new_group(group_key, execution_context)?
-        };
+        let group_index = self.resolve_group_index_with_policy(
+            execution_context,
+            row_view,
+            ingest_policy,
+            &mut owned_group_key,
+        )?;
 
         let group_state = self
             .groups
@@ -405,13 +493,14 @@ impl GroupedAggregateBundle {
     }
 
     /// Return the grouped bundle as unsorted pre-finalize group entries.
-    pub(super) fn into_groups(self) -> impl Iterator<Item = GroupedFinalizeGroup> {
+    pub(super) fn into_groups(self) -> Vec<GroupedFinalizeGroup> {
         self.groups
             .into_iter()
             .map(|group_entry| GroupedFinalizeGroup {
                 group_key: group_entry.group_key,
                 aggregate_states: group_entry.group_state.aggregate_states,
             })
+            .collect()
     }
 
     /// Return the grouped bundle as canonical-order groups whose aggregate
@@ -419,7 +508,7 @@ impl GroupedAggregateBundle {
     #[must_use]
     pub(super) fn into_sorted_groups(self) -> Vec<GroupedFinalizeGroup> {
         let expected_group_count = self.groups.len();
-        let mut out = self.into_groups().collect::<Vec<_>>();
+        let mut out = self.into_groups();
 
         // Phase 2: preserve deterministic canonical grouped-key order across
         // grouped-bundle insertion order.

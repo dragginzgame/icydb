@@ -63,6 +63,7 @@ impl SqlProjectionPayload {
 /// boundary so grouped row packaging stays out of executor routing code.
 pub(in crate::db::session::sql) fn grouped_sql_statement_result(
     columns: Vec<String>,
+    fixed_scales: Vec<Option<u32>>,
     rows: Vec<GroupedRow>,
     next_cursor: Option<String>,
 ) -> SqlStatementResult {
@@ -70,6 +71,7 @@ pub(in crate::db::session::sql) fn grouped_sql_statement_result(
 
     SqlStatementResult::Grouped {
         columns,
+        fixed_scales,
         rows,
         row_count,
         next_cursor,

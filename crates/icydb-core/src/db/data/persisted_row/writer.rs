@@ -179,7 +179,6 @@ impl SlotWriter for CompleteSerializedPatchWriter {
 ///
 /// PatchWriterSlot
 ///
-/// PatchWriterSlot
 ///
 /// PatchWriterSlot tracks whether one dense slot-image writer has emitted a
 /// payload or failed to visit the slot at all.
