@@ -16,10 +16,6 @@ use std::cell::RefCell;
 
 #[cfg(any(test, feature = "diagnostics"))]
 #[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
-#[expect(
-    clippy::struct_field_names,
-    reason = "lane metrics keep the path family explicit for audit and test assertions"
-)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScalarMaterializationLaneMetrics {
     pub direct_data_row_path_hits: u64,
