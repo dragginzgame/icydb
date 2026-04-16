@@ -158,7 +158,10 @@ pub(super) struct GroupedBundleIngestPolicy<'a> {
 impl<'a> GroupedBundleIngestPolicy<'a> {
     /// Build one generic grouped ingest policy from route-owned group fields.
     #[must_use]
-    pub(super) fn new(group_fields: &'a [FieldSlot], borrowed_group_probe_supported: bool) -> Self {
+    pub(super) const fn new(
+        group_fields: &'a [FieldSlot],
+        borrowed_group_probe_supported: bool,
+    ) -> Self {
         Self {
             group_fields,
             borrowed_group_probe_supported,

@@ -83,6 +83,9 @@ impl<K> GroupedIntent<K> {
 /// Owned scalar/grouped shape for load-mode query intent.
 ///
 
+// Query intent keeps scalar and grouped state inline so mode transitions can move the
+// full owned shape without introducing extra heap indirection across the intent builder.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 enum QueryShape<K> {
     Scalar(ScalarIntent<K>),
@@ -158,6 +161,9 @@ impl<K> DeleteIntentState<K> {
 /// Encodes mode-specific state as typed variants.
 ///
 
+// Query intent keeps load/delete state inline because mode switches reuse the full owned
+// state and the builder is not a hot path where boxing would pay for the extra indirection.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) enum QueryIntent<K> {
     Load(LoadIntentState<K>),

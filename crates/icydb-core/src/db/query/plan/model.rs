@@ -571,6 +571,9 @@ pub(crate) enum GroupHavingValueExpr {
 /// tree over finalized grouped outputs without changing grouping mechanics.
 ///
 
+// Grouped HAVING keeps compare nodes inline so the runtime evaluator can recurse over one
+// owned tree shape without adding another layer of pointer chasing to every compare node.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum GroupHavingExpr {
     Compare {
@@ -661,6 +664,9 @@ pub(crate) struct GroupPlan {
 /// Scalar and grouped semantics are distinct variants by construction.
 ///
 
+// Logical plans keep scalar and grouped shapes inline because planner/executor handoff
+// passes these variants by ownership and boxing would widen that boundary for little benefit.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum LogicalPlan {
     Scalar(ScalarPlan),

@@ -101,7 +101,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         let mut grouped_aggregates = projection_aggregates.clone();
         extend_grouped_having_aggregate_calls(&mut grouped_aggregates, having.as_slice());
         let projection_selection = lower_grouped_projection_selection(
-            projection.clone(),
+            projection,
             projection_aliases.as_slice(),
             group_by.as_slice(),
             projection_aggregates.len() == grouped_aggregates.len(),

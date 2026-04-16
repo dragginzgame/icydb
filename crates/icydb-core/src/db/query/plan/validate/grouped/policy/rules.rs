@@ -99,7 +99,7 @@ pub(super) fn first_grouped_having_expr_policy_violation(
                 let current = *next_index;
                 *next_index = next_index.saturating_add(1);
                 (!grouped_having_compare_op_supported(*op)).then(|| {
-                    GroupPlanError::having_unsupported_compare_op(current, format!("{:?}", op))
+                    GroupPlanError::having_unsupported_compare_op(current, format!("{op:?}"))
                 })
             }
             GroupHavingExpr::And(children) => {

@@ -272,6 +272,9 @@ fn finalize_bounded_grouped_page_rows(
 
 // Apply grouped filtering, offset, and limit over the common grouped shape
 // when no bounded grouped page window is active.
+// This helper keeps the full grouped page-finalize contract explicit instead of
+// hiding route-owned inputs behind a temporary parameter struct.
+#[expect(clippy::too_many_arguments)]
 fn finalize_unbounded_grouped_page_rows(
     direction: Direction,
     grouped_having: Option<&GroupHavingSpec>,
