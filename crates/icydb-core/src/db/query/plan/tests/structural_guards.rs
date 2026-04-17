@@ -349,3 +349,50 @@ fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
         "grouped projection should remain planner-owned and include grouped key + aggregate outputs",
     );
 }
+
+#[test]
+fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let compile_source =
+        fs::read_to_string(crate_root.join("src/db/sql/lowering/predicate/compile.rs"))
+            .expect("sql predicate compile source should be readable");
+    let compile_runtime_source = strip_cfg_test_items(compile_source.as_str());
+
+    for forbidden in [
+        "normalize::",
+        "lower_sql_expr(",
+        "SqlExpr",
+        "SqlLoweringError",
+        "normalize_where_bool_expr(",
+        "validate_where_bool_expr(",
+    ] {
+        assert!(
+            !compile_runtime_source.contains(forbidden),
+            "WHERE predicate compiler must not depend on semantic normalization or SQL-lowering helpers ({forbidden})",
+        );
+    }
+
+    assert!(
+        compile_runtime_source.contains("debug_assert!(compile_ready_where_bool_expr(expr));"),
+        "WHERE predicate compiler should assert normalized-expression invariants at the compile boundary",
+    );
+
+    let orchestrator_source =
+        fs::read_to_string(crate_root.join("src/db/sql/lowering/predicate/mod.rs"))
+            .expect("sql predicate lowering module source should be readable");
+    let orchestrator_runtime_source = strip_cfg_test_items(orchestrator_source.as_str());
+
+    assert!(
+        orchestrator_runtime_source.contains("validate::validate_where_bool_expr(&expr)?;"),
+        "WHERE predicate orchestration should validate before normalization",
+    );
+    assert!(
+        orchestrator_runtime_source.contains("normalize::normalize_where_bool_expr(expr)"),
+        "WHERE predicate orchestration should normalize before compilation",
+    );
+    assert!(
+        orchestrator_runtime_source
+            .contains("compile::compile_where_bool_expr_to_predicate(&expr)"),
+        "WHERE predicate orchestration should compile only normalized boolean expressions",
+    );
+}
