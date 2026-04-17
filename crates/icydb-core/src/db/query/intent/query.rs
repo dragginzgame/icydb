@@ -625,7 +625,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.inner.plan.projection_spec(self.inner.model)
+        self.inner.plan.projection_spec(E::MODEL)
     }
 
     /// Convert one structural compiled query into one prepared executor plan.
