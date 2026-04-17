@@ -8,14 +8,14 @@ use crate::{
         executor::projection::eval::{
             ProjectionEvalError, operators::binary::invalid_binary_operands,
         },
-        predicate::{CoercionId, CoercionSpec, compare_eq},
+        predicate::{CoercionId, CoercionSpec, compare_eq, compare_order},
         query::plan::expr::BinaryOp,
     },
     value::Value,
 };
+use std::cmp::Ordering;
 
-#[cfg(test)]
-pub(super) fn eval_equality_binary_expr(
+pub(super) fn eval_compare_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
@@ -27,19 +27,46 @@ pub(super) fn eval_equality_binary_expr(
     } else {
         CoercionSpec::new(CoercionId::Strict)
     };
-    let are_equal = if let Some(are_equal) = compare_eq(left, right, &coercion) {
-        are_equal
-    } else if !numeric_widen_enabled {
-        // Preserve projection behavior for non-numeric cross-variant comparisons.
-        left == right
-    } else {
+    let value = match op {
+        BinaryOp::Eq => {
+            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+                are_equal
+            } else if !numeric_widen_enabled {
+                // Preserve projection behavior for non-numeric cross-variant comparisons.
+                left == right
+            } else {
+                return Err(invalid_binary_operands(op, left, right));
+            }
+        }
+        BinaryOp::Ne => {
+            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+                !are_equal
+            } else if !numeric_widen_enabled {
+                left != right
+            } else {
+                return Err(invalid_binary_operands(op, left, right));
+            }
+        }
+        BinaryOp::Lt => eval_order_comparison(op, left, right, &coercion, Ordering::is_lt)?,
+        BinaryOp::Lte => eval_order_comparison(op, left, right, &coercion, Ordering::is_le)?,
+        BinaryOp::Gt => eval_order_comparison(op, left, right, &coercion, Ordering::is_gt)?,
+        BinaryOp::Gte => eval_order_comparison(op, left, right, &coercion, Ordering::is_ge)?,
+        _ => unreachable!("comparison evaluator called with non-comparison operator"),
+    };
+
+    Ok(Value::Bool(value))
+}
+
+fn eval_order_comparison(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+    predicate: impl FnOnce(Ordering) -> bool,
+) -> Result<bool, ProjectionEvalError> {
+    let Some(ordering) = compare_order(left, right, coercion) else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
-    debug_assert!(
-        matches!(op, BinaryOp::Eq),
-        "equality evaluator called with non-equality operator",
-    );
-
-    Ok(Value::Bool(are_equal))
+    Ok(predicate(ordering))
 }

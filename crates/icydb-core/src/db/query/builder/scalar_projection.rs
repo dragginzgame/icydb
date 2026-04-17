@@ -55,6 +55,10 @@ fn render_scalar_projection_expr_sql_label_with_parent(
 
             format!("{}({rendered_args})", function.sql_label())
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => render_case_projection_expr_sql_label(when_then_arms, else_expr.as_ref()),
         Expr::Binary { op, left, right } => {
             let left = render_scalar_projection_expr_sql_label_with_parent(
                 left.as_ref(),
@@ -97,9 +101,41 @@ fn render_scalar_projection_expr_sql_label_with_parent(
             parent_op,
             is_right_child,
         ),
-        #[cfg(test)]
-        Expr::Unary { .. } => "expr".to_string(),
+        Expr::Unary { op, expr } => {
+            let rendered =
+                render_scalar_projection_expr_sql_label_with_parent(expr.as_ref(), None, false);
+            match op {
+                crate::db::query::plan::expr::UnaryOp::Not => format!("NOT {rendered}"),
+            }
+        }
     }
+}
+
+fn render_case_projection_expr_sql_label(
+    when_then_arms: &[crate::db::query::plan::expr::CaseWhenArm],
+    else_expr: &Expr,
+) -> String {
+    let mut rendered = String::from("CASE");
+
+    for arm in when_then_arms {
+        rendered.push_str(" WHEN ");
+        rendered.push_str(
+            render_scalar_projection_expr_sql_label_with_parent(arm.condition(), None, false)
+                .as_str(),
+        );
+        rendered.push_str(" THEN ");
+        rendered.push_str(
+            render_scalar_projection_expr_sql_label_with_parent(arm.result(), None, false).as_str(),
+        );
+    }
+
+    rendered.push_str(" ELSE ");
+    rendered.push_str(
+        render_scalar_projection_expr_sql_label_with_parent(else_expr, None, false).as_str(),
+    );
+    rendered.push_str(" END");
+
+    rendered
 }
 
 const fn binary_expr_requires_parentheses(
@@ -118,26 +154,35 @@ const fn binary_expr_requires_parentheses(
 
 const fn binary_op_precedence(op: crate::db::query::plan::expr::BinaryOp) -> u8 {
     match op {
+        crate::db::query::plan::expr::BinaryOp::Or => 0,
+        crate::db::query::plan::expr::BinaryOp::And => 1,
+        crate::db::query::plan::expr::BinaryOp::Eq
+        | crate::db::query::plan::expr::BinaryOp::Ne
+        | crate::db::query::plan::expr::BinaryOp::Lt
+        | crate::db::query::plan::expr::BinaryOp::Lte
+        | crate::db::query::plan::expr::BinaryOp::Gt
+        | crate::db::query::plan::expr::BinaryOp::Gte => 2,
         crate::db::query::plan::expr::BinaryOp::Add
-        | crate::db::query::plan::expr::BinaryOp::Sub => 1,
+        | crate::db::query::plan::expr::BinaryOp::Sub => 3,
         crate::db::query::plan::expr::BinaryOp::Mul
-        | crate::db::query::plan::expr::BinaryOp::Div => 2,
-        #[cfg(test)]
-        crate::db::query::plan::expr::BinaryOp::And
-        | crate::db::query::plan::expr::BinaryOp::Eq => 0,
+        | crate::db::query::plan::expr::BinaryOp::Div => 4,
     }
 }
 
 const fn binary_op_sql_label(op: crate::db::query::plan::expr::BinaryOp) -> &'static str {
     match op {
+        crate::db::query::plan::expr::BinaryOp::Or => "OR",
+        crate::db::query::plan::expr::BinaryOp::And => "AND",
+        crate::db::query::plan::expr::BinaryOp::Eq => "=",
+        crate::db::query::plan::expr::BinaryOp::Ne => "!=",
+        crate::db::query::plan::expr::BinaryOp::Lt => "<",
+        crate::db::query::plan::expr::BinaryOp::Lte => "<=",
+        crate::db::query::plan::expr::BinaryOp::Gt => ">",
+        crate::db::query::plan::expr::BinaryOp::Gte => ">=",
         crate::db::query::plan::expr::BinaryOp::Add => "+",
         crate::db::query::plan::expr::BinaryOp::Sub => "-",
         crate::db::query::plan::expr::BinaryOp::Mul => "*",
         crate::db::query::plan::expr::BinaryOp::Div => "/",
-        #[cfg(test)]
-        crate::db::query::plan::expr::BinaryOp::And => "AND",
-        #[cfg(test)]
-        crate::db::query::plan::expr::BinaryOp::Eq => "=",
     }
 }
 

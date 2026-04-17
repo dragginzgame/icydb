@@ -87,7 +87,10 @@ impl From<String> for Alias {
 /// Canonical unary expression operator taxonomy.
 ///
 
-#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "0.91 CASE foundation promotes unary conditions before SQL lowering constructs them"
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UnaryOp {
     Not,
@@ -99,16 +102,24 @@ pub(crate) enum UnaryOp {
 /// Canonical binary expression operator taxonomy.
 ///
 
+#[allow(
+    dead_code,
+    reason = "0.91 CASE foundation widens the production scalar condition spine before SQL lowering constructs every operator"
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
     Add,
     Sub,
     Mul,
     Div,
-    #[cfg(test)]
-    And,
-    #[cfg(test)]
-    Eq,
 }
 
 ///
@@ -159,6 +170,41 @@ impl Function {
             Self::Substring => "SUBSTRING",
             Self::Round => "ROUND",
         }
+    }
+}
+
+///
+/// CaseWhenArm
+///
+/// Planner-owned searched-CASE branch pairing one boolean condition with the
+/// scalar result expression selected when that condition evaluates true.
+/// CASE normalization keeps the missing-ELSE rule outside this type by always
+/// pairing searched arms with an explicit planner-owned fallback expression.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CaseWhenArm {
+    condition: Expr,
+    result: Expr,
+}
+
+impl CaseWhenArm {
+    /// Build one planner-owned searched-CASE arm.
+    #[must_use]
+    pub(crate) const fn new(condition: Expr, result: Expr) -> Self {
+        Self { condition, result }
+    }
+
+    /// Borrow the boolean branch condition.
+    #[must_use]
+    pub(crate) const fn condition(&self) -> &Expr {
+        &self.condition
+    }
+
+    /// Borrow the scalar branch result expression.
+    #[must_use]
+    pub(crate) const fn result(&self) -> &Expr {
+        &self.result
     }
 }
 
@@ -255,14 +301,30 @@ where
                     .map(|arg| rewrite_expr(arg, rewrite))
                     .collect::<Option<Vec<_>>>()?,
             }),
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => Some(Expr::Case {
+                when_then_arms: when_then_arms
+                    .iter()
+                    .map(|arm| {
+                        Some(CaseWhenArm::new(
+                            rewrite_expr(arm.condition(), rewrite)?,
+                            rewrite_expr(arm.result(), rewrite)?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+                else_expr: Box::new(rewrite_expr(else_expr.as_ref(), rewrite)?),
+            }),
             Expr::Binary { op, left, right } => Some(Expr::Binary {
                 op: *op,
                 left: Box::new(rewrite_expr(left.as_ref(), rewrite)?),
                 right: Box::new(rewrite_expr(right.as_ref(), rewrite)?),
             }),
             Expr::Aggregate(_) => None,
+            Expr::Unary { .. } => None,
             #[cfg(test)]
-            Expr::Alias { .. } | Expr::Unary { .. } => None,
+            Expr::Alias { .. } => None,
         }
     }
 
@@ -423,9 +485,10 @@ fn render_supported_order_expr_with_parent(
         },
         Expr::Field(field) => Some(field.as_str().to_string()),
         Expr::Literal(value) => render_supported_order_literal(value),
-        Expr::Binary { .. } | Expr::Aggregate(_) => None,
+        Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Case { .. } => None,
+        Expr::Unary { .. } => None,
         #[cfg(test)]
-        Expr::Alias { .. } | Expr::Unary { .. } => None,
+        Expr::Alias { .. } => None,
     }
 }
 
@@ -439,23 +502,33 @@ const fn binary_expr_requires_parentheses(op: BinaryOp, parent_op: Option<Binary
 
 const fn binary_op_precedence(op: BinaryOp) -> u8 {
     match op {
-        BinaryOp::Add | BinaryOp::Sub => 1,
-        BinaryOp::Mul | BinaryOp::Div => 2,
-        #[cfg(test)]
-        BinaryOp::And | BinaryOp::Eq => 0,
+        BinaryOp::Or => 0,
+        BinaryOp::And => 1,
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => 2,
+        BinaryOp::Add | BinaryOp::Sub => 3,
+        BinaryOp::Mul | BinaryOp::Div => 4,
     }
 }
 
 const fn binary_op_sql_label(op: BinaryOp) -> &'static str {
     match op {
+        BinaryOp::Or => "OR",
+        BinaryOp::And => "AND",
+        BinaryOp::Eq => "=",
+        BinaryOp::Ne => "!=",
+        BinaryOp::Lt => "<",
+        BinaryOp::Lte => "<=",
+        BinaryOp::Gt => ">",
+        BinaryOp::Gte => ">=",
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
         BinaryOp::Mul => "*",
         BinaryOp::Div => "/",
-        #[cfg(test)]
-        BinaryOp::And => "AND",
-        #[cfg(test)]
-        BinaryOp::Eq => "=",
     }
 }
 
@@ -881,7 +954,10 @@ pub(crate) enum Expr {
         function: Function,
         args: Vec<Self>,
     },
-    #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "0.91 CASE foundation adds a production unary expression node before parser/lowering admission lands"
+    )]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
@@ -890,6 +966,14 @@ pub(crate) enum Expr {
         op: BinaryOp,
         left: Box<Self>,
         right: Box<Self>,
+    },
+    #[allow(
+        dead_code,
+        reason = "0.91 searched CASE planner node lands before SQL parser/lowering constructs it"
+    )]
+    Case {
+        when_then_arms: Vec<CaseWhenArm>,
+        else_expr: Box<Self>,
     },
     Aggregate(AggregateExpr),
     #[cfg(test)]

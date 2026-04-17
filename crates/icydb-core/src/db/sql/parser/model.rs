@@ -4,7 +4,7 @@
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
 use crate::{
-    db::predicate::{CompareOp, Predicate},
+    db::predicate::{CoercionId, CompareOp, Predicate},
     value::Value,
 };
 
@@ -52,6 +52,306 @@ pub(crate) enum SqlSelectItem {
     TextFunction(SqlTextFunctionCall),
     Arithmetic(SqlArithmeticProjectionCall),
     Round(SqlRoundProjectionCall),
+    Expr(SqlExpr),
+}
+
+///
+/// SqlExprUnaryOp
+///
+/// Parser-owned unary SQL expression operator taxonomy.
+/// This keeps searched-CASE conditions and future scalar-expression widening
+/// on one frontend boundary before planner lowering maps onto `Expr`.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlExprUnaryOp {
+    Not,
+}
+
+///
+/// SqlExprBinaryOp
+///
+/// Parser-owned binary SQL expression operator taxonomy.
+/// This unifies arithmetic, comparison, and boolean operators on the SQL-side
+/// expression boundary instead of scattering clause-local operator enums.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlExprBinaryOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+///
+/// SqlCaseArm
+///
+/// Parser-owned searched-CASE branch pairing one boolean condition with the
+/// value expression selected when that condition evaluates true.
+/// Missing ELSE stays optional at this boundary so lowering can canonicalize
+/// it to one explicit planner-owned NULL fallback.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlCaseArm {
+    pub(crate) condition: SqlExpr,
+    pub(crate) result: SqlExpr,
+}
+
+///
+/// SqlExpr
+///
+/// Parser-owned SQL scalar expression tree shared across existing scalar
+/// positions before planner lowering maps onto canonical planner expressions.
+/// This keeps clause-specific parsing models from becoming the semantic owner
+/// for CASE or future scalar-expression widening.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlExpr {
+    Field(String),
+    Aggregate(SqlAggregateCall),
+    Literal(Value),
+    TextFunction(SqlTextFunctionCall),
+    Round(SqlRoundProjectionCall),
+    Unary {
+        op: SqlExprUnaryOp,
+        expr: Box<Self>,
+    },
+    Binary {
+        op: SqlExprBinaryOp,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
+    Case {
+        arms: Vec<SqlCaseArm>,
+        else_expr: Option<Box<Self>>,
+    },
+}
+
+///
+/// SqlComparePredicate
+///
+/// Parser-owned field-to-literal comparison leaf preserved on the SQL frontend
+/// seam until SQL lowering maps the reduced predicate family back onto the
+/// runtime predicate authority.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlComparePredicate {
+    pub(crate) field: String,
+    pub(crate) op: CompareOp,
+    pub(crate) value: Value,
+    pub(crate) coercion: CoercionId,
+}
+
+///
+/// SqlCompareFieldsPredicate
+///
+/// Parser-owned field-to-field comparison leaf preserved on the SQL frontend
+/// seam so single-entity SQL statements no longer carry runtime `Predicate`
+/// values before lowering.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlCompareFieldsPredicate {
+    pub(crate) left_field: String,
+    pub(crate) op: CompareOp,
+    pub(crate) right_field: String,
+    pub(crate) coercion: CoercionId,
+}
+
+///
+/// SqlPredicate
+///
+/// Parser-owned SQL predicate tree for `WHERE` clauses on statement shells.
+/// This keeps reduced SQL statement parsing on a frontend model owned by SQL
+/// parsing instead of constructing runtime `Predicate` values directly.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlPredicate {
+    True,
+    False,
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
+    Compare(SqlComparePredicate),
+    CompareFields(SqlCompareFieldsPredicate),
+    IsNull { field: String },
+    IsNotNull { field: String },
+    IsMissing { field: String },
+    IsEmpty { field: String },
+    IsNotEmpty { field: String },
+    TextContains { field: String, value: Value },
+    TextContainsCi { field: String, value: Value },
+}
+
+impl SqlPredicate {
+    /// Convert one runtime predicate tree into the SQL frontend predicate model.
+    #[must_use]
+    pub(crate) fn from_runtime_predicate(predicate: Predicate) -> Self {
+        match predicate {
+            Predicate::True => Self::True,
+            Predicate::False => Self::False,
+            Predicate::And(children) => Self::And(
+                children
+                    .into_iter()
+                    .map(Self::from_runtime_predicate)
+                    .collect(),
+            ),
+            Predicate::Or(children) => Self::Or(
+                children
+                    .into_iter()
+                    .map(Self::from_runtime_predicate)
+                    .collect(),
+            ),
+            Predicate::Not(inner) => Self::Not(Box::new(Self::from_runtime_predicate(*inner))),
+            Predicate::Compare(compare) => Self::Compare(SqlComparePredicate {
+                field: compare.field().to_string(),
+                op: compare.op(),
+                value: compare.value().clone(),
+                coercion: compare.coercion().id(),
+            }),
+            Predicate::CompareFields(compare) => Self::CompareFields(SqlCompareFieldsPredicate {
+                left_field: compare.left_field().to_string(),
+                op: compare.op(),
+                right_field: compare.right_field().to_string(),
+                coercion: compare.coercion().id(),
+            }),
+            Predicate::IsNull { field } => Self::IsNull { field },
+            Predicate::IsNotNull { field } => Self::IsNotNull { field },
+            Predicate::IsMissing { field } => Self::IsMissing { field },
+            Predicate::IsEmpty { field } => Self::IsEmpty { field },
+            Predicate::IsNotEmpty { field } => Self::IsNotEmpty { field },
+            Predicate::TextContains { field, value } => Self::TextContains { field, value },
+            Predicate::TextContainsCi { field, value } => Self::TextContainsCi { field, value },
+        }
+    }
+}
+
+impl From<Predicate> for SqlPredicate {
+    fn from(value: Predicate) -> Self {
+        Self::from_runtime_predicate(value)
+    }
+}
+
+impl SqlExpr {
+    /// Convert one parsed select item into the shared SQL expression tree.
+    #[must_use]
+    pub(crate) fn from_select_item(item: &SqlSelectItem) -> Self {
+        match item {
+            SqlSelectItem::Field(field) => Self::Field(field.clone()),
+            SqlSelectItem::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
+            SqlSelectItem::TextFunction(call) => Self::TextFunction(call.clone()),
+            SqlSelectItem::Arithmetic(call) => Self::from_arithmetic_call(call),
+            SqlSelectItem::Round(call) => Self::Round(call.clone()),
+            SqlSelectItem::Expr(expr) => expr.clone(),
+        }
+    }
+
+    /// Convert one projection operand into the shared SQL expression tree.
+    #[must_use]
+    pub(crate) fn from_projection_operand(operand: &SqlProjectionOperand) -> Self {
+        match operand {
+            SqlProjectionOperand::Field(field) => Self::Field(field.clone()),
+            SqlProjectionOperand::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
+            SqlProjectionOperand::Literal(literal) => Self::Literal(literal.clone()),
+            SqlProjectionOperand::Arithmetic(call) => Self::from_arithmetic_call(call.as_ref()),
+        }
+    }
+
+    /// Convert one aggregate-input expression into the shared SQL expression tree.
+    #[must_use]
+    pub(crate) fn from_aggregate_input_expr(expr: &SqlAggregateInputExpr) -> Self {
+        match expr {
+            SqlAggregateInputExpr::Field(field) => Self::Field(field.clone()),
+            SqlAggregateInputExpr::Literal(literal) => Self::Literal(literal.clone()),
+            SqlAggregateInputExpr::Arithmetic(call) => Self::from_arithmetic_call(call),
+            SqlAggregateInputExpr::Round(call) => Self::Round(call.clone()),
+            SqlAggregateInputExpr::Expr(expr) => expr.clone(),
+        }
+    }
+
+    /// Convert one grouped/global HAVING value expression into the shared SQL expression tree.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "0.91 SQL expression grounding lands before grouped/global HAVING is migrated onto the shared SQL-expression seam"
+    )]
+    pub(crate) fn from_having_value_expr(expr: &SqlHavingValueExpr) -> Self {
+        match expr {
+            SqlHavingValueExpr::Field(field) => Self::Field(field.clone()),
+            SqlHavingValueExpr::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
+            SqlHavingValueExpr::Literal(literal) => Self::Literal(literal.clone()),
+            SqlHavingValueExpr::Arithmetic(call) => Self::from_arithmetic_call(call),
+            SqlHavingValueExpr::Round(call) => Self::Round(call.clone()),
+            SqlHavingValueExpr::Expr(expr) => expr.clone(),
+        }
+    }
+
+    /// Return true when one SQL expression tree contains any aggregate leaf.
+    #[must_use]
+    pub(crate) fn contains_aggregate(&self) -> bool {
+        match self {
+            Self::Aggregate(_) => true,
+            Self::Field(_) | Self::Literal(_) | Self::TextFunction(_) => false,
+            Self::Round(call) => match &call.input {
+                SqlRoundProjectionInput::Operand(operand) => Self::from_projection_operand(operand),
+                SqlRoundProjectionInput::Arithmetic(call) => Self::from_arithmetic_call(call),
+            }
+            .contains_aggregate(),
+            Self::Unary { expr, .. } => expr.contains_aggregate(),
+            Self::Binary { left, right, .. } => {
+                left.contains_aggregate() || right.contains_aggregate()
+            }
+            Self::Case { arms, else_expr } => {
+                arms.iter().any(|arm| {
+                    arm.condition.contains_aggregate() || arm.result.contains_aggregate()
+                }) || else_expr
+                    .as_ref()
+                    .is_some_and(|else_expr| else_expr.contains_aggregate())
+            }
+        }
+    }
+
+    fn from_arithmetic_call(call: &SqlArithmeticProjectionCall) -> Self {
+        Self::Binary {
+            op: match call.op {
+                SqlArithmeticProjectionOp::Add => SqlExprBinaryOp::Add,
+                SqlArithmeticProjectionOp::Sub => SqlExprBinaryOp::Sub,
+                SqlArithmeticProjectionOp::Mul => SqlExprBinaryOp::Mul,
+                SqlArithmeticProjectionOp::Div => SqlExprBinaryOp::Div,
+            },
+            left: Box::new(Self::from_projection_operand(&call.left)),
+            right: Box::new(Self::from_projection_operand(&call.right)),
+        }
+    }
 }
 
 ///
@@ -141,6 +441,7 @@ pub(crate) enum SqlHavingValueExpr {
     Literal(Value),
     Arithmetic(SqlArithmeticProjectionCall),
     Round(SqlRoundProjectionCall),
+    Expr(SqlExpr),
 }
 
 ///
@@ -202,6 +503,7 @@ pub(crate) enum SqlAggregateInputExpr {
     Literal(Value),
     Arithmetic(SqlArithmeticProjectionCall),
     Round(SqlRoundProjectionCall),
+    Expr(SqlExpr),
 }
 
 ///
@@ -315,7 +617,7 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) entity: String,
     pub(crate) projection: SqlProjection,
     pub(crate) projection_aliases: Vec<Option<String>>,
-    pub(crate) predicate: Option<Predicate>,
+    pub(crate) predicate: Option<SqlPredicate>,
     pub(crate) distinct: bool,
     pub(crate) group_by: Vec<String>,
     pub(crate) having: Vec<SqlHavingClause>,
@@ -350,7 +652,7 @@ pub(crate) enum SqlReturningProjection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDeleteStatement {
     pub(crate) entity: String,
-    pub(crate) predicate: Option<Predicate>,
+    pub(crate) predicate: Option<SqlPredicate>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
@@ -416,7 +718,7 @@ pub(crate) struct SqlAssignment {
 pub(crate) struct SqlUpdateStatement {
     pub(crate) entity: String,
     pub(crate) assignments: Vec<SqlAssignment>,
-    pub(crate) predicate: Option<Predicate>,
+    pub(crate) predicate: Option<SqlPredicate>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,

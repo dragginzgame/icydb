@@ -6,6 +6,7 @@ mod projection;
 use crate::db::sql::lowering::{
     SqlLoweringError,
     aggregate::{grouped_projection_aggregate_calls, lower_aggregate_call},
+    predicate::lower_sql_predicate,
 };
 use crate::{
     db::{
@@ -34,7 +35,7 @@ pub(in crate::db) use binding::{
     canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
 };
 pub(in crate::db::sql::lowering) use projection::{
-    expr_contains_aggregate, lower_select_item_expr,
+    expr_contains_aggregate, lower_select_item_expr, select_item_contains_aggregate,
 };
 
 ///
@@ -130,7 +131,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         group_by_fields: group_by,
         distinct: normalized_distinct,
         having,
-        predicate,
+        predicate: predicate.map(lower_sql_predicate),
         order_by,
         limit,
         offset,
@@ -272,7 +273,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
     } = statement;
 
     LoweredBaseQueryShape {
-        predicate,
+        predicate: predicate.map(lower_sql_predicate),
         order_by,
         limit,
         offset,

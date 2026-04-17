@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::query::plan::expr::{CaseWhenArm, UnaryOp};
 
 #[test]
 fn eval_expr_supports_arithmetic_projection() {
@@ -78,6 +79,62 @@ fn eval_expr_supports_boolean_projection() {
 }
 
 #[test]
+fn eval_expr_supports_unary_not_projection() {
+    let (_, entity) = row(21, 3, false);
+    let expr = Expr::Unary {
+        op: UnaryOp::Not,
+        expr: Box::new(Expr::Field(FieldId::new("flag"))),
+    };
+
+    let value =
+        eval_scalar_expr_for_row(&expr, &entity).expect("unary boolean projection should evaluate");
+
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
+fn eval_expr_supports_searched_case_projection() {
+    let (_, entity) = row(21, 7, true);
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(5))),
+            },
+            Expr::Literal(Value::Text("high".to_string())),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Text("low".to_string()))),
+    };
+
+    let value =
+        eval_scalar_expr_for_row(&expr, &entity).expect("searched CASE projection should evaluate");
+
+    assert_eq!(value, Value::Text("high".to_string()));
+}
+
+#[test]
+fn eval_expr_keeps_searched_case_branches_lazy() {
+    let (_, entity) = row(22, 3, true);
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Literal(Value::Bool(false)),
+            Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("label"))),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Text("fallback".to_string()))),
+    };
+
+    let value = eval_scalar_expr_for_row(&expr, &entity)
+        .expect("searched CASE should not evaluate non-selected branches");
+
+    assert_eq!(value, Value::Text("fallback".to_string()));
+}
+
+#[test]
 fn eval_expr_supports_numeric_equality_widening() {
     let (_, entity) = row(12, 7, true);
     let expr = Expr::Binary {
@@ -87,6 +144,21 @@ fn eval_expr_supports_numeric_equality_widening() {
     };
 
     let value = eval_scalar_expr_for_row(&expr, &entity).expect("numeric equality should widen");
+
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
+fn eval_expr_supports_numeric_order_comparison() {
+    let (_, entity) = row(22, 7, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Gt,
+        left: Box::new(Expr::Field(FieldId::new("rank"))),
+        right: Box::new(Expr::Literal(Value::Int(5))),
+    };
+
+    let value =
+        eval_scalar_expr_for_row(&expr, &entity).expect("numeric comparison should evaluate");
 
     assert_eq!(value, Value::Bool(true));
 }

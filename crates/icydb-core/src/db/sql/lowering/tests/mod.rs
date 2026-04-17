@@ -10,7 +10,7 @@ use crate::{
         query::intent::Query,
         query::plan::{
             AggregateKind, DeleteSpec, QueryMode,
-            expr::{BinaryOp, Expr, FieldId, ProjectionField},
+            expr::{BinaryOp, CaseWhenArm, Expr, FieldId, ProjectionField},
         },
         sql::{
             lowering::{
@@ -1035,6 +1035,86 @@ fn compile_sql_command_select_chained_scalar_projection_lowers_to_nested_binary_
             )
         ),
         "chained scalar projection should lower to nested binary expressions with multiplication precedence preserved",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_searched_case_projection_lowers_to_case_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT CASE WHEN age >= 21 THEN 'adult' ELSE 'minor' END FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE projection should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .unwrap_or_else(|err| panic!("searched CASE projection plan should build: {err:?}"))
+        .into_inner()
+        .projection_selection;
+
+    assert!(
+        matches!(
+            projection,
+            crate::db::query::plan::expr::ProjectionSelection::Exprs(fields)
+                if matches!(
+                    &fields[0],
+                    ProjectionField::Scalar {
+                        expr: Expr::Case {
+                            when_then_arms,
+                            else_expr,
+                        },
+                        alias: None,
+                    }
+                    if when_then_arms.as_slice() == [CaseWhenArm::new(
+                        Expr::Binary {
+                            op: BinaryOp::Gte,
+                            left: Box::new(Expr::Field(FieldId::new("age"))),
+                            right: Box::new(Expr::Literal(Value::Int(21))),
+                        },
+                        Expr::Literal(Value::Text("adult".to_string())),
+                    )]
+                        && else_expr.as_ref() == &Expr::Literal(Value::Text("minor".to_string()))
+                )
+        ),
+        "searched CASE projection should lower onto one planner-owned CASE expression",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT CASE WHEN age >= 21 THEN 'adult' END FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE without ELSE should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .unwrap_or_else(|err| panic!("searched CASE without ELSE plan should build: {err:?}"))
+        .into_inner()
+        .projection_selection;
+
+    assert!(
+        matches!(
+            projection,
+            crate::db::query::plan::expr::ProjectionSelection::Exprs(fields)
+                if matches!(
+                    &fields[0],
+                    ProjectionField::Scalar {
+                        expr: Expr::Case { else_expr, .. },
+                        alias: None,
+                    } if else_expr.as_ref() == &Expr::Literal(Value::Null)
+                )
+        ),
+        "searched CASE without ELSE should canonicalize onto one explicit planner NULL fallback",
     );
 }
 
@@ -2402,6 +2482,47 @@ fn compile_sql_command_select_grouped_post_aggregate_having_exprs_lowers() {
 }
 
 #[test]
+fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1 \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped searched CASE HAVING SQL query should lower");
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped searched CASE HAVING SQL query command");
+    };
+
+    let planned = query
+        .plan()
+        .expect("grouped searched CASE HAVING SQL plan should build")
+        .into_inner();
+    let grouped = planned
+        .grouped_plan()
+        .expect("grouped searched CASE HAVING SQL should keep grouped plan shape");
+
+    assert!(
+        matches!(
+            grouped.having_expr.as_ref(),
+            Some(crate::db::query::plan::GroupHavingExpr::Compare { left, op: CompareOp::Eq, right })
+                if matches!(
+                    left,
+                    crate::db::query::plan::GroupHavingValueExpr::Case { else_expr, .. }
+                        if else_expr.as_ref()
+                            == &crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Int(0))
+                ) && matches!(
+                    right,
+                    crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Int(1))
+                )
+        ),
+        "grouped searched CASE HAVING should lower through the shared post-aggregate value seam",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_having_without_group_by_rejects() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity HAVING COUNT(*) > 1",
@@ -3135,6 +3256,45 @@ fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
             ),))),
         }),
         "grouped aggregate input SQL should preserve the canonical normalized aggregate input expression in grouped plan semantics",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_accepts_case_input_expressions() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT SUM(CASE WHEN age >= 21 THEN 1 ELSE 0 END) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE aggregate inputs should lower");
+    let terminal = command.terminal();
+
+    assert!(
+        matches!(
+            terminal,
+            TypedSqlGlobalAggregateTerminal::SumExpr { input_expr, distinct: false }
+                if matches!(
+                    input_expr,
+                    Expr::Case {
+                        when_then_arms,
+                        else_expr,
+                    }
+                        if when_then_arms.as_slice() == [CaseWhenArm::new(
+                            Expr::Binary {
+                                op: BinaryOp::Gte,
+                                left: Box::new(Expr::Field(FieldId::new("age"))),
+                                right: Box::new(Expr::Literal(Value::Decimal(
+                                    crate::types::Decimal::from(21_u64),
+                                ))),
+                            },
+                            Expr::Literal(Value::Decimal(crate::types::Decimal::from(1_u64))),
+                        )]
+                            && else_expr.as_ref()
+                                == &Expr::Literal(Value::Decimal(crate::types::Decimal::from(
+                                    0_u64,
+                                )))
+                )
+        ),
+        "searched CASE aggregate inputs should lower through the shared pre-aggregate expression seam: {terminal:?}",
     );
 }
 

@@ -177,6 +177,24 @@ fn validate_grouped_having_value_expr_structure(
             }
             Ok(())
         }
+        GroupHavingValueExpr::Unary { expr, .. } => {
+            validate_grouped_having_value_expr_structure(group, expr, compare_index)
+        }
+        GroupHavingValueExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                validate_grouped_having_value_expr_structure(
+                    group,
+                    arm.condition(),
+                    compare_index,
+                )?;
+                validate_grouped_having_value_expr_structure(group, arm.result(), compare_index)?;
+            }
+
+            validate_grouped_having_value_expr_structure(group, else_expr, compare_index)
+        }
         GroupHavingValueExpr::Binary { left, right, .. } => {
             validate_grouped_having_value_expr_structure(group, left, compare_index)?;
             validate_grouped_having_value_expr_structure(group, right, compare_index)

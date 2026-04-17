@@ -116,11 +116,12 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
         Expr::Field(field) => Some(field.as_str()),
         #[cfg(test)]
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
-            None
-        }
-        #[cfg(test)]
         Expr::Unary { .. } => None,
+        Expr::Literal(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Aggregate(_)
+        | Expr::Case { .. }
+        | Expr::Binary { .. } => None,
     }
 }
 
@@ -165,9 +166,17 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
         Expr::FunctionCall { args, .. } => args
             .iter()
             .all(|arg| expr_references_only_fields(arg, allowed)),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                expr_references_only_fields(arm.condition(), allowed)
+                    && expr_references_only_fields(arm.result(), allowed)
+            }) && expr_references_only_fields(else_expr.as_ref(), allowed)
+        }
         #[cfg(test)]
         Expr::Alias { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
-        #[cfg(test)]
         Expr::Unary { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
         Expr::Binary { left, right, .. } => {
             expr_references_only_fields(left.as_ref(), allowed)
@@ -287,13 +296,14 @@ fn classify_grouped_order_expr_for_field(
         {
             GroupedOrderTermAdmissibility::PrefixMismatch
         }
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
-            GroupedOrderTermAdmissibility::UnsupportedExpression
-        }
+        Expr::Literal(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Aggregate(_)
+        | Expr::Case { .. }
+        | Expr::Binary { .. } => GroupedOrderTermAdmissibility::UnsupportedExpression,
         #[cfg(test)]
-        Expr::Alias { .. } | Expr::Unary { .. } => {
-            GroupedOrderTermAdmissibility::UnsupportedExpression
-        }
+        Expr::Alias { .. } => GroupedOrderTermAdmissibility::UnsupportedExpression,
+        Expr::Unary { .. } => GroupedOrderTermAdmissibility::UnsupportedExpression,
     }
 }
 
@@ -349,14 +359,22 @@ fn expr_contains_aggregate_leaf(expr: &Expr) -> bool {
         Expr::Aggregate(_) => true,
         Expr::Field(_) | Expr::Literal(_) => false,
         Expr::FunctionCall { args, .. } => args.iter().any(expr_contains_aggregate_leaf),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().any(|arm| {
+                expr_contains_aggregate_leaf(arm.condition())
+                    || expr_contains_aggregate_leaf(arm.result())
+            }) || expr_contains_aggregate_leaf(else_expr.as_ref())
+        }
         Expr::Binary { left, right, .. } => {
             expr_contains_aggregate_leaf(left.as_ref())
                 || expr_contains_aggregate_leaf(right.as_ref())
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
-            expr_contains_aggregate_leaf(expr.as_ref())
-        }
+        Expr::Alias { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
+        Expr::Unary { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
     }
 }
 

@@ -161,6 +161,21 @@ fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
             fold_aggregate_input_constant_function(function, args.as_slice())
                 .unwrap_or(Expr::FunctionCall { function, args })
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        fold_aggregate_input_constant_expr(arm.condition().clone()),
+                        fold_aggregate_input_constant_expr(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(fold_aggregate_input_constant_expr(*else_expr)),
+        },
         Expr::Binary { op, left, right } => {
             let left = fold_aggregate_input_constant_expr(*left);
             let right = fold_aggregate_input_constant_expr(*right);
@@ -178,7 +193,6 @@ fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
             expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
             name,
         },
-        #[cfg(test)]
         Expr::Unary { op, expr } => Expr::Unary {
             op,
             expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
@@ -197,12 +211,18 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
     }
 
     let arithmetic_op = match op {
+        BinaryOp::Or
+        | BinaryOp::And
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => return None,
         BinaryOp::Add => NumericArithmeticOp::Add,
         BinaryOp::Sub => NumericArithmeticOp::Sub,
         BinaryOp::Mul => NumericArithmeticOp::Mul,
         BinaryOp::Div => NumericArithmeticOp::Div,
-        #[cfg(test)]
-        BinaryOp::And | BinaryOp::Eq => return None,
     };
     let result = apply_numeric_arithmetic(arithmetic_op, left, right)?;
 
@@ -269,6 +289,21 @@ fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
                 .map(normalize_aggregate_input_numeric_literals)
                 .collect(),
         },
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        normalize_aggregate_input_numeric_literals(arm.condition().clone()),
+                        normalize_aggregate_input_numeric_literals(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(normalize_aggregate_input_numeric_literals(*else_expr)),
+        },
         Expr::Binary { op, left, right } => Expr::Binary {
             op,
             left: Box::new(normalize_aggregate_input_numeric_literals(*left)),
@@ -279,7 +314,6 @@ fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
             expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),
             name,
         },
-        #[cfg(test)]
         Expr::Unary { op, expr } => Expr::Unary {
             op,
             expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),

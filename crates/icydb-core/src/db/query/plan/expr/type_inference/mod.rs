@@ -3,7 +3,6 @@
 //! Does not own: runtime projection evaluation or expression execution behavior.
 //! Boundary: returns planner-domain type information and typed plan errors.
 
-#[cfg(test)]
 use crate::db::query::plan::expr::ast::UnaryOp;
 use crate::value::Value;
 use crate::{
@@ -73,10 +72,13 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
         Expr::FunctionCall { function, args } => {
             infer_function_expr_type(*function, args.as_slice(), schema)
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => infer_case_expr_type(when_then_arms.as_slice(), else_expr.as_ref(), schema),
         Expr::Aggregate(aggregate) => infer_aggregate_expr_type(aggregate, schema),
         #[cfg(test)]
         Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
-        #[cfg(test)]
         Expr::Unary { op, expr } => {
             let inner = infer_expr_type(expr.as_ref(), schema)?;
 
@@ -274,6 +276,29 @@ fn infer_aggregate_expr_type(
     }
 }
 
+fn infer_case_expr_type(
+    when_then_arms: &[crate::db::query::plan::expr::CaseWhenArm],
+    else_expr: &Expr,
+    schema: &SchemaInfo,
+) -> Result<ExprType, PlanError> {
+    let mut result_type = infer_expr_type(else_expr, schema)?;
+
+    for arm in when_then_arms {
+        let condition_type = infer_expr_type(arm.condition(), schema)?;
+        if !matches!(condition_type, ExprType::Bool) {
+            return Err(PlanError::from(ExprPlanError::invalid_case_condition_type(
+                format!("{condition_type:?}"),
+            )));
+        }
+
+        let branch_type = infer_expr_type(arm.result(), schema)?;
+        result_type =
+            unify_case_branch_types((&branch_type, arm.result()), (&result_type, else_expr))?;
+    }
+
+    Ok(result_type)
+}
+
 fn infer_sum_aggregate_type(
     input_expr: Option<&Expr>,
     schema: &SchemaInfo,
@@ -334,18 +359,38 @@ fn render_aggregate_input_expr_label(expr: &Expr) -> String {
                 .join(", ");
             format!("{}({rendered_args})", function.sql_label())
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            let mut rendered = String::from("CASE");
+            for arm in when_then_arms {
+                rendered.push_str(" WHEN ");
+                rendered.push_str(render_aggregate_input_expr_label(arm.condition()).as_str());
+                rendered.push_str(" THEN ");
+                rendered.push_str(render_aggregate_input_expr_label(arm.result()).as_str());
+            }
+            rendered.push_str(" ELSE ");
+            rendered.push_str(render_aggregate_input_expr_label(else_expr).as_str());
+            rendered.push_str(" END");
+            rendered
+        }
         Expr::Binary { op, left, right } => {
             let left = render_aggregate_input_expr_label(left);
             let right = render_aggregate_input_expr_label(right);
             let op = match op {
+                BinaryOp::Or => "OR",
+                BinaryOp::And => "AND",
+                BinaryOp::Eq => "=",
+                BinaryOp::Ne => "!=",
+                BinaryOp::Lt => "<",
+                BinaryOp::Lte => "<=",
+                BinaryOp::Gt => ">",
+                BinaryOp::Gte => ">=",
                 BinaryOp::Add => "+",
                 BinaryOp::Sub => "-",
                 BinaryOp::Mul => "*",
                 BinaryOp::Div => "/",
-                #[cfg(test)]
-                BinaryOp::And => "AND",
-                #[cfg(test)]
-                BinaryOp::Eq => "=",
             };
 
             format!("{left} {op} {right}")
@@ -353,7 +398,6 @@ fn render_aggregate_input_expr_label(expr: &Expr) -> String {
         Expr::Aggregate(_) => "aggregate".to_string(),
         #[cfg(test)]
         Expr::Alias { expr, .. } => render_aggregate_input_expr_label(expr),
-        #[cfg(test)]
         Expr::Unary { expr, .. } => render_aggregate_input_expr_label(expr),
     }
 }
@@ -377,17 +421,22 @@ fn infer_binary_expr_type(
                 op, &left_ty, &right_ty,
             )))
         }
-        #[cfg(test)]
-        BinaryOp::And => {
+        BinaryOp::Or | BinaryOp::And => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
                 return Err(invalid_binary_operands(op, &left_ty, &right_ty));
             }
 
             Ok(ExprType::Bool)
         }
-        #[cfg(test)]
-        BinaryOp::Eq => {
+        BinaryOp::Eq | BinaryOp::Ne => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+            }
+
+            Ok(ExprType::Bool)
+        }
+        BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
+            if !binary_order_comparable(&left_ty, &right_ty) {
                 return Err(invalid_binary_operands(op, &left_ty, &right_ty));
             }
 
@@ -410,7 +459,6 @@ const fn binary_numeric_compatible(left: &ExprType, right: &ExprType) -> bool {
     left.is_numeric_eligible() && right.is_numeric_eligible()
 }
 
-#[cfg(test)]
 const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
     if left.is_numeric_eligible() && right.is_numeric_eligible() {
         return true;
@@ -429,6 +477,58 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
             | (ExprType::Structured, ExprType::Structured)
             | (ExprType::Opaque, ExprType::Opaque)
     )
+}
+
+const fn binary_order_comparable(left: &ExprType, right: &ExprType) -> bool {
+    if left.is_numeric_eligible() && right.is_numeric_eligible() {
+        return true;
+    }
+
+    matches!((left, right), (ExprType::Text, ExprType::Text))
+}
+
+fn unify_case_branch_types(
+    left: (&ExprType, &Expr),
+    right: (&ExprType, &Expr),
+) -> Result<ExprType, PlanError> {
+    let (left_type, left_expr) = left;
+    let (right_type, right_expr) = right;
+
+    if left_type == right_type {
+        return Ok(left_type.clone());
+    }
+
+    if case_branch_is_null_only(left_type, left_expr) {
+        return Ok(right_type.clone());
+    }
+    if case_branch_is_null_only(right_type, right_expr) {
+        return Ok(left_type.clone());
+    }
+
+    if left_type.is_numeric_eligible() && right_type.is_numeric_eligible() {
+        return Ok(ExprType::Numeric(infer_numeric_result_subtype(
+            BinaryOp::Add,
+            left_type,
+            right_type,
+        )));
+    }
+
+    Err(PlanError::from(
+        ExprPlanError::incompatible_case_branch_types(
+            format!("{left_type:?}"),
+            format!("{right_type:?}"),
+        ),
+    ))
+}
+
+#[cfg(test)]
+const fn case_branch_is_null_only(branch_type: &ExprType, expr: &Expr) -> bool {
+    matches!(expr, Expr::Literal(Value::Null)) || matches!(branch_type, ExprType::Null)
+}
+
+#[cfg(not(test))]
+const fn case_branch_is_null_only(_branch_type: &ExprType, expr: &Expr) -> bool {
+    matches!(expr, Expr::Literal(Value::Null))
 }
 
 const fn infer_numeric_result_subtype(
@@ -524,14 +624,18 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
 
 const fn binary_op_name(op: BinaryOp) -> &'static str {
     match op {
+        BinaryOp::Or => "or",
+        BinaryOp::And => "and",
+        BinaryOp::Eq => "eq",
+        BinaryOp::Ne => "ne",
+        BinaryOp::Lt => "lt",
+        BinaryOp::Lte => "lte",
+        BinaryOp::Gt => "gt",
+        BinaryOp::Gte => "gte",
         BinaryOp::Add => "add",
         BinaryOp::Sub => "sub",
         BinaryOp::Mul => "mul",
         BinaryOp::Div => "div",
-        #[cfg(test)]
-        BinaryOp::And => "and",
-        #[cfg(test)]
-        BinaryOp::Eq => "eq",
     }
 }
 

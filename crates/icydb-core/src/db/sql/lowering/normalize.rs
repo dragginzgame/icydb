@@ -1,6 +1,5 @@
 use crate::db::sql::lowering::{SqlLoweringError, select::lower_select_item_expr};
 use crate::db::{
-    predicate::Predicate,
     query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
     query::plan::expr::{
         parse_supported_order_expr, render_supported_order_expr,
@@ -9,11 +8,12 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-            rewrite_field_identifiers,
         },
+        lowering::expr::SqlExprPhase,
         parser::{
-            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlHavingClause,
-            SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
+            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
+            SqlCompareFieldsPredicate, SqlComparePredicate, SqlExpr, SqlHavingClause,
+            SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection, SqlProjectionOperand,
             SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
             SqlTextFunctionCall,
         },
@@ -30,9 +30,9 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
     statement.projection =
         normalize_projection_identifiers(statement.projection, entity_scope.as_slice());
     statement.group_by = normalize_identifier_list(statement.group_by, entity_scope.as_slice());
-    statement.predicate = statement
-        .predicate
-        .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
+    statement.predicate = statement.predicate.map(|predicate| {
+        adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice())
+    });
     statement.order_by = normalize_select_order_terms(
         statement.order_by,
         &statement.projection,
@@ -49,6 +49,13 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
     entity_scope: &[String],
 ) -> Vec<SqlHavingClause> {
     SqlIdentifierNormalizer::new(entity_scope).normalize_having_clauses(clauses)
+}
+
+pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
+    predicate: SqlPredicate,
+    entity_scope: &[String],
+) -> SqlPredicate {
+    SqlIdentifierNormalizer::new(entity_scope).normalize_sql_predicate(predicate)
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -126,6 +133,75 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             .collect()
     }
 
+    // Rewrite one parser-owned SQL predicate tree onto the resolved entity
+    // scope before SQL lowering maps it back onto runtime predicate authority.
+    fn normalize_sql_predicate(self, predicate: SqlPredicate) -> SqlPredicate {
+        match predicate {
+            SqlPredicate::True => SqlPredicate::True,
+            SqlPredicate::False => SqlPredicate::False,
+            SqlPredicate::And(children) => SqlPredicate::And(
+                children
+                    .into_iter()
+                    .map(|child| self.normalize_sql_predicate(child))
+                    .collect(),
+            ),
+            SqlPredicate::Or(children) => SqlPredicate::Or(
+                children
+                    .into_iter()
+                    .map(|child| self.normalize_sql_predicate(child))
+                    .collect(),
+            ),
+            SqlPredicate::Not(inner) => {
+                SqlPredicate::Not(Box::new(self.normalize_sql_predicate(*inner)))
+            }
+            SqlPredicate::Compare(SqlComparePredicate {
+                field,
+                op,
+                value,
+                coercion,
+            }) => SqlPredicate::Compare(SqlComparePredicate {
+                field: self.normalize_identifier(field),
+                op,
+                value,
+                coercion,
+            }),
+            SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
+                left_field,
+                op,
+                right_field,
+                coercion,
+            }) => SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
+                left_field: self.normalize_identifier(left_field),
+                op,
+                right_field: self.normalize_identifier(right_field),
+                coercion,
+            }),
+            SqlPredicate::IsNull { field } => SqlPredicate::IsNull {
+                field: self.normalize_identifier(field),
+            },
+            SqlPredicate::IsNotNull { field } => SqlPredicate::IsNotNull {
+                field: self.normalize_identifier(field),
+            },
+            SqlPredicate::IsMissing { field } => SqlPredicate::IsMissing {
+                field: self.normalize_identifier(field),
+            },
+            SqlPredicate::IsEmpty { field } => SqlPredicate::IsEmpty {
+                field: self.normalize_identifier(field),
+            },
+            SqlPredicate::IsNotEmpty { field } => SqlPredicate::IsNotEmpty {
+                field: self.normalize_identifier(field),
+            },
+            SqlPredicate::TextContains { field, value } => SqlPredicate::TextContains {
+                field: self.normalize_identifier(field),
+                value,
+            },
+            SqlPredicate::TextContainsCi { field, value } => SqlPredicate::TextContainsCi {
+                field: self.normalize_identifier(field),
+                value,
+            },
+        }
+    }
+
     // Rewrite one select item while preserving the parser-owned projection
     // family chosen for this SQL surface.
     fn normalize_select_item(self, item: SqlSelectItem) -> SqlSelectItem {
@@ -141,6 +217,7 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 SqlSelectItem::Arithmetic(self.normalize_arithmetic_call(call))
             }
             SqlSelectItem::Round(call) => SqlSelectItem::Round(self.normalize_round_call(call)),
+            SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(self.normalize_sql_expr(expr)),
         }
     }
 
@@ -160,6 +237,9 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             }
             SqlHavingValueExpr::Round(call) => {
                 SqlHavingValueExpr::Round(self.normalize_round_call(call))
+            }
+            SqlHavingValueExpr::Expr(expr) => {
+                SqlHavingValueExpr::Expr(self.normalize_sql_expr(expr))
             }
         }
     }
@@ -190,6 +270,42 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             SqlAggregateInputExpr::Round(call) => {
                 SqlAggregateInputExpr::Round(self.normalize_round_call(call))
             }
+            SqlAggregateInputExpr::Expr(expr) => {
+                SqlAggregateInputExpr::Expr(self.normalize_sql_expr(expr))
+            }
+        }
+    }
+
+    fn normalize_sql_expr(self, expr: SqlExpr) -> SqlExpr {
+        match expr {
+            SqlExpr::Field(field) => SqlExpr::Field(self.normalize_identifier_to_scope(field)),
+            SqlExpr::Aggregate(aggregate) => {
+                SqlExpr::Aggregate(self.normalize_aggregate_call(aggregate))
+            }
+            SqlExpr::Literal(literal) => SqlExpr::Literal(literal),
+            SqlExpr::TextFunction(call) => {
+                SqlExpr::TextFunction(self.normalize_text_function_call(call))
+            }
+            SqlExpr::Round(call) => SqlExpr::Round(self.normalize_round_call(call)),
+            SqlExpr::Unary { op, expr } => SqlExpr::Unary {
+                op,
+                expr: Box::new(self.normalize_sql_expr(*expr)),
+            },
+            SqlExpr::Binary { op, left, right } => SqlExpr::Binary {
+                op,
+                left: Box::new(self.normalize_sql_expr(*left)),
+                right: Box::new(self.normalize_sql_expr(*right)),
+            },
+            SqlExpr::Case { arms, else_expr } => SqlExpr::Case {
+                arms: arms
+                    .into_iter()
+                    .map(|arm| crate::db::sql::parser::SqlCaseArm {
+                        condition: self.normalize_sql_expr(arm.condition),
+                        result: self.normalize_sql_expr(arm.result),
+                    })
+                    .collect(),
+                else_expr: else_expr.map(|else_expr| Box::new(self.normalize_sql_expr(*else_expr))),
+            },
         }
     }
 
@@ -332,16 +448,22 @@ fn resolve_projection_order_alias(
 // Restrict alias rewrites to the exact order target family already accepted by
 // the reduced SQL parser plus the internal bounded computed alias family.
 fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
+    let phase = if crate::db::sql::parser::SqlExpr::from_select_item(item).contains_aggregate() {
+        SqlExprPhase::PostAggregate
+    } else {
+        SqlExprPhase::Scalar
+    };
+
     match item {
         SqlSelectItem::Field(field) => Some(field.clone()),
-        SqlSelectItem::Aggregate(_) => lower_select_item_expr(item)
+        SqlSelectItem::Aggregate(_) => lower_select_item_expr(item, phase)
             .ok()
             .map(|expr| render_scalar_projection_expr_sql_label(&expr)),
-        SqlSelectItem::TextFunction(_) => lower_select_item_expr(item)
+        SqlSelectItem::TextFunction(_) => lower_select_item_expr(item, phase)
             .ok()
             .and_then(|expr| render_supported_order_expr(&expr)),
-        SqlSelectItem::Arithmetic(_) | SqlSelectItem::Round(_) => {
-            lower_select_item_expr(item).ok().and_then(|expr| {
+        SqlSelectItem::Arithmetic(_) | SqlSelectItem::Round(_) | SqlSelectItem::Expr(_) => {
+            lower_select_item_expr(item, phase).ok().and_then(|expr| {
                 render_supported_order_expr(&expr)
                     .or_else(|| Some(render_scalar_projection_expr_sql_label(&expr)))
             })
@@ -387,13 +509,6 @@ pub(in crate::db::sql::lowering) fn normalize_identifier_list(
 
 // SQL lowering only adapts identifier qualification (`entity.field` -> `field`)
 // and delegates predicate-tree traversal ownership to `db::predicate`.
-pub(in crate::db::sql::lowering) fn adapt_predicate_identifiers_to_scope(
-    predicate: Predicate,
-    entity_scope: &[String],
-) -> Predicate {
-    rewrite_field_identifiers(predicate, |field| normalize_identifier(field, entity_scope))
-}
-
 fn normalize_identifier(identifier: String, entity_scope: &[String]) -> String {
     normalize_identifier_to_scope(identifier, entity_scope)
 }

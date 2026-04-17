@@ -4,7 +4,8 @@ use crate::{
         executor::{
             EntityAuthority, ScalarTerminalBoundaryRequest, aggregate_result_matches_having_expr,
             projection::{
-                eval_binary_expr, eval_projection_function_call, projection_function_name,
+                eval_binary_expr, eval_projection_function_call, eval_unary_expr,
+                projection_function_name,
             },
         },
         numeric::{
@@ -239,6 +240,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Evaluate one global post-aggregate output expression against the reduced
     // unique aggregate values.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "global aggregate output evaluation intentionally owns the full post-aggregate scalar expression recursion, including CASE, on one invariant-checked seam"
+    )]
     fn evaluate_global_aggregate_output_expr(
         expr: &Expr,
         strategies: &[PreparedSqlScalarAggregateStrategy],
@@ -283,6 +288,37 @@ impl<C: CanisterKind> DbSession<C> {
                     ))
                 })
             }
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    let condition = Self::evaluate_global_aggregate_output_expr(
+                        arm.condition(),
+                        strategies,
+                        unique_values,
+                    )?;
+                    let Value::Bool(condition) = condition else {
+                        return Err(QueryError::invariant(format!(
+                            "global aggregate projection evaluation produced non-boolean CASE condition value: {condition:?}",
+                        )));
+                    };
+
+                    if condition {
+                        return Self::evaluate_global_aggregate_output_expr(
+                            arm.result(),
+                            strategies,
+                            unique_values,
+                        );
+                    }
+                }
+
+                Self::evaluate_global_aggregate_output_expr(
+                    else_expr.as_ref(),
+                    strategies,
+                    unique_values,
+                )
+            }
             Expr::Binary { op, left, right } => {
                 let left = Self::evaluate_global_aggregate_output_expr(
                     left.as_ref(),
@@ -301,12 +337,25 @@ impl<C: CanisterKind> DbSession<C> {
                     ))
                 })
             }
+            Expr::Unary { op, expr } => {
+                let value = Self::evaluate_global_aggregate_output_expr(
+                    expr.as_ref(),
+                    strategies,
+                    unique_values,
+                )?;
+
+                eval_unary_expr(*op, &value).map_err(|err| {
+                    QueryError::invariant(format!(
+                        "global aggregate projection evaluation failed for unary op {op:?}: {err}",
+                    ))
+                })
+            }
             Expr::Field(field) => Err(QueryError::invariant(format!(
                 "global aggregate projection evaluation referenced direct field '{}'",
                 field.as_str(),
             ))),
             #[cfg(test)]
-            Expr::Unary { .. } | Expr::Alias { .. } => Err(QueryError::invariant(
+            Expr::Alias { .. } => Err(QueryError::invariant(
                 "global aggregate projection evaluation encountered unsupported test-only expression wrapper",
             )),
         }

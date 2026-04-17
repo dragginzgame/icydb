@@ -2,12 +2,10 @@
 //! Defines grouped-row projection evaluation over finalized group keys and
 //! aggregate outputs.
 
-#[cfg(test)]
-use crate::db::{executor::projection::eval::eval_unary_expr, query::plan::expr::UnaryOp};
 use crate::{
     db::{
         executor::projection::eval::{
-            ProjectionEvalError, eval_binary_expr, eval_projection_function_call,
+            ProjectionEvalError, eval_binary_expr, eval_projection_function_call, eval_unary_expr,
             projection_function_name,
         },
         predicate::{CompareOp, evaluate_grouped_having_compare},
@@ -16,7 +14,7 @@ use crate::{
             plan::{
                 FieldSlot, GroupHavingExpr, GroupHavingValueExpr, GroupedAggregateExecutionSpec,
                 PlannedProjectionLayout,
-                expr::{BinaryOp, Expr, Function, ProjectionSpec, projection_field_expr},
+                expr::{BinaryOp, Expr, Function, ProjectionSpec, UnaryOp, projection_field_expr},
             },
         },
     },
@@ -101,10 +99,13 @@ pub(in crate::db::executor) enum GroupedProjectionExpr {
         function: Function,
         args: Vec<Self>,
     },
-    #[cfg(test)]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
+    },
+    Case {
+        when_then_arms: Vec<GroupedProjectionCaseArm>,
+        else_expr: Box<Self>,
     },
     Binary {
         op: BinaryOp,
@@ -117,6 +118,43 @@ pub(in crate::db::executor) enum GroupedProjectionExpr {
         right: Box<Self>,
     },
     And(Vec<Self>),
+}
+
+///
+/// GroupedProjectionCaseArm
+///
+/// Compiled grouped searched-CASE arm used by grouped projection and grouped
+/// HAVING evaluation. This keeps grouped branch execution lazy while staying on
+/// the same compiled grouped-expression seam as other scalar/grouped nodes.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) struct GroupedProjectionCaseArm {
+    condition: GroupedProjectionExpr,
+    result: GroupedProjectionExpr,
+}
+
+impl GroupedProjectionCaseArm {
+    /// Build one compiled grouped CASE arm.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        condition: GroupedProjectionExpr,
+        result: GroupedProjectionExpr,
+    ) -> Self {
+        Self { condition, result }
+    }
+
+    /// Borrow the compiled grouped condition expression.
+    #[must_use]
+    pub(in crate::db::executor) const fn condition(&self) -> &GroupedProjectionExpr {
+        &self.condition
+    }
+
+    /// Borrow the compiled grouped result expression.
+    #[must_use]
+    pub(in crate::db::executor) const fn result(&self) -> &GroupedProjectionExpr {
+        &self.result
+    }
 }
 
 ///
@@ -323,10 +361,28 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
                 }
             })
         }
-        #[cfg(test)]
         GroupedProjectionExpr::Unary { op, expr } => {
             let operand = eval_grouped_projection_expr(expr, grouped_row)?;
             eval_unary_expr(*op, &operand)
+        }
+        GroupedProjectionExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                let condition = eval_grouped_projection_expr(arm.condition(), grouped_row)?;
+                let Value::Bool(condition) = condition else {
+                    return Err(ProjectionEvalError::InvalidCaseCondition {
+                        found: Box::new(condition),
+                    });
+                };
+
+                if condition {
+                    return eval_grouped_projection_expr(arm.result(), grouped_row);
+                }
+            }
+
+            eval_grouped_projection_expr(else_expr.as_ref(), grouped_row)
         }
         GroupedProjectionExpr::Binary { op, left, right } => {
             let left = eval_grouped_projection_expr(left, grouped_row)?;
@@ -452,6 +508,25 @@ fn compile_grouped_having_value_expr(
                     .collect::<Result<Vec<_>, _>>()?,
             })
         }
+        GroupHavingValueExpr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
+            op: *op,
+            expr: Box::new(compile_grouped_having_value_expr(expr, group_fields)?),
+        }),
+        GroupHavingValueExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => Ok(GroupedProjectionExpr::Case {
+            when_then_arms: when_then_arms
+                .iter()
+                .map(|arm| {
+                    Ok(GroupedProjectionCaseArm::new(
+                        compile_grouped_having_value_expr(arm.condition(), group_fields)?,
+                        compile_grouped_having_value_expr(arm.result(), group_fields)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ProjectionEvalError>>()?,
+            else_expr: Box::new(compile_grouped_having_value_expr(else_expr, group_fields)?),
+        }),
         GroupHavingValueExpr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
             op: *op,
             left: Box::new(compile_grouped_having_value_expr(left, group_fields)?),
@@ -504,7 +579,33 @@ pub(in crate::db::executor) fn compile_grouped_projection_expr(
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         }),
-        #[cfg(test)]
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Ok(GroupedProjectionExpr::Case {
+            when_then_arms: when_then_arms
+                .iter()
+                .map(|arm| {
+                    Ok(GroupedProjectionCaseArm::new(
+                        compile_grouped_projection_expr(
+                            arm.condition(),
+                            group_fields,
+                            aggregate_execution_specs,
+                        )?,
+                        compile_grouped_projection_expr(
+                            arm.result(),
+                            group_fields,
+                            aggregate_execution_specs,
+                        )?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_expr: Box::new(compile_grouped_projection_expr(
+                else_expr.as_ref(),
+                group_fields,
+                aggregate_execution_specs,
+            )?),
+        }),
         Expr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
             op: *op,
             expr: Box::new(compile_grouped_projection_expr(

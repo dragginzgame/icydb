@@ -1094,6 +1094,41 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
 }
 
 #[test]
+fn execute_sql_projection_searched_case_matrix_matches_expected_values() {
+    let session = seeded_projection_window_session();
+
+    assert_projection_row_case_matrix::<SessionSqlEntity>(
+        &session,
+        &[
+            (
+                "SELECT CASE WHEN age >= 30 THEN 'senior' ELSE 'junior' END \
+                 FROM SessionSqlEntity \
+                 ORDER BY age ASC",
+                vec![
+                    vec![Value::Text("junior".to_string())],
+                    vec![Value::Text("junior".to_string())],
+                    vec![Value::Text("senior".to_string())],
+                    vec![Value::Text("senior".to_string())],
+                ],
+                "searched CASE scalar projection values",
+            ),
+            (
+                "SELECT CASE WHEN age >= 30 THEN 'senior' END \
+                 FROM SessionSqlEntity \
+                 ORDER BY age ASC",
+                vec![
+                    vec![Value::Null],
+                    vec![Value::Null],
+                    vec![Value::Text("senior".to_string())],
+                    vec![Value::Text("senior".to_string())],
+                ],
+                "searched CASE without ELSE should project planner-normalized NULL fallback values",
+            ),
+        ],
+    );
+}
+
+#[test]
 fn execute_sql_projection_qualified_identifier_matrix_executes() {
     reset_session_sql_store();
     let session = sql_session();

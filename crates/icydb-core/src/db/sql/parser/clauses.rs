@@ -3,14 +3,15 @@
 //! Does not own: statement routing, projection parsing, or predicate semantics.
 //! Boundary: keeps ordering/grouping/HAVING helpers out of the parser root.
 
+use crate::db::sql::parser::projection::SqlExprParseSurface;
 use crate::{
     db::{
         predicate::CompareOp,
         sql::parser::{
             Parser, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-            SqlHavingClause, SqlHavingValueExpr, SqlOrderDirection, SqlOrderTerm,
-            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlExpr, SqlExprBinaryOp, SqlHavingClause, SqlHavingValueExpr, SqlOrderDirection,
+            SqlOrderTerm, SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput,
+            SqlTextFunction, SqlTextFunctionCall,
         },
         sql_shared::{Keyword, SqlParseError},
     },
@@ -224,7 +225,19 @@ impl Parser {
     }
 
     fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {
-        let left = self.parse_having_value_expr()?;
+        // Parse one HAVING clause root up to comparison precedence so the
+        // legacy clause shell still owns `left <op> right` splitting while
+        // searched CASE conditions may use the full inner boolean surface.
+        let expr = self.parse_sql_expr(SqlExprParseSurface::HavingValue, 3)?;
+        if let Some((left, op, right)) = split_having_compare_expr(&expr) {
+            return Ok(SqlHavingClause {
+                left: Self::having_value_expr_from_sql_expr(left),
+                op,
+                right: Self::having_value_expr_from_sql_expr(right),
+            });
+        }
+
+        let left = Self::having_value_expr_from_sql_expr(expr);
 
         if self.eat_keyword(Keyword::Is) {
             let is_not = self.eat_keyword(Keyword::Not);
@@ -244,61 +257,61 @@ impl Parser {
     }
 
     fn parse_having_value_expr(&mut self) -> Result<SqlHavingValueExpr, SqlParseError> {
-        if !matches!(
-            self.peek_kind(),
-            Some(crate::db::sql_shared::TokenKind::Identifier(_))
-        ) && self.parse_aggregate_kind().is_none()
-        {
-            return self.parse_literal().map(SqlHavingValueExpr::Literal);
-        }
+        let expr = self.parse_sql_expr(SqlExprParseSurface::HavingValue, 4)?;
 
-        let left = if let Some(kind) = self.parse_aggregate_kind() {
-            SqlProjectionOperand::Aggregate(self.parse_aggregate_call(kind)?)
-        } else {
-            let field = self.expect_identifier()?;
-            if self.peek_lparen() {
-                if field.eq_ignore_ascii_case("ROUND") {
-                    return Ok(SqlHavingValueExpr::Round(
-                        self.parse_round_projection_call()?,
-                    ));
-                }
-
-                return Err(SqlParseError::unsupported_feature(
-                    "SQL function namespace beyond supported aggregate, ROUND, or grouped HAVING forms",
-                ));
-            }
-
-            SqlProjectionOperand::Field(field)
-        };
-
-        if self.eat_plus() {
-            return Ok(SqlHavingValueExpr::Arithmetic(
-                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Add)?,
-            ));
-        }
-        if self.eat_minus() {
-            return Ok(SqlHavingValueExpr::Arithmetic(
-                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Sub)?,
-            ));
-        }
-        if self.eat_star() {
-            return Ok(SqlHavingValueExpr::Arithmetic(
-                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Mul)?,
-            ));
-        }
-        if self.eat_slash() {
-            return Ok(SqlHavingValueExpr::Arithmetic(
-                self.parse_arithmetic_projection_call(left, SqlArithmeticProjectionOp::Div)?,
-            ));
-        }
-
-        Ok(match left {
-            SqlProjectionOperand::Field(field) => SqlHavingValueExpr::Field(field),
-            SqlProjectionOperand::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(aggregate),
-            SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
-            SqlProjectionOperand::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(*call),
-        })
+        Ok(Self::having_value_expr_from_sql_expr(expr))
     }
+
+    fn having_value_expr_from_sql_expr(expr: SqlExpr) -> SqlHavingValueExpr {
+        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
+            return match operand {
+                SqlProjectionOperand::Field(field) => SqlHavingValueExpr::Field(field),
+                SqlProjectionOperand::Aggregate(aggregate) => {
+                    SqlHavingValueExpr::Aggregate(aggregate)
+                }
+                SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
+                SqlProjectionOperand::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(*call),
+            };
+        }
+
+        match expr {
+            SqlExpr::Round(call) => SqlHavingValueExpr::Round(call),
+            SqlExpr::Binary {
+                op:
+                    SqlExprBinaryOp::Add
+                    | SqlExprBinaryOp::Sub
+                    | SqlExprBinaryOp::Mul
+                    | SqlExprBinaryOp::Div,
+                ..
+            } => unreachable!(
+                "arithmetic SQL expressions should have converted through projection operands"
+            ),
+            other => SqlHavingValueExpr::Expr(other),
+        }
+    }
+}
+
+fn split_having_compare_expr(expr: &SqlExpr) -> Option<(SqlExpr, CompareOp, SqlExpr)> {
+    let SqlExpr::Binary { op, left, right } = expr else {
+        return None;
+    };
+
+    let compare_op = match *op {
+        SqlExprBinaryOp::Eq => CompareOp::Eq,
+        SqlExprBinaryOp::Ne => CompareOp::Ne,
+        SqlExprBinaryOp::Lt => CompareOp::Lt,
+        SqlExprBinaryOp::Lte => CompareOp::Lte,
+        SqlExprBinaryOp::Gt => CompareOp::Gt,
+        SqlExprBinaryOp::Gte => CompareOp::Gte,
+        SqlExprBinaryOp::Or
+        | SqlExprBinaryOp::And
+        | SqlExprBinaryOp::Add
+        | SqlExprBinaryOp::Sub
+        | SqlExprBinaryOp::Mul
+        | SqlExprBinaryOp::Div => return None,
+    };
+
+    Some((left.as_ref().clone(), compare_op, right.as_ref().clone()))
 }
 
 fn render_order_text_function_term(call: SqlTextFunctionCall) -> String {
@@ -451,6 +464,68 @@ fn render_order_aggregate_input_expr(expr: SqlAggregateInputExpr, nested: bool) 
             }
         }
         SqlAggregateInputExpr::Round(call) => render_order_round_term(call),
+        SqlAggregateInputExpr::Expr(expr) => {
+            let rendered = render_order_sql_expr(expr);
+
+            if nested {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+    }
+}
+
+fn render_order_sql_expr(expr: SqlExpr) -> String {
+    match expr {
+        SqlExpr::Field(field) => field,
+        SqlExpr::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
+        SqlExpr::Literal(literal) => render_order_literal(literal),
+        SqlExpr::TextFunction(call) => render_order_text_function_term(call),
+        SqlExpr::Round(call) => render_order_round_term(call),
+        SqlExpr::Unary {
+            op: crate::db::sql::parser::SqlExprUnaryOp::Not,
+            expr,
+        } => format!("NOT {}", render_order_sql_expr(*expr)),
+        SqlExpr::Binary { op, left, right } => {
+            let op = match op {
+                SqlExprBinaryOp::Or => "OR",
+                SqlExprBinaryOp::And => "AND",
+                SqlExprBinaryOp::Eq => "=",
+                SqlExprBinaryOp::Ne => "!=",
+                SqlExprBinaryOp::Lt => "<",
+                SqlExprBinaryOp::Lte => "<=",
+                SqlExprBinaryOp::Gt => ">",
+                SqlExprBinaryOp::Gte => ">=",
+                SqlExprBinaryOp::Add => "+",
+                SqlExprBinaryOp::Sub => "-",
+                SqlExprBinaryOp::Mul => "*",
+                SqlExprBinaryOp::Div => "/",
+            };
+
+            format!(
+                "{} {} {}",
+                render_order_sql_expr(*left),
+                op,
+                render_order_sql_expr(*right)
+            )
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            let mut rendered = String::from("CASE");
+            for arm in arms {
+                rendered.push_str(" WHEN ");
+                rendered.push_str(render_order_sql_expr(arm.condition).as_str());
+                rendered.push_str(" THEN ");
+                rendered.push_str(render_order_sql_expr(arm.result).as_str());
+            }
+            if let Some(else_expr) = else_expr {
+                rendered.push_str(" ELSE ");
+                rendered.push_str(render_order_sql_expr(*else_expr).as_str());
+            }
+            rendered.push_str(" END");
+
+            rendered
+        }
     }
 }
 

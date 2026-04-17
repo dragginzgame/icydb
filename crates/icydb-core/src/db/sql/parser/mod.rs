@@ -13,7 +13,7 @@ mod tests;
 
 use crate::{
     db::{
-        predicate::{CompareOp, Predicate, parse_predicate_from_cursor},
+        predicate::{CompareOp, parse_predicate_from_cursor},
         sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
     },
     value::Value,
@@ -22,13 +22,14 @@ use crate::{
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
-    SqlArithmeticProjectionOp, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr,
-    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-    SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
-    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
-    SqlUpdateStatement,
+    SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlCompareFieldsPredicate,
+    SqlComparePredicate, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
+    SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp,
+    SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
+    SqlOrderTerm, SqlPredicate, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
+    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.
@@ -75,8 +76,8 @@ impl Parser {
         Self { cursor }
     }
 
-    fn parse_predicate(&mut self) -> Result<Predicate, SqlParseError> {
-        parse_predicate_from_cursor(&mut self.cursor)
+    fn parse_predicate(&mut self) -> Result<SqlPredicate, SqlParseError> {
+        parse_predicate_from_cursor(&mut self.cursor).map(SqlPredicate::from_runtime_predicate)
     }
 
     fn parse_compare_operator(&mut self) -> Result<CompareOp, SqlParseError> {

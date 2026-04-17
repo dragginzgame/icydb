@@ -1953,6 +1953,50 @@ fn grouped_select_reuses_repeated_aggregate_leaf_outputs() {
 }
 
 #[test]
+fn grouped_select_allows_searched_case_projection_and_having() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let projection_execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped searched CASE projection should execute");
+
+    assert_eq!(
+        grouped_result_rows(&projection_execution),
+        vec![
+            (Value::Uint(10), vec![Value::Text("multi".to_string())],),
+            (Value::Uint(20), vec![Value::Text("single".to_string())],),
+        ],
+        "grouped searched CASE projection should evaluate over finalized grouped outputs",
+    );
+
+    let having_execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1 \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped searched CASE HAVING should execute");
+
+    assert_eq!(
+        grouped_result_rows(&having_execution),
+        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        "grouped searched CASE HAVING should filter on finalized grouped outputs",
+    );
+}
+
+#[test]
 fn grouped_select_allows_post_aggregate_having_expressions() {
     reset_session_sql_store();
     let session = sql_session();

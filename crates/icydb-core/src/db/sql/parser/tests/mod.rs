@@ -5,18 +5,24 @@
 
 use super::{
     SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
-    SqlArithmeticProjectionOp, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr,
-    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
-    SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
-    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
+    SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
+    SqlOrderTerm, SqlParseError, SqlPredicate, SqlProjection, SqlProjectionOperand,
+    SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     value::Value,
 };
+
+macro_rules! option_sql_pred {
+    ($predicate:expr) => {
+        Some(SqlPredicate::from_runtime_predicate($predicate))
+    };
+}
 
 #[test]
 fn parse_select_statement_with_predicate_order_and_window() {
@@ -38,7 +44,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: Some(Predicate::And(vec![
+            predicate: option_sql_pred!(Predicate::And(vec![
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
@@ -315,6 +321,79 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
 }
 
 #[test]
+fn parse_select_statement_with_searched_case_projection_item() {
+    let statement =
+        parse_sql("SELECT CASE WHEN age >= 21 THEN 'adult' ELSE 'minor' END AS cohort FROM users")
+            .expect("searched CASE projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
+                arms: vec![SqlCaseArm {
+                    condition: SqlExpr::Binary {
+                        op: SqlExprBinaryOp::Gte,
+                        left: Box::new(SqlExpr::Field("age".to_string())),
+                        right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                    },
+                    result: SqlExpr::Literal(Value::Text("adult".to_string())),
+                }],
+                else_expr: Some(Box::new(SqlExpr::Literal(
+                    Value::Text("minor".to_string(),)
+                ))),
+            })]),
+            projection_aliases: vec![Some("cohort".to_string())],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+        "searched CASE projection should stay on the shared SQL-expression boundary",
+    );
+}
+
+#[test]
+fn parse_select_statement_with_searched_case_aggregate_input_expression() {
+    let statement = parse_sql("SELECT SUM(CASE WHEN age >= 21 THEN 1 ELSE 0 END) FROM users")
+        .expect("searched CASE aggregate-input select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
+                kind: SqlAggregateKind::Sum,
+                input: Some(Box::new(SqlAggregateInputExpr::Expr(SqlExpr::Case {
+                    arms: vec![SqlCaseArm {
+                        condition: SqlExpr::Binary {
+                            op: SqlExprBinaryOp::Gte,
+                            left: Box::new(SqlExpr::Field("age".to_string())),
+                            right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                        },
+                        result: SqlExpr::Literal(Value::Int(1)),
+                    }],
+                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
+                }))),
+                distinct: false,
+            })]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+        "searched CASE aggregate inputs should stay on the shared SQL-expression boundary",
+    );
+}
+
+#[test]
 fn parse_select_statement_with_field_to_field_predicate() {
     let statement =
         parse_sql("SELECT * FROM users WHERE age > rank AND name = label ORDER BY age ASC")
@@ -326,7 +405,7 @@ fn parse_select_statement_with_field_to_field_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: vec![],
-            predicate: Some(Predicate::And(vec![
+            predicate: option_sql_pred!(Predicate::And(vec![
                 Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
                     "age",
                     CompareOp::Gt,
@@ -360,7 +439,7 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: vec![],
-            predicate: Some(Predicate::And(vec![
+            predicate: option_sql_pred!(Predicate::And(vec![
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gt,
@@ -793,7 +872,7 @@ fn parse_delete_statement_with_limit() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
                 Value::Int(18),
@@ -819,7 +898,7 @@ fn parse_delete_statement_with_limit_and_offset() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
                 Value::Int(18),
@@ -847,7 +926,7 @@ fn parse_delete_statement_accepts_single_table_alias() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
                 Value::Int(18),
@@ -891,7 +970,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
             statement,
             SqlStatement::Delete(SqlDeleteStatement {
                 entity: "users".to_string(),
-                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "name",
                     CompareOp::StartsWith,
                     literal,
@@ -964,12 +1043,14 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                 mode: SqlExplainMode::Json,
                 statement: SqlExplainTarget::Delete(SqlDeleteStatement {
                     entity: "users".to_string(),
-                    predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
-                        "name",
-                        CompareOp::StartsWith,
-                        literal,
-                        coercion,
-                    ))),
+                    predicate: option_sql_pred!(Predicate::Compare(
+                        ComparePredicate::with_coercion(
+                            "name",
+                            CompareOp::StartsWith,
+                            literal,
+                            coercion,
+                        )
+                    )),
                     order_by: vec![SqlOrderTerm {
                         field: "id".to_string(),
                         direction: SqlOrderDirection::Asc,
@@ -1060,7 +1141,7 @@ fn parse_select_statement_with_qualified_identifiers() {
                 SqlSelectItem::Field("users.age".to_string()),
             ]),
             projection_aliases: vec![None, None],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
                 Value::Int(21),
@@ -1094,7 +1175,7 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("Al".to_string()),
@@ -1128,7 +1209,7 @@ fn parse_select_statement_with_angle_bracket_not_equal_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Ne,
                 Value::Bool(true),
@@ -1162,7 +1243,7 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::In,
                 Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
@@ -1202,7 +1283,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Eq,
                 Value::Bool(true),
@@ -1225,7 +1306,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Eq,
                 Value::Bool(false),
@@ -1265,7 +1346,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
                 ComparePredicate::with_coercion(
                     "active",
                     CompareOp::Eq,
@@ -1290,7 +1371,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
                 ComparePredicate::with_coercion(
                     "active",
                     CompareOp::Eq,
@@ -1332,7 +1413,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::And(vec![
+            predicate: option_sql_pred!(Predicate::And(vec![
                 Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
@@ -1363,7 +1444,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Or(vec![
+            predicate: option_sql_pred!(Predicate::Or(vec![
                 Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
                     "age",
                     CompareOp::Lt,
@@ -1405,7 +1486,7 @@ fn parse_select_statement_with_strict_not_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
                 ComparePredicate::with_coercion(
                     "name",
                     CompareOp::StartsWith,
@@ -1441,7 +1522,7 @@ fn parse_select_statement_with_ilike_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("al".to_string()),
@@ -1475,7 +1556,7 @@ fn parse_select_statement_with_not_ilike_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
                 ComparePredicate::with_coercion(
                     "name",
                     CompareOp::StartsWith,
@@ -1511,7 +1592,7 @@ fn parse_select_statement_with_strict_text_range_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::And(vec![
+            predicate: option_sql_pred!(Predicate::And(vec![
                 Predicate::Compare(ComparePredicate::with_coercion(
                     "name",
                     CompareOp::Gte,
@@ -1553,7 +1634,7 @@ fn parse_select_statement_with_direct_starts_with_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("Al".to_string()),
@@ -1587,7 +1668,7 @@ fn parse_select_statement_with_direct_lower_starts_with_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("Al".to_string()),
@@ -1621,7 +1702,7 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("AL".to_string()),
@@ -1655,7 +1736,7 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("Al".to_string()),
@@ -1689,7 +1770,7 @@ fn parse_select_statement_with_lower_not_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Not(Box::new(Predicate::Compare(
+            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
                 ComparePredicate::with_coercion(
                     "name",
                     CompareOp::StartsWith,
@@ -1725,7 +1806,7 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::StartsWith,
                 Value::Text("AL".to_string()),
@@ -1787,7 +1868,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "users.age",
                 CompareOp::Gte,
                 Value::Int(21),
@@ -1824,7 +1905,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
                     "users.name".to_string(),
                 )]),
                 projection_aliases: vec![None],
-                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "users.age",
                     CompareOp::Gte,
                     Value::Int(21),
@@ -1966,6 +2047,63 @@ fn parse_select_grouped_statement_with_post_aggregate_having_exprs() {
     };
 
     assert_eq!(statement.having.len(), 2);
+}
+
+#[test]
+fn parse_select_grouped_statement_with_searched_case_having_exprs() {
+    let statement = parse_sql(
+        "SELECT age, COUNT(*) \
+         FROM users \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1 \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped searched CASE HAVING expressions should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    input: None,
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec!["age".to_string()],
+            having: vec![SqlHavingClause {
+                left: SqlHavingValueExpr::Expr(SqlExpr::Case {
+                    arms: vec![SqlCaseArm {
+                        condition: SqlExpr::Binary {
+                            op: SqlExprBinaryOp::Gt,
+                            left: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
+                                kind: SqlAggregateKind::Count,
+                                input: None,
+                                distinct: false,
+                            })),
+                            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                        },
+                        result: SqlExpr::Literal(Value::Int(1)),
+                    }],
+                    else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
+                }),
+                op: CompareOp::Eq,
+                right: SqlHavingValueExpr::Literal(Value::Int(1)),
+            }],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(10),
+            offset: None,
+        }),
+        "searched CASE HAVING values should stay on the shared post-aggregate SQL-expression boundary",
+    );
 }
 
 #[test]
@@ -2141,7 +2279,7 @@ fn parse_update_statement_with_assignments_and_predicate() {
                     value: Value::Int(21),
                 },
             ],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
                 CompareOp::Eq,
                 Value::Int(7),
@@ -2174,7 +2312,7 @@ fn parse_update_statement_accepts_single_table_alias() {
                     value: Value::Int(21),
                 },
             ],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
                 CompareOp::Eq,
                 Value::Int(7),
@@ -2203,7 +2341,7 @@ fn parse_update_statement_with_order_limit_and_offset() {
                 field: "age".to_string(),
                 value: Value::Int(22),
             }],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Eq,
                 Value::Bool(true),
@@ -2287,7 +2425,7 @@ fn parse_update_statement_with_returning_star_parses() {
                 field: "name".to_string(),
                 value: Value::Text("Ada".to_string()),
             }],
-            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1))),
+            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1))),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -2306,7 +2444,7 @@ fn parse_delete_statement_with_returning_field_list_parses() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1),)),
+            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1),)),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -2327,7 +2465,7 @@ fn parse_delete_statement_with_returning_star_parses() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: Some(Predicate::eq("id".to_string(), Value::Int(1),)),
+            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1),)),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -2371,7 +2509,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
                     SqlSelectItem::Field("age".to_string()),
                 ]),
                 projection_aliases: vec![None, None],
-                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
                     Value::Int(21),
@@ -2418,7 +2556,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
                     SqlSelectItem::Field("age".to_string()),
                 ]),
                 projection_aliases: vec![None, None],
-                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                     "age",
                     CompareOp::Gte,
                     Value::Int(21),
@@ -2604,6 +2742,19 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "unsupported feature label should stay stable for SQL: {sql}",
         );
     }
+}
+
+#[test]
+fn parse_select_statement_rejects_simple_case_expressions() {
+    let err = parse_sql("SELECT CASE age WHEN 21 THEN 'adult' ELSE 'minor' END FROM users")
+        .expect_err("simple CASE expressions should stay fail-closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "simple CASE expressions"
+        }
+    );
 }
 
 #[test]
@@ -2811,7 +2962,7 @@ fn parse_sql_accepts_table_alias_as_form() {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
             projection_aliases: vec![None],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Gte,
                 Value::Int(21),
@@ -2846,7 +2997,7 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
                 SqlSelectItem::Field("age".to_string()),
             ]),
             projection_aliases: vec![None, None],
-            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Gte,
                 Value::Int(21),

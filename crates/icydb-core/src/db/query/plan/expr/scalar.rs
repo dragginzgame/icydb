@@ -3,7 +3,6 @@
 //! Does not own: runtime projection evaluation or grouped projection lowering.
 //! Boundary: freezes slot-resolved scalar projection programs before execution.
 
-#[cfg(test)]
 use crate::db::query::plan::expr::UnaryOp;
 #[cfg(test)]
 use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
@@ -35,16 +34,56 @@ pub(in crate::db) enum ScalarProjectionExpr {
         function: crate::db::query::plan::expr::Function,
         args: Vec<Self>,
     },
-    #[cfg(test)]
     Unary {
         op: UnaryOp,
         expr: Box<Self>,
+    },
+    Case {
+        when_then_arms: Vec<ScalarProjectionCaseArm>,
+        else_expr: Box<Self>,
     },
     Binary {
         op: BinaryOp,
         left: Box<Self>,
         right: Box<Self>,
     },
+}
+
+///
+/// ScalarProjectionCaseArm
+///
+/// Compiled scalar searched-CASE arm carried into executor evaluation.
+/// Conditions and results are independently compiled onto the scalar seam so
+/// runtime can evaluate only the selected branch without rediscovering slots.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ScalarProjectionCaseArm {
+    condition: ScalarProjectionExpr,
+    result: ScalarProjectionExpr,
+}
+
+impl ScalarProjectionCaseArm {
+    /// Build one compiled scalar CASE arm.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        condition: ScalarProjectionExpr,
+        result: ScalarProjectionExpr,
+    ) -> Self {
+        Self { condition, result }
+    }
+
+    /// Borrow the compiled condition expression.
+    #[must_use]
+    pub(in crate::db) const fn condition(&self) -> &ScalarProjectionExpr {
+        &self.condition
+    }
+
+    /// Borrow the compiled result expression.
+    #[must_use]
+    pub(in crate::db) const fn result(&self) -> &ScalarProjectionExpr {
+        &self.result
+    }
 }
 
 ///
@@ -103,9 +142,18 @@ pub(in crate::db) fn extend_scalar_projection_referenced_slots(
                 extend_scalar_projection_referenced_slots(arg, referenced);
             }
         }
-        #[cfg(test)]
         ScalarProjectionExpr::Unary { expr, .. } => {
             extend_scalar_projection_referenced_slots(expr.as_ref(), referenced);
+        }
+        ScalarProjectionExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                extend_scalar_projection_referenced_slots(arm.condition(), referenced);
+                extend_scalar_projection_referenced_slots(arm.result(), referenced);
+            }
+            extend_scalar_projection_referenced_slots(else_expr.as_ref(), referenced);
         }
         ScalarProjectionExpr::Binary { left, right, .. } => {
             extend_scalar_projection_referenced_slots(left.as_ref(), referenced);
@@ -135,13 +183,32 @@ pub(in crate::db) fn compile_scalar_projection_expr(
                 args,
             })
         }
-        #[cfg(test)]
         Expr::Unary { op, expr } => {
             compile_scalar_projection_expr(model, expr.as_ref()).map(|expr| {
                 ScalarProjectionExpr::Unary {
                     op: *op,
                     expr: Box::new(expr),
                 }
+            })
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            let when_then_arms = when_then_arms
+                .iter()
+                .map(|arm| {
+                    Some(ScalarProjectionCaseArm::new(
+                        compile_scalar_projection_expr(model, arm.condition())?,
+                        compile_scalar_projection_expr(model, arm.result())?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let else_expr = compile_scalar_projection_expr(model, else_expr.as_ref())?;
+
+            Some(ScalarProjectionExpr::Case {
+                when_then_arms,
+                else_expr: Box::new(else_expr),
             })
         }
         Expr::Binary { op, left, right } => {

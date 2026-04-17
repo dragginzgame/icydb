@@ -934,6 +934,25 @@ fn collect_grouped_projection_aggregate_scan(
                     ))
                 })
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => when_then_arms.iter().fold(
+            collect_grouped_projection_aggregate_scan(
+                else_expr.as_ref(),
+                aggregate_projection_specs,
+            ),
+            |scan, arm| {
+                scan.combine(collect_grouped_projection_aggregate_scan(
+                    arm.condition(),
+                    aggregate_projection_specs,
+                ))
+                .combine(collect_grouped_projection_aggregate_scan(
+                    arm.result(),
+                    aggregate_projection_specs,
+                ))
+            },
+        ),
         Expr::Binary { left, right, .. } => {
             collect_grouped_projection_aggregate_scan(left.as_ref(), aggregate_projection_specs)
                 .combine(collect_grouped_projection_aggregate_scan(
@@ -942,7 +961,10 @@ fn collect_grouped_projection_aggregate_scan(
                 ))
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
+        Expr::Alias { expr, .. } => {
+            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_projection_specs)
+        }
+        Expr::Unary { expr, .. } => {
             collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_projection_specs)
         }
     }

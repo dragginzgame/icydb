@@ -316,11 +316,33 @@ pub enum ExplainGroupHavingValueExpr {
         function: String,
         args: Vec<Self>,
     },
+    Unary {
+        op: String,
+        expr: Box<Self>,
+    },
+    Case {
+        when_then_arms: Vec<ExplainGroupHavingCaseArm>,
+        else_expr: Box<Self>,
+    },
     Binary {
         op: String,
         left: Box<Self>,
         right: Box<Self>,
     },
+}
+
+///
+/// ExplainGroupHavingCaseArm
+///
+/// Stable explain-surface projection for one grouped HAVING searched-CASE arm.
+/// This keeps explain output aligned with the planner-owned grouped HAVING
+/// expression seam when searched CASE support is admitted through SQL.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainGroupHavingCaseArm {
+    pub(crate) condition: ExplainGroupHavingValueExpr,
+    pub(crate) result: ExplainGroupHavingValueExpr,
 }
 
 ///
@@ -592,6 +614,23 @@ fn explain_group_having_value_expr(expr: &GroupHavingValueExpr) -> ExplainGroupH
                 args: args.iter().map(explain_group_having_value_expr).collect(),
             }
         }
+        GroupHavingValueExpr::Unary { op, expr } => ExplainGroupHavingValueExpr::Unary {
+            op: explain_group_having_unary_op_label(*op).to_string(),
+            expr: Box::new(explain_group_having_value_expr(expr)),
+        },
+        GroupHavingValueExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => ExplainGroupHavingValueExpr::Case {
+            when_then_arms: when_then_arms
+                .iter()
+                .map(|arm| ExplainGroupHavingCaseArm {
+                    condition: explain_group_having_value_expr(arm.condition()),
+                    result: explain_group_having_value_expr(arm.result()),
+                })
+                .collect(),
+            else_expr: Box::new(explain_group_having_value_expr(else_expr)),
+        },
         GroupHavingValueExpr::Binary { op, left, right } => ExplainGroupHavingValueExpr::Binary {
             op: explain_group_having_binary_op_label(*op).to_string(),
             left: Box::new(explain_group_having_value_expr(left)),
@@ -600,18 +639,30 @@ fn explain_group_having_value_expr(expr: &GroupHavingValueExpr) -> ExplainGroupH
     }
 }
 
+const fn explain_group_having_unary_op_label(
+    op: crate::db::query::plan::expr::UnaryOp,
+) -> &'static str {
+    match op {
+        crate::db::query::plan::expr::UnaryOp::Not => "NOT",
+    }
+}
+
 const fn explain_group_having_binary_op_label(
     op: crate::db::query::plan::expr::BinaryOp,
 ) -> &'static str {
     match op {
+        crate::db::query::plan::expr::BinaryOp::Or => "OR",
+        crate::db::query::plan::expr::BinaryOp::And => "AND",
+        crate::db::query::plan::expr::BinaryOp::Eq => "=",
+        crate::db::query::plan::expr::BinaryOp::Ne => "!=",
+        crate::db::query::plan::expr::BinaryOp::Lt => "<",
+        crate::db::query::plan::expr::BinaryOp::Lte => "<=",
+        crate::db::query::plan::expr::BinaryOp::Gt => ">",
+        crate::db::query::plan::expr::BinaryOp::Gte => ">=",
         crate::db::query::plan::expr::BinaryOp::Add => "+",
         crate::db::query::plan::expr::BinaryOp::Sub => "-",
         crate::db::query::plan::expr::BinaryOp::Mul => "*",
         crate::db::query::plan::expr::BinaryOp::Div => "/",
-        #[cfg(test)]
-        crate::db::query::plan::expr::BinaryOp::And => "AND",
-        #[cfg(test)]
-        crate::db::query::plan::expr::BinaryOp::Eq => "=",
     }
 }
 

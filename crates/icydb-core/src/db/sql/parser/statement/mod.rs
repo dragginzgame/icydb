@@ -8,18 +8,14 @@ mod insert;
 mod select;
 mod update;
 
-use crate::db::{
-    predicate::Predicate,
-    sql::identifier::{
-        identifier_last_segment, normalize_identifier_to_scope, rewrite_field_identifiers,
-    },
-};
+use crate::db::sql::identifier::{identifier_last_segment, normalize_identifier_to_scope};
 use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
-        SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm,
-        SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+        SqlAssignment, SqlCompareFieldsPredicate, SqlComparePredicate, SqlDeleteStatement,
+        SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
+        SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection,
+        SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
         SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
         SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
         SqlUpdateStatement,
@@ -278,6 +274,9 @@ pub(super) fn normalize_projection_for_table_alias(
                     SqlSelectItem::Round(call) => SqlSelectItem::Round(
                         normalize_round_projection_call_for_table_alias(call, scope.as_slice()),
                     ),
+                    SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(
+                        normalize_sql_expr_for_table_alias(expr, scope.as_slice()),
+                    ),
                 })
                 .collect(),
         ),
@@ -333,15 +332,13 @@ fn normalize_projection_operand_for_table_alias(
 // Reduce one parsed predicate tree onto canonical entity-local identifiers so
 // alias-qualified WHERE clauses stay planner-neutral.
 pub(super) fn normalize_predicate_for_table_alias(
-    predicate: Predicate,
+    predicate: SqlPredicate,
     entity: &str,
     alias: &str,
-) -> Predicate {
+) -> SqlPredicate {
     let scope = table_alias_scope(entity, alias);
 
-    rewrite_field_identifiers(predicate, |field| {
-        normalize_identifier_to_scope(field, scope.as_slice())
-    })
+    normalize_sql_predicate_for_table_alias(predicate, scope.as_slice())
 }
 
 // Reduce one identifier list such as GROUP BY onto canonical entity-local
@@ -426,6 +423,9 @@ fn normalize_having_value_expr_for_table_alias(
                 scale,
             })
         }
+        SqlHavingValueExpr::Expr(expr) => {
+            SqlHavingValueExpr::Expr(normalize_sql_expr_for_table_alias(expr, scope))
+        }
     }
 }
 
@@ -477,6 +477,115 @@ fn normalize_aggregate_input_expr_for_table_alias(
         SqlAggregateInputExpr::Round(call) => SqlAggregateInputExpr::Round(
             normalize_round_projection_call_for_table_alias(call, scope),
         ),
+        SqlAggregateInputExpr::Expr(expr) => {
+            SqlAggregateInputExpr::Expr(normalize_sql_expr_for_table_alias(expr, scope))
+        }
+    }
+}
+
+fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]) -> SqlExpr {
+    match expr {
+        SqlExpr::Field(field) => SqlExpr::Field(normalize_identifier_to_scope(field, scope)),
+        SqlExpr::Aggregate(aggregate) => {
+            SqlExpr::Aggregate(normalize_aggregate_call_for_table_alias(aggregate, scope))
+        }
+        SqlExpr::Literal(value) => SqlExpr::Literal(value),
+        SqlExpr::TextFunction(call) => {
+            SqlExpr::TextFunction(normalize_text_function_call_for_table_alias(call, scope))
+        }
+        SqlExpr::Round(call) => {
+            SqlExpr::Round(normalize_round_projection_call_for_table_alias(call, scope))
+        }
+        SqlExpr::Unary { op, expr } => SqlExpr::Unary {
+            op,
+            expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
+        },
+        SqlExpr::Binary { op, left, right } => SqlExpr::Binary {
+            op,
+            left: Box::new(normalize_sql_expr_for_table_alias(*left, scope)),
+            right: Box::new(normalize_sql_expr_for_table_alias(*right, scope)),
+        },
+        SqlExpr::Case { arms, else_expr } => SqlExpr::Case {
+            arms: arms
+                .into_iter()
+                .map(|arm| crate::db::sql::parser::SqlCaseArm {
+                    condition: normalize_sql_expr_for_table_alias(arm.condition, scope),
+                    result: normalize_sql_expr_for_table_alias(arm.result, scope),
+                })
+                .collect(),
+            else_expr: else_expr
+                .map(|else_expr| Box::new(normalize_sql_expr_for_table_alias(*else_expr, scope))),
+        },
+    }
+}
+
+fn normalize_sql_predicate_for_table_alias(
+    predicate: SqlPredicate,
+    scope: &[String],
+) -> SqlPredicate {
+    match predicate {
+        SqlPredicate::True => SqlPredicate::True,
+        SqlPredicate::False => SqlPredicate::False,
+        SqlPredicate::And(children) => SqlPredicate::And(
+            children
+                .into_iter()
+                .map(|child| normalize_sql_predicate_for_table_alias(child, scope))
+                .collect(),
+        ),
+        SqlPredicate::Or(children) => SqlPredicate::Or(
+            children
+                .into_iter()
+                .map(|child| normalize_sql_predicate_for_table_alias(child, scope))
+                .collect(),
+        ),
+        SqlPredicate::Not(inner) => SqlPredicate::Not(Box::new(
+            normalize_sql_predicate_for_table_alias(*inner, scope),
+        )),
+        SqlPredicate::Compare(SqlComparePredicate {
+            field,
+            op,
+            value,
+            coercion,
+        }) => SqlPredicate::Compare(SqlComparePredicate {
+            field: normalize_identifier_to_scope(field, scope),
+            op,
+            value,
+            coercion,
+        }),
+        SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
+            left_field,
+            op,
+            right_field,
+            coercion,
+        }) => SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
+            left_field: normalize_identifier_to_scope(left_field, scope),
+            op,
+            right_field: normalize_identifier_to_scope(right_field, scope),
+            coercion,
+        }),
+        SqlPredicate::IsNull { field } => SqlPredicate::IsNull {
+            field: normalize_identifier_to_scope(field, scope),
+        },
+        SqlPredicate::IsNotNull { field } => SqlPredicate::IsNotNull {
+            field: normalize_identifier_to_scope(field, scope),
+        },
+        SqlPredicate::IsMissing { field } => SqlPredicate::IsMissing {
+            field: normalize_identifier_to_scope(field, scope),
+        },
+        SqlPredicate::IsEmpty { field } => SqlPredicate::IsEmpty {
+            field: normalize_identifier_to_scope(field, scope),
+        },
+        SqlPredicate::IsNotEmpty { field } => SqlPredicate::IsNotEmpty {
+            field: normalize_identifier_to_scope(field, scope),
+        },
+        SqlPredicate::TextContains { field, value } => SqlPredicate::TextContains {
+            field: normalize_identifier_to_scope(field, scope),
+            value,
+        },
+        SqlPredicate::TextContainsCi { field, value } => SqlPredicate::TextContainsCi {
+            field: normalize_identifier_to_scope(field, scope),
+            value,
+        },
     }
 }
 

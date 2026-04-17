@@ -174,6 +174,10 @@ enum ProjectionExprCacheKey {
         function: Function,
         args: Vec<Self>,
     },
+    Case {
+        when_then_arms: Vec<CaseWhenArmCacheKey>,
+        else_expr: Box<Self>,
+    },
     Binary {
         op: BinaryOpCacheKey,
         left: Box<Self>,
@@ -182,16 +186,26 @@ enum ProjectionExprCacheKey {
     Aggregate(AggregateExprCacheKey),
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct CaseWhenArmCacheKey {
+    condition: ProjectionExprCacheKey,
+    result: ProjectionExprCacheKey,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum BinaryOpCacheKey {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
     Add,
     Sub,
     Mul,
     Div,
-    #[cfg(test)]
-    And,
-    #[cfg(test)]
-    Eq,
 }
 
 ///
@@ -277,11 +291,25 @@ enum GroupHavingValueExprCacheKey {
         function: Function,
         args: Vec<Self>,
     },
+    Unary {
+        op_tag: u8,
+        expr: Box<Self>,
+    },
+    Case {
+        when_then_arms: Vec<GroupHavingCaseArmCacheKey>,
+        else_expr: Box<Self>,
+    },
     Binary {
         op: BinaryOpCacheKey,
         left: Box<Self>,
         right: Box<Self>,
     },
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct GroupHavingCaseArmCacheKey {
+    condition: GroupHavingValueExprCacheKey,
+    result: GroupHavingValueExprCacheKey,
 }
 
 ///
@@ -525,6 +553,16 @@ impl ProjectionExprCacheKey {
                 function: *function,
                 args: args.iter().map(Self::from_expr).collect(),
             },
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => Self::Case {
+                when_then_arms: when_then_arms
+                    .iter()
+                    .map(CaseWhenArmCacheKey::from_arm)
+                    .collect(),
+                else_expr: Box::new(Self::from_expr(else_expr.as_ref())),
+            },
             Expr::Binary { op, left, right } => Self::Binary {
                 op: BinaryOpCacheKey::from_binary_op(*op),
                 left: Box::new(Self::from_expr(left.as_ref())),
@@ -535,7 +573,6 @@ impl ProjectionExprCacheKey {
             }
             #[cfg(test)]
             Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref()),
-            #[cfg(test)]
             Expr::Unary { op: _, expr } => Self::from_expr(expr.as_ref()),
         }
     }
@@ -544,14 +581,27 @@ impl ProjectionExprCacheKey {
 impl BinaryOpCacheKey {
     const fn from_binary_op(op: crate::db::query::plan::expr::BinaryOp) -> Self {
         match op {
+            crate::db::query::plan::expr::BinaryOp::Or => Self::Or,
+            crate::db::query::plan::expr::BinaryOp::And => Self::And,
+            crate::db::query::plan::expr::BinaryOp::Eq => Self::Eq,
+            crate::db::query::plan::expr::BinaryOp::Ne => Self::Ne,
+            crate::db::query::plan::expr::BinaryOp::Lt => Self::Lt,
+            crate::db::query::plan::expr::BinaryOp::Lte => Self::Lte,
+            crate::db::query::plan::expr::BinaryOp::Gt => Self::Gt,
+            crate::db::query::plan::expr::BinaryOp::Gte => Self::Gte,
             crate::db::query::plan::expr::BinaryOp::Add => Self::Add,
             crate::db::query::plan::expr::BinaryOp::Sub => Self::Sub,
             crate::db::query::plan::expr::BinaryOp::Mul => Self::Mul,
             crate::db::query::plan::expr::BinaryOp::Div => Self::Div,
-            #[cfg(test)]
-            crate::db::query::plan::expr::BinaryOp::And => Self::And,
-            #[cfg(test)]
-            crate::db::query::plan::expr::BinaryOp::Eq => Self::Eq,
+        }
+    }
+}
+
+impl CaseWhenArmCacheKey {
+    fn from_arm(arm: &crate::db::query::plan::expr::CaseWhenArm) -> Self {
+        Self {
+            condition: ProjectionExprCacheKey::from_expr(arm.condition()),
+            result: ProjectionExprCacheKey::from_expr(arm.result()),
         }
     }
 }
@@ -649,12 +699,41 @@ impl GroupHavingValueExprCacheKey {
                     .map(Self::from_having_value_expr)
                     .collect::<Vec<_>>(),
             },
+            GroupHavingValueExpr::Unary { op, expr } => Self::Unary {
+                op_tag: group_having_unary_op_tag(*op),
+                expr: Box::new(Self::from_having_value_expr(expr.as_ref())),
+            },
+            GroupHavingValueExpr::Case {
+                when_then_arms,
+                else_expr,
+            } => Self::Case {
+                when_then_arms: when_then_arms
+                    .iter()
+                    .map(GroupHavingCaseArmCacheKey::from_arm)
+                    .collect(),
+                else_expr: Box::new(Self::from_having_value_expr(else_expr.as_ref())),
+            },
             GroupHavingValueExpr::Binary { op, left, right } => Self::Binary {
                 op: BinaryOpCacheKey::from_binary_op(*op),
                 left: Box::new(Self::from_having_value_expr(left.as_ref())),
                 right: Box::new(Self::from_having_value_expr(right.as_ref())),
             },
         }
+    }
+}
+
+impl GroupHavingCaseArmCacheKey {
+    fn from_arm(arm: &crate::db::query::plan::GroupHavingCaseArm) -> Self {
+        Self {
+            condition: GroupHavingValueExprCacheKey::from_having_value_expr(arm.condition()),
+            result: GroupHavingValueExprCacheKey::from_having_value_expr(arm.result()),
+        }
+    }
+}
+
+const fn group_having_unary_op_tag(op: crate::db::query::plan::expr::UnaryOp) -> u8 {
+    match op {
+        crate::db::query::plan::expr::UnaryOp::Not => 0x02,
     }
 }
 

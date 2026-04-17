@@ -7,14 +7,32 @@ use crate::{
     db::{
         sql::parser::{
             Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind,
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
-            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-            SqlTextFunction, SqlTextFunctionCall,
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlCaseArm, SqlExpr,
+            SqlExprBinaryOp, SqlExprUnaryOp, SqlProjection, SqlProjectionOperand,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
+            SqlTextFunctionCall,
         },
         sql_shared::{Keyword, TokenKind},
     },
     value::Value,
 };
+
+#[derive(Clone, Copy)]
+pub(super) enum SqlExprParseSurface {
+    Projection,
+    AggregateInput,
+    HavingValue,
+}
+
+impl SqlExprParseSurface {
+    const fn allows_aggregates(self) -> bool {
+        matches!(self, Self::Projection | Self::HavingValue)
+    }
+
+    const fn allows_text_functions(self) -> bool {
+        matches!(self, Self::Projection)
+    }
+}
 
 impl Parser {
     pub(super) fn parse_projection(
@@ -48,94 +66,9 @@ impl Parser {
     }
 
     fn parse_select_item(&mut self) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
-        if matches!(
-            self.peek_kind(),
-            Some(
-                TokenKind::StringLiteral(_)
-                    | TokenKind::Number(_)
-                    | TokenKind::Keyword(
-                        crate::db::sql_shared::Keyword::Null
-                            | crate::db::sql_shared::Keyword::True
-                            | crate::db::sql_shared::Keyword::False,
-                    )
-                    | TokenKind::LParen
-            )
-        ) {
-            let expr = self.parse_projection_arithmetic_expr(0)?;
+        let expr = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
 
-            return match expr {
-                SqlProjectionOperand::Arithmetic(call) => Ok(SqlSelectItem::Arithmetic(*call)),
-                SqlProjectionOperand::Field(field) => Ok(SqlSelectItem::Field(field)),
-                SqlProjectionOperand::Aggregate(aggregate) => {
-                    Ok(SqlSelectItem::Aggregate(aggregate))
-                }
-                SqlProjectionOperand::Literal(_) => {
-                    Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        "standalone literal projection items are not supported",
-                    ))
-                }
-            };
-        }
-
-        if let Some(kind) = self.parse_aggregate_kind() {
-            let aggregate = self.parse_aggregate_call(kind)?;
-            if self.peek_keyword(Keyword::Filter) {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "aggregate FILTER clauses",
-                ));
-            }
-            if self.peek_keyword(Keyword::Over) {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "window functions / OVER",
-                ));
-            }
-            let expr = self.parse_projection_arithmetic_expr_tail(
-                SqlProjectionOperand::Aggregate(aggregate),
-                0,
-            )?;
-
-            return Self::select_item_from_projection_expr(expr);
-        }
-
-        let field = self.expect_identifier()?;
-        if self.peek_lparen() {
-            if field.eq_ignore_ascii_case("ROUND") {
-                let round = self.parse_round_projection_call()?;
-                if self.peek_keyword(Keyword::Over) {
-                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        "window functions / OVER",
-                    ));
-                }
-
-                return Ok(SqlSelectItem::Round(round));
-            }
-
-            let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
-                if self.function_call_is_followed_by_keyword(Keyword::Over) {
-                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        "window functions / OVER",
-                    ));
-                }
-
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "SQL function namespace beyond supported aggregate or scalar text projection forms",
-                ));
-            };
-
-            let call = self.parse_text_function_call(function)?;
-            if self.peek_keyword(Keyword::Over) {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "window functions / OVER",
-                ));
-            }
-
-            return Ok(SqlSelectItem::TextFunction(call));
-        }
-
-        let expr =
-            self.parse_projection_arithmetic_expr_tail(SqlProjectionOperand::Field(field), 0)?;
-
-        Self::select_item_from_projection_expr(expr)
+        Self::select_item_from_sql_expr(expr)
     }
 
     pub(super) fn parse_aggregate_kind(&self) -> Option<SqlAggregateKind> {
@@ -175,31 +108,9 @@ impl Parser {
     fn parse_aggregate_input_expr(
         &mut self,
     ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
-            let field = self.expect_identifier()?;
-            if self.peek_lparen() {
-                if !field.eq_ignore_ascii_case("ROUND") {
-                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        "aggregate input functions beyond supported ROUND(...) forms",
-                    ));
-                }
+        let expr = self.parse_sql_expr(SqlExprParseSurface::AggregateInput, 0)?;
 
-                return Ok(SqlAggregateInputExpr::Round(
-                    self.parse_aggregate_input_round_call()?,
-                ));
-            }
-
-            let expr = self.parse_aggregate_input_arithmetic_expr_tail(
-                SqlProjectionOperand::Field(field),
-                0,
-            )?;
-
-            return Self::aggregate_input_expr_from_projection_expr(expr);
-        }
-
-        let expr = self.parse_aggregate_input_arithmetic_expr(0)?;
-
-        Self::aggregate_input_expr_from_projection_expr(expr)
+        Self::aggregate_input_expr_from_sql_expr(expr)
     }
 
     fn parse_text_function_call(
@@ -467,6 +378,23 @@ impl Parser {
         }
     }
 
+    fn select_item_from_sql_expr(
+        expr: SqlExpr,
+    ) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
+        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
+            return Self::select_item_from_projection_expr(operand);
+        }
+
+        match expr {
+            SqlExpr::TextFunction(call) => Ok(SqlSelectItem::TextFunction(call)),
+            SqlExpr::Round(call) => Ok(SqlSelectItem::Round(call)),
+            SqlExpr::Literal(_) => Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "standalone literal projection items are not supported",
+            )),
+            other => Ok(SqlSelectItem::Expr(other)),
+        }
+    }
+
     fn aggregate_input_expr_from_projection_expr(
         expr: SqlProjectionOperand,
     ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
@@ -480,6 +408,238 @@ impl Parser {
                 ))
             }
         }
+    }
+
+    fn aggregate_input_expr_from_sql_expr(
+        expr: SqlExpr,
+    ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
+        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
+            return Self::aggregate_input_expr_from_projection_expr(operand);
+        }
+
+        match expr {
+            SqlExpr::Round(call) => Ok(SqlAggregateInputExpr::Round(call)),
+            SqlExpr::Aggregate(_) => {
+                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "nested aggregate references inside aggregate input expressions",
+                ))
+            }
+            other => Ok(SqlAggregateInputExpr::Expr(other)),
+        }
+    }
+
+    pub(super) fn projection_operand_from_sql_expr(expr: &SqlExpr) -> Option<SqlProjectionOperand> {
+        match expr {
+            SqlExpr::Field(field) => Some(SqlProjectionOperand::Field(field.clone())),
+            SqlExpr::Aggregate(aggregate) => {
+                Some(SqlProjectionOperand::Aggregate(aggregate.clone()))
+            }
+            SqlExpr::Literal(literal) => Some(SqlProjectionOperand::Literal(literal.clone())),
+            SqlExpr::Binary { op, left, right } => {
+                let op = match op {
+                    SqlExprBinaryOp::Add => SqlArithmeticProjectionOp::Add,
+                    SqlExprBinaryOp::Sub => SqlArithmeticProjectionOp::Sub,
+                    SqlExprBinaryOp::Mul => SqlArithmeticProjectionOp::Mul,
+                    SqlExprBinaryOp::Div => SqlArithmeticProjectionOp::Div,
+                    SqlExprBinaryOp::Or
+                    | SqlExprBinaryOp::And
+                    | SqlExprBinaryOp::Eq
+                    | SqlExprBinaryOp::Ne
+                    | SqlExprBinaryOp::Lt
+                    | SqlExprBinaryOp::Lte
+                    | SqlExprBinaryOp::Gt
+                    | SqlExprBinaryOp::Gte => return None,
+                };
+
+                Some(SqlProjectionOperand::Arithmetic(Box::new(
+                    SqlArithmeticProjectionCall {
+                        left: Self::projection_operand_from_sql_expr(left)?,
+                        op,
+                        right: Self::projection_operand_from_sql_expr(right)?,
+                    },
+                )))
+            }
+            SqlExpr::TextFunction(_)
+            | SqlExpr::Round(_)
+            | SqlExpr::Unary { .. }
+            | SqlExpr::Case { .. } => None,
+        }
+    }
+
+    pub(super) fn parse_sql_expr(
+        &mut self,
+        surface: SqlExprParseSurface,
+        min_precedence: u8,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let mut left = self.parse_sql_expr_prefix(surface)?;
+
+        while let Some((op, precedence)) = self.peek_sql_expr_binary_op() {
+            if precedence < min_precedence {
+                break;
+            }
+
+            self.advance_sql_expr_binary_op();
+            let right = self.parse_sql_expr(surface, precedence.saturating_add(1))?;
+            left = SqlExpr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_sql_expr_prefix(
+        &mut self,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        if self.eat_identifier_keyword("CASE") {
+            return self.parse_searched_case_expr(surface);
+        }
+        if self.eat_keyword(Keyword::Not) {
+            return Ok(SqlExpr::Unary {
+                op: SqlExprUnaryOp::Not,
+                expr: Box::new(self.parse_sql_expr_prefix(surface)?),
+            });
+        }
+        if self.peek_lparen() {
+            self.expect_lparen()?;
+            let expr = self.parse_sql_expr(surface, 0)?;
+            self.expect_rparen()?;
+
+            return Ok(expr);
+        }
+        if matches!(
+            self.peek_kind(),
+            Some(
+                TokenKind::StringLiteral(_)
+                    | TokenKind::Number(_)
+                    | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False)
+                    | TokenKind::Minus
+            )
+        ) {
+            return self.parse_literal().map(SqlExpr::Literal);
+        }
+        if surface.allows_aggregates()
+            && let Some(kind) = self.parse_aggregate_kind()
+        {
+            let aggregate = self.parse_aggregate_call(kind)?;
+            if self.peek_keyword(Keyword::Filter) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "aggregate FILTER clauses",
+                ));
+            }
+            if self.peek_keyword(Keyword::Over) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "window functions / OVER",
+                ));
+            }
+
+            return Ok(SqlExpr::Aggregate(aggregate));
+        }
+
+        let field = self.expect_identifier()?;
+        if !self.peek_lparen() {
+            return Ok(SqlExpr::Field(field));
+        }
+        if field.eq_ignore_ascii_case("ROUND") {
+            let round = if matches!(surface, SqlExprParseSurface::AggregateInput) {
+                self.parse_aggregate_input_round_call()?
+            } else {
+                self.parse_round_projection_call()?
+            };
+            if self.peek_keyword(Keyword::Over) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "window functions / OVER",
+                ));
+            }
+
+            return Ok(SqlExpr::Round(round));
+        }
+        if !surface.allows_text_functions() {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "functions beyond supported ROUND(...) forms are not supported in this expression position",
+            ));
+        }
+
+        let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
+            if self.function_call_is_followed_by_keyword(Keyword::Over) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "window functions / OVER",
+                ));
+            }
+
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "SQL function namespace beyond supported aggregate or scalar text projection forms",
+            ));
+        };
+
+        let call = self.parse_text_function_call(function)?;
+        if self.peek_keyword(Keyword::Over) {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "window functions / OVER",
+            ));
+        }
+
+        Ok(SqlExpr::TextFunction(call))
+    }
+
+    fn parse_searched_case_expr(
+        &mut self,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        if !self.eat_identifier_keyword("WHEN") {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "simple CASE expressions",
+            ));
+        }
+
+        let mut arms = Vec::new();
+        loop {
+            let condition = self.parse_sql_expr(surface, 0)?;
+            self.expect_identifier_keyword("THEN")?;
+            let result = self.parse_sql_expr(surface, 0)?;
+            arms.push(SqlCaseArm { condition, result });
+
+            if !self.eat_identifier_keyword("WHEN") {
+                break;
+            }
+        }
+
+        let else_expr = if self.eat_identifier_keyword("ELSE") {
+            Some(Box::new(self.parse_sql_expr(surface, 0)?))
+        } else {
+            None
+        };
+
+        self.expect_identifier_keyword("END")?;
+
+        Ok(SqlExpr::Case { arms, else_expr })
+    }
+
+    fn peek_sql_expr_binary_op(&self) -> Option<(SqlExprBinaryOp, u8)> {
+        let op = match self.peek_kind() {
+            Some(TokenKind::Keyword(Keyword::Or)) => SqlExprBinaryOp::Or,
+            Some(TokenKind::Keyword(Keyword::And)) => SqlExprBinaryOp::And,
+            Some(TokenKind::Eq) => SqlExprBinaryOp::Eq,
+            Some(TokenKind::Ne) => SqlExprBinaryOp::Ne,
+            Some(TokenKind::Lt) => SqlExprBinaryOp::Lt,
+            Some(TokenKind::Lte) => SqlExprBinaryOp::Lte,
+            Some(TokenKind::Gt) => SqlExprBinaryOp::Gt,
+            Some(TokenKind::Gte) => SqlExprBinaryOp::Gte,
+            Some(TokenKind::Plus) => SqlExprBinaryOp::Add,
+            Some(TokenKind::Minus) => SqlExprBinaryOp::Sub,
+            Some(TokenKind::Star) => SqlExprBinaryOp::Mul,
+            Some(TokenKind::Slash) => SqlExprBinaryOp::Div,
+            _ => return None,
+        };
+
+        Some((op, sql_expr_binary_op_precedence(op)))
+    }
+
+    const fn advance_sql_expr_binary_op(&mut self) {
+        let _ = self.cursor.advance();
     }
 
     fn parse_projection_arithmetic_expr(
@@ -638,6 +798,21 @@ impl Parser {
         let _ = self.cursor.advance();
 
         Some(op)
+    }
+}
+
+const fn sql_expr_binary_op_precedence(op: SqlExprBinaryOp) -> u8 {
+    match op {
+        SqlExprBinaryOp::Or => 1,
+        SqlExprBinaryOp::And => 2,
+        SqlExprBinaryOp::Eq
+        | SqlExprBinaryOp::Ne
+        | SqlExprBinaryOp::Lt
+        | SqlExprBinaryOp::Lte
+        | SqlExprBinaryOp::Gt
+        | SqlExprBinaryOp::Gte => 3,
+        SqlExprBinaryOp::Add | SqlExprBinaryOp::Sub => 4,
+        SqlExprBinaryOp::Mul | SqlExprBinaryOp::Div => 5,
     }
 }
 

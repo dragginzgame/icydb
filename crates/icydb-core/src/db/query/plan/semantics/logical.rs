@@ -574,6 +574,35 @@ fn collect_grouped_having_value_expr_aggregate_projection_specs(
                 )?;
             }
         }
+        GroupHavingValueExpr::Unary { expr, .. } => {
+            collect_grouped_having_value_expr_aggregate_projection_specs(
+                aggregate_projection_specs,
+                grouped,
+                expr,
+            )?;
+        }
+        GroupHavingValueExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                collect_grouped_having_value_expr_aggregate_projection_specs(
+                    aggregate_projection_specs,
+                    grouped,
+                    arm.condition(),
+                )?;
+                collect_grouped_having_value_expr_aggregate_projection_specs(
+                    aggregate_projection_specs,
+                    grouped,
+                    arm.result(),
+                )?;
+            }
+            collect_grouped_having_value_expr_aggregate_projection_specs(
+                aggregate_projection_specs,
+                grouped,
+                else_expr,
+            )?;
+        }
         GroupHavingValueExpr::Binary { left, right, .. } => {
             collect_grouped_having_value_expr_aggregate_projection_specs(
                 aggregate_projection_specs,
@@ -657,12 +686,21 @@ fn mark_projection_expr_slots(
                 mark_projection_expr_slots(model, arg, referenced)?;
             }
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                mark_projection_expr_slots(model, arm.condition(), referenced)?;
+                mark_projection_expr_slots(model, arm.result(), referenced)?;
+            }
+            mark_projection_expr_slots(model, else_expr.as_ref(), referenced)?;
+        }
         Expr::Aggregate(_) => {}
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
         }
-        #[cfg(test)]
         Expr::Unary { expr, .. } => {
             mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
         }
@@ -775,6 +813,16 @@ fn validate_resolved_order_expr_fields(
                 validate_resolved_order_expr_fields(model, arg, rendered)?;
             }
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                validate_resolved_order_expr_fields(model, arm.condition(), rendered)?;
+                validate_resolved_order_expr_fields(model, arm.result(), rendered)?;
+            }
+            validate_resolved_order_expr_fields(model, else_expr.as_ref(), rendered)?;
+        }
         Expr::Binary { left, right, .. } => {
             validate_resolved_order_expr_fields(model, left.as_ref(), rendered)?;
             validate_resolved_order_expr_fields(model, right.as_ref(), rendered)?;
@@ -783,7 +831,10 @@ fn validate_resolved_order_expr_fields(
             return Err(order_expression_scalar_seam_error(rendered));
         }
         #[cfg(test)]
-        Expr::Alias { .. } | Expr::Unary { .. } => {
+        Expr::Alias { .. } => {
+            return Err(order_expression_scalar_seam_error(rendered));
+        }
+        Expr::Unary { .. } => {
             return Err(order_expression_scalar_seam_error(rendered));
         }
     }

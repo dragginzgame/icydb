@@ -61,8 +61,8 @@ mod tests {
         db::{
             executor::projection::{GroupedRowView, compile_grouped_having_expr},
             query::plan::{
-                FieldSlot, GroupHavingExpr, GroupHavingValueExpr,
-                expr::{BinaryOp, Function},
+                FieldSlot, GroupHavingCaseArm, GroupHavingExpr, GroupHavingValueExpr,
+                expr::{BinaryOp, Function, UnaryOp},
             },
         },
         types::Decimal,
@@ -140,6 +140,33 @@ mod tests {
             GroupedRowView::new(&group_key_values, &aggregate_values, &group_fields, &[]);
         let matched = group_matches_having_expr(&compiled, &grouped_row)
             .expect("grouped HAVING AND expression should evaluate");
+
+        assert!(matched);
+    }
+
+    #[test]
+    fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
+        let expr = GroupHavingExpr::Compare {
+            left: GroupHavingValueExpr::Case {
+                when_then_arms: vec![GroupHavingCaseArm::new(
+                    GroupHavingValueExpr::Unary {
+                        op: UnaryOp::Not,
+                        expr: Box::new(GroupHavingValueExpr::Literal(Value::Bool(false))),
+                    },
+                    GroupHavingValueExpr::AggregateIndex(0),
+                )],
+                else_expr: Box::new(GroupHavingValueExpr::Literal(Value::Uint(0))),
+            },
+            op: crate::db::predicate::CompareOp::Gt,
+            right: GroupHavingValueExpr::Literal(Value::Uint(5)),
+        };
+
+        let compiled =
+            compile_grouped_having_expr(&expr, &[]).expect("grouped HAVING CASE should compile");
+        let aggregate_values = [Value::Uint(6)];
+        let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+        let matched = group_matches_having_expr(&compiled, &grouped_row)
+            .expect("grouped HAVING CASE should evaluate");
 
         assert!(matched);
     }

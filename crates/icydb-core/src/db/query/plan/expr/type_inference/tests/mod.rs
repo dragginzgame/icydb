@@ -9,7 +9,7 @@ use crate::{
             builder::aggregate::{AggregateExpr, min, min_by, sum},
             plan::{
                 AggregateKind, PlanError, PlanUserError,
-                expr::{BinaryOp, Expr, FieldId},
+                expr::{BinaryOp, CaseWhenArm, Expr, FieldId},
                 validate::ExprPlanError,
             },
         },
@@ -184,6 +184,88 @@ fn infer_binary_numeric_expr_keeps_numeric_with_unknown_subtype_for_mixed_operan
         infer_expr_type(&expr, schema).expect("mixed numeric addition should stay numeric");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Unknown));
+}
+
+#[test]
+fn infer_binary_boolean_or_returns_bool() {
+    let schema = schema();
+    let expr = Expr::Binary {
+        op: BinaryOp::Or,
+        left: Box::new(Expr::Field(FieldId::new("flag"))),
+        right: Box::new(Expr::Literal(Value::Bool(false))),
+    };
+
+    let inferred = infer_expr_type(&expr, schema).expect("boolean or should infer");
+
+    assert_eq!(inferred, ExprType::Bool);
+}
+
+#[test]
+fn infer_binary_order_compare_over_numeric_expr_returns_bool() {
+    let schema = schema();
+    let expr = Expr::Binary {
+        op: BinaryOp::Gt,
+        left: Box::new(Expr::Field(FieldId::new("rank"))),
+        right: Box::new(Expr::Literal(Value::Int(5))),
+    };
+
+    let inferred = infer_expr_type(&expr, schema).expect("numeric comparison should infer");
+
+    assert_eq!(inferred, ExprType::Bool);
+}
+
+#[test]
+fn infer_searched_case_returns_shared_branch_type() {
+    let schema = schema();
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Field(FieldId::new("flag")),
+            Expr::Literal(Value::Int(1)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Uint(0))),
+    };
+
+    let inferred = infer_expr_type(&expr, schema).expect("searched CASE should infer");
+
+    assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
+}
+
+#[test]
+fn infer_searched_case_rejects_non_boolean_conditions() {
+    let schema = schema();
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Field(FieldId::new("rank")),
+            Expr::Literal(Value::Int(1)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Int(0))),
+    };
+
+    let err = infer_expr_type(&expr, schema)
+        .expect_err("searched CASE must reject non-boolean branch conditions");
+    assert!(is_expr_plan_error(&err, |inner| matches!(
+        inner,
+        ExprPlanError::InvalidCaseConditionType { .. }
+    )));
+}
+
+#[test]
+fn infer_searched_case_rejects_incompatible_branch_types() {
+    let schema = schema();
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Field(FieldId::new("flag")),
+            Expr::Literal(Value::Text("yes".to_string())),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Int(0))),
+    };
+
+    let err = infer_expr_type(&expr, schema)
+        .expect_err("searched CASE must reject incompatible result branches");
+    assert!(is_expr_plan_error(&err, |inner| matches!(
+        inner,
+        ExprPlanError::IncompatibleCaseBranchTypes { .. }
+    )));
 }
 
 #[test]

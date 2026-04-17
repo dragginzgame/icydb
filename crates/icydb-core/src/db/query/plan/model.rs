@@ -544,6 +544,41 @@ pub(crate) struct GroupHavingClause {
 }
 
 ///
+/// GroupHavingCaseArm
+///
+/// Slot-resolved grouped searched-CASE branch used inside grouped HAVING
+/// value expressions. This keeps grouped HAVING on the same post-aggregate
+/// scalar-expression seam as grouped projection values before SQL CASE
+/// syntax is admitted.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GroupHavingCaseArm {
+    condition: GroupHavingValueExpr,
+    result: GroupHavingValueExpr,
+}
+
+impl GroupHavingCaseArm {
+    /// Build one grouped HAVING searched-CASE arm.
+    #[must_use]
+    pub(crate) const fn new(condition: GroupHavingValueExpr, result: GroupHavingValueExpr) -> Self {
+        Self { condition, result }
+    }
+
+    /// Borrow the boolean grouped HAVING branch condition.
+    #[must_use]
+    pub(crate) const fn condition(&self) -> &GroupHavingValueExpr {
+        &self.condition
+    }
+
+    /// Borrow the grouped HAVING branch result expression.
+    #[must_use]
+    pub(crate) const fn result(&self) -> &GroupHavingValueExpr {
+        &self.result
+    }
+}
+
+///
 /// GroupHavingValueExpr
 ///
 /// Slot-resolved grouped HAVING value expression.
@@ -559,6 +594,14 @@ pub(crate) enum GroupHavingValueExpr {
     FunctionCall {
         function: Function,
         args: Vec<Self>,
+    },
+    Unary {
+        op: crate::db::query::plan::expr::UnaryOp,
+        expr: Box<Self>,
+    },
+    Case {
+        when_then_arms: Vec<GroupHavingCaseArm>,
+        else_expr: Box<Self>,
     },
     Binary {
         op: BinaryOp,

@@ -8,7 +8,7 @@ use crate::{
     value::Value,
 };
 
-pub(in crate::db::executor) fn eval_unary_expr(
+pub(in crate::db) fn eval_unary_expr(
     op: UnaryOp,
     value: &Value,
 ) -> Result<Value, ProjectionEvalError> {

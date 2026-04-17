@@ -84,6 +84,26 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
 
             eval_projection_function_call(*function, evaluated_args.as_slice())
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                let condition =
+                    eval_value_projection_expr_with_value(arm.condition(), field_name, value)?;
+                let Value::Bool(condition) = condition else {
+                    return Err(QueryError::unsupported_query(format!(
+                        "CASE condition did not evaluate to bool: {condition:?}",
+                    )));
+                };
+
+                if condition {
+                    return eval_value_projection_expr_with_value(arm.result(), field_name, value);
+                }
+            }
+
+            eval_value_projection_expr_with_value(else_expr.as_ref(), field_name, value)
+        }
         Expr::Aggregate(_) => Err(QueryError::invariant(
             "value projection expressions cannot evaluate aggregate leaves",
         )),
@@ -94,14 +114,16 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
             crate::db::executor::projection::eval::eval_binary_expr(*op, &left, &right)
                 .map_err(|err| QueryError::unsupported_query(err.to_string()))
         }
+        Expr::Unary { op, expr } => {
+            let value = eval_value_projection_expr_with_value(expr.as_ref(), field_name, value)?;
+
+            crate::db::executor::projection::eval::eval_unary_expr(*op, &value)
+                .map_err(|err| QueryError::unsupported_query(err.to_string()))
+        }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
             eval_value_projection_expr_with_value(expr.as_ref(), field_name, value)
         }
-        #[cfg(test)]
-        Expr::Unary { .. } => Err(QueryError::invariant(
-            "value projection expressions cannot evaluate generic test-only operators",
-        )),
     }
 }
 

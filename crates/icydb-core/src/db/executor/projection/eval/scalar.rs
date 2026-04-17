@@ -192,17 +192,40 @@ fn eval_scalar_projection_expr_core<'a, E>(
 
             Ok(Cow::Owned(value))
         }
-        #[cfg(test)]
         ScalarProjectionExpr::Unary { op, expr } => {
-            #[cfg(test)]
             let operand = eval_scalar_projection_expr_core(expr, eval_field, map_projection_error)?;
+            operators::eval_unary_expr(*op, operand.as_ref())
+                .map(Cow::Owned)
+                .map_err(map_projection_error)
+        }
+        ScalarProjectionExpr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                let condition = eval_scalar_projection_expr_core(
+                    arm.condition(),
+                    eval_field,
+                    map_projection_error,
+                )?;
+                let Value::Bool(condition) = condition.as_ref() else {
+                    return Err(map_projection_error(
+                        ProjectionEvalError::InvalidCaseCondition {
+                            found: Box::new(condition.into_owned()),
+                        },
+                    ));
+                };
 
-            #[cfg(test)]
-            {
-                operators::eval_unary_expr(*op, operand.as_ref())
-                    .map(Cow::Owned)
-                    .map_err(map_projection_error)
+                if *condition {
+                    return eval_scalar_projection_expr_core(
+                        arm.result(),
+                        eval_field,
+                        map_projection_error,
+                    );
+                }
             }
+
+            eval_scalar_projection_expr_core(else_expr.as_ref(), eval_field, map_projection_error)
         }
         ScalarProjectionExpr::Binary { op, left, right } => {
             let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?;

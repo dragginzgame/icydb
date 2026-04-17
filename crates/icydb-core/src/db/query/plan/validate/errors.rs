@@ -545,10 +545,17 @@ pub enum ExprPlanError {
         found: String,
     },
 
-    #[cfg(test)]
     /// Unary operation is incompatible with inferred operand type.
     #[error("unary operator '{op}' is incompatible with operand type {found}")]
     InvalidUnaryOperand { op: String, found: String },
+
+    /// CASE branch condition is not boolean-typed.
+    #[error("CASE branch condition is incompatible with type {found}")]
+    InvalidCaseConditionType { found: String },
+
+    /// CASE result branches cannot agree on one shared scalar type.
+    #[error("CASE result branches are incompatible with types ({left}, {right})")]
+    IncompatibleCaseBranchTypes { left: String, right: String },
 
     /// Binary operation is incompatible with inferred operand types.
     #[error("binary operator '{op}' is incompatible with operand types ({left}, {right})")]
@@ -602,12 +609,29 @@ impl ExprPlanError {
         }
     }
 
-    #[cfg(test)]
     /// Construct one invalid unary-operand planner error.
     pub(crate) fn invalid_unary_operand(op: impl Into<String>, found: impl Into<String>) -> Self {
         Self::InvalidUnaryOperand {
             op: op.into(),
             found: found.into(),
+        }
+    }
+
+    /// Construct one invalid CASE-condition planner error.
+    pub(crate) fn invalid_case_condition_type(found: impl Into<String>) -> Self {
+        Self::InvalidCaseConditionType {
+            found: found.into(),
+        }
+    }
+
+    /// Construct one incompatible CASE-branch-types planner error.
+    pub(crate) fn incompatible_case_branch_types(
+        left: impl Into<String>,
+        right: impl Into<String>,
+    ) -> Self {
+        Self::IncompatibleCaseBranchTypes {
+            left: left.into(),
+            right: right.into(),
         }
     }
 

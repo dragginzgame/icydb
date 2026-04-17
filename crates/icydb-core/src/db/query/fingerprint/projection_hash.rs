@@ -3,9 +3,12 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
+#[cfg(test)]
+use crate::db::numeric::coerce_numeric_decimal;
 #[cfg(all(test, feature = "sql"))]
 use crate::db::query::fingerprint::finalize_sha256_digest;
 use crate::db::query::fingerprint::hash_parts::write_value;
+use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
@@ -17,8 +20,6 @@ use crate::db::query::{
 #[cfg(test)]
 use crate::value::Value;
 #[cfg(test)]
-use crate::{db::numeric::coerce_numeric_decimal, db::query::plan::expr::UnaryOp};
-#[cfg(test)]
 use sha2::Digest;
 use sha2::Sha256;
 
@@ -28,11 +29,11 @@ const PROJECTION_FIELD_SCALAR_TAG: u8 = 0x10;
 
 const EXPR_FIELD_TAG: u8 = 0x20;
 const EXPR_LITERAL_TAG: u8 = 0x21;
-#[cfg(test)]
 const EXPR_UNARY_TAG: u8 = 0x22;
 const EXPR_BINARY_TAG: u8 = 0x23;
 const EXPR_AGGREGATE_TAG: u8 = 0x24;
 const EXPR_FUNCTION_CALL_TAG: u8 = 0x25;
+const EXPR_CASE_TAG: u8 = 0x26;
 
 #[cfg(test)]
 const NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG: u8 = 0xA1;
@@ -42,17 +43,20 @@ const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
 const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
 const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
 
-#[cfg(test)]
 const UNARY_OP_NOT_TAG: u8 = 0x02;
 
+const BINARY_OP_OR_TAG: u8 = 0x00;
 const BINARY_OP_ADD_TAG: u8 = 0x01;
 const BINARY_OP_SUB_TAG: u8 = 0x02;
 const BINARY_OP_MUL_TAG: u8 = 0x03;
 const BINARY_OP_DIV_TAG: u8 = 0x04;
-#[cfg(test)]
 const BINARY_OP_AND_TAG: u8 = 0x05;
-#[cfg(test)]
+const BINARY_OP_NE_TAG: u8 = 0x06;
 const BINARY_OP_EQ_TAG: u8 = 0x07;
+const BINARY_OP_LT_TAG: u8 = 0x08;
+const BINARY_OP_LTE_TAG: u8 = 0x09;
+const BINARY_OP_GT_TAG: u8 = 0x0A;
+const BINARY_OP_GTE_TAG: u8 = 0x0B;
 
 const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
 const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
@@ -149,7 +153,21 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
                 hash_expr(hasher, arg, numeric_literal_context);
             }
         }
-        #[cfg(test)]
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            write_tag(hasher, EXPR_CASE_TAG);
+            write_u32(
+                hasher,
+                u32::try_from(when_then_arms.len()).unwrap_or(u32::MAX),
+            );
+            for arm in when_then_arms {
+                hash_expr(hasher, arm.condition(), false);
+                hash_expr(hasher, arm.result(), numeric_literal_context);
+            }
+            hash_expr(hasher, else_expr.as_ref(), numeric_literal_context);
+        }
         Expr::Unary { op, expr } => {
             write_tag(hasher, EXPR_UNARY_TAG);
             write_tag(hasher, unary_op_tag(*op));
@@ -179,14 +197,17 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
 
 const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
     match op {
-        BinaryOp::Add => true,
-        BinaryOp::Sub => true,
-        BinaryOp::Mul => true,
-        BinaryOp::Div => true,
-        #[cfg(test)]
-        BinaryOp::Eq => true,
-        #[cfg(test)]
-        BinaryOp::And => false,
+        BinaryOp::Or | BinaryOp::And => false,
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte
+        | BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div => true,
     }
 }
 
@@ -213,7 +234,6 @@ fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
     );
 }
 
-#[cfg(test)]
 const fn unary_op_tag(op: UnaryOp) -> u8 {
     match op {
         UnaryOp::Not => UNARY_OP_NOT_TAG,
@@ -222,14 +242,18 @@ const fn unary_op_tag(op: UnaryOp) -> u8 {
 
 const fn binary_op_tag(op: BinaryOp) -> u8 {
     match op {
+        BinaryOp::Or => BINARY_OP_OR_TAG,
+        BinaryOp::And => BINARY_OP_AND_TAG,
+        BinaryOp::Eq => BINARY_OP_EQ_TAG,
+        BinaryOp::Ne => BINARY_OP_NE_TAG,
+        BinaryOp::Lt => BINARY_OP_LT_TAG,
+        BinaryOp::Lte => BINARY_OP_LTE_TAG,
+        BinaryOp::Gt => BINARY_OP_GT_TAG,
+        BinaryOp::Gte => BINARY_OP_GTE_TAG,
         BinaryOp::Add => BINARY_OP_ADD_TAG,
         BinaryOp::Sub => BINARY_OP_SUB_TAG,
         BinaryOp::Mul => BINARY_OP_MUL_TAG,
         BinaryOp::Div => BINARY_OP_DIV_TAG,
-        #[cfg(test)]
-        BinaryOp::And => BINARY_OP_AND_TAG,
-        #[cfg(test)]
-        BinaryOp::Eq => BINARY_OP_EQ_TAG,
     }
 }
 

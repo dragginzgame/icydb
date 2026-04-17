@@ -12,7 +12,7 @@ use crate::{
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSqlQuery, bind_lowered_sql_query,
             canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
-            lower_sql_command_from_prepared_statement, prepare_sql_statement,
+            lower_sql_command_from_prepared_statement, lower_sql_predicate, prepare_sql_statement,
         },
         sql::parser::{
             SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
@@ -482,7 +482,8 @@ impl<C: CanisterKind> DbSession<C> {
                 "SQL UPDATE requires WHERE predicate in this release",
             ));
         };
-        let predicate = canonicalize_sql_predicate_for_model(E::MODEL, predicate);
+        let predicate =
+            canonicalize_sql_predicate_for_model(E::MODEL, lower_sql_predicate(predicate));
         let pk_name = E::MODEL.primary_key.name;
         let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate);
 

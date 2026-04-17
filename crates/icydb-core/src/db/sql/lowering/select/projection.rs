@@ -1,286 +1,16 @@
-use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call};
+use crate::db::sql::lowering::{
+    SqlLoweringError,
+    expr::{SqlExprPhase, lower_sql_expr, sql_expr_contains_aggregate},
+};
 use crate::{
     db::{
-        QueryError,
-        query::{
-            builder::{NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr},
-            plan::expr::{
-                Alias, BinaryOp, Expr, FieldId, Function, ProjectionField, ProjectionSelection,
-                expr_references_only_fields,
-            },
+        query::plan::expr::{
+            Alias, Expr, FieldId, ProjectionField, ProjectionSelection, expr_references_only_fields,
         },
-        sql::parser::{
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
-            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-            SqlTextFunction, SqlTextFunctionCall,
-        },
+        sql::parser::{SqlProjection, SqlSelectItem},
     },
     model::entity::{EntityModel, resolve_field_slot},
-    value::Value,
 };
-
-// One bounded lowering spec for one admitted SQL text function.
-#[derive(Clone, Copy)]
-struct TextFnSpec {
-    sql_function: SqlTextFunction,
-    function: Function,
-    builder: TextFnBuilder,
-    contract: TextFnLiteralContract,
-}
-
-// Build shape for one admitted SQL text function.
-#[derive(Clone, Copy)]
-enum TextFnBuilder {
-    Unary,
-    WithLiteral,
-    Position,
-    WithTwoLiterals,
-    Substring,
-}
-
-// Literal contract for one admitted SQL text function.
-#[derive(Clone, Copy)]
-enum TextFnLiteralContract {
-    None,
-    OptionalPrimaryText,
-    RequiredPrimaryNumeric,
-    RequiredPrimaryTextRequiredSecondText,
-    RequiredPrimaryNumericOptionalSecondNumeric,
-}
-
-const TEXT_FN_SPECS: [TextFnSpec; 14] = [
-    TextFnSpec::new(
-        SqlTextFunction::Trim,
-        Function::Trim,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Ltrim,
-        Function::Ltrim,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Rtrim,
-        Function::Rtrim,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Lower,
-        Function::Lower,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Upper,
-        Function::Upper,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Length,
-        Function::Length,
-        TextFnBuilder::Unary,
-        TextFnLiteralContract::None,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Left,
-        Function::Left,
-        TextFnBuilder::WithLiteral,
-        TextFnLiteralContract::RequiredPrimaryNumeric,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Right,
-        Function::Right,
-        TextFnBuilder::WithLiteral,
-        TextFnLiteralContract::RequiredPrimaryNumeric,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::StartsWith,
-        Function::StartsWith,
-        TextFnBuilder::WithLiteral,
-        TextFnLiteralContract::OptionalPrimaryText,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::EndsWith,
-        Function::EndsWith,
-        TextFnBuilder::WithLiteral,
-        TextFnLiteralContract::OptionalPrimaryText,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Contains,
-        Function::Contains,
-        TextFnBuilder::WithLiteral,
-        TextFnLiteralContract::OptionalPrimaryText,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Position,
-        Function::Position,
-        TextFnBuilder::Position,
-        TextFnLiteralContract::OptionalPrimaryText,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Replace,
-        Function::Replace,
-        TextFnBuilder::WithTwoLiterals,
-        TextFnLiteralContract::RequiredPrimaryTextRequiredSecondText,
-    ),
-    TextFnSpec::new(
-        SqlTextFunction::Substring,
-        Function::Substring,
-        TextFnBuilder::Substring,
-        TextFnLiteralContract::RequiredPrimaryNumericOptionalSecondNumeric,
-    ),
-];
-
-impl TextFnSpec {
-    const fn new(
-        sql_function: SqlTextFunction,
-        function: Function,
-        builder: TextFnBuilder,
-        contract: TextFnLiteralContract,
-    ) -> Self {
-        Self {
-            sql_function,
-            function,
-            builder,
-            contract,
-        }
-    }
-
-    fn lower_expr(self, call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
-        self.validate(call)?;
-
-        Ok(self.build_projection(call).expr().clone())
-    }
-
-    fn validate(self, call: &SqlTextFunctionCall) -> Result<(), SqlLoweringError> {
-        let function_name = self.function.sql_label();
-        let field = call.field.as_str();
-
-        match self.contract {
-            TextFnLiteralContract::None | TextFnLiteralContract::OptionalPrimaryText => {
-                ensure_text_or_null_literal(
-                    function_name,
-                    field,
-                    "literal",
-                    call.literal.as_ref(),
-                )?;
-                ensure_literal_absent(
-                    call.literal2.as_ref(),
-                    "only REPLACE and SUBSTRING should carry a second projection literal",
-                )?;
-                ensure_literal_absent(
-                    call.literal3.as_ref(),
-                    "only numeric text projection helpers should carry extra literal arguments",
-                )?;
-            }
-            TextFnLiteralContract::RequiredPrimaryNumeric => {
-                validate_numeric_projection_literal(
-                    function_name,
-                    field,
-                    "length",
-                    call.literal.as_ref(),
-                    true,
-                )?;
-                if call.literal2.is_some() || call.literal3.is_some() {
-                    return Err(QueryError::invariant(format!(
-                        "{function_name} projection item carried unexpected extra literal arguments",
-                    ))
-                    .into());
-                }
-            }
-            TextFnLiteralContract::RequiredPrimaryTextRequiredSecondText => {
-                ensure_text_or_null_literal(
-                    function_name,
-                    field,
-                    "literal",
-                    call.literal.as_ref(),
-                )?;
-                match call.literal2.as_ref() {
-                    Some(Value::Null | Value::Text(_)) => {}
-                    Some(other) => {
-                        return Err(QueryError::unsupported_query(format!(
-                            "REPLACE({field}, ..., ...) requires text or NULL replacement literal, found {other:?}",
-                        ))
-                        .into());
-                    }
-                    None => {
-                        return Err(QueryError::invariant(
-                            "REPLACE projection item was missing its replacement literal",
-                        )
-                        .into());
-                    }
-                }
-                ensure_literal_absent(
-                    call.literal3.as_ref(),
-                    "only numeric text projection helpers should carry extra literal arguments",
-                )?;
-            }
-            TextFnLiteralContract::RequiredPrimaryNumericOptionalSecondNumeric => {
-                validate_numeric_projection_literal(
-                    function_name,
-                    field,
-                    "start",
-                    call.literal.as_ref(),
-                    true,
-                )?;
-                validate_numeric_projection_literal(
-                    function_name,
-                    field,
-                    "length",
-                    call.literal2.as_ref(),
-                    false,
-                )?;
-                if call.literal3.is_some() {
-                    return Err(QueryError::invariant(
-                        "SUBSTRING projection item carried an unexpected extra literal",
-                    )
-                    .into());
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn build_projection(self, call: &SqlTextFunctionCall) -> TextProjectionExpr {
-        let field = call.field.clone();
-
-        match self.builder {
-            TextFnBuilder::Unary => TextProjectionExpr::unary(field, self.function),
-            TextFnBuilder::WithLiteral => TextProjectionExpr::with_literal(
-                field,
-                self.function,
-                call.literal.clone().unwrap_or(Value::Null),
-            ),
-            TextFnBuilder::Position => {
-                TextProjectionExpr::position(field, call.literal.clone().unwrap_or(Value::Null))
-            }
-            TextFnBuilder::WithTwoLiterals => TextProjectionExpr::with_two_literals(
-                field,
-                self.function,
-                call.literal.clone().unwrap_or(Value::Null),
-                call.literal2.clone().unwrap_or(Value::Null),
-            ),
-            TextFnBuilder::Substring => match call.literal2.clone() {
-                Some(length) => TextProjectionExpr::with_two_literals(
-                    field,
-                    self.function,
-                    call.literal.clone().unwrap_or(Value::Null),
-                    length,
-                ),
-                None => TextProjectionExpr::with_literal(
-                    field,
-                    self.function,
-                    call.literal.clone().unwrap_or(Value::Null),
-                ),
-            },
-        }
-    }
-}
 
 pub(super) fn lower_scalar_projection_selection(
     projection: SqlProjection,
@@ -306,6 +36,7 @@ pub(super) fn lower_scalar_projection_selection(
             lower_projection_field(
                 item,
                 projection_aliases.get(index).and_then(Option::as_deref),
+                SqlExprPhase::Scalar,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -333,7 +64,7 @@ pub(super) fn lower_grouped_projection_selection(
     let mut fields = Vec::with_capacity(items.len());
 
     for (index, item) in items.into_iter().enumerate() {
-        let expr = lower_select_item_expr(&item)?;
+        let expr = lower_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
         let contains_aggregate = expr_contains_aggregate(&expr);
         if seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
@@ -432,12 +163,21 @@ fn first_unknown_field_in_expr(expr: &Expr, model: &EntityModel) -> Option<Strin
         Expr::FunctionCall { args, .. } => args
             .iter()
             .find_map(|arg| first_unknown_field_in_expr(arg, model)),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => when_then_arms
+            .iter()
+            .find_map(|arm| {
+                first_unknown_field_in_expr(arm.condition(), model)
+                    .or_else(|| first_unknown_field_in_expr(arm.result(), model))
+            })
+            .or_else(|| first_unknown_field_in_expr(else_expr, model)),
         Expr::Binary { left, right, .. } => first_unknown_field_in_expr(left, model)
             .or_else(|| first_unknown_field_in_expr(right, model)),
+        Expr::Unary { expr, .. } => first_unknown_field_in_expr(expr, model),
         #[cfg(test)]
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
-            first_unknown_field_in_expr(expr, model)
-        }
+        Expr::Alias { expr, .. } => first_unknown_field_in_expr(expr, model),
     }
 }
 
@@ -450,18 +190,25 @@ pub(in crate::db::sql::lowering) fn expr_contains_aggregate(expr: &Expr) -> bool
         Expr::Aggregate(_) => true,
         Expr::Field(_) | Expr::Literal(_) => false,
         Expr::FunctionCall { args, .. } => args.iter().any(expr_contains_aggregate),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().any(|arm| {
+                expr_contains_aggregate(arm.condition()) || expr_contains_aggregate(arm.result())
+            }) || expr_contains_aggregate(else_expr)
+        }
         Expr::Binary { left, right, .. } => {
             expr_contains_aggregate(left) || expr_contains_aggregate(right)
         }
+        Expr::Unary { expr, .. } => expr_contains_aggregate(expr),
         #[cfg(test)]
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => expr_contains_aggregate(expr),
+        Expr::Alias { expr, .. } => expr_contains_aggregate(expr),
     }
 }
 
 pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSelectItem) -> bool {
-    lower_select_item_expr(item)
-        .map(|expr| expr_contains_aggregate(&expr))
-        .unwrap_or(false)
+    sql_expr_contains_aggregate(&crate::db::sql::parser::SqlExpr::from_select_item(item))
 }
 
 pub(super) fn direct_scalar_field_selection(
@@ -479,7 +226,8 @@ pub(super) fn direct_scalar_field_selection(
             SqlSelectItem::Aggregate(_)
             | SqlSelectItem::TextFunction(_)
             | SqlSelectItem::Arithmetic(_)
-            | SqlSelectItem::Round(_) => None,
+            | SqlSelectItem::Round(_)
+            | SqlSelectItem::Expr(_) => None,
         })
         .collect()
 }
@@ -487,205 +235,20 @@ pub(super) fn direct_scalar_field_selection(
 fn lower_projection_field(
     item: SqlSelectItem,
     alias: Option<&str>,
+    phase: SqlExprPhase,
 ) -> Result<ProjectionField, SqlLoweringError> {
     Ok(ProjectionField::Scalar {
-        expr: lower_select_item_expr(&item)?,
+        expr: lower_select_item_expr(&item, phase)?,
         alias: alias.map(Alias::new),
     })
 }
 
 pub(in crate::db::sql::lowering) fn lower_select_item_expr(
     item: &SqlSelectItem,
+    phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    match item {
-        SqlSelectItem::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
-        SqlSelectItem::Aggregate(aggregate) => {
-            Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
-        }
-        SqlSelectItem::TextFunction(call) => lower_text_function_expr(call),
-        SqlSelectItem::Arithmetic(call) => lower_arithmetic_projection_expr(call),
-        SqlSelectItem::Round(call) => lower_round_projection_expr(call),
-    }
-}
-
-fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
-    text_function_spec(call.function).lower_expr(call)
-}
-
-fn lower_arithmetic_projection_expr(
-    call: &SqlArithmeticProjectionCall,
-) -> Result<Expr, SqlLoweringError> {
-    // Keep arithmetic projection bounded to one admitted binary expression
-    // while still preserving the old field-plus-literal fast path for scalar
-    // projection lowering.
-    if let (SqlProjectionOperand::Field(field), SqlProjectionOperand::Literal(literal)) =
-        (&call.left, &call.right)
-    {
-        return lower_field_literal_arithmetic_projection_expr(call.op, field, literal);
-    }
-
-    let left = lower_projection_operand_expr(&call.left)?;
-    let right = lower_projection_operand_expr(&call.right)?;
-
-    Ok(Expr::Binary {
-        op: binary_projection_op(call.op),
-        left: Box::new(left),
-        right: Box::new(right),
-    })
-}
-
-fn lower_round_projection_expr(call: &SqlRoundProjectionCall) -> Result<Expr, SqlLoweringError> {
-    let scale = validate_round_projection_scale(call.scale.clone())?;
-
-    match &call.input {
-        SqlRoundProjectionInput::Operand(SqlProjectionOperand::Field(field)) => {
-            RoundProjectionExpr::field(field.clone(), scale)
-                .map(|projection| projection.expr().clone())
-                .map_err(SqlLoweringError::from)
-        }
-        SqlRoundProjectionInput::Operand(operand) => Ok(round_projection_expr(
-            lower_projection_operand_expr(operand)?,
-            scale,
-        )),
-        SqlRoundProjectionInput::Arithmetic(arithmetic) => Ok(round_projection_expr(
-            lower_arithmetic_projection_expr(arithmetic)?,
-            scale,
-        )),
-    }
-}
-
-// Lower one field-plus-literal arithmetic shape through the specialized
-// numeric projection builders so the scalar fast path keeps one operator map.
-fn lower_field_literal_arithmetic_projection_expr(
-    op: SqlArithmeticProjectionOp,
-    field: &str,
-    literal: &Value,
-) -> Result<Expr, SqlLoweringError> {
-    arithmetic_projection_builder(op, field.to_string(), literal.clone())
-        .map(|projection| projection.expr().clone())
-        .map_err(SqlLoweringError::from)
-}
-
-// Resolve one arithmetic operator to the canonical numeric-projection builder.
-fn arithmetic_projection_builder(
-    op: SqlArithmeticProjectionOp,
-    field: String,
-    literal: Value,
-) -> Result<NumericProjectionExpr, QueryError> {
-    match op {
-        SqlArithmeticProjectionOp::Add => NumericProjectionExpr::add_value(field, literal),
-        SqlArithmeticProjectionOp::Sub => NumericProjectionExpr::sub_value(field, literal),
-        SqlArithmeticProjectionOp::Mul => NumericProjectionExpr::mul_value(field, literal),
-        SqlArithmeticProjectionOp::Div => NumericProjectionExpr::div_value(field, literal),
-    }
-}
-
-// Resolve one arithmetic operator to the canonical binary-expression variant.
-const fn binary_projection_op(op: SqlArithmeticProjectionOp) -> BinaryOp {
-    match op {
-        SqlArithmeticProjectionOp::Add => BinaryOp::Add,
-        SqlArithmeticProjectionOp::Sub => BinaryOp::Sub,
-        SqlArithmeticProjectionOp::Mul => BinaryOp::Mul,
-        SqlArithmeticProjectionOp::Div => BinaryOp::Div,
-    }
-}
-
-// Build one canonical `ROUND(expr, scale)` function-call wrapper from a
-// pre-lowered input expression.
-fn round_projection_expr(input: Expr, scale: u32) -> Expr {
-    Expr::FunctionCall {
-        function: Function::Round,
-        args: vec![input, Expr::Literal(Value::Uint(u64::from(scale)))],
-    }
-}
-
-fn lower_projection_operand_expr(operand: &SqlProjectionOperand) -> Result<Expr, SqlLoweringError> {
-    match operand {
-        SqlProjectionOperand::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
-        SqlProjectionOperand::Aggregate(aggregate) => {
-            Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
-        }
-        SqlProjectionOperand::Literal(literal) => Ok(Expr::Literal(literal.clone())),
-        SqlProjectionOperand::Arithmetic(call) => Ok(Expr::Binary {
-            op: binary_projection_op(call.op),
-            left: Box::new(lower_projection_operand_expr(&call.left)?),
-            right: Box::new(lower_projection_operand_expr(&call.right)?),
-        }),
-    }
-}
-
-fn text_function_spec(function: SqlTextFunction) -> TextFnSpec {
-    TEXT_FN_SPECS
-        .iter()
-        .copied()
-        .find(|spec| spec.sql_function == function)
-        .expect("every admitted SQL text function should have one lowering spec")
-}
-
-fn ensure_text_or_null_literal(
-    function_name: &str,
-    field: &str,
-    label: &str,
-    literal: Option<&Value>,
-) -> Result<(), SqlLoweringError> {
-    match literal {
-        None | Some(Value::Null | Value::Text(_)) => Ok(()),
-        Some(other) => Err(QueryError::unsupported_query(format!(
-            "{function_name}({field}, ...) requires text or NULL {label} argument, found {other:?}",
-        ))
-        .into()),
-    }
-}
-
-fn ensure_literal_absent(
-    literal: Option<&Value>,
-    message: &'static str,
-) -> Result<(), SqlLoweringError> {
-    if literal.is_some() {
-        return Err(QueryError::invariant(message).into());
-    }
-
-    Ok(())
-}
-
-fn validate_numeric_projection_literal(
-    function_name: &str,
-    field: &str,
-    label: &str,
-    value: Option<&Value>,
-    required: bool,
-) -> Result<(), SqlLoweringError> {
-    match value {
-        Some(Value::Null | Value::Int(_) | Value::Uint(_)) => Ok(()),
-        Some(other) => Err(QueryError::unsupported_query(format!(
-            "{function_name}({field}, ...) requires integer or NULL {label}, found {other:?}",
-        ))
-        .into()),
-        None if required => Err(QueryError::invariant(format!(
-            "{function_name} projection item was missing its {label} literal",
-        ))
-        .into()),
-        None => Ok(()),
-    }
-}
-
-fn validate_round_projection_scale(scale: Value) -> Result<u32, SqlLoweringError> {
-    match scale {
-        Value::Int(value) => u32::try_from(value).map_err(|_| {
-            QueryError::unsupported_query(format!(
-                "ROUND(...) requires non-negative integer scale, found {value}",
-            ))
-            .into()
-        }),
-        Value::Uint(value) => u32::try_from(value).map_err(|_| {
-            QueryError::unsupported_query(format!(
-                "ROUND(...) scale exceeds supported integer range, found {value}",
-            ))
-            .into()
-        }),
-        other => Err(QueryError::unsupported_query(format!(
-            "ROUND(...) requires integer scale, found {other:?}",
-        ))
-        .into()),
-    }
+    lower_sql_expr(
+        &crate::db::sql::parser::SqlExpr::from_select_item(item),
+        phase,
+    )
 }

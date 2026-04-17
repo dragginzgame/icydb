@@ -1,6 +1,6 @@
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
-    SqlLoweringError,
+    SqlLoweringError, lower_sql_predicate,
 };
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
@@ -18,18 +18,19 @@ use crate::{
             plan::{
                 AggregateKind, FieldSlot, GroupHavingExpr,
                 expr::{
-                    Alias, BinaryOp, Expr, FieldId, Function, ProjectionField, ProjectionSpec,
+                    Alias, BinaryOp, Expr, Function, ProjectionField, ProjectionSpec,
                     compile_scalar_projection_expr, expr_references_only_fields,
                 },
                 lower_global_aggregate_projection, resolve_aggregate_target_field_slot,
             },
         },
         sql::{
+            lowering::expr::{SqlExprPhase, lower_sql_expr},
             lowering::select::{
                 expr_contains_aggregate, lower_global_aggregate_having_expr, lower_select_item_expr,
             },
             parser::{
-                SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlExplainMode,
+                SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlExplainMode, SqlExpr,
                 SqlProjection, SqlProjectionOperand, SqlRoundProjectionInput, SqlSelectItem,
                 SqlSelectStatement, SqlStatement,
             },
@@ -595,7 +596,7 @@ impl LoweredSqlGlobalAggregateCommand {
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
         let having =
             lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
-                resolve_or_insert_global_aggregate_terminal_index(
+                resolve_or_insert_global_aggregate_terminal_index_from_expr(
                     &mut lowered_terminals.terminals,
                     aggregate,
                 )
@@ -603,7 +604,7 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(Self {
             query: LoweredBaseQueryShape {
-                predicate,
+                predicate: predicate.map(lower_sql_predicate),
                 order_by,
                 limit,
                 offset,
@@ -687,7 +688,7 @@ fn collect_global_aggregate_output_order_targets(
 
     let mut targets = Vec::with_capacity(items.len());
     for (item, alias) in items.iter().zip(projection_aliases.iter()) {
-        let expr = lower_select_item_expr(item)?;
+        let expr = lower_select_item_expr(item, SqlExprPhase::PostAggregate)?;
         if !expr_contains_aggregate(&expr) || expr_references_global_direct_fields(&expr) {
             continue;
         }
@@ -1094,12 +1095,11 @@ fn lower_global_aggregate_terminal(
     }
 }
 
-fn resolve_or_insert_global_aggregate_terminal_index(
+fn resolve_or_insert_global_aggregate_terminal_index_from_expr(
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
-    aggregate: &SqlAggregateCall,
+    aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {
-    let aggregate_expr = lower_aggregate_call(aggregate.clone())?;
-    let terminal = lower_global_aggregate_terminal(&aggregate_expr)?;
+    let terminal = lower_global_aggregate_terminal(aggregate_expr)?;
 
     Ok(terminals
         .iter()
@@ -1109,6 +1109,30 @@ fn resolve_or_insert_global_aggregate_terminal_index(
             terminals.push(terminal);
             index
         }))
+}
+
+pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
+    target: &AggregateExpr,
+    grouped_projection_aggregates: &[SqlAggregateCall],
+) -> Result<usize, SqlLoweringError> {
+    let mut matched =
+        grouped_projection_aggregates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, aggregate)| {
+                lower_aggregate_call(aggregate.clone())
+                    .ok()
+                    .filter(|current| current == target)
+                    .map(|_| index)
+            });
+    let Some(index) = matched.next() else {
+        return Err(SqlLoweringError::unsupported_select_having());
+    };
+    if matched.next().is_some() {
+        return Err(SqlLoweringError::unsupported_select_having());
+    }
+
+    Ok(index)
 }
 
 ///
@@ -1143,7 +1167,7 @@ impl LoweredSqlGlobalAggregateTerminals {
         let mut saw_wrapped_projection = false;
 
         for (index, item) in items.into_iter().enumerate() {
-            let expr = lower_select_item_expr(&item)?;
+            let expr = lower_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
             if !expr_contains_aggregate(&expr) || expr_references_global_direct_fields(&expr) {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
@@ -1186,14 +1210,22 @@ fn expr_references_global_direct_fields(expr: &Expr) -> bool {
         Expr::Field(_) => true,
         Expr::Aggregate(_) | Expr::Literal(_) => false,
         Expr::FunctionCall { args, .. } => args.iter().any(expr_references_global_direct_fields),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().any(|arm| {
+                expr_references_global_direct_fields(arm.condition())
+                    || expr_references_global_direct_fields(arm.result())
+            }) || expr_references_global_direct_fields(else_expr.as_ref())
+        }
         Expr::Binary { left, right, .. } => {
             expr_references_global_direct_fields(left.as_ref())
                 || expr_references_global_direct_fields(right.as_ref())
         }
+        Expr::Unary { expr, .. } => expr_references_global_direct_fields(expr.as_ref()),
         #[cfg(test)]
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
-            expr_references_global_direct_fields(expr.as_ref())
-        }
+        Expr::Alias { expr, .. } => expr_references_global_direct_fields(expr.as_ref()),
     }
 }
 
@@ -1227,14 +1259,29 @@ fn collect_unique_global_aggregate_terminals_from_expr(
 
             Ok(None)
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                collect_unique_global_aggregate_terminals_from_expr(arm.condition(), terminals)?;
+                collect_unique_global_aggregate_terminals_from_expr(arm.result(), terminals)?;
+            }
+            collect_unique_global_aggregate_terminals_from_expr(else_expr.as_ref(), terminals)?;
+
+            Ok(None)
+        }
         Expr::Binary { left, right, .. } => {
             collect_unique_global_aggregate_terminals_from_expr(left.as_ref(), terminals)?;
             collect_unique_global_aggregate_terminals_from_expr(right.as_ref(), terminals)?;
 
             Ok(None)
         }
+        Expr::Unary { expr, .. } => {
+            collect_unique_global_aggregate_terminals_from_expr(expr.as_ref(), terminals)
+        }
         #[cfg(test)]
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
+        Expr::Alias { expr, .. } => {
             collect_unique_global_aggregate_terminals_from_expr(expr.as_ref(), terminals)
         }
     }
@@ -1369,7 +1416,10 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
     // Validate one grouped projection item before collecting any aggregate
     // leaves so field-resolution and grouped-key diagnostics stay precise.
     fn collect_item(&mut self, index: usize, item: &SqlSelectItem) -> Result<(), SqlLoweringError> {
-        let expr = crate::db::sql::lowering::select::lower_select_item_expr(item)?;
+        let expr = crate::db::sql::lowering::select::lower_select_item_expr(
+            item,
+            SqlExprPhase::PostAggregate,
+        )?;
         let contains_aggregate = expr_contains_aggregate(&expr);
         if self.seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
@@ -1411,6 +1461,39 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
                     self.collect_operand_aggregates(&call.right);
                 }
             },
+            SqlSelectItem::Expr(expr) => self.collect_sql_expr_aggregates(expr),
+        }
+    }
+
+    fn collect_sql_expr_aggregates(&mut self, expr: &SqlExpr) {
+        match expr {
+            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => {}
+            SqlExpr::Aggregate(aggregate) => {
+                self.push_unique_aggregate(aggregate.clone());
+            }
+            SqlExpr::Round(call) => match &call.input {
+                SqlRoundProjectionInput::Operand(operand) => {
+                    self.collect_operand_aggregates(operand);
+                }
+                SqlRoundProjectionInput::Arithmetic(call) => {
+                    self.collect_operand_aggregates(&call.left);
+                    self.collect_operand_aggregates(&call.right);
+                }
+            },
+            SqlExpr::Unary { expr, .. } => self.collect_sql_expr_aggregates(expr),
+            SqlExpr::Binary { left, right, .. } => {
+                self.collect_sql_expr_aggregates(left);
+                self.collect_sql_expr_aggregates(right);
+            }
+            SqlExpr::Case { arms, else_expr } => {
+                for arm in arms {
+                    self.collect_sql_expr_aggregates(&arm.condition);
+                    self.collect_sql_expr_aggregates(&arm.result);
+                }
+                if let Some(else_expr) = else_expr {
+                    self.collect_sql_expr_aggregates(else_expr);
+                }
+            }
         }
     }
 
@@ -1452,12 +1535,21 @@ fn first_unknown_field_in_expr(expr: &Expr, model: &EntityModel) -> Option<Strin
         Expr::FunctionCall { args, .. } => args
             .iter()
             .find_map(|arg| first_unknown_field_in_expr(arg, model)),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => when_then_arms
+            .iter()
+            .find_map(|arm| {
+                first_unknown_field_in_expr(arm.condition(), model)
+                    .or_else(|| first_unknown_field_in_expr(arm.result(), model))
+            })
+            .or_else(|| first_unknown_field_in_expr(else_expr, model)),
         Expr::Binary { left, right, .. } => first_unknown_field_in_expr(left, model)
             .or_else(|| first_unknown_field_in_expr(right, model)),
+        Expr::Unary { expr, .. } => first_unknown_field_in_expr(expr, model),
         #[cfg(test)]
-        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
-            first_unknown_field_in_expr(expr, model)
-        }
+        Expr::Alias { expr, .. } => first_unknown_field_in_expr(expr, model),
     }
 }
 
@@ -1540,64 +1632,12 @@ fn lower_expression_owned_aggregate_call(
 }
 
 fn lower_sql_aggregate_input_expr(expr: SqlAggregateInputExpr) -> Result<Expr, SqlLoweringError> {
-    let lowered = match expr {
-        SqlAggregateInputExpr::Field(field) => Expr::Field(FieldId::new(field)),
-        SqlAggregateInputExpr::Literal(literal) => Expr::Literal(literal),
-        SqlAggregateInputExpr::Arithmetic(call) => Expr::Binary {
-            op: lower_sql_aggregate_binary_op(call.op),
-            left: Box::new(lower_sql_aggregate_operand_expr(call.left)?),
-            right: Box::new(lower_sql_aggregate_operand_expr(call.right)?),
-        },
-        SqlAggregateInputExpr::Round(call) => Expr::FunctionCall {
-            function: Function::Round,
-            args: lower_sql_aggregate_round_args(call)?,
-        },
-    };
+    let lowered = lower_sql_expr(
+        &SqlExpr::from_aggregate_input_expr(&expr),
+        SqlExprPhase::PreAggregate,
+    )?;
 
     Ok(fold_sql_aggregate_input_constant_expr(lowered))
-}
-
-fn lower_sql_aggregate_round_args(
-    call: crate::db::sql::parser::SqlRoundProjectionCall,
-) -> Result<Vec<Expr>, SqlLoweringError> {
-    let value_expr = match call.input {
-        SqlRoundProjectionInput::Operand(operand) => lower_sql_aggregate_operand_expr(operand)?,
-        SqlRoundProjectionInput::Arithmetic(call) => Expr::Binary {
-            op: lower_sql_aggregate_binary_op(call.op),
-            left: Box::new(lower_sql_aggregate_operand_expr(call.left)?),
-            right: Box::new(lower_sql_aggregate_operand_expr(call.right)?),
-        },
-    };
-
-    Ok(vec![value_expr, Expr::Literal(call.scale)])
-}
-
-fn lower_sql_aggregate_operand_expr(
-    operand: SqlProjectionOperand,
-) -> Result<Expr, SqlLoweringError> {
-    match operand {
-        SqlProjectionOperand::Field(field) => Ok(Expr::Field(FieldId::new(field))),
-        SqlProjectionOperand::Literal(literal) => Ok(Expr::Literal(literal)),
-        SqlProjectionOperand::Arithmetic(call) => Ok(Expr::Binary {
-            op: lower_sql_aggregate_binary_op(call.op),
-            left: Box::new(lower_sql_aggregate_operand_expr(call.left)?),
-            right: Box::new(lower_sql_aggregate_operand_expr(call.right)?),
-        }),
-        SqlProjectionOperand::Aggregate(_) => {
-            Err(SqlLoweringError::unsupported_select_projection())
-        }
-    }
-}
-
-const fn lower_sql_aggregate_binary_op(
-    op: crate::db::sql::parser::SqlArithmeticProjectionOp,
-) -> BinaryOp {
-    match op {
-        crate::db::sql::parser::SqlArithmeticProjectionOp::Add => BinaryOp::Add,
-        crate::db::sql::parser::SqlArithmeticProjectionOp::Sub => BinaryOp::Sub,
-        crate::db::sql::parser::SqlArithmeticProjectionOp::Mul => BinaryOp::Mul,
-        crate::db::sql::parser::SqlArithmeticProjectionOp::Div => BinaryOp::Div,
-    }
 }
 
 // Fold one aggregate-input expression when it is fully constant under the
@@ -1615,6 +1655,21 @@ fn fold_sql_aggregate_input_constant_expr(expr: Expr) -> Expr {
             fold_sql_aggregate_input_constant_function(function, args.as_slice())
                 .unwrap_or(Expr::FunctionCall { function, args })
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        fold_sql_aggregate_input_constant_expr(arm.condition().clone()),
+                        fold_sql_aggregate_input_constant_expr(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(fold_sql_aggregate_input_constant_expr(*else_expr)),
+        },
         Expr::Binary { op, left, right } => {
             let left = fold_sql_aggregate_input_constant_expr(*left);
             let right = fold_sql_aggregate_input_constant_expr(*right);
@@ -1632,7 +1687,6 @@ fn fold_sql_aggregate_input_constant_expr(expr: Expr) -> Expr {
             expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
             name,
         },
-        #[cfg(test)]
         Expr::Unary { op, expr } => Expr::Unary {
             op,
             expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
@@ -1655,12 +1709,18 @@ fn fold_sql_aggregate_input_constant_binary(
     }
 
     let arithmetic_op = match op {
+        BinaryOp::Or
+        | BinaryOp::And
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => return None,
         BinaryOp::Add => NumericArithmeticOp::Add,
         BinaryOp::Sub => NumericArithmeticOp::Sub,
         BinaryOp::Mul => NumericArithmeticOp::Mul,
         BinaryOp::Div => NumericArithmeticOp::Div,
-        #[cfg(test)]
-        BinaryOp::And | BinaryOp::Eq => return None,
     };
     let result = apply_numeric_arithmetic(arithmetic_op, left, right)?;
 
@@ -1705,22 +1765,4 @@ fn fold_sql_aggregate_input_round(args: &[Expr]) -> Option<Expr> {
     let decimal = input.to_numeric_decimal()?;
 
     Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
-}
-
-pub(in crate::db::sql::lowering) fn resolve_having_aggregate_index(
-    target: &SqlAggregateCall,
-    grouped_projection_aggregates: &[SqlAggregateCall],
-) -> Result<usize, SqlLoweringError> {
-    let mut matched = grouped_projection_aggregates
-        .iter()
-        .enumerate()
-        .filter_map(|(index, aggregate)| (aggregate == target).then_some(index));
-    let Some(index) = matched.next() else {
-        return Err(SqlLoweringError::unsupported_select_having());
-    };
-    if matched.next().is_some() {
-        return Err(SqlLoweringError::unsupported_select_having());
-    }
-
-    Ok(index)
 }

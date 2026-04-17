@@ -200,6 +200,40 @@ fn global_post_aggregate_expression_value_matrix_matches_expected_values() {
 }
 
 #[test]
+fn global_aggregate_case_expression_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("aggregate-case-a", 20), ("aggregate-case-b", 32)],
+    );
+
+    let cases = [
+        (
+            "sum searched case indicator",
+            "SELECT SUM(CASE WHEN age >= 30 THEN 1 ELSE 0 END) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(1_u64)),
+        ),
+        (
+            "avg searched case branch value",
+            "SELECT AVG(CASE WHEN age >= 30 THEN age ELSE 0 END) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(16_u64)),
+        ),
+        (
+            "global searched case having",
+            "SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1",
+            Value::Uint(2),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+    }
+}
+
+#[test]
 fn global_aggregate_having_returns_single_row_when_predicate_matches() {
     reset_session_sql_store();
     let session = sql_session();

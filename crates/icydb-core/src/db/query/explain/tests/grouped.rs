@@ -1,5 +1,7 @@
 use super::*;
-use crate::db::query::explain::{ExplainGroupHavingExpr, ExplainGroupHavingValueExpr};
+use crate::db::query::explain::{
+    ExplainGroupHavingCaseArm, ExplainGroupHavingExpr, ExplainGroupHavingValueExpr,
+};
 
 #[test]
 fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
@@ -650,6 +652,77 @@ fn explain_grouped_having_expression_projection_is_reported() {
             max_group_bytes: 4096,
         },
         "widened grouped HAVING explain projection must preserve the post-aggregate expression tree",
+    );
+}
+
+#[test]
+fn explain_grouped_having_case_expression_projection_is_reported() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having_expr(
+            GroupSpec {
+                group_fields: vec![],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    input_expr: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+            },
+            Some(crate::db::query::plan::GroupHavingExpr::Compare {
+                left: crate::db::query::plan::GroupHavingValueExpr::Case {
+                    when_then_arms: vec![crate::db::query::plan::GroupHavingCaseArm::new(
+                        crate::db::query::plan::GroupHavingValueExpr::Unary {
+                            op: crate::db::query::plan::expr::UnaryOp::Not,
+                            expr: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                                Value::Bool(false),
+                            )),
+                        },
+                        crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0),
+                    )],
+                    else_expr: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
+                        Value::Uint(0),
+                    )),
+                },
+                op: CompareOp::Gt,
+                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+            }),
+        );
+
+    assert_eq!(
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
+            strategy: "hash_group",
+            fallback_reason: Some("group_key_order_unavailable"),
+            group_fields: vec![],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: AggregateKind::Count,
+                target_field: None,
+                input_expr: None,
+                distinct: false,
+            }],
+            having: Some(ExplainGroupHaving {
+                expr: ExplainGroupHavingExpr::Compare {
+                    left: ExplainGroupHavingValueExpr::Case {
+                        when_then_arms: vec![ExplainGroupHavingCaseArm {
+                            condition: ExplainGroupHavingValueExpr::Unary {
+                                op: "NOT".to_string(),
+                                expr: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Bool(
+                                    false,
+                                ))),
+                            },
+                            result: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
+                        }],
+                        else_expr: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Uint(0))),
+                    },
+                    op: CompareOp::Gt,
+                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(5)),
+                },
+            }),
+            max_groups: 12,
+            max_group_bytes: 4096,
+        },
+        "grouped HAVING explain projection must preserve searched CASE and unary conditions on the shared post-aggregate expression seam",
     );
 }
 
