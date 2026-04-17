@@ -13,7 +13,6 @@ use crate::{
             GroupHavingSymbol, GroupHavingValueExpr, GroupPlan, GroupSpec, GroupedExecutionConfig,
         },
     },
-    error::InternalError,
     model::{
         entity::{EntityModel, resolve_field_slot},
         field::FieldKind,
@@ -182,57 +181,6 @@ impl GroupHavingClause {
     #[must_use]
     pub(crate) const fn value(&self) -> &Value {
         &self.value
-    }
-
-    /// Construct one grouped HAVING executor invariant for unsupported compare
-    /// operators that should already have been rejected by planner policy.
-    pub(in crate::db) fn unsupported_operator(
-        op: crate::db::predicate::CompareOp,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "unsupported grouped HAVING operator reached executor: {op:?}",
-        ))
-    }
-}
-
-impl GroupHavingSymbol {
-    /// Construct one grouped HAVING executor invariant for non-list grouped keys.
-    pub(in crate::db) fn grouped_key_must_be_list(value: &Value) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped HAVING requires list-shaped grouped keys, found {value:?}",
-        ))
-    }
-
-    /// Construct one grouped HAVING executor invariant for symbols that are
-    /// absent from the grouped key projection.
-    pub(in crate::db) fn field_not_in_group_key_projection(field: &str) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped HAVING field is not in grouped key projection: field='{field}'",
-        ))
-    }
-
-    /// Construct one grouped HAVING executor invariant for grouped-key offsets
-    /// that exceed the materialized grouped key width.
-    pub(in crate::db) fn group_key_offset_out_of_bounds(
-        clause_index: usize,
-        offset: usize,
-        key_len: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped HAVING group key offset out of bounds: clause_index={clause_index}, offset={offset}, key_len={key_len}",
-        ))
-    }
-
-    /// Construct one grouped HAVING executor invariant for aggregate indexes
-    /// that exceed the finalized grouped aggregate output width.
-    pub(in crate::db) fn aggregate_index_out_of_bounds(
-        clause_index: usize,
-        aggregate_index: usize,
-        aggregate_count: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped HAVING aggregate index out of bounds: clause_index={clause_index}, aggregate_index={aggregate_index}, aggregate_count={aggregate_count}",
-        ))
     }
 }
 

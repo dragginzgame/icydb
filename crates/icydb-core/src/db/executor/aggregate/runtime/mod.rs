@@ -8,18 +8,10 @@ mod grouped_fold;
 mod grouped_output;
 
 use crate::{
-    db::{
-        executor::projection::{
-            ProjectionEvalError, eval_binary_expr, eval_projection_function_call,
-            projection_function_name,
-        },
-        predicate::{CompareOp, evaluate_grouped_having_compare},
-        query::plan::{
-            FieldSlot, GroupHavingClause, GroupHavingExpr, GroupHavingSymbol, GroupHavingValueExpr,
-        },
+    db::executor::projection::{
+        GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr,
     },
     error::InternalError,
-    value::Value,
 };
 
 #[cfg(feature = "diagnostics")]
@@ -34,161 +26,13 @@ pub(in crate::db::executor) use grouped_output::{
     finalize_path_outcome_for_path,
 };
 
-// Evaluate one grouped HAVING expression on one finalized grouped output row.
+// Evaluate one compiled grouped HAVING expression on one finalized grouped output row.
 pub(in crate::db::executor) fn group_matches_having_expr(
-    expr: &GroupHavingExpr,
-    group_fields: &[FieldSlot],
-    group_key_value: &Value,
-    aggregate_values: &[Value],
+    expr: &GroupedProjectionExpr,
+    grouped_row: &GroupedRowView<'_>,
 ) -> Result<bool, InternalError> {
-    eval_group_having_expr(expr, group_fields, group_key_value, aggregate_values)
-}
-
-fn eval_group_having_expr(
-    expr: &GroupHavingExpr,
-    group_fields: &[FieldSlot],
-    group_key_value: &Value,
-    aggregate_values: &[Value],
-) -> Result<bool, InternalError> {
-    match expr {
-        GroupHavingExpr::Compare { left, op, right } => {
-            let actual = eval_group_having_value_expr(
-                left,
-                group_fields,
-                group_key_value,
-                aggregate_values,
-                0,
-            )?;
-            let expected = eval_group_having_value_expr(
-                right,
-                group_fields,
-                group_key_value,
-                aggregate_values,
-                0,
-            )?;
-
-            having_compare_values(&actual, *op, &expected)
-        }
-        GroupHavingExpr::And(children) => {
-            for child in children {
-                if !eval_group_having_expr(child, group_fields, group_key_value, aggregate_values)?
-                {
-                    return Ok(false);
-                }
-            }
-
-            Ok(true)
-        }
-    }
-}
-
-fn eval_group_having_value_expr(
-    expr: &GroupHavingValueExpr,
-    group_fields: &[FieldSlot],
-    group_key_value: &Value,
-    aggregate_values: &[Value],
-    compare_index: usize,
-) -> Result<Value, InternalError> {
-    match expr {
-        GroupHavingValueExpr::GroupField(field_slot) => resolve_group_having_group_field_value(
-            field_slot,
-            group_fields,
-            group_key_value,
-            compare_index,
-        )
-        .cloned(),
-        GroupHavingValueExpr::AggregateIndex(aggregate_index) => aggregate_values
-            .get(*aggregate_index)
-            .cloned()
-            .ok_or_else(|| {
-                GroupHavingSymbol::aggregate_index_out_of_bounds(
-                    compare_index,
-                    *aggregate_index,
-                    aggregate_values.len(),
-                )
-            }),
-        GroupHavingValueExpr::Literal(value) => Ok(value.clone()),
-        GroupHavingValueExpr::FunctionCall { function, args } => {
-            let mut evaluated_args = Vec::with_capacity(args.len());
-            for arg in args {
-                evaluated_args.push(eval_group_having_value_expr(
-                    arg,
-                    group_fields,
-                    group_key_value,
-                    aggregate_values,
-                    compare_index,
-                )?);
-            }
-
-            eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
-                ProjectionEvalError::InvalidFunctionCall {
-                    function: projection_function_name(*function).to_string(),
-                    message: err.to_string(),
-                }
-                .into_grouped_projection_internal_error()
-            })
-        }
-        GroupHavingValueExpr::Binary { op, left, right } => {
-            let left = eval_group_having_value_expr(
-                left,
-                group_fields,
-                group_key_value,
-                aggregate_values,
-                compare_index,
-            )?;
-            let right = eval_group_having_value_expr(
-                right,
-                group_fields,
-                group_key_value,
-                aggregate_values,
-                compare_index,
-            )?;
-
-            eval_binary_expr(*op, &left, &right)
-                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
-        }
-    }
-}
-
-fn resolve_group_having_group_field_value<'a>(
-    field_slot: &FieldSlot,
-    group_fields: &[FieldSlot],
-    group_key_value: &'a Value,
-    compare_index: usize,
-) -> Result<&'a Value, InternalError> {
-    let group_key_list = match group_key_value {
-        Value::List(values) => values,
-        value => return Err(GroupHavingSymbol::grouped_key_must_be_list(value)),
-    };
-    let Some(group_field_offset) = group_fields
-        .iter()
-        .position(|group_field| group_field.index() == field_slot.index())
-    else {
-        return Err(GroupHavingSymbol::field_not_in_group_key_projection(
-            field_slot.field(),
-        ));
-    };
-
-    group_key_list.get(group_field_offset).ok_or_else(|| {
-        GroupHavingSymbol::group_key_offset_out_of_bounds(
-            compare_index,
-            group_field_offset,
-            group_key_list.len(),
-        )
-    })
-}
-
-// Evaluate one grouped HAVING compare operator using strict value semantics.
-fn having_compare_values(
-    actual: &Value,
-    op: CompareOp,
-    expected: &Value,
-) -> Result<bool, InternalError> {
-    let Some(matches) = evaluate_grouped_having_compare(actual, op, expected) else {
-        return Err(GroupHavingClause::unsupported_operator(op));
-    };
-
-    Ok(matches)
+    evaluate_grouped_having_expr(expr, grouped_row)
+        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
 }
 
 ///
@@ -197,11 +41,14 @@ fn having_compare_values(
 
 #[cfg(test)]
 mod tests {
-    use super::eval_group_having_expr;
+    use super::group_matches_having_expr;
     use crate::{
-        db::query::plan::{
-            FieldSlot, GroupHavingExpr, GroupHavingValueExpr,
-            expr::{BinaryOp, Function},
+        db::{
+            executor::projection::{GroupedRowView, compile_grouped_having_expr},
+            query::plan::{
+                FieldSlot, GroupHavingExpr, GroupHavingValueExpr,
+                expr::{BinaryOp, Function},
+            },
         },
         types::Decimal,
         value::Value,
@@ -221,13 +68,12 @@ mod tests {
             right: GroupHavingValueExpr::Literal(Value::Decimal(Decimal::new(1000, 2))),
         };
 
-        let matched = eval_group_having_expr(
-            &expr,
-            &[],
-            &Value::List(Vec::new()),
-            &[Value::Decimal(Decimal::new(10049, 3))],
-        )
-        .expect("grouped HAVING ROUND compare should evaluate");
+        let compiled = compile_grouped_having_expr(&expr, &[])
+            .expect("grouped HAVING ROUND compare should compile");
+        let aggregate_values = [Value::Decimal(Decimal::new(10049, 3))];
+        let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+        let matched = group_matches_having_expr(&compiled, &grouped_row)
+            .expect("grouped HAVING ROUND compare should evaluate");
 
         assert!(matched);
     }
@@ -244,9 +90,12 @@ mod tests {
             right: GroupHavingValueExpr::Literal(Value::Uint(5)),
         };
 
-        let matched =
-            eval_group_having_expr(&expr, &[], &Value::List(Vec::new()), &[Value::Uint(5)])
-                .expect("grouped HAVING arithmetic compare should evaluate");
+        let compiled = compile_grouped_having_expr(&expr, &[])
+            .expect("grouped HAVING arithmetic compare should compile");
+        let aggregate_values = [Value::Uint(5)];
+        let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
+        let matched = group_matches_having_expr(&compiled, &grouped_row)
+            .expect("grouped HAVING arithmetic compare should evaluate");
 
         assert!(matched);
     }
@@ -267,13 +116,15 @@ mod tests {
             },
         ]);
 
-        let matched = eval_group_having_expr(
-            &expr,
-            &[group_field],
-            &Value::List(vec![Value::Text("Mage".to_string())]),
-            &[Value::Uint(11)],
-        )
-        .expect("grouped HAVING AND expression should evaluate");
+        let group_fields = [group_field];
+        let compiled = compile_grouped_having_expr(&expr, &group_fields)
+            .expect("grouped HAVING AND expression should compile");
+        let group_key_values = [Value::Text("Mage".to_string())];
+        let aggregate_values = [Value::Uint(11)];
+        let grouped_row =
+            GroupedRowView::new(&group_key_values, &aggregate_values, &group_fields, &[]);
+        let matched = group_matches_having_expr(&compiled, &grouped_row)
+            .expect("grouped HAVING AND expression should evaluate");
 
         assert!(matched);
     }

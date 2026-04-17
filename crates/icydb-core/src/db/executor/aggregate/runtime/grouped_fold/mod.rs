@@ -44,6 +44,10 @@ use crate::{
                 ProjectionMaterializationMode, RowView, StructuralGroupedRowRuntime,
             },
             plan_metrics::record_grouped_plan_metrics,
+            projection::{
+                GroupedProjectionExpr, GroupedRowView, ProjectionEvalError,
+                compile_grouped_having_expr,
+            },
         },
         index::IndexCompilePolicy,
         query::plan::FieldSlot,
@@ -1400,7 +1404,7 @@ fn finalize_grouped_count_page(
     update_grouped_count_fold_metrics(|metrics| {
         metrics.finalized_group_count = u64::try_from(grouped_counts.len()).unwrap_or(u64::MAX);
     });
-    let selection = GroupedCountWindowSelection::new(route);
+    let selection = GroupedCountWindowSelection::new(route)?;
     selection
         .select_page_rows(grouped_counts)?
         .project_and_build_cursor(route, grouped_projection_spec)
@@ -1421,16 +1425,26 @@ struct GroupedCountWindowSelection<'a> {
     route: &'a GroupedRouteStage,
     selection_bound: Option<usize>,
     resume_boundary: Option<&'a Value>,
+    compiled_having_expr: Option<GroupedProjectionExpr>,
 }
 
 impl<'a> GroupedCountWindowSelection<'a> {
     // Build one grouped-count window selector from one grouped route stage.
-    const fn new(route: &'a GroupedRouteStage) -> Self {
-        Self {
+    fn new(route: &'a GroupedRouteStage) -> Result<Self, InternalError> {
+        let compiled_having_expr = route
+            .grouped_having_expr()
+            .map(|expr| {
+                compile_grouped_having_expr(expr, route.group_fields())
+                    .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+            })
+            .transpose()?;
+
+        Ok(Self {
             route,
             selection_bound: route.grouped_selection_bound(),
             resume_boundary: route.grouped_resume_boundary(),
-        }
+            compiled_having_expr,
+        })
     }
 
     // Select grouped-count candidates after HAVING and resume filtering,
@@ -1561,12 +1575,21 @@ impl<'a> GroupedCountWindowSelection<'a> {
             metrics.window_rows_considered = metrics.window_rows_considered.saturating_add(1);
         });
         let aggregate_value = Value::Uint(u64::from(count));
-        if let Some(grouped_having_expr) = self.route.grouped_having_expr()
-            && !crate::db::executor::aggregate::runtime::group_matches_having_expr(
-                grouped_having_expr,
-                self.route.group_fields(),
+        let Value::List(group_key_values) = group_key.canonical_value() else {
+            return Err(GroupedRouteStage::canonical_group_key_must_be_list(
                 group_key.canonical_value(),
-                std::slice::from_ref(&aggregate_value),
+            ));
+        };
+        let grouped_row = GroupedRowView::new(
+            group_key_values.as_slice(),
+            std::slice::from_ref(&aggregate_value),
+            self.route.group_fields(),
+            &[],
+        );
+        if let Some(compiled_having_expr) = self.compiled_having_expr.as_ref()
+            && !crate::db::executor::aggregate::runtime::group_matches_having_expr(
+                compiled_having_expr,
+                &grouped_row,
             )?
         {
             update_grouped_count_fold_metrics(|metrics| {
@@ -1902,7 +1925,9 @@ mod tests {
             crate::db::direction::Direction::Asc,
             Some(3),
         );
-        let selected = GroupedCountWindowSelection::new(&route).retain_smallest_candidates(rows, 3);
+        let selected = GroupedCountWindowSelection::new(&route)
+            .expect("grouped count window selection should compile")
+            .retain_smallest_candidates(rows, 3);
 
         assert_eq!(
             selected

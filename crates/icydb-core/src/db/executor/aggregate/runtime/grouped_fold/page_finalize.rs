@@ -6,10 +6,12 @@
 use std::{cmp::Ordering, collections::BinaryHeap};
 
 use crate::{
+    db::executor::projection::ProjectionEvalError,
     db::{
         GroupedRow,
         contracts::canonical_value_compare,
         direction::Direction,
+        executor::projection::GroupedRowView,
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::{
@@ -19,10 +21,11 @@ use crate::{
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
             projection::{
-                CompiledGroupedProjectionPlan, compile_grouped_projection_plan_if_needed,
+                CompiledGroupedProjectionPlan, GroupedProjectionExpr, compile_grouped_having_expr,
+                compile_grouped_projection_plan_if_needed,
             },
         },
-        query::plan::{GroupHavingExpr, expr::ProjectionSpec},
+        query::plan::expr::ProjectionSpec,
     },
     error::InternalError,
     value::Value,
@@ -98,16 +101,19 @@ impl GroupedPageCandidate {
     // continuation resume-boundary filtering.
     fn matches_window(
         &self,
-        grouped_having_expr: Option<&GroupHavingExpr>,
+        compiled_having_expr: Option<&GroupedProjectionExpr>,
         group_fields: &[crate::db::query::plan::FieldSlot],
         resume_boundary: Option<&Value>,
     ) -> Result<bool, InternalError> {
-        if let Some(grouped_having_expr) = grouped_having_expr
+        if let Some(compiled_having_expr) = compiled_having_expr
             && !group_matches_having_expr(
-                grouped_having_expr,
-                group_fields,
-                self.group_key.canonical_value(),
-                self.aggregate_values.as_slice(),
+                compiled_having_expr,
+                &GroupedRowView::new(
+                    self.group_key_values()?,
+                    self.aggregate_values.as_slice(),
+                    group_fields,
+                    &[],
+                ),
             )?
         {
             return Ok(false);
@@ -156,8 +162,19 @@ pub(super) fn finalize_grouped_page(
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),
     )?;
-    let selection =
-        GroupedPageFinalizeSelection::new(route, pagination_window, compiled_projection);
+    let compiled_having_expr = route
+        .grouped_having_expr()
+        .map(|expr| {
+            compile_grouped_having_expr(expr, route.group_fields())
+                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+        })
+        .transpose()?;
+    let selection = GroupedPageFinalizeSelection::new(
+        route,
+        pagination_window,
+        compiled_projection,
+        compiled_having_expr,
+    );
     let (page_rows, next_cursor_boundary) =
         if let Some(selection_bound) = route.grouped_selection_bound() {
             selection.finalize_bounded(grouped_bundle, selection_bound)?
@@ -213,7 +230,7 @@ fn into_finalize_groups(
 
 struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
-    grouped_having_expr: Option<&'a GroupHavingExpr>,
+    compiled_having_expr: Option<GroupedProjectionExpr>,
     group_fields: &'a [crate::db::query::plan::FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
     resume_boundary: Option<&'a Value>,
@@ -227,10 +244,11 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         route: &'a GroupedRouteStage,
         pagination_window: &'a GroupedPaginationWindow,
         compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
+        compiled_having_expr: Option<GroupedProjectionExpr>,
     ) -> Self {
         Self {
             direction: route.direction(),
-            grouped_having_expr: route.grouped_having_expr(),
+            compiled_having_expr,
             group_fields: route.group_fields(),
             pagination_window,
             resume_boundary: route.grouped_resume_boundary(),
@@ -269,7 +287,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
     // HAVING and continuation resume-boundary filtering.
     fn matches_window(&self, candidate: &GroupedPageCandidate) -> Result<bool, InternalError> {
         candidate.matches_window(
-            self.grouped_having_expr,
+            self.compiled_having_expr.as_ref(),
             self.group_fields,
             self.resume_boundary,
         )

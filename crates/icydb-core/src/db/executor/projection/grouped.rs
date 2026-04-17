@@ -10,10 +10,12 @@ use crate::{
             ProjectionEvalError, eval_binary_expr, eval_projection_function_call,
             projection_function_name,
         },
+        predicate::{CompareOp, evaluate_grouped_having_compare},
         query::{
             builder::AggregateExpr,
             plan::{
-                FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
+                FieldSlot, GroupHavingExpr, GroupHavingValueExpr, GroupedAggregateExecutionSpec,
+                PlannedProjectionLayout,
                 expr::{BinaryOp, Expr, Function, ProjectionField, ProjectionSpec},
             },
         },
@@ -33,7 +35,7 @@ pub(in crate::db::executor) struct GroupedRowView<'a> {
     pub(in crate::db::executor::projection) key_values: &'a [Value],
     pub(in crate::db::executor::projection) aggregate_values: &'a [Value],
     #[cfg(test)]
-    pub(in crate::db::executor::projection) group_fields: &'a [FieldSlot],
+    group_fields: &'a [FieldSlot],
     #[cfg(test)]
     pub(in crate::db::executor::projection) aggregate_execution_specs:
         &'a [GroupedAggregateExecutionSpec],
@@ -59,6 +61,25 @@ impl<'a> GroupedRowView<'a> {
             #[cfg(test)]
             aggregate_execution_specs,
         }
+    }
+
+    /// Borrow grouped key values in grouped-field declaration order.
+    #[must_use]
+    pub(in crate::db::executor) const fn key_values(&self) -> &'a [Value] {
+        self.key_values
+    }
+
+    /// Borrow finalized grouped aggregate values in execution-spec order.
+    #[must_use]
+    pub(in crate::db::executor) const fn aggregate_values(&self) -> &'a [Value] {
+        self.aggregate_values
+    }
+
+    /// Borrow grouped field slots used to interpret grouped key offsets.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
+        self.group_fields
     }
 }
 
@@ -90,6 +111,12 @@ pub(in crate::db::executor) enum GroupedProjectionExpr {
         left: Box<Self>,
         right: Box<Self>,
     },
+    Compare {
+        left: Box<Self>,
+        op: CompareOp,
+        right: Box<Self>,
+    },
+    And(Vec<Self>),
 }
 
 ///
@@ -247,13 +274,27 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
 }
 
 /// Evaluate one grouped projection expression against one grouped output row view.
+
+/// Evaluate one compiled grouped HAVING expression against one grouped output row.
+pub(in crate::db::executor) fn evaluate_grouped_having_expr(
+    expr: &GroupedProjectionExpr,
+    grouped_row: &GroupedRowView<'_>,
+) -> Result<bool, ProjectionEvalError> {
+    match eval_grouped_projection_expr(expr, grouped_row)? {
+        Value::Bool(value) => Ok(value),
+        value => Err(ProjectionEvalError::InvalidGroupedHavingResult {
+            found: Box::new(value),
+        }),
+    }
+}
+
 pub(in crate::db::executor) fn eval_grouped_projection_expr(
     expr: &GroupedProjectionExpr,
     grouped_row: &GroupedRowView<'_>,
 ) -> Result<Value, ProjectionEvalError> {
     match expr {
         GroupedProjectionExpr::Field(field) => {
-            let Some(value) = grouped_row.key_values.get(field.offset) else {
+            let Some(value) = grouped_row.key_values().get(field.offset) else {
                 return Err(ProjectionEvalError::MissingFieldValue {
                     field: field.field.clone(),
                     index: field.offset,
@@ -263,10 +304,10 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
             Ok(value.clone())
         }
         GroupedProjectionExpr::Aggregate(aggregate) => {
-            let Some(value) = grouped_row.aggregate_values.get(aggregate.index) else {
+            let Some(value) = grouped_row.aggregate_values().get(aggregate.index) else {
                 return Err(ProjectionEvalError::MissingGroupedAggregateValue {
                     aggregate_index: aggregate.index,
-                    aggregate_count: grouped_row.aggregate_values.len(),
+                    aggregate_count: grouped_row.aggregate_values().len(),
                 });
             };
 
@@ -297,6 +338,32 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
 
             eval_binary_expr(*op, &left, &right)
         }
+        GroupedProjectionExpr::Compare { left, op, right } => {
+            let left = eval_grouped_projection_expr(left, grouped_row)?;
+            let right = eval_grouped_projection_expr(right, grouped_row)?;
+            let Some(matches) = evaluate_grouped_having_compare(&left, *op, &right) else {
+                return Err(ProjectionEvalError::InvalidGroupedCompareOperator {
+                    op: format!("{op:?}"),
+                });
+            };
+
+            Ok(Value::Bool(matches))
+        }
+        GroupedProjectionExpr::And(children) => {
+            for child in children {
+                let value = eval_grouped_projection_expr(child, grouped_row)?;
+                let Value::Bool(matches) = value else {
+                    return Err(ProjectionEvalError::InvalidGroupedHavingResult {
+                        found: Box::new(value),
+                    });
+                };
+                if !matches {
+                    return Ok(Value::Bool(false));
+                }
+            }
+
+            Ok(Value::Bool(true))
+        }
     }
 }
 
@@ -324,6 +391,77 @@ pub(in crate::db::executor::projection) fn resolve_grouped_aggregate_index(
     }
 
     None
+}
+
+fn resolve_group_having_field_offset(
+    group_fields: &[FieldSlot],
+    field_slot: &FieldSlot,
+) -> Option<usize> {
+    for (offset, group_field) in group_fields.iter().enumerate() {
+        if group_field.index() == field_slot.index() {
+            return Some(offset);
+        }
+    }
+
+    None
+}
+
+/// Compile one grouped HAVING expression onto the shared grouped evaluator IR.
+pub(in crate::db::executor) fn compile_grouped_having_expr(
+    expr: &GroupHavingExpr,
+    group_fields: &[FieldSlot],
+) -> Result<GroupedProjectionExpr, ProjectionEvalError> {
+    match expr {
+        GroupHavingExpr::Compare { left, op, right } => Ok(GroupedProjectionExpr::Compare {
+            left: Box::new(compile_grouped_having_value_expr(left, group_fields)?),
+            op: *op,
+            right: Box::new(compile_grouped_having_value_expr(right, group_fields)?),
+        }),
+        GroupHavingExpr::And(children) => Ok(GroupedProjectionExpr::And(
+            children
+                .iter()
+                .map(|child| compile_grouped_having_expr(child, group_fields))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+    }
+}
+
+fn compile_grouped_having_value_expr(
+    expr: &GroupHavingValueExpr,
+    group_fields: &[FieldSlot],
+) -> Result<GroupedProjectionExpr, ProjectionEvalError> {
+    match expr {
+        GroupHavingValueExpr::GroupField(field_slot) => {
+            let Some(offset) = resolve_group_having_field_offset(group_fields, field_slot) else {
+                return Err(ProjectionEvalError::UnknownField {
+                    field: field_slot.field().to_string(),
+                });
+            };
+
+            Ok(GroupedProjectionExpr::Field(GroupedProjectionField {
+                field: field_slot.field().to_string(),
+                offset,
+            }))
+        }
+        GroupHavingValueExpr::AggregateIndex(index) => Ok(GroupedProjectionExpr::Aggregate(
+            GroupedProjectionAggregate { index: *index },
+        )),
+        GroupHavingValueExpr::Literal(value) => Ok(GroupedProjectionExpr::Literal(value.clone())),
+        GroupHavingValueExpr::FunctionCall { function, args } => {
+            Ok(GroupedProjectionExpr::FunctionCall {
+                function: *function,
+                args: args
+                    .iter()
+                    .map(|arg| compile_grouped_having_value_expr(arg, group_fields))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        }
+        GroupHavingValueExpr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
+            op: *op,
+            left: Box::new(compile_grouped_having_value_expr(left, group_fields)?),
+            right: Box::new(compile_grouped_having_value_expr(right, group_fields)?),
+        }),
+    }
 }
 
 pub(in crate::db::executor) fn compile_grouped_projection_expr(

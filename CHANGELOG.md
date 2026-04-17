@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.87.x] 🎚️ - 2026-04-17 - Grouped ORDER BY Proof Cleanup
 
+- `0.87.1` follows the first grouped `ORDER BY` cleanup with one smaller executor unification cut: grouped projection and grouped `HAVING` now read the same finalized grouped-row adapter, so the grouped runtime no longer has two different ways to interpret grouped keys and aggregate outputs before the later compiled-evaluator merge.
 - `0.87.0` formalizes grouped `ORDER BY` admission so safe grouped-key transforms like `group_key + constant` and `group_key - constant` are admitted deliberately with clearer planner and explain diagnostics, and it also finishes the grouped `HAVING` internal cleanup so the engine now carries one expression-based `HAVING` model instead of the old mixed clause wrapper.
 
 See detailed breakdown:

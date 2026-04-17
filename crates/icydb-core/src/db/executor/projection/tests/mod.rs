@@ -132,7 +132,7 @@ fn eval_expr_grouped(
 ) -> Result<Value, ProjectionEvalError> {
     let compiled = compile_grouped_projection_expr(
         expr,
-        grouped_row.group_fields,
+        grouped_row.group_fields(),
         grouped_row.aggregate_execution_specs,
     )?;
 
