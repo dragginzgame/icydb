@@ -79,7 +79,8 @@ pub(in crate::db) use planner::{
     residual_query_predicate_after_filtered_access,
 };
 pub(crate) use projection::{
-    lower_direct_projection_slots, lower_projection_identity, lower_projection_intent,
+    lower_direct_projection_slots, lower_global_aggregate_projection, lower_projection_identity,
+    lower_projection_intent,
 };
 #[cfg(test)]
 pub(crate) use semantics::GroupedPlanAggregateFamily;

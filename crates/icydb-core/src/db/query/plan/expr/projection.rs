@@ -66,7 +66,7 @@ pub(crate) struct ProjectionSpec {
 impl ProjectionSpec {
     /// Build one projection semantic contract from planner-lowered fields.
     #[must_use]
-    pub(in crate::db) const fn new(fields: Vec<ProjectionField>) -> Self {
+    pub(in crate::db::query::plan) const fn new(fields: Vec<ProjectionField>) -> Self {
         Self { fields }
     }
 

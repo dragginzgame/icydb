@@ -20,7 +20,7 @@ use crate::{
                     Alias, BinaryOp, Expr, FieldId, Function, ProjectionField, ProjectionSpec,
                     compile_scalar_projection_expr, expr_references_only_fields,
                 },
-                resolve_aggregate_target_field_slot,
+                lower_global_aggregate_projection, resolve_aggregate_target_field_slot,
             },
         },
         sql::{
@@ -1080,7 +1080,7 @@ impl LoweredSqlGlobalAggregateTerminals {
 
         Ok(Self {
             terminals,
-            projection: ProjectionSpec::new(fields),
+            projection: lower_global_aggregate_projection(fields),
             output_remap: if saw_wrapped_projection {
                 Vec::new()
             } else {

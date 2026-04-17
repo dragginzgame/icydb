@@ -36,6 +36,15 @@ pub(crate) fn lower_projection_intent(
     }
 }
 
+/// Lower one already-validated global aggregate output field list into the
+/// canonical planner-owned projection semantic shape.
+#[must_use]
+pub(crate) const fn lower_global_aggregate_projection(
+    fields: Vec<ProjectionField>,
+) -> ProjectionSpec {
+    ProjectionSpec::new(fields)
+}
+
 /// Lower scalar plans to one explicit field projection per declared entity field.
 fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection) -> ProjectionSpec {
     let fields = match selection {
