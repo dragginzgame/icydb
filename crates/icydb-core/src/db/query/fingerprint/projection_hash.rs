@@ -128,7 +128,13 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             write_tag(hasher, EXPR_LITERAL_TAG);
             #[cfg(test)]
             if numeric_literal_context {
-                hash_numeric_literal_semantic(hasher, value);
+                let Some(decimal) = coerce_numeric_decimal(value) else {
+                    write_value(hasher, value);
+                    return;
+                };
+
+                write_tag(hasher, NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG);
+                write_value(hasher, &Value::Decimal(decimal));
             } else {
                 write_value(hasher, value);
             }
@@ -169,19 +175,6 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             hash_expr(hasher, expr.as_ref(), numeric_literal_context);
         }
     }
-}
-
-// Canonicalize numeric-coercible literal leaves when they appear under numeric
-// operators so promotion-path representation differences do not fragment identity.
-#[cfg(test)]
-fn hash_numeric_literal_semantic(hasher: &mut Sha256, value: &Value) {
-    let Some(decimal) = coerce_numeric_decimal(value) else {
-        write_value(hasher, value);
-        return;
-    };
-
-    write_tag(hasher, NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG);
-    write_value(hasher, &Value::Decimal(decimal));
 }
 
 const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {

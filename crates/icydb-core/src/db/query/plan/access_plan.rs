@@ -198,7 +198,11 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             ProjectionSelection::All,
-            seeded_access_choice_snapshot(&access),
+            if access.selected_index_model().is_some() {
+                AccessChoiceExplainSnapshot::selected_index_not_projected()
+            } else {
+                AccessChoiceExplainSnapshot::non_index_access()
+            },
         )
     }
 
@@ -245,7 +249,11 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             ProjectionSelection::All,
-            seeded_access_choice_snapshot(&access),
+            if access.selected_index_model().is_some() {
+                AccessChoiceExplainSnapshot::selected_index_not_projected()
+            } else {
+                AccessChoiceExplainSnapshot::non_index_access()
+            },
         )
     }
 
@@ -265,7 +273,11 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             projection_selection,
-            seeded_access_choice_snapshot(&access),
+            if access.selected_index_model().is_some() {
+                AccessChoiceExplainSnapshot::selected_index_not_projected()
+            } else {
+                AccessChoiceExplainSnapshot::non_index_access()
+            },
         )
     }
 
@@ -353,13 +365,5 @@ impl AccessPlannedQuery {
         planner_route_profile: PlannerRouteProfile,
     ) {
         self.planner_route_profile = planner_route_profile;
-    }
-}
-
-fn seeded_access_choice_snapshot(access: &AccessPlan<Value>) -> AccessChoiceExplainSnapshot {
-    if access.selected_index_model().is_some() {
-        AccessChoiceExplainSnapshot::selected_index_not_projected()
-    } else {
-        AccessChoiceExplainSnapshot::non_index_access()
     }
 }

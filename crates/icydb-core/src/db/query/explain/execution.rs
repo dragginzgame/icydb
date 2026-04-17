@@ -279,7 +279,18 @@ impl ExplainAggregateTerminalPlan {
     #[must_use]
     pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
         ExplainExecutionNodeDescriptor {
-            node_type: aggregate_execution_node_type(self.terminal, self.execution.ordering_source),
+            node_type: match self.execution.ordering_source {
+                ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
+                    ExplainExecutionNodeType::AggregateSeekFirst
+                }
+                ExplainExecutionOrderingSource::IndexSeekLast { .. } => {
+                    ExplainExecutionNodeType::AggregateSeekLast
+                }
+                ExplainExecutionOrderingSource::AccessOrder
+                | ExplainExecutionOrderingSource::Materialized => {
+                    ExplainExecutionNodeType::aggregate_terminal(self.terminal)
+                }
+            },
             execution_mode: self.execution.execution_mode,
             access_strategy: Some(self.execution.access_strategy.clone()),
             predicate_pushdown: None,
@@ -292,24 +303,6 @@ impl ExplainAggregateTerminalPlan {
             rows_expected: None,
             children: Vec::new(),
             node_properties: self.execution.node_properties.clone(),
-        }
-    }
-}
-
-const fn aggregate_execution_node_type(
-    terminal: AggregateKind,
-    ordering_source: ExplainExecutionOrderingSource,
-) -> ExplainExecutionNodeType {
-    match ordering_source {
-        ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
-            ExplainExecutionNodeType::AggregateSeekFirst
-        }
-        ExplainExecutionOrderingSource::IndexSeekLast { .. } => {
-            ExplainExecutionNodeType::AggregateSeekLast
-        }
-        ExplainExecutionOrderingSource::AccessOrder
-        | ExplainExecutionOrderingSource::Materialized => {
-            ExplainExecutionNodeType::aggregate_terminal(terminal)
         }
     }
 }

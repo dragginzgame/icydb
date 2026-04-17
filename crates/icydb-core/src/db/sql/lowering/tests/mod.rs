@@ -2085,7 +2085,52 @@ fn compile_sql_command_rejects_grouped_non_group_field_projection() {
     )
     .expect_err("grouped non-group field projection should stay fail-closed");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+    assert!(matches!(
+        err,
+        SqlLoweringError::GroupedProjectionReferencesNonGroupField { index: 1 }
+    ));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_projection_without_aggregate_specifically() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped projection without aggregates should stay fail-closed");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::GroupedProjectionRequiresAggregate
+    ));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_star_projection_specifically() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped star projection should stay fail-closed");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::GroupedProjectionRequiresExplicitList
+    ));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_scalar_projection_after_aggregate_specifically() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT COUNT(*), age FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped scalar terms after aggregate terms should stay fail-closed");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::GroupedProjectionScalarAfterAggregate { index: 1 }
+    ));
 }
 
 #[test]
@@ -2264,7 +2309,7 @@ fn compile_sql_command_select_having_without_group_by_rejects() {
     )
     .expect_err("HAVING without GROUP BY should fail closed");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectHaving));
+    assert!(matches!(err, SqlLoweringError::HavingRequiresGroupBy));
 }
 
 #[test]
@@ -3346,21 +3391,41 @@ fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
     for sql in [
         "SELECT age FROM SqlLowerEntity",
         "SELECT COUNT(*), age FROM SqlLowerEntity",
-        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
     ] {
         let err =
             compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
                 .expect_err("unsupported global aggregate SQL shape should fail closed");
 
         assert!(
-            matches!(
-                err,
-                SqlLoweringError::UnsupportedSelectProjection
-                    | SqlLoweringError::UnsupportedSelectGroupBy
-            ),
+            matches!(err, SqlLoweringError::UnsupportedGlobalAggregateProjection),
             "unsupported global aggregate SQL shape should remain lowering-gated: {sql}",
         );
     }
+
+    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped SQL shape should stay out of the dedicated global aggregate lane");
+
+    assert!(
+        matches!(err, SqlLoweringError::GlobalAggregateDoesNotSupportGroupBy),
+        "grouped SQL shape should fail through the grouped/global aggregate boundary specifically",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_rejects_having_without_group_by_specifically() {
+    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) FROM SqlLowerEntity HAVING COUNT(*) > 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("global aggregate lane should reject HAVING without GROUP BY specifically");
+
+    assert!(
+        matches!(err, SqlLoweringError::HavingRequiresGroupBy),
+        "global aggregate lane should preserve the semantic HAVING/GROUP BY boundary",
+    );
 }
 
 #[test]
@@ -3372,7 +3437,7 @@ fn compile_sql_global_aggregate_command_rejection_message_names_global_aggregate
     .expect_err("mixed global aggregate and scalar projection should remain fail-closed");
 
     assert!(
-        err.to_string().contains("global aggregate terminal lists"),
+        err.to_string().contains("pure aggregate terminal lists"),
         "mixed aggregate rejection should name the admitted global aggregate list shape: {err}",
     );
 }

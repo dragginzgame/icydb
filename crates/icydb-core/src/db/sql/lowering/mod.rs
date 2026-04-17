@@ -185,8 +185,35 @@ pub(crate) enum SqlLoweringError {
     #[error("unsupported SQL SELECT DISTINCT")]
     UnsupportedSelectDistinct,
 
+    #[error(
+        "unsupported global aggregate SQL projection; supported forms are pure aggregate terminal lists such as COUNT(*), SUM(field), or AVG(expr)"
+    )]
+    UnsupportedGlobalAggregateProjection,
+
+    #[error("global aggregate SQL does not support GROUP BY")]
+    GlobalAggregateDoesNotSupportGroupBy,
+
     #[error("unsupported SQL GROUP BY projection shape")]
     UnsupportedSelectGroupBy,
+
+    #[error("grouped SELECT requires an explicit projection list")]
+    GroupedProjectionRequiresExplicitList,
+
+    #[error("grouped SELECT projection must include at least one aggregate expression")]
+    GroupedProjectionRequiresAggregate,
+
+    #[error(
+        "grouped projection expression at index={index} references fields outside GROUP BY keys"
+    )]
+    GroupedProjectionReferencesNonGroupField { index: usize },
+
+    #[error(
+        "grouped projection expression at index={index} appears after aggregate expressions started"
+    )]
+    GroupedProjectionScalarAfterAggregate { index: usize },
+
+    #[error("HAVING requires GROUP BY")]
+    HavingRequiresGroupBy,
 
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
@@ -228,9 +255,44 @@ impl SqlLoweringError {
         Self::UnsupportedSelectDistinct
     }
 
+    /// Construct one unsupported global aggregate projection SQL lowering error.
+    const fn unsupported_global_aggregate_projection() -> Self {
+        Self::UnsupportedGlobalAggregateProjection
+    }
+
+    /// Construct one global-aggregate-GROUP-BY SQL lowering error.
+    const fn global_aggregate_does_not_support_group_by() -> Self {
+        Self::GlobalAggregateDoesNotSupportGroupBy
+    }
+
     /// Construct one unsupported SELECT GROUP BY shape SQL lowering error.
     const fn unsupported_select_group_by() -> Self {
         Self::UnsupportedSelectGroupBy
+    }
+
+    /// Construct one grouped-projection-explicit-list SQL lowering error.
+    const fn grouped_projection_requires_explicit_list() -> Self {
+        Self::GroupedProjectionRequiresExplicitList
+    }
+
+    /// Construct one grouped-projection-missing-aggregate SQL lowering error.
+    const fn grouped_projection_requires_aggregate() -> Self {
+        Self::GroupedProjectionRequiresAggregate
+    }
+
+    /// Construct one grouped projection non-group-field SQL lowering error.
+    const fn grouped_projection_references_non_group_field(index: usize) -> Self {
+        Self::GroupedProjectionReferencesNonGroupField { index }
+    }
+
+    /// Construct one grouped projection scalar-after-aggregate SQL lowering error.
+    const fn grouped_projection_scalar_after_aggregate(index: usize) -> Self {
+        Self::GroupedProjectionScalarAfterAggregate { index }
+    }
+
+    /// Construct one HAVING-requires-GROUP-BY SQL lowering error.
+    const fn having_requires_group_by() -> Self {
+        Self::HavingRequiresGroupBy
     }
 
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.

@@ -77,7 +77,22 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
         #[cfg(test)]
         Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
         #[cfg(test)]
-        Expr::Unary { op, expr } => infer_unary_expr_type(*op, expr.as_ref(), schema),
+        Expr::Unary { op, expr } => {
+            let inner = infer_expr_type(expr.as_ref(), schema)?;
+
+            match op {
+                UnaryOp::Not => {
+                    if !matches!(inner, ExprType::Bool) {
+                        return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
+                            "not",
+                            format!("{inner:?}"),
+                        )));
+                    }
+
+                    Ok(ExprType::Bool)
+                }
+            }
+        }
         Expr::Binary { op, left, right } => {
             infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
@@ -340,28 +355,6 @@ fn render_aggregate_input_expr_label(expr: &Expr) -> String {
         Expr::Alias { expr, .. } => render_aggregate_input_expr_label(expr),
         #[cfg(test)]
         Expr::Unary { expr, .. } => render_aggregate_input_expr_label(expr),
-    }
-}
-
-#[cfg(test)]
-fn infer_unary_expr_type(
-    op: UnaryOp,
-    expr: &Expr,
-    schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
-    let inner = infer_expr_type(expr, schema)?;
-
-    match op {
-        UnaryOp::Not => {
-            if !matches!(inner, ExprType::Bool) {
-                return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
-                    "not",
-                    format!("{inner:?}"),
-                )));
-            }
-
-            Ok(ExprType::Bool)
-        }
     }
 }
 

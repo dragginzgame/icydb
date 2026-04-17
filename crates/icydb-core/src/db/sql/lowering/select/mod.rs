@@ -95,6 +95,10 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     // Phase 1: resolve scalar/grouped projection shape.
     let is_grouped = !group_by.is_empty();
+    if !is_grouped && !having.is_empty() {
+        return Err(SqlLoweringError::having_requires_group_by());
+    }
+
     let (projection_selection, grouped_aggregates, normalized_distinct) = if is_grouped {
         let projection_aggregates =
             grouped_projection_aggregate_calls(&projection, group_by.as_slice(), model)?;

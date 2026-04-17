@@ -79,14 +79,6 @@ fn canonical_cmp_plan_list_value(
     left.len().cmp(&right.len())
 }
 
-#[cfg(test)]
-fn canonical_cmp_access_path_value(
-    left: &AccessPath<Value>,
-    right: &AccessPath<Value>,
-) -> Ordering {
-    left.canonical_cmp(right)
-}
-
 // Return the single value from one canonicalized value-set shape.
 fn single_canonical_value(values: &[Value]) -> Option<&Value> {
     match values {
@@ -517,14 +509,8 @@ mod tests {
             Bound::Excluded(Value::Uint(200)),
         );
 
-        assert_eq!(
-            canonical_cmp_access_path_value(&included, &excluded),
-            Ordering::Less
-        );
-        assert_eq!(
-            canonical_cmp_access_path_value(&excluded, &included),
-            Ordering::Greater
-        );
+        assert_eq!(included.canonical_cmp(&excluded), Ordering::Less);
+        assert_eq!(excluded.canonical_cmp(&included), Ordering::Greater);
     }
 
     #[test]

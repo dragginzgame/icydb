@@ -31,7 +31,13 @@ pub(in crate::db) fn eval_binary_expr(
         BinaryOp::Mul => eval_numeric_binary_expr(op, left, right),
         BinaryOp::Div => eval_numeric_binary_expr(op, left, right),
         #[cfg(test)]
-        BinaryOp::And => eval_boolean_binary_expr(op, left, right),
+        BinaryOp::And => {
+            let (Value::Bool(left_bool), Value::Bool(right_bool)) = (left, right) else {
+                return Err(invalid_binary_operands(op, left, right));
+            };
+
+            Ok(Value::Bool(*left_bool && *right_bool))
+        }
         #[cfg(test)]
         BinaryOp::Eq => comparison::eval_equality_binary_expr(op, left, right),
     }
@@ -48,24 +54,6 @@ fn eval_numeric_binary_expr(
     };
 
     Ok(Value::Decimal(result))
-}
-
-#[cfg(test)]
-fn eval_boolean_binary_expr(
-    op: BinaryOp,
-    left: &Value,
-    right: &Value,
-) -> Result<Value, ProjectionEvalError> {
-    let (Value::Bool(left_bool), Value::Bool(right_bool)) = (left, right) else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-
-    debug_assert!(
-        matches!(op, BinaryOp::And),
-        "boolean binary evaluator called with non-boolean operator",
-    );
-
-    Ok(Value::Bool(*left_bool && *right_bool))
 }
 
 pub(super) fn invalid_binary_operands(

@@ -43,32 +43,6 @@ fn value_for_expression(
     })
 }
 
-#[cfg(test)]
-fn index_component_value_from_slot_reader(
-    entity_model: &EntityModel,
-    index: &IndexModel,
-    key_item: IndexKeyItem,
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
-) -> Result<Option<Value>, InternalError> {
-    let field = key_item.field();
-    let Some(field_index) = resolve_field_slot(entity_model, field) else {
-        return Err(InternalError::index_key_item_field_missing_on_entity_model(
-            field,
-        ));
-    };
-
-    let Some(source) = read_slot(field_index) else {
-        return Err(InternalError::index_key_item_field_missing_on_lookup_row(
-            field,
-        ));
-    };
-
-    match key_item {
-        IndexKeyItem::Field(_) => Ok(Some(source)),
-        IndexKeyItem::Expression(expression) => value_for_expression(index, expression, source),
-    }
-}
-
 fn index_component_bytes_from_slot_ref_reader<'a>(
     entity_model: &EntityModel,
     index: &IndexModel,
@@ -122,9 +96,26 @@ impl IndexKey {
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<Value>,
     ) -> Result<Option<Self>, InternalError> {
-        let mut component_bytes = |key_item| {
-            let Some(value) =
-                index_component_value_from_slot_reader(entity_model, index, key_item, read_slot)?
+        let mut component_bytes = |key_item: IndexKeyItem| {
+            let field = key_item.field();
+            let Some(field_index) = resolve_field_slot(entity_model, field) else {
+                return Err(InternalError::index_key_item_field_missing_on_entity_model(
+                    field,
+                ));
+            };
+
+            let Some(source) = read_slot(field_index) else {
+                return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+                    field,
+                ));
+            };
+
+            let Some(value) = match key_item {
+                IndexKeyItem::Field(_) => Ok(Some(source)),
+                IndexKeyItem::Expression(expression) => {
+                    value_for_expression(index, expression, source)
+                }
+            }?
             else {
                 return Ok(None);
             };

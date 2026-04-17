@@ -272,7 +272,8 @@ pub(in crate::db) fn validate_grouped_cursor(
     let Some(cursor) = cursor else {
         return Ok(GroupedPlannedCursor::none());
     };
-    let token = decode_grouped_cursor_token(cursor)?;
+    let token =
+        GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)?;
 
     validate_cursor_signature(entity_path, &continuation_signature, &token.signature())?;
     validate_grouped_cursor_direction(expected_direction, token.direction())?;
@@ -317,13 +318,6 @@ pub(in crate::db) fn validate_grouped_cursor_state(
 
     Ok(cursor)
 }
-
-// Decode one grouped continuation token through the grouped token codec boundary.
-#[cfg(test)]
-fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken, CursorPlanError> {
-    GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)
-}
-
 // Grouped continuation cursors must match the grouped execution direction so
 // resume-boundary filtering stays consistent with grouped page ordering.
 fn validate_grouped_cursor_direction(

@@ -1,4 +1,4 @@
-use super::{RawCommitMarker, encode_commit_marker_bytes, serialize_commit_marker};
+use super::{RawCommitMarker, encode_commit_marker_bytes};
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -123,8 +123,9 @@ fn commit_marker_current_version_round_trip_succeeds() {
         id: [9u8; 16],
         row_ops: Vec::new(),
     };
-    let encoded = serialize_commit_marker(&marker)
-        .expect("current-version marker envelope encode should succeed");
+    let encoded = RawCommitMarker::try_from_marker(&marker)
+        .expect("current-version marker envelope encode should succeed")
+        .0;
     let decoded = RawCommitMarker(encoded)
         .try_decode()
         .expect("current-version marker envelope should decode")

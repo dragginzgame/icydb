@@ -19,10 +19,11 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
     runtime_state: Option<IndexState>,
 ) -> Vec<String> {
     let mut indexes = Vec::with_capacity(model.indexes.len().saturating_add(1));
-    indexes.push(formatted_index_line(
-        format!("PRIMARY KEY ({})", model.primary_key.name),
-        runtime_state,
-    ));
+    let primary_key_line = format!("PRIMARY KEY ({})", model.primary_key.name);
+    indexes.push(match runtime_state {
+        Some(state) => format!("{primary_key_line} [state={}]", state.as_str()),
+        None => primary_key_line,
+    });
 
     for index in model.indexes {
         let kind = if index.is_unique() {
@@ -31,20 +32,12 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
             "INDEX"
         };
         let fields = index.fields().join(", ");
-        indexes.push(formatted_index_line(
-            format!("{kind} {} ({fields})", index.name()),
-            runtime_state,
-        ));
+        let index_line = format!("{kind} {} ({fields})", index.name());
+        indexes.push(match runtime_state {
+            Some(state) => format!("{index_line} [state={}]", state.as_str()),
+            None => index_line,
+        });
     }
 
     indexes
-}
-
-// Append one optional runtime lifecycle annotation to one already-formatted
-// SHOW INDEXES line.
-fn formatted_index_line(line: String, runtime_state: Option<IndexState>) -> String {
-    match runtime_state {
-        Some(state) => format!("{line} [state={}]", state.as_str()),
-        None => line,
-    }
 }

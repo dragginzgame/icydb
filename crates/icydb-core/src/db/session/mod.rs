@@ -238,7 +238,10 @@ impl<C: CanisterKind> DbSession<C> {
         store_path: &str,
         model: &'static EntityModel,
     ) -> Vec<String> {
-        let runtime_state = self.try_index_state_for_store_path(store_path);
+        let runtime_state = self
+            .db
+            .with_store_registry(|registry| registry.try_get_store(store_path).ok())
+            .map(|store| store.index_state());
 
         show_indexes_for_model_with_runtime_state(model, runtime_state)
     }
@@ -274,16 +277,6 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn show_tables(&self) -> Vec<String> {
         self.show_entities()
-    }
-
-    // Best-effort runtime state lookup for metadata surfaces.
-    // SHOW INDEXES should stay readable even if one store handle is missing
-    // from the registry, so this helper falls back to the pure schema-owned
-    // listing instead of turning metadata inspection into an execution error.
-    fn try_index_state_for_store_path(&self, store_path: &str) -> Option<IndexState> {
-        self.db
-            .with_store_registry(|registry| registry.try_get_store(store_path).ok())
-            .map(|store| store.index_state())
     }
 
     // Resolve the exact secondary-index set that is visible to planner-owned

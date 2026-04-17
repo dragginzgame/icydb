@@ -1139,19 +1139,6 @@ fn execute_generic_grouped_fold_stage(
     )
 }
 
-// Return true when one grouped value can be hashed and compared from the
-// borrowed row slot without first allocating a canonical owned value tree.
-#[cfg(test)]
-fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
-    match value {
-        Value::List(_) | Value::Map(_) | Value::Unit => false,
-        Value::Enum(value_enum) => value_enum
-            .payload()
-            .is_none_or(group_value_supports_borrowed_group_probe),
-        _ => true,
-    }
-}
-
 // Return true when one single grouped field kind already arrives in canonical
 // grouped-equality form, so owned single-field key materialization can skip
 // the recursive normalization pass entirely.
@@ -1226,22 +1213,6 @@ fn group_fields_support_borrowed_group_probe(group_fields: &[FieldSlot]) -> bool
             .kind()
             .is_some_and(group_field_kind_supports_borrowed_group_probe)
     })
-}
-
-// Return true when every grouped slot on this row can use the borrowed count
-// fast path without falling back to owned canonical materialization.
-#[cfg(test)]
-fn supports_borrowed_group_probe(
-    row_view: &RowView,
-    group_fields: &[FieldSlot],
-) -> Result<bool, InternalError> {
-    for field in group_fields {
-        if !group_value_supports_borrowed_group_probe(row_view.require_slot_ref(field.index())?) {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
 }
 
 // Hash one virtual grouped key list directly from borrowed row slots so the
@@ -1776,7 +1747,6 @@ fn grouped_resume_boundary_allows_candidate(
 mod tests {
     use super::{
         GroupedCountState, GroupedCountWindowSelection, stable_hash_group_values_from_row_view,
-        supports_borrowed_group_probe,
     };
     use crate::{
         db::{
@@ -1786,6 +1756,7 @@ mod tests {
             },
             query::plan::FieldSlot,
         },
+        error::InternalError,
         types::Decimal,
         value::{Value, with_test_hash_override},
     };
@@ -1799,6 +1770,31 @@ mod tests {
 
     #[test]
     fn grouped_count_fast_path_hash_matches_owned_group_key_hash() {
+        fn supports_borrowed_group_probe(
+            row_view: &RowView,
+            group_fields: &[FieldSlot],
+        ) -> Result<bool, InternalError> {
+            fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
+                match value {
+                    Value::List(_) | Value::Map(_) | Value::Unit => false,
+                    Value::Enum(value_enum) => value_enum
+                        .payload()
+                        .is_none_or(group_value_supports_borrowed_group_probe),
+                    _ => true,
+                }
+            }
+
+            for field in group_fields {
+                if !group_value_supports_borrowed_group_probe(
+                    row_view.require_slot_ref(field.index())?,
+                ) {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+
         let row_view = RowView::new(vec![
             Some(Value::Decimal(Decimal::new(100, 2))),
             Some(Value::Text("alpha".to_string())),
@@ -1826,6 +1822,31 @@ mod tests {
 
     #[test]
     fn grouped_count_fast_path_rejects_structured_group_values() {
+        fn supports_borrowed_group_probe(
+            row_view: &RowView,
+            group_fields: &[FieldSlot],
+        ) -> Result<bool, InternalError> {
+            fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
+                match value {
+                    Value::List(_) | Value::Map(_) | Value::Unit => false,
+                    Value::Enum(value_enum) => value_enum
+                        .payload()
+                        .is_none_or(group_value_supports_borrowed_group_probe),
+                    _ => true,
+                }
+            }
+
+            for field in group_fields {
+                if !group_value_supports_borrowed_group_probe(
+                    row_view.require_slot_ref(field.index())?,
+                ) {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+
         let row_view = RowView::new(vec![Some(Value::List(vec![Value::Uint(7)]))]);
         let group_fields = group_fields(&[0]);
 

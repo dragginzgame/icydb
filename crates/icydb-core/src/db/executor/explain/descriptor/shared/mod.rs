@@ -646,35 +646,22 @@ pub(in crate::db::executor::explain::descriptor) fn explain_node_properties_for_
     if aggregation.is_count() {
         node_properties.insert(
             "count_fold",
-            Value::from(aggregate_fold_mode_label(route_plan.aggregate_fold_mode)),
+            Value::from(match route_plan.aggregate_fold_mode {
+                AggregateFoldMode::ExistingRows => "rows",
+                AggregateFoldMode::KeysOnly => "keys",
+            }),
         );
     }
     node_properties.insert("proj_field", Value::from(projected_field.unwrap_or("none")));
     node_properties.insert(
         "proj_mode",
-        Value::from(aggregate_projection_mode_label(
-            aggregation,
-            projected_field.is_some(),
-            covering_projection,
-        )),
+        Value::from(
+            aggregation
+                .explain_projection_mode_label(projected_field.is_some(), covering_projection),
+        ),
     );
 
     node_properties
-}
-
-const fn aggregate_projection_mode_label(
-    aggregation: AggregateKind,
-    has_projected_field: bool,
-    covering_projection: bool,
-) -> &'static str {
-    aggregation.explain_projection_mode_label(has_projected_field, covering_projection)
-}
-
-const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
-    match mode {
-        AggregateFoldMode::ExistingRows => "rows",
-        AggregateFoldMode::KeysOnly => "keys",
-    }
 }
 
 pub(in crate::db::executor::explain::descriptor) fn route_fetch_diagnostic_line(

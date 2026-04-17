@@ -79,7 +79,7 @@ pub(super) fn lower_having_clauses(
         return Ok(Vec::new());
     }
     if group_by_fields.is_empty() {
-        return Err(SqlLoweringError::unsupported_select_having());
+        return Err(SqlLoweringError::having_requires_group_by());
     }
 
     let SqlProjection::Items(_) = projection else {

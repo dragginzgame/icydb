@@ -286,31 +286,59 @@ pub(in crate::db) fn eval_scalar_value_program<'a>(
     program: &ScalarValueProgram,
     slots: &'a dyn SlotReader,
 ) -> Result<Option<ScalarExprValue<'a>>, InternalError> {
+    // Keep the nullable slot-reader transform logic local to the shared test
+    // evaluator so the runtime module does not carry an extra one-caller helper.
+    let eval_scalar_expression = |slot: usize, op: ScalarIndexExpressionOp| {
+        let Some(value) = slots.get_scalar(slot)? else {
+            return Ok(None);
+        };
+        let value = match value {
+            ScalarSlotValueRef::Null => ScalarExprValue::Null,
+            ScalarSlotValueRef::Value(value) => scalar_expr_value_from_slot_value(value),
+        };
+
+        match value {
+            ScalarExprValue::Null => Ok(Some(ScalarExprValue::Null)),
+            value => derive_non_null_scalar_expression_value(op, value)
+                .map(Some)
+                .map_err(|expected| op.input_type_mismatch(expected)),
+        }
+    };
+
     match program {
-        ScalarValueProgram::Field { slot } => eval_scalar_field(*slot, slots),
+        ScalarValueProgram::Field { slot } => {
+            let Some(value) = slots.get_scalar(*slot)? else {
+                return Ok(None);
+            };
+
+            Ok(Some(match value {
+                ScalarSlotValueRef::Null => ScalarExprValue::Null,
+                ScalarSlotValueRef::Value(value) => scalar_expr_value_from_slot_value(value),
+            }))
+        }
         ScalarValueProgram::Lower { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Lower)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Lower)
         }
         ScalarValueProgram::Upper { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Upper)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Upper)
         }
         ScalarValueProgram::Trim { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Trim)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Trim)
         }
         ScalarValueProgram::LowerTrim { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::LowerTrim)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::LowerTrim)
         }
         ScalarValueProgram::Date { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Date)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Date)
         }
         ScalarValueProgram::Year { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Year)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Year)
         }
         ScalarValueProgram::Month { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Month)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Month)
         }
         ScalarValueProgram::Day { slot } => {
-            eval_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Day)
+            eval_scalar_expression(*slot, ScalarIndexExpressionOp::Day)
         }
     }
 }
@@ -350,22 +378,6 @@ pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
     }
 }
 
-// Evaluate one scalar field access through the slot-reader fast path only.
-#[cfg(test)]
-fn eval_scalar_field(
-    slot: usize,
-    slots: &dyn SlotReader,
-) -> Result<Option<ScalarExprValue<'_>>, InternalError> {
-    let Some(value) = slots.get_scalar(slot)? else {
-        return Ok(None);
-    };
-
-    Ok(Some(match value {
-        ScalarSlotValueRef::Null => ScalarExprValue::Null,
-        ScalarSlotValueRef::Value(value) => scalar_expr_value_from_slot_value(value),
-    }))
-}
-
 // Evaluate one scalar field access through the canonical slot-reader fast path.
 fn eval_canonical_scalar_field(
     slot: usize,
@@ -375,25 +387,6 @@ fn eval_canonical_scalar_field(
         ScalarSlotValueRef::Null => ScalarExprValue::Null,
         ScalarSlotValueRef::Value(value) => scalar_expr_value_from_slot_value(value),
     })
-}
-
-// Evaluate one scalar expression operator against the shared scalar slot seam.
-#[cfg(test)]
-fn eval_scalar_expression_op(
-    slot: usize,
-    slots: &dyn SlotReader,
-    op: ScalarIndexExpressionOp,
-) -> Result<Option<ScalarExprValue<'_>>, InternalError> {
-    let Some(value) = eval_scalar_field(slot, slots)? else {
-        return Ok(None);
-    };
-
-    match value {
-        ScalarExprValue::Null => Ok(Some(ScalarExprValue::Null)),
-        value => derive_non_null_scalar_expression_value(op, value)
-            .map(Some)
-            .map_err(|expected| op.input_type_mismatch(expected)),
-    }
 }
 
 // Evaluate one scalar expression operator against the canonical slot seam.

@@ -328,7 +328,7 @@ pub(super) fn lower_grouped_projection_selection(
     model: &'static EntityModel,
 ) -> Result<ProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
-        return Err(SqlLoweringError::unsupported_select_group_by());
+        return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
     let grouped_field_names = group_by.iter().map(String::as_str).collect::<Vec<_>>();
 
@@ -339,9 +339,11 @@ pub(super) fn lower_grouped_projection_selection(
         let expr = lower_select_item_expr(&item)?;
         let contains_aggregate = expr_contains_aggregate(&expr);
         if seen_aggregate && !contains_aggregate {
-            return Err(SqlLoweringError::unsupported_select_group_by());
+            return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
+                index,
+            ));
         }
-        validate_grouped_projection_expr(model, &expr, grouped_field_names.as_slice())?;
+        validate_grouped_projection_expr(model, index, &expr, grouped_field_names.as_slice())?;
         seen_aggregate |= contains_aggregate;
 
         fields.push(ProjectionField::Scalar {
@@ -354,7 +356,7 @@ pub(super) fn lower_grouped_projection_selection(
     }
 
     if !seen_aggregate {
-        return Err(SqlLoweringError::unsupported_select_group_by());
+        return Err(SqlLoweringError::grouped_projection_requires_aggregate());
     }
 
     if allow_identity_fast_path
@@ -371,6 +373,7 @@ pub(super) fn lower_grouped_projection_selection(
 // while preserving specific unknown-field diagnostics.
 fn validate_grouped_projection_expr(
     model: &EntityModel,
+    index: usize,
     expr: &Expr,
     grouped_field_names: &[&str],
 ) -> Result<(), SqlLoweringError> {
@@ -378,7 +381,7 @@ fn validate_grouped_projection_expr(
         return Err(SqlLoweringError::unknown_field(field));
     }
     if !expr_references_only_fields(expr, grouped_field_names) {
-        return Err(SqlLoweringError::unsupported_select_group_by());
+        return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
     }
 
     Ok(())

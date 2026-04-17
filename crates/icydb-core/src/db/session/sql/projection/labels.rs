@@ -41,27 +41,19 @@ fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
 }
 
 // Render one projection expression into a canonical output label.
-#[cfg(not(test))]
-fn projection_label_from_expr(expr: &Expr, _: usize) -> String {
-    match expr {
-        Expr::Field(field) => field.as_str().to_string(),
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Binary { .. } => {
-            render_scalar_projection_expr_sql_label(expr)
-        }
-        Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
-    }
-}
-
-// Render one projection expression into a canonical output label.
-#[cfg(test)]
 fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
+    #[cfg(not(test))]
+    let _ = ordinal;
+
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
         Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Binary { .. } => {
             render_scalar_projection_expr_sql_label(expr)
         }
         Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
+        #[cfg(test)]
         Expr::Alias { name, .. } => name.as_str().to_string(),
+        #[cfg(test)]
         Expr::Unary { .. } => {
             format!("expr_{ordinal}")
         }

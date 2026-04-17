@@ -36,8 +36,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 use std::marker::PhantomData;
-#[cfg(test)]
-use std::ops::Bound;
 use std::sync::Arc;
 ///
 /// ExecutionFamily
@@ -896,6 +894,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     /// Render one canonical executor snapshot for test-only planner/executor
     /// contract checks.
     #[cfg(test)]
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db) fn render_snapshot_canonical(&self) -> Result<String, InternalError>
     where
         E: EntityValue,
@@ -924,8 +923,62 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             );
 
         // Phase 2: lower index-bound summaries into stable compact text.
-        let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?);
-        let index_range_specs = render_index_range_specs(self.core.index_range_specs()?);
+        let render_lowered_bound =
+            |bound: &std::ops::Bound<crate::db::access::LoweredKey>| match bound {
+                std::ops::Bound::Included(key) => {
+                    let bytes = key.as_bytes();
+                    let head_len = bytes.len().min(8);
+                    let tail_len = bytes.len().min(8);
+                    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
+                    let tail =
+                        crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
+
+                    format!("included(len:{}:head:{head}:tail:{tail})", bytes.len())
+                }
+                std::ops::Bound::Excluded(key) => {
+                    let bytes = key.as_bytes();
+                    let head_len = bytes.len().min(8);
+                    let tail_len = bytes.len().min(8);
+                    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
+                    let tail =
+                        crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
+
+                    format!("excluded(len:{}:head:{head}:tail:{tail})", bytes.len())
+                }
+                std::ops::Bound::Unbounded => "unbounded".to_string(),
+            };
+        let index_prefix_specs = format!(
+            "[{}]",
+            self.core
+                .index_prefix_specs()?
+                .iter()
+                .map(|spec| {
+                    format!(
+                        "{{index:{},bound_type:equality,lower:{},upper:{}}}",
+                        spec.index().name(),
+                        render_lowered_bound(spec.lower()),
+                        render_lowered_bound(spec.upper()),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let index_range_specs = format!(
+            "[{}]",
+            self.core
+                .index_range_specs()?
+                .iter()
+                .map(|spec| {
+                    format!(
+                        "{{index:{},lower:{},upper:{}}}",
+                        spec.index().name(),
+                        render_lowered_bound(spec.lower()),
+                        render_lowered_bound(spec.upper()),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        );
         let explain_plan = plan.explain();
 
         // Phase 3: join the canonical snapshot payload in one stable line order.
@@ -937,7 +990,10 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             format!("execution_family={:?}", self.core.execution_family()?),
             format!(
                 "load_terminal_fast_path={}",
-                render_load_terminal_fast_path_label(load_terminal_fast_path.as_ref())
+                match load_terminal_fast_path.as_ref() {
+                    Some(LoadTerminalFastPathContract::CoveringRead(_)) => "CoveringRead",
+                    None => "Materialized",
+                }
             ),
             format!("ordering_direction={ordering_direction:?}"),
             format!(
@@ -1014,68 +1070,4 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             core: self.core,
         }
     }
-}
-
-#[cfg(test)]
-const fn render_load_terminal_fast_path_label(
-    contract: Option<&LoadTerminalFastPathContract>,
-) -> &'static str {
-    match contract {
-        Some(LoadTerminalFastPathContract::CoveringRead(_)) => "CoveringRead",
-        None => "Materialized",
-    }
-}
-
-#[cfg(test)]
-fn render_index_prefix_specs(specs: &[LoweredIndexPrefixSpec]) -> String {
-    let rendered = specs
-        .iter()
-        .map(|spec| {
-            format!(
-                "{{index:{},bound_type:equality,lower:{},upper:{}}}",
-                spec.index().name(),
-                render_lowered_bound(spec.lower()),
-                render_lowered_bound(spec.upper()),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    format!("[{}]", rendered.join(","))
-}
-
-#[cfg(test)]
-fn render_index_range_specs(specs: &[LoweredIndexRangeSpec]) -> String {
-    let rendered = specs
-        .iter()
-        .map(|spec| {
-            format!(
-                "{{index:{},lower:{},upper:{}}}",
-                spec.index().name(),
-                render_lowered_bound(spec.lower()),
-                render_lowered_bound(spec.upper()),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    format!("[{}]", rendered.join(","))
-}
-
-#[cfg(test)]
-fn render_lowered_bound(bound: &Bound<crate::db::access::LoweredKey>) -> String {
-    match bound {
-        Bound::Included(key) => format!("included({})", render_lowered_key_summary(key)),
-        Bound::Excluded(key) => format!("excluded({})", render_lowered_key_summary(key)),
-        Bound::Unbounded => "unbounded".to_string(),
-    }
-}
-
-#[cfg(test)]
-fn render_lowered_key_summary(key: &crate::db::access::LoweredKey) -> String {
-    let bytes = key.as_bytes();
-    let head_len = bytes.len().min(8);
-    let tail_len = bytes.len().min(8);
-    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
-    let tail = crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
-
-    format!("len:{}:head:{head}:tail:{tail}", bytes.len())
 }

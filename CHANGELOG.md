@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.90.x] 🧱 - 2026-04-17 - SQL Surface Closure
+
+- `0.90.0` closes the single-entity SQL line by replacing several generic lowering failures with specific semantic errors, so unsupported shapes like `HAVING` without `GROUP BY`, grouped `SELECT *`, grouped non-key projections, scalar terms after grouped aggregates, and grouped SQL sent into the global-aggregate lane now fail clearly and consistently instead of collapsing into broad fallback buckets.
+
+See detailed breakdown:
+[docs/changelog/0.90.md](docs/changelog/0.90.md)
+
+---
+
 ## [0.89.x] ∑ - 2026-04-17 - Aggregate Input Expressions
 
 - `0.89.1` follows through on the widened aggregate-input slice by making grouped aggregate `ORDER BY <alias>` work for expression-backed aggregates too, by folding constant aggregate inputs like `SUM(2 * 3)` onto the same runtime shape as simpler equivalents, and by trimming stale query/session helper layers behind that shipped path so the new aggregate line rests on a cleaner internal surface.

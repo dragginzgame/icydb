@@ -573,10 +573,10 @@ impl LoweredSqlGlobalAggregateCommand {
             return Err(SqlLoweringError::unsupported_select_distinct());
         }
         if !group_by.is_empty() {
-            return Err(SqlLoweringError::unsupported_select_group_by());
+            return Err(SqlLoweringError::global_aggregate_does_not_support_group_by());
         }
         if !having.is_empty() {
-            return Err(SqlLoweringError::unsupported_select_having());
+            return Err(SqlLoweringError::having_requires_group_by());
         }
 
         let lowered_terminals = LoweredSqlGlobalAggregateTerminals::from_projection(projection)?;
@@ -599,7 +599,11 @@ impl LoweredSqlGlobalAggregateCommand {
         self,
         consistency: MissingRowPolicy,
     ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-        let terminals = bind_lowered_sql_global_aggregate_terminals::<E>(self.terminals)?;
+        let terminals = self
+            .terminals
+            .into_iter()
+            .map(bind_lowered_sql_global_aggregate_terminal::<E>)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(SqlGlobalAggregateCommand {
             query: Query::from_inner(crate::db::sql::lowering::apply_lowered_base_query_shape(
@@ -930,16 +934,6 @@ fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
     }
 }
 
-#[cfg(test)]
-fn bind_lowered_sql_global_aggregate_terminals<E: EntityKind>(
-    terminals: Vec<SqlGlobalAggregateTerminal>,
-) -> Result<Vec<TypedSqlGlobalAggregateTerminal>, SqlLoweringError> {
-    terminals
-        .into_iter()
-        .map(bind_lowered_sql_global_aggregate_terminal::<E>)
-        .collect()
-}
-
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
     statement: SqlSelectStatement,
 ) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
@@ -966,7 +960,7 @@ fn lower_global_aggregate_terminal(
     item: SqlSelectItem,
 ) -> Result<SqlGlobalAggregateTerminal, SqlLoweringError> {
     let SqlSelectItem::Aggregate(aggregate) = item else {
-        return Err(SqlLoweringError::unsupported_select_projection());
+        return Err(SqlLoweringError::unsupported_global_aggregate_projection());
     };
 
     match lower_sql_aggregate_shape(aggregate)? {
@@ -997,7 +991,7 @@ fn lower_global_aggregate_terminal(
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Count,
             ..
-        } => Err(SqlLoweringError::unsupported_select_projection()),
+        } => Err(SqlLoweringError::unsupported_global_aggregate_projection()),
         LoweredSqlAggregateShape::ExpressionInput {
             kind: SqlAggregateKind::Count,
             input_expr,
@@ -1051,10 +1045,10 @@ impl LoweredSqlGlobalAggregateTerminals {
     /// the output remap needed to preserve original projection order.
     fn from_projection(projection: SqlProjection) -> Result<Self, SqlLoweringError> {
         let SqlProjection::Items(items) = projection else {
-            return Err(SqlLoweringError::unsupported_select_projection());
+            return Err(SqlLoweringError::unsupported_global_aggregate_projection());
         };
         if items.is_empty() {
-            return Err(SqlLoweringError::unsupported_select_projection());
+            return Err(SqlLoweringError::unsupported_global_aggregate_projection());
         }
 
         let mut terminals = Vec::<SqlGlobalAggregateTerminal>::with_capacity(items.len());
@@ -1149,7 +1143,7 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     }
 
     let SqlProjection::Items(items) = projection else {
-        return Err(SqlLoweringError::unsupported_select_group_by());
+        return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
 
     GroupedProjectionAggregateCollector::new(group_by_fields, model)?.collect_from_items(items)
@@ -1195,12 +1189,12 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
         mut self,
         items: &[SqlSelectItem],
     ) -> Result<Vec<SqlAggregateCall>, SqlLoweringError> {
-        for item in items {
-            self.collect_item(item)?;
+        for (index, item) in items.iter().enumerate() {
+            self.collect_item(index, item)?;
         }
 
         if self.aggregate_calls.is_empty() {
-            return Err(SqlLoweringError::unsupported_select_group_by());
+            return Err(SqlLoweringError::grouped_projection_requires_aggregate());
         }
 
         Ok(self.aggregate_calls)
@@ -1208,17 +1202,19 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
 
     // Validate one grouped projection item before collecting any aggregate
     // leaves so field-resolution and grouped-key diagnostics stay precise.
-    fn collect_item(&mut self, item: &SqlSelectItem) -> Result<(), SqlLoweringError> {
+    fn collect_item(&mut self, index: usize, item: &SqlSelectItem) -> Result<(), SqlLoweringError> {
         let expr = crate::db::sql::lowering::select::lower_select_item_expr(item)?;
         let contains_aggregate = expr_contains_aggregate(&expr);
         if self.seen_aggregate && !contains_aggregate {
-            return Err(SqlLoweringError::unsupported_select_group_by());
+            return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
+                index,
+            ));
         }
         if let Some(field) = first_unknown_field_in_expr(&expr, self.model) {
             return Err(SqlLoweringError::unknown_field(field));
         }
         if !expr_references_only_fields(&expr, self.grouped_field_names.as_slice()) {
-            return Err(SqlLoweringError::unsupported_select_group_by());
+            return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
         }
         if contains_aggregate {
             self.seen_aggregate = true;

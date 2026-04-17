@@ -100,16 +100,6 @@ fn inspect_memory(memory_id: u8) -> Result<MemoryInspection, InternalError> {
         .ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(memory_id))
 }
 
-#[cfg(test)]
-fn inspection(memory_id: u8, owner: &str, start: u8, end: u8) -> MemoryInspection {
-    MemoryInspection {
-        id: memory_id,
-        owner: owner.to_string(),
-        range: canic_memory::registry::MemoryRange { start, end },
-        label: None,
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -121,7 +111,12 @@ mod tests {
 
     #[test]
     fn owner_for_memory_inspection_returns_matching_owner() {
-        let inspection = inspection(12, "b", 11, 20);
+        let inspection = MemoryInspection {
+            id: 12,
+            owner: "b".to_string(),
+            range: canic_memory::registry::MemoryRange { start: 11, end: 20 },
+            label: None,
+        };
         let owner = inspection.owner;
         assert_eq!(owner, "b");
     }

@@ -88,28 +88,34 @@ pub(in crate::db::query::explain) fn write_access_json(
         ExplainAccessPath::Union(children) => {
             let mut object = JsonWriter::begin_object(out);
             object.field_str("type", "Union");
-            object.field_with("children", |out| write_access_json_children(children, out));
+            object.field_with("children", |out| {
+                out.push('[');
+                for (index, child) in children.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    write_access_json(child, out);
+                }
+                out.push(']');
+            });
             object.finish();
         }
         ExplainAccessPath::Intersection(children) => {
             let mut object = JsonWriter::begin_object(out);
             object.field_str("type", "Intersection");
-            object.field_with("children", |out| write_access_json_children(children, out));
+            object.field_with("children", |out| {
+                out.push('[');
+                for (index, child) in children.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    write_access_json(child, out);
+                }
+                out.push(']');
+            });
             object.finish();
         }
     }
-}
-
-// Render one explain-access child list with deterministic ordering and punctuation.
-fn write_access_json_children(children: &[ExplainAccessPath], out: &mut String) {
-    out.push('[');
-    for (index, child) in children.iter().enumerate() {
-        if index > 0 {
-            out.push(',');
-        }
-        write_access_json(child, out);
-    }
-    out.push(']');
 }
 
 pub(in crate::db) fn write_access_strategy_label(out: &mut String, access: &ExplainAccessPath) {

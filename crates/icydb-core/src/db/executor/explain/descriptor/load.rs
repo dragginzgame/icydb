@@ -186,7 +186,13 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
             execution_mode,
         );
     annotate_access_root_node_properties(&mut root, route_plan);
-    annotate_load_order_route_node_properties(&mut root, route_plan);
+    let order_observability = load_order_route_observability(route_plan);
+    root.node_properties.insert(
+        "ord_route_contract",
+        Value::from(order_observability.contract),
+    );
+    root.node_properties
+        .insert("ord_route_reason", Value::from(order_observability.reason));
     annotate_access_choice_node_properties(&mut root, plan.access_choice().clone());
     let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
@@ -206,7 +212,14 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
         );
     }
     annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan);
-    annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
+    root.node_properties.insert(
+        "cov_read_route",
+        Value::from(if load_terminal_fast_path.is_some() {
+            "covering_read"
+        } else {
+            "materialized"
+        }),
+    );
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
@@ -425,12 +438,32 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
         "diag.r.access_choice_chosen_reason",
         verbose_preparation.access_choice.chosen_reason.code(),
     ));
-    append_access_choice_verbose_diagnostics(
-        &mut lines,
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_alternatives",
         &verbose_preparation.access_choice.alternatives,
+    ));
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_rejections",
         &verbose_preparation.access_choice.rejected,
-    );
-    append_grouped_route_verbose_diagnostics(&mut lines, route_plan);
+    ));
+    if let Some(observability) = grouped_route_observability(route_plan) {
+        lines.push(descriptor_route_property_line(
+            "diag.r.grouped_route_outcome",
+            observability.outcome,
+        ));
+        lines.push(descriptor_route_property_line(
+            "diag.r.grouped_route_rejection_reason",
+            observability.rejection_reason,
+        ));
+        lines.push(descriptor_route_property_line(
+            "diag.r.grouped_plan_fallback_reason",
+            observability.planner_fallback_reason,
+        ));
+        lines.push(descriptor_route_property_line(
+            "diag.r.grouped_execution_mode",
+            observability.execution_mode,
+        ));
+    }
     if let Some(capability) = explain_preparation.predicate_index_capability {
         lines.push(descriptor_route_property_line(
             "diag.r.predicate_index_capability",
@@ -441,46 +474,6 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     lines
 }
 
-fn append_access_choice_verbose_diagnostics(
-    lines: &mut Vec<String>,
-    alternatives: &(impl core::fmt::Debug + ?Sized),
-    rejections: &(impl core::fmt::Debug + ?Sized),
-) {
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_alternatives",
-        &alternatives,
-    ));
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_rejections",
-        &rejections,
-    ));
-}
-
-fn append_grouped_route_verbose_diagnostics(
-    lines: &mut Vec<String>,
-    route_plan: &ExecutionRoutePlan,
-) {
-    let Some(observability) = grouped_route_observability(route_plan) else {
-        return;
-    };
-    lines.push(descriptor_route_property_line(
-        "diag.r.grouped_route_outcome",
-        observability.outcome,
-    ));
-    lines.push(descriptor_route_property_line(
-        "diag.r.grouped_route_rejection_reason",
-        observability.rejection_reason,
-    ));
-    lines.push(descriptor_route_property_line(
-        "diag.r.grouped_plan_fallback_reason",
-        observability.planner_fallback_reason,
-    ));
-    lines.push(descriptor_route_property_line(
-        "diag.r.grouped_execution_mode",
-        observability.execution_mode,
-    ));
-}
-
 // Grouped execution descriptors must consume the planner-owned grouped handoff
 // so explain does not silently rebuild a scalar load route for grouped plans.
 fn build_execution_route_plan_for_explain(
@@ -488,6 +481,7 @@ fn build_execution_route_plan_for_explain(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionRoutePlan, InternalError> {
+    // Grouped explain must stay on the planner-provided grouped handoff.
     if plan.grouped_plan().is_some() {
         let grouped_handoff = grouped_executor_handoff(plan)?;
 
@@ -497,60 +491,23 @@ fn build_execution_route_plan_for_explain(
         ));
     }
 
-    build_initial_execution_route_plan_for_load_with_fast_path(
-        plan,
-        None,
-        derive_explain_load_terminal_fast_path_contract(fields, primary_key_name, plan),
-    )
-}
+    // Scalar explain derives covering-read eligibility from the same field
+    // table and PK identity that planner/runtime authority paths use.
+    let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
+        let explain_preparation = LoadExplainPreparation::from_plan(plan);
 
-// Explain-only load routing derives covering-read eligibility from the same
-// generated field table and frozen PK identity that planner/authority paths use.
-fn derive_explain_load_terminal_fast_path_contract(
-    fields: &'static [FieldModel],
-    primary_key_name: &'static str,
-    plan: &AccessPlannedQuery,
-) -> Option<LoadTerminalFastPathContract> {
-    if !plan.scalar_plan().mode.is_load() {
-        return None;
-    }
-
-    let explain_preparation = LoadExplainPreparation::from_plan(plan);
-
-    covering_read_execution_plan_from_fields(
-        fields,
-        plan,
-        primary_key_name,
-        explain_preparation.strict_predicate_compatible,
-    )
-    .map(LoadTerminalFastPathContract::CoveringRead)
-}
-
-// Annotate the access root with one stable scalar covering-read route label.
-fn annotate_covering_read_route_node_properties(
-    node: &mut ExplainExecutionNodeDescriptor,
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
-) {
-    let route_label = if load_terminal_fast_path.is_some() {
-        "covering_read"
+        covering_read_execution_plan_from_fields(
+            fields,
+            plan,
+            primary_key_name,
+            explain_preparation.strict_predicate_compatible,
+        )
+        .map(LoadTerminalFastPathContract::CoveringRead)
     } else {
-        "materialized"
+        None
     };
-    node.node_properties
-        .insert("cov_read_route", Value::from(route_label));
-}
 
-// Keep ordered-load route diagnostics local to the load descriptor so JSON and
-// verbose explain stay projections of the same route-owned contract.
-fn annotate_load_order_route_node_properties(
-    node: &mut ExplainExecutionNodeDescriptor,
-    route_plan: &ExecutionRoutePlan,
-) {
-    let observability = load_order_route_observability(route_plan);
-    node.node_properties
-        .insert("ord_route_contract", Value::from(observability.contract));
-    node.node_properties
-        .insert("ord_route_reason", Value::from(observability.reason));
+    build_initial_execution_route_plan_for_load_with_fast_path(plan, None, load_terminal_fast_path)
 }
 
 // Project grouped route observability directly onto the access root so the

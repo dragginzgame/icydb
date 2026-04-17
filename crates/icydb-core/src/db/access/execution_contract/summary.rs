@@ -7,7 +7,6 @@ use crate::{
     db::access::execution_contract::{
         ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionPathPayload,
     },
-    model::index::IndexModel,
     value::Value,
 };
 use std::{fmt, fmt::Write as _, ops::Bound};
@@ -80,7 +79,20 @@ where
             upper,
         } => {
             if let Some((index, prefix_len)) = path.index_range_details() {
-                summarize_index_range(index, prefix_len, prefix_values, lower, upper)
+                let prefix = summarize_index_prefix_terms(index.fields(), prefix_values);
+                let interval = summarize_interval(lower, upper);
+
+                if let Some(range_field) = index.fields().get(prefix_len) {
+                    if prefix.is_empty() {
+                        format!("IndexRange({range_field} {interval})")
+                    } else {
+                        format!("IndexRange({prefix}; {range_field} {interval})")
+                    }
+                } else if prefix.is_empty() {
+                    format!("IndexRange({interval})")
+                } else {
+                    format!("IndexRange({prefix}; {interval})")
+                }
             } else {
                 format!(
                     "IndexRange(prefix={prefix_values:?} {})",
@@ -89,29 +101,6 @@ where
             }
         }
         ExecutionPathPayload::FullScan => "FullScan".to_string(),
-    }
-}
-
-fn summarize_index_range(
-    index: IndexModel,
-    prefix_len: usize,
-    prefix_values: &[Value],
-    lower: &Bound<Value>,
-    upper: &Bound<Value>,
-) -> String {
-    let prefix = summarize_index_prefix_terms(index.fields(), prefix_values);
-    let interval = summarize_interval(lower, upper);
-
-    if let Some(range_field) = index.fields().get(prefix_len) {
-        if prefix.is_empty() {
-            format!("IndexRange({range_field} {interval})")
-        } else {
-            format!("IndexRange({prefix}; {range_field} {interval})")
-        }
-    } else if prefix.is_empty() {
-        format!("IndexRange({interval})")
-    } else {
-        format!("IndexRange({prefix}; {interval})")
     }
 }
 

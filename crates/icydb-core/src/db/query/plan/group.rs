@@ -878,7 +878,9 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
         for (index, field) in projection_spec.fields().enumerate() {
             let root_expr = expression_without_alias(projection_field_expr(field));
             if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
-                return Err(non_grouped_projection_layout_expression(index));
+                return Err(InternalError::planner_executor_invariant(format!(
+                    "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
+                )));
             }
         }
     }
@@ -961,15 +963,6 @@ fn push_unique_grouped_projection_aggregate_spec(
     }
 
     0
-}
-
-// Keep the grouped projection-layout rejection text under one helper so the
-// test-only strict grouped projection path does not drift from the core loop.
-#[cfg(test)]
-fn non_grouped_projection_layout_expression(index: usize) -> InternalError {
-    InternalError::planner_executor_invariant(format!(
-        "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
-    ))
 }
 
 // Strip alias wrappers so layout classification uses semantic expression roots.

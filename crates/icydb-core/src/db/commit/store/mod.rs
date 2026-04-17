@@ -86,7 +86,9 @@ impl RawCommitMarker {
     /// Serialize and bound-check a commit marker payload.
     #[cfg(test)]
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
-        let bytes = serialize_commit_marker(marker)?;
+        let marker_payload = encode_commit_marker_payload(marker)?;
+        let bytes =
+            encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
             return Err(
                 InternalError::commit_marker_exceeds_max_size_before_persist(
@@ -234,14 +236,6 @@ fn encode_commit_control_slot(
     }
 
     Ok(encoded)
-}
-
-// Serialize a commit marker payload under the canonical versioned envelope.
-#[cfg(test)]
-fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalError> {
-    let marker_payload = encode_commit_marker_payload(marker)?;
-
-    encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)
 }
 
 // Serialize one single-row marker payload under the canonical versioned
