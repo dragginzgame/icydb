@@ -662,7 +662,7 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
 }
 
 #[test]
-fn explain_sql_order_by_supported_unary_text_aliases_match_canonical_plan_output() {
+fn explain_sql_order_by_supported_scalar_text_aliases_match_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -686,6 +686,16 @@ fn explain_sql_order_by_supported_unary_text_aliases_match_canonical_plan_output
             "EXPLAIN SELECT LENGTH(name) AS name_len FROM SessionSqlEntity ORDER BY name_len DESC LIMIT 1",
             "EXPLAIN SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY LENGTH(name) DESC LIMIT 1",
             "ORDER BY LENGTH alias",
+        ),
+        (
+            "EXPLAIN SELECT LEFT(name, 2) AS short_name FROM SessionSqlEntity ORDER BY short_name ASC LIMIT 1",
+            "EXPLAIN SELECT LEFT(name, 2) FROM SessionSqlEntity ORDER BY LEFT(name, 2) ASC LIMIT 1",
+            "ORDER BY LEFT alias",
+        ),
+        (
+            "EXPLAIN SELECT TRIM(name) AS trimmed_name, ROUND((age + age) / (age + 1), 2) AS normalized_age FROM SessionSqlEntity ORDER BY trimmed_name ASC, normalized_age DESC LIMIT 1",
+            "EXPLAIN SELECT TRIM(name), ROUND((age + age) / (age + 1), 2) FROM SessionSqlEntity ORDER BY TRIM(name) ASC, ROUND((age + age) / (age + 1), 2) DESC LIMIT 1",
+            "mixed TRIM plus nested ROUND alias ordering",
         ),
     ] {
         assert_session_sql_alias_matches_canonical::<String>(

@@ -212,6 +212,7 @@ pub(in crate::db) fn parse_supported_computed_order_expr(term: &str) -> Option<E
 /// Borrow the referenced field when one expression is an admitted `ORDER BY`
 /// function term.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId> {
     match expr {
         Expr::FunctionCall {
@@ -291,7 +292,7 @@ pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
 }
 
 fn render_supported_order_function(expr: &Expr) -> Option<String> {
-    let function = match expr {
+    match expr {
         Expr::FunctionCall {
             function:
                 function @ (Function::Trim
@@ -301,12 +302,73 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
                 | Function::Upper
                 | Function::Length),
             args,
-        } if matches!(args.as_slice(), [Expr::Field(_)]) => *function,
-        _ => return None,
-    };
-    let field = supported_order_expr_field(expr)?;
-
-    Some(format!("{}({})", function.sql_label(), field.as_str()))
+        } => match args.as_slice() {
+            [Expr::Field(field)] => Some(format!("{}({})", function.sql_label(), field.as_str())),
+            _ => None,
+        },
+        Expr::FunctionCall {
+            function:
+                function @ (Function::Left
+                | Function::Right
+                | Function::StartsWith
+                | Function::EndsWith
+                | Function::Contains),
+            args,
+        } => match args.as_slice() {
+            [Expr::Field(field), Expr::Literal(literal)] => Some(format!(
+                "{}({}, {})",
+                function.sql_label(),
+                field.as_str(),
+                render_supported_order_literal(literal)?
+            )),
+            _ => None,
+        },
+        Expr::FunctionCall {
+            function: Function::Position,
+            args,
+        } => match args.as_slice() {
+            [Expr::Literal(literal), Expr::Field(field)] => Some(format!(
+                "POSITION({}, {})",
+                render_supported_order_literal(literal)?,
+                field.as_str(),
+            )),
+            _ => None,
+        },
+        Expr::FunctionCall {
+            function: Function::Replace,
+            args,
+        } => match args.as_slice() {
+            [Expr::Field(field), Expr::Literal(from), Expr::Literal(to)] => Some(format!(
+                "REPLACE({}, {}, {})",
+                field.as_str(),
+                render_supported_order_literal(from)?,
+                render_supported_order_literal(to)?,
+            )),
+            _ => None,
+        },
+        Expr::FunctionCall {
+            function: Function::Substring,
+            args,
+        } => match args.as_slice() {
+            [Expr::Field(field), Expr::Literal(start)] => Some(format!(
+                "SUBSTRING({}, {})",
+                field.as_str(),
+                render_supported_order_literal(start)?,
+            )),
+            [
+                Expr::Field(field),
+                Expr::Literal(start),
+                Expr::Literal(length),
+            ] => Some(format!(
+                "SUBSTRING({}, {}, {})",
+                field.as_str(),
+                render_supported_order_literal(start)?,
+                render_supported_order_literal(length)?,
+            )),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn render_supported_order_expr_with_parent(
@@ -321,9 +383,17 @@ fn render_supported_order_expr_with_parent(
                 | Function::Rtrim
                 | Function::Lower
                 | Function::Upper
-                | Function::Length,
-            args,
-        } if matches!(args.as_slice(), [Expr::Field(_)]) => render_supported_order_function(expr),
+                | Function::Length
+                | Function::Left
+                | Function::Right
+                | Function::StartsWith
+                | Function::EndsWith
+                | Function::Contains
+                | Function::Position
+                | Function::Replace
+                | Function::Substring,
+            ..
+        } => render_supported_order_function(expr),
         Expr::Binary { op, left, right }
             if matches!(
                 op,
@@ -353,7 +423,7 @@ fn render_supported_order_expr_with_parent(
         },
         Expr::Field(field) => Some(field.as_str().to_string()),
         Expr::Literal(value) => render_supported_order_literal(value),
-        Expr::FunctionCall { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
+        Expr::Binary { .. } | Expr::Aggregate(_) => None,
         #[cfg(test)]
         Expr::Alias { .. } | Expr::Unary { .. } => None,
     }
@@ -508,9 +578,22 @@ impl SupportedOrderExprParser {
 
         let expression = if matches!(
             name.to_ascii_uppercase().as_str(),
-            "TRIM" | "LTRIM" | "RTRIM" | "LOWER" | "UPPER" | "LENGTH"
+            "TRIM"
+                | "LTRIM"
+                | "RTRIM"
+                | "LOWER"
+                | "UPPER"
+                | "LENGTH"
+                | "LEFT"
+                | "RIGHT"
+                | "STARTS_WITH"
+                | "ENDS_WITH"
+                | "CONTAINS"
+                | "POSITION"
+                | "REPLACE"
+                | "SUBSTRING"
         ) {
-            self.parse_unary_text_function_expr(name)?
+            self.parse_text_function_expr(name)?
         } else if name.eq_ignore_ascii_case("ROUND") {
             self.parse_round_expr()?
         } else {
@@ -524,8 +607,7 @@ impl SupportedOrderExprParser {
         Ok(expression)
     }
 
-    fn parse_unary_text_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
-        let field = self.cursor.expect_identifier()?;
+    fn parse_text_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
         let function = match name.to_ascii_uppercase().as_str() {
             "TRIM" => Function::Trim,
             "LTRIM" => Function::Ltrim,
@@ -533,6 +615,14 @@ impl SupportedOrderExprParser {
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
             "LENGTH" => Function::Length,
+            "LEFT" => Function::Left,
+            "RIGHT" => Function::Right,
+            "STARTS_WITH" => Function::StartsWith,
+            "ENDS_WITH" => Function::EndsWith,
+            "CONTAINS" => Function::Contains,
+            "POSITION" => Function::Position,
+            "REPLACE" => Function::Replace,
+            "SUBSTRING" => Function::Substring,
             _ => {
                 return Err(SqlParseError::unsupported_feature(
                     "supported ORDER BY expression family",
@@ -540,10 +630,68 @@ impl SupportedOrderExprParser {
             }
         };
 
-        Ok(Expr::FunctionCall {
-            function,
-            args: vec![Expr::Field(FieldId::new(field))],
-        })
+        let args = match function {
+            Function::Trim
+            | Function::Ltrim
+            | Function::Rtrim
+            | Function::Lower
+            | Function::Upper
+            | Function::Length => vec![Expr::Field(FieldId::new(self.cursor.expect_identifier()?))],
+            Function::Left
+            | Function::Right
+            | Function::StartsWith
+            | Function::EndsWith
+            | Function::Contains => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let literal = self.cursor.parse_literal()?;
+
+                vec![Expr::Field(FieldId::new(field)), Expr::Literal(literal)]
+            }
+            Function::Position => {
+                let literal = self.cursor.parse_literal()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let field = self.cursor.expect_identifier()?;
+
+                vec![Expr::Literal(literal), Expr::Field(FieldId::new(field))]
+            }
+            Function::Replace => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let from = self.cursor.parse_literal()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let to = self.cursor.parse_literal()?;
+
+                vec![
+                    Expr::Field(FieldId::new(field)),
+                    Expr::Literal(from),
+                    Expr::Literal(to),
+                ]
+            }
+            Function::Substring => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let start = self.cursor.parse_literal()?;
+                let mut args = vec![Expr::Field(FieldId::new(field)), Expr::Literal(start)];
+                if self.cursor.eat_comma() {
+                    args.push(Expr::Literal(self.cursor.parse_literal()?));
+                }
+                args
+            }
+            Function::Round => unreachable!(),
+        };
+
+        Ok(Expr::FunctionCall { function, args })
     }
 
     fn parse_round_expr(&mut self) -> Result<Expr, SqlParseError> {

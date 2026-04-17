@@ -631,7 +631,7 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
 }
 
 #[test]
-fn execute_sql_projection_order_by_supported_unary_text_aliases_match_canonical_rows() {
+fn execute_sql_projection_order_by_supported_scalar_text_aliases_match_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -655,6 +655,11 @@ fn execute_sql_projection_order_by_supported_unary_text_aliases_match_canonical_
             "SELECT LENGTH(name) AS name_len FROM SessionSqlEntity ORDER BY name_len DESC LIMIT 2",
             "SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY LENGTH(name) DESC LIMIT 2",
             "ORDER BY LENGTH alias",
+        ),
+        (
+            "SELECT LEFT(name, 2) AS short_name FROM SessionSqlEntity ORDER BY short_name ASC LIMIT 2",
+            "SELECT LEFT(name, 2) FROM SessionSqlEntity ORDER BY LEFT(name, 2) ASC LIMIT 2",
+            "ORDER BY LEFT alias",
         ),
         (
             "SELECT TRIM(name) AS trimmed_name, ROUND((age + age) / (age + 1), 2) AS normalized_age FROM SessionSqlEntity ORDER BY trimmed_name ASC, normalized_age DESC LIMIT 2",

@@ -58,7 +58,7 @@ mod tests {
     );
 
     #[test]
-    fn supported_order_expr_helpers_round_trip_casefold_terms() {
+    fn supported_order_expr_helpers_round_trip_supported_scalar_text_terms() {
         let lower = parse_supported_order_expr("LOWER(name)")
             .expect("lower(name) should parse onto the canonical expression tree");
         assert_eq!(
@@ -105,6 +105,20 @@ mod tests {
         assert_eq!(
             render_supported_order_expr(&length),
             Some("LENGTH(name)".to_string())
+        );
+
+        let left = parse_supported_order_expr("LEFT(name, 2)")
+            .expect("left(name, 2) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&left),
+            Some("LEFT(name, 2)".to_string())
+        );
+
+        let position = parse_supported_order_expr("POSITION('a', name)")
+            .expect("position('a', name) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&position),
+            Some("POSITION('a', name)".to_string())
         );
     }
 

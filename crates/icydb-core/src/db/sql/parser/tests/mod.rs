@@ -579,11 +579,11 @@ fn parse_select_statement_with_direct_bounded_computed_order_terms() {
 }
 
 #[test]
-fn parse_select_statement_with_supported_unary_text_order_terms() {
+fn parse_select_statement_with_supported_scalar_text_order_terms() {
     let statement = parse_sql(
-        "SELECT * FROM users ORDER BY TRIM(name), LTRIM(name), RTRIM(name), LENGTH(name) DESC",
+        "SELECT * FROM users ORDER BY TRIM(name), LTRIM(name), RTRIM(name), LENGTH(name) DESC, LEFT(name, 2), POSITION('a', name) DESC",
     )
-    .expect("supported unary text ORDER BY terms should parse");
+    .expect("supported scalar text ORDER BY terms should parse");
 
     assert_eq!(
         statement,
@@ -610,6 +610,14 @@ fn parse_select_statement_with_supported_unary_text_order_terms() {
                 },
                 SqlOrderTerm {
                     field: "LENGTH(name)".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                },
+                SqlOrderTerm {
+                    field: "LEFT(name, 2)".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+                SqlOrderTerm {
+                    field: "POSITION('a', name)".to_string(),
                     direction: SqlOrderDirection::Desc,
                 },
             ],
@@ -2542,6 +2550,14 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         (
             "SELECT len(name) FROM users",
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
+        ),
+        (
+            "SELECT COUNT(*) FILTER (WHERE age > 1) FROM users",
+            "aggregate FILTER clauses",
+        ),
+        (
+            "SELECT ROW_NUMBER() OVER (ORDER BY age DESC) FROM users",
+            "window functions / OVER",
         ),
         (
             "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING LOWER(name)",

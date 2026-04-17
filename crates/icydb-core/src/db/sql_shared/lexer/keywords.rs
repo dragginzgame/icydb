@@ -24,6 +24,7 @@ const KEYWORDS_LEN_4: &[(&str, Keyword)] = &[
     ("JOIN", Keyword::Join),
     ("JSON", Keyword::Json),
     ("NULL", Keyword::Null),
+    ("OVER", Keyword::Over),
     ("SHOW", Keyword::Show),
     ("TRUE", Keyword::True),
     ("WITH", Keyword::With),
@@ -42,6 +43,7 @@ const KEYWORDS_LEN_5: &[(&str, Keyword)] = &[
 const KEYWORDS_LEN_6: &[(&str, Keyword)] = &[
     ("DELETE", Keyword::Delete),
     ("EXCEPT", Keyword::Except),
+    ("FILTER", Keyword::Filter),
     ("HAVING", Keyword::Having),
     ("INSERT", Keyword::Insert),
     ("OFFSET", Keyword::Offset),

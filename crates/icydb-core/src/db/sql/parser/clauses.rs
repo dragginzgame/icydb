@@ -10,13 +10,14 @@ use crate::{
             Parser, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
             SqlHavingClause, SqlHavingValueExpr, SqlOrderDirection, SqlOrderTerm,
             SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
+            SqlTextFunctionCall,
         },
         sql_shared::{Keyword, SqlParseError},
     },
     value::Value,
 };
 
-const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported field, unary text functions, bounded arithmetic, or ROUND(...) forms";
+const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported field, supported scalar text functions, bounded arithmetic, or ROUND(...) forms";
 
 impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
@@ -74,48 +75,7 @@ impl Parser {
             ));
         };
 
-        match function {
-            SqlTextFunction::Trim
-            | SqlTextFunction::Ltrim
-            | SqlTextFunction::Rtrim
-            | SqlTextFunction::Lower
-            | SqlTextFunction::Upper
-            | SqlTextFunction::Length => {
-                self.expect_lparen()?;
-                let field = self.expect_identifier()?;
-                self.expect_rparen()?;
-
-                Ok(format!(
-                    "{}({field})",
-                    match function {
-                        SqlTextFunction::Trim => "TRIM",
-                        SqlTextFunction::Ltrim => "LTRIM",
-                        SqlTextFunction::Rtrim => "RTRIM",
-                        SqlTextFunction::Lower => "LOWER",
-                        SqlTextFunction::Upper => "UPPER",
-                        SqlTextFunction::Length => "LENGTH",
-                        SqlTextFunction::Left
-                        | SqlTextFunction::Right
-                        | SqlTextFunction::StartsWith
-                        | SqlTextFunction::EndsWith
-                        | SqlTextFunction::Contains
-                        | SqlTextFunction::Position
-                        | SqlTextFunction::Replace
-                        | SqlTextFunction::Substring => unreachable!(),
-                    }
-                ))
-            }
-            SqlTextFunction::Left
-            | SqlTextFunction::Right
-            | SqlTextFunction::StartsWith
-            | SqlTextFunction::EndsWith
-            | SqlTextFunction::Contains
-            | SqlTextFunction::Position
-            | SqlTextFunction::Replace
-            | SqlTextFunction::Substring => Err(SqlParseError::unsupported_feature(
-                ORDER_BY_UNSUPPORTED_FEATURE,
-            )),
-        }
+        self.parse_supported_scalar_text_order_term(function)
     }
 
     fn parse_direct_order_arithmetic_op(&mut self) -> Option<SqlArithmeticProjectionOp> {
@@ -133,6 +93,110 @@ impl Parser {
         }
 
         None
+    }
+
+    // Parse one direct scalar text-function `ORDER BY` target on the same
+    // bounded field-plus-literal family already admitted in projection.
+    fn parse_supported_scalar_text_order_term(
+        &mut self,
+        function: SqlTextFunction,
+    ) -> Result<String, SqlParseError> {
+        self.expect_lparen()?;
+
+        let call = match function {
+            SqlTextFunction::Trim
+            | SqlTextFunction::Ltrim
+            | SqlTextFunction::Rtrim
+            | SqlTextFunction::Lower
+            | SqlTextFunction::Upper
+            | SqlTextFunction::Length => {
+                let field = self.expect_identifier()?;
+                SqlTextFunctionCall {
+                    function,
+                    field,
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }
+            }
+            SqlTextFunction::Left
+            | SqlTextFunction::Right
+            | SqlTextFunction::StartsWith
+            | SqlTextFunction::EndsWith
+            | SqlTextFunction::Contains => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                }
+                let literal = self.parse_literal()?;
+
+                SqlTextFunctionCall {
+                    function,
+                    field,
+                    literal: Some(literal),
+                    literal2: None,
+                    literal3: None,
+                }
+            }
+            SqlTextFunction::Position => {
+                let literal = self.parse_literal()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                }
+                let field = self.expect_identifier()?;
+
+                SqlTextFunctionCall {
+                    function,
+                    field,
+                    literal: Some(literal),
+                    literal2: None,
+                    literal3: None,
+                }
+            }
+            SqlTextFunction::Replace => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                }
+                let literal = self.parse_literal()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                }
+                let literal2 = self.parse_literal()?;
+
+                SqlTextFunctionCall {
+                    function,
+                    field,
+                    literal: Some(literal),
+                    literal2: Some(literal2),
+                    literal3: None,
+                }
+            }
+            SqlTextFunction::Substring => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.peek_kind()));
+                }
+                let literal = self.parse_literal()?;
+                let literal2 = if self.eat_comma() {
+                    Some(self.parse_literal()?)
+                } else {
+                    None
+                };
+
+                SqlTextFunctionCall {
+                    function,
+                    field,
+                    literal: Some(literal),
+                    literal2,
+                    literal3: None,
+                }
+            }
+        };
+
+        self.expect_rparen()?;
+
+        Ok(render_order_text_function_term(call))
     }
 
     pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlHavingClause>, SqlParseError> {
@@ -234,6 +298,85 @@ impl Parser {
             SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
             SqlProjectionOperand::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(*call),
         })
+    }
+}
+
+fn render_order_text_function_term(call: SqlTextFunctionCall) -> String {
+    let field = call.field;
+
+    match call.function {
+        SqlTextFunction::Trim
+        | SqlTextFunction::Ltrim
+        | SqlTextFunction::Rtrim
+        | SqlTextFunction::Lower
+        | SqlTextFunction::Upper
+        | SqlTextFunction::Length => {
+            format!("{}({field})", order_text_function_sql_label(call.function))
+        }
+        SqlTextFunction::Left
+        | SqlTextFunction::Right
+        | SqlTextFunction::StartsWith
+        | SqlTextFunction::EndsWith
+        | SqlTextFunction::Contains => format!(
+            "{}({field}, {})",
+            order_text_function_sql_label(call.function),
+            render_order_literal(
+                call.literal
+                    .expect("field-literal text function should keep one literal")
+            ),
+        ),
+        SqlTextFunction::Position => format!(
+            "{}({}, {field})",
+            order_text_function_sql_label(call.function),
+            render_order_literal(
+                call.literal
+                    .expect("position text function should keep one literal")
+            ),
+        ),
+        SqlTextFunction::Replace => format!(
+            "{}({field}, {}, {})",
+            order_text_function_sql_label(call.function),
+            render_order_literal(
+                call.literal
+                    .expect("replace text function should keep from literal")
+            ),
+            render_order_literal(
+                call.literal2
+                    .expect("replace text function should keep to literal")
+            ),
+        ),
+        SqlTextFunction::Substring => match call.literal2 {
+            Some(length) => format!(
+                "{}({field}, {}, {})",
+                order_text_function_sql_label(call.function),
+                render_order_literal(call.literal.expect("substring should keep start literal")),
+                render_order_literal(length),
+            ),
+            None => format!(
+                "{}({field}, {})",
+                order_text_function_sql_label(call.function),
+                render_order_literal(call.literal.expect("substring should keep start literal")),
+            ),
+        },
+    }
+}
+
+const fn order_text_function_sql_label(function: SqlTextFunction) -> &'static str {
+    match function {
+        SqlTextFunction::Trim => "TRIM",
+        SqlTextFunction::Ltrim => "LTRIM",
+        SqlTextFunction::Rtrim => "RTRIM",
+        SqlTextFunction::Lower => "LOWER",
+        SqlTextFunction::Upper => "UPPER",
+        SqlTextFunction::Length => "LENGTH",
+        SqlTextFunction::Left => "LEFT",
+        SqlTextFunction::Right => "RIGHT",
+        SqlTextFunction::StartsWith => "STARTS_WITH",
+        SqlTextFunction::EndsWith => "ENDS_WITH",
+        SqlTextFunction::Contains => "CONTAINS",
+        SqlTextFunction::Position => "POSITION",
+        SqlTextFunction::Replace => "REPLACE",
+        SqlTextFunction::Substring => "SUBSTRING",
     }
 }
 

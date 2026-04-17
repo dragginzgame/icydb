@@ -244,6 +244,8 @@ impl SqlTokenCursor {
             Some(TokenKind::Keyword(Keyword::Having)) => Some("HAVING"),
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
+            Some(TokenKind::Keyword(Keyword::Filter)) => Some("aggregate FILTER clauses"),
+            Some(TokenKind::Keyword(Keyword::Over)) => Some("window functions / OVER"),
             Some(TokenKind::Keyword(Keyword::Returning)) => Some("RETURNING"),
             Some(TokenKind::Keyword(Keyword::Show)) => {
                 Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES")

@@ -335,7 +335,7 @@ fn compile_sql_command_order_by_field_alias_matches_canonical_order_target() {
 }
 
 #[test]
-fn compile_sql_command_normalizes_order_by_alias_for_supported_unary_text_targets() {
+fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_text_targets() {
     for (sql, expected_order_field, context) in [
         (
             "SELECT TRIM(name) AS trimmed_name FROM SqlLowerEntity ORDER BY trimmed_name ASC LIMIT 2",
@@ -357,11 +357,16 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_unary_text_target
             "LENGTH(name)",
             "ORDER BY LENGTH alias",
         ),
+        (
+            "SELECT LEFT(name, 2) AS short_name FROM SqlLowerEntity ORDER BY short_name ASC LIMIT 2",
+            "LEFT(name, 2)",
+            "ORDER BY LEFT alias",
+        ),
     ] {
         assert_eq!(
             first_lowered_order_field(sql, context),
             expected_order_field,
-            "{context} should normalize onto the canonical unary text order expression",
+            "{context} should normalize onto the canonical scalar text order expression",
         );
     }
 }

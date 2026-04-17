@@ -79,6 +79,16 @@ impl Parser {
 
         if let Some(kind) = self.parse_aggregate_kind() {
             let aggregate = self.parse_aggregate_call(kind)?;
+            if self.peek_keyword(Keyword::Filter) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "aggregate FILTER clauses",
+                ));
+            }
+            if self.peek_keyword(Keyword::Over) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "window functions / OVER",
+                ));
+            }
             let expr = self.parse_projection_arithmetic_expr_tail(
                 SqlProjectionOperand::Aggregate(aggregate),
                 0,
@@ -90,18 +100,36 @@ impl Parser {
         let field = self.expect_identifier()?;
         if self.peek_lparen() {
             if field.eq_ignore_ascii_case("ROUND") {
-                return Ok(SqlSelectItem::Round(self.parse_round_projection_call()?));
+                let round = self.parse_round_projection_call()?;
+                if self.peek_keyword(Keyword::Over) {
+                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                        "window functions / OVER",
+                    ));
+                }
+
+                return Ok(SqlSelectItem::Round(round));
             }
 
             let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
+                if self.function_call_is_followed_by_keyword(Keyword::Over) {
+                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                        "window functions / OVER",
+                    ));
+                }
+
                 return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                     "SQL function namespace beyond supported aggregate or scalar text projection forms",
                 ));
             };
 
-            return Ok(SqlSelectItem::TextFunction(
-                self.parse_text_function_call(function)?,
-            ));
+            let call = self.parse_text_function_call(function)?;
+            if self.peek_keyword(Keyword::Over) {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "window functions / OVER",
+                ));
+            }
+
+            return Ok(SqlSelectItem::TextFunction(call));
         }
 
         let expr =
@@ -202,6 +230,38 @@ impl Parser {
         self.expect_rparen()?;
 
         Ok(call)
+    }
+
+    // Detect one function-call shell followed immediately by an unsupported
+    // keyword so parser diagnostics can report the real feature family instead
+    // of a generic unknown-function namespace error.
+    fn function_call_is_followed_by_keyword(&self, keyword: Keyword) -> bool {
+        let mut cursor = self.cursor.clone();
+        if !cursor.eat_lparen() {
+            return false;
+        }
+
+        let mut depth = 1usize;
+        while let Some(kind) = cursor.peek_kind() {
+            match kind {
+                TokenKind::LParen => {
+                    depth = depth.saturating_add(1);
+                    cursor.advance();
+                }
+                TokenKind::RParen => {
+                    depth = depth.saturating_sub(1);
+                    cursor.advance();
+                    if depth == 0 {
+                        return cursor.peek_keyword(keyword);
+                    }
+                }
+                _ => {
+                    cursor.advance();
+                }
+            }
+        }
+
+        false
     }
 
     // Parse one optional projection alias while keeping alias ownership at the
