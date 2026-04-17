@@ -11,11 +11,13 @@ use crate::{
 
 use crate::db::predicate::runtime::compare::scalar::{
     direct::{
-        eval_blob_scalar_compare, eval_direct_scalar_compare, eval_null_scalar_compare,
-        scalar_bool_from_value, scalar_date_from_value, scalar_duration_from_value,
-        scalar_float32_from_value, scalar_float64_from_value, scalar_int_from_value,
-        scalar_principal_from_value, scalar_subaccount_from_value, scalar_timestamp_from_value,
-        scalar_uint_from_value, scalar_ulid_from_value, scalar_unit_from_value,
+        compare::{eval_blob_scalar_compare, eval_direct_scalar_compare, eval_null_scalar_compare},
+        decode::{
+            scalar_bool_from_value, scalar_date_from_value, scalar_duration_from_value,
+            scalar_float32_from_value, scalar_float64_from_value, scalar_int_from_value,
+            scalar_principal_from_value, scalar_subaccount_from_value, scalar_timestamp_from_value,
+            scalar_uint_from_value, scalar_ulid_from_value, scalar_unit_from_value,
+        },
     },
     text::eval_text_scalar_compare,
 };

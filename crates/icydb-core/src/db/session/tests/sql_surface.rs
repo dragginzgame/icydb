@@ -72,12 +72,14 @@ fn assert_specific_sql_unsupported_feature_detail<T, F>(
 
 // Require one session-compiled SELECT artifact to preserve the same canonical
 // structural and logical identity as the directly lowered internal query.
-fn assert_compiled_select_query_matches_lowered_identity(
+fn assert_compiled_select_query_matches_lowered_identity_for_entity<E>(
     compiled: &crate::db::session::sql::CompiledSqlCommand,
     sql: &str,
     context: &str,
-) {
-    let lowered = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let lowered = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
         .unwrap_or_else(|err| panic!("{context} should lower into one canonical query: {err:?}"));
     let SqlCommand::Query(lowered_query) = lowered else {
         panic!("{context} should lower to one query command");
@@ -102,6 +104,16 @@ fn assert_compiled_select_query_matches_lowered_identity(
             .into_inner()
             .fingerprint(),
         "{context} must preserve the same canonical logical plan identity as the lowered internal form",
+    );
+}
+
+fn assert_compiled_select_query_matches_lowered_identity(
+    compiled: &crate::db::session::sql::CompiledSqlCommand,
+    sql: &str,
+    context: &str,
+) {
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<SessionSqlEntity>(
+        compiled, sql, context,
     );
 }
 
@@ -1418,6 +1430,61 @@ fn bounded_numeric_order_terms_use_the_normal_sql_surface_identity_and_cache_pat
 
         assert_scalar_select_plan_cache_behavior(&session, &compiled);
     }
+}
+
+#[test]
+fn grouped_aggregate_order_alias_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let sql = "SELECT name, AVG(age) AS avg_age \
+               FROM IndexedSessionSqlEntity \
+               GROUP BY name \
+               ORDER BY avg_age DESC, name ASC LIMIT 2";
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new indexed SQL session should start with an empty compiled-command cache",
+    );
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        0,
+        "new indexed SQL session should start with an empty select-plan cache",
+    );
+
+    let compiled = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("grouped aggregate ORDER BY alias should compile through the normal SQL surface");
+    let repeat = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("repeating one grouped aggregate ORDER BY alias compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "grouped aggregate ORDER BY alias should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one grouped aggregate ORDER BY alias compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical grouped aggregate ORDER BY alias compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &compiled,
+        sql,
+        "grouped aggregate ORDER BY aliases must canonicalize onto the same structural query cache key before cache insertion",
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::types::Account as IcrcAccount;
+use canic_cdk::types::Account as LedgerAccount;
 use serde::Deserialize;
 use std::{
     fmt::{self, Display},
@@ -78,9 +78,9 @@ impl Account {
         self.subaccount
     }
 
-    /// Convert to the ICRC account representation.
-    pub fn to_icrc_type(self) -> IcrcAccount {
-        IcrcAccount {
+    /// Convert to the upstream ledger account representation.
+    pub fn to_icrc_type(self) -> LedgerAccount {
+        LedgerAccount {
             owner: self.owner.into(),
             subaccount: self.subaccount.map(Into::into),
         }
@@ -206,8 +206,9 @@ impl Account {
 
 impl Atomic for Account {}
 
-// Display logic is a bit convoluted and the code's in the icrc_ledger_types
-// repo that I don't really want to wrap
+// Delegate string formatting to the upstream ledger account implementation so
+// this local persistence wrapper stays aligned with the canonical account text
+// form instead of carrying a second formatter.
 impl Display for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_icrc_type())
@@ -244,14 +245,14 @@ impl FieldValue for Account {
     }
 }
 
-impl From<Account> for IcrcAccount {
+impl From<Account> for LedgerAccount {
     fn from(acc: Account) -> Self {
         acc.to_icrc_type()
     }
 }
 
-impl From<IcrcAccount> for Account {
-    fn from(acc: IcrcAccount) -> Self {
+impl From<LedgerAccount> for Account {
+    fn from(acc: LedgerAccount) -> Self {
         Self {
             owner: acc.owner.into(),
             subaccount: acc.subaccount.map(Into::into),
@@ -263,7 +264,7 @@ impl FromStr for Account {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let icrc = IcrcAccount::from_str(s)?;
+        let icrc = LedgerAccount::from_str(s).map_err(|err| err.to_string())?;
 
         Ok(Self {
             owner: icrc.owner.into(),

@@ -827,9 +827,10 @@ fn order_expression_scalar_seam_error(rendered: &str) -> InternalError {
     ))
 }
 
-// Keep the grouped Top-K execution seam fail-closed until the bounded heap
-// route is wired. Planner semantics may already reserve `top_k_group`, but the
-// executor must not silently treat that as plain hash-group ordering.
+// Keep one stable executor-facing slot list for grouped order terms after the
+// planner has frozen the structural `ResolvedOrder`. The grouped Top-K route
+// now consumes this same referenced-slot contract instead of re-deriving order
+// sources from planner strategy at runtime.
 fn order_referenced_slots_for_resolved_order(
     resolved_order: Option<&ResolvedOrder>,
 ) -> Option<Vec<usize>> {

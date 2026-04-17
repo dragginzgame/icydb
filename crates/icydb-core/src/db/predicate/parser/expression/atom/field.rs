@@ -7,7 +7,6 @@ use crate::{
         operand::{
             PredicateFieldOperand, TextPredicateWrapper, eat_prefix_text_predicate_operator,
             parse_predicate_field_operand, parse_prefix_text_predicate,
-            parse_starts_with_predicate, predicate_literal_starts,
         },
     },
     db::{
@@ -17,33 +16,10 @@ use crate::{
     value::Value,
 };
 
-// Parse one parenthesized predicate or one field/operator predicate atom.
-pub(in crate::db::predicate::parser::expression) fn parse_predicate_primary(
+// Parse one field predicate family, including reduced SQL special forms.
+pub(in crate::db::predicate::parser::expression::atom) fn parse_field_predicate(
     cursor: &mut SqlTokenCursor,
 ) -> Result<Predicate, SqlParseError> {
-    if cursor.eat_lparen() {
-        let predicate =
-            crate::db::predicate::parser::expression::parse_predicate_from_cursor(cursor)?;
-        cursor.expect_rparen()?;
-
-        return Ok(predicate);
-    }
-
-    if cursor.peek_identifier_keyword("STARTS_WITH")
-        && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
-    {
-        return parse_starts_with_predicate(cursor);
-    }
-
-    if predicate_literal_starts(cursor.peek_kind()) {
-        return parse_literal_leading_predicate(cursor);
-    }
-
-    parse_field_predicate(cursor)
-}
-
-// Parse one field predicate family, including reduced SQL special forms.
-fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
     let operand = parse_predicate_field_operand(cursor)?;
     if let Some((operator, negated)) = eat_prefix_text_predicate_operator(cursor) {
         let predicate = parse_prefix_text_predicate(cursor, operand, operator)?;
@@ -144,39 +120,6 @@ fn parse_plain_field_predicate(
     let value = cursor.parse_literal()?;
 
     Ok(predicate_compare(field, op, value))
-}
-
-// Parse one symmetric literal-leading compare and normalize it back onto the
-// canonical field-first predicate seam.
-fn parse_literal_leading_predicate(
-    cursor: &mut SqlTokenCursor,
-) -> Result<Predicate, SqlParseError> {
-    let literal = cursor.parse_literal()?;
-    let op = cursor.parse_compare_operator()?;
-    let operand = parse_predicate_field_operand(cursor)?;
-    let flipped = op.flipped();
-
-    match operand {
-        PredicateFieldOperand::Plain(field) => Ok(predicate_compare(field, flipped, literal)),
-        PredicateFieldOperand::Wrapped { field, wrapper } => {
-            if !matches!(
-                flipped,
-                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
-            ) || !matches!(literal, Value::Text(_))
-            {
-                return Err(SqlParseError::unsupported_feature(
-                    wrapper.unsupported_feature(),
-                ));
-            }
-
-            Ok(predicate_compare_with_coercion(
-                field,
-                flipped,
-                literal,
-                CoercionId::TextCasefold,
-            ))
-        }
-    }
 }
 
 // Parse the intentionally narrow wrapped-field predicate family.

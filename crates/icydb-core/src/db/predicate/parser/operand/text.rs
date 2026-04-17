@@ -1,6 +1,9 @@
 use crate::{
     db::{
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate,
+            parser::operand::field::{PredicateFieldOperand, parse_predicate_field_operand},
+        },
         sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind},
     },
     value::Value,
@@ -10,61 +13,12 @@ const DIRECT_STARTS_WITH_NON_FIELD_FEATURE: &str =
     "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers";
 
 ///
-/// TextPredicateWrapper
-///
-/// Tracks the bounded wrapper spellings that the reduced predicate parser
-/// accepts so wrapped text predicates lower onto shared casefold semantics.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::predicate::parser) enum TextPredicateWrapper {
-    Lower,
-    Upper,
-}
-
-impl TextPredicateWrapper {
-    pub(in crate::db::predicate::parser) const fn unsupported_feature(self) -> &'static str {
-        match self {
-            Self::Lower => {
-                "LOWER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
-            }
-            Self::Upper => {
-                "UPPER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
-            }
-        }
-    }
-}
-
-///
-/// PredicateFieldOperand
-///
-/// Tracks whether one parsed field operand is a plain field or one bounded
-/// casefold wrapper so prefix-text forms can share one lowering boundary.
-///
-#[derive(Debug, Eq, PartialEq)]
-pub(in crate::db::predicate::parser) enum PredicateFieldOperand {
-    Plain(String),
-    Wrapped {
-        field: String,
-        wrapper: TextPredicateWrapper,
-    },
-}
-
-impl PredicateFieldOperand {
-    // Map one bounded predicate operand to its canonical field/coercion pair.
-    fn into_field_and_coercion(self) -> (String, CoercionId) {
-        match self {
-            Self::Plain(field) => (field, CoercionId::Strict),
-            Self::Wrapped { field, .. } => (field, CoercionId::TextCasefold),
-        }
-    }
-}
-
-///
 /// PrefixTextPredicateOperator
 ///
 /// Tracks the bounded prefix-text spellings that lower onto the shared
 /// `STARTS_WITH` compare seam while preserving the correct coercion choice.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::predicate::parser) enum PrefixTextPredicateOperator {
     Like,
@@ -99,27 +53,6 @@ pub(in crate::db::predicate::parser) const fn predicate_literal_starts(
                 | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False,)
         )
     )
-}
-
-// Parse one predicate field operand.
-// Reduced SQL supports plain fields plus bounded `LOWER(<field>)` /
-// `UPPER(<field>)` wrappers for casefold LIKE-prefix lowering.
-pub(in crate::db::predicate::parser) fn parse_predicate_field_operand(
-    cursor: &mut SqlTokenCursor,
-) -> Result<PredicateFieldOperand, SqlParseError> {
-    if cursor.peek_identifier_keyword("LOWER")
-        && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
-    {
-        return parse_wrapped_field_operand(cursor, TextPredicateWrapper::Lower);
-    }
-
-    if cursor.peek_identifier_keyword("UPPER")
-        && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
-    {
-        return parse_wrapped_field_operand(cursor, TextPredicateWrapper::Upper);
-    }
-
-    Ok(PredicateFieldOperand::Plain(cursor.expect_identifier()?))
 }
 
 // Parse one bounded LIKE/ILIKE 'prefix%' predicate family and lower it onto
@@ -190,18 +123,6 @@ pub(in crate::db::predicate::parser) fn parse_starts_with_predicate(
         Value::Text(prefix),
         coercion,
     )))
-}
-
-fn parse_wrapped_field_operand(
-    cursor: &mut SqlTokenCursor,
-    wrapper: TextPredicateWrapper,
-) -> Result<PredicateFieldOperand, SqlParseError> {
-    let _ = cursor.advance();
-    cursor.expect_lparen()?;
-    let field = cursor.expect_identifier()?;
-    cursor.expect_rparen()?;
-
-    Ok(PredicateFieldOperand::Wrapped { field, wrapper })
 }
 
 fn expect_predicate_argument_comma(

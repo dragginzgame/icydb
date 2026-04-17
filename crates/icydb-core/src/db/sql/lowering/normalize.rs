@@ -314,6 +314,9 @@ fn resolve_projection_order_alias(
 fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
     match item {
         SqlSelectItem::Field(field) => Some(field.clone()),
+        SqlSelectItem::Aggregate(_) => lower_select_item_expr(item)
+            .ok()
+            .map(|expr| render_scalar_projection_expr_sql_label(&expr)),
         SqlSelectItem::TextFunction(SqlTextFunctionCall {
             function: SqlTextFunction::Lower,
             field,
@@ -340,7 +343,7 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
                     .or_else(|| Some(render_scalar_projection_expr_sql_label(&expr)))
             })
         }
-        SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => None,
+        SqlSelectItem::TextFunction(_) => None,
     }
 }
 

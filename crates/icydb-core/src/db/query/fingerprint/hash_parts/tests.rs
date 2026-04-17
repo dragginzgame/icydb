@@ -1,4 +1,4 @@
-use super::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_STEPS};
+use super::profile::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_STEPS};
 
 #[test]
 fn fingerprint_v1_profile_excludes_grouping_shape_field() {

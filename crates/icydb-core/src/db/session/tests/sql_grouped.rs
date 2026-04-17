@@ -1288,6 +1288,46 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_rows() {
 }
 
 #[test]
+fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, AVG(age) AS avg_age \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY avg_age DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect("grouped aggregate ORDER BY alias should execute through bounded Top-K finalize");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(50_u64))],
+            ),
+            (
+                Value::Text("charlie".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(40_u64))],
+            ),
+        ],
+        "grouped aggregate ORDER BY aliases should rank by the same aggregate values as direct terms",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts() {
     reset_session_sql_store();
     let session = sql_session();

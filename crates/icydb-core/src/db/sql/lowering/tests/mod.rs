@@ -1950,6 +1950,37 @@ fn compile_sql_command_allows_grouped_aggregate_order_with_limit() {
 }
 
 #[test]
+fn compile_sql_command_normalizes_grouped_aggregate_order_by_alias_with_limit() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age) AS avg_age \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY avg_age DESC, age ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate ORDER BY alias with LIMIT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+    let plan = query
+        .plan()
+        .expect("grouped aggregate ORDER BY alias with LIMIT should plan")
+        .into_inner();
+    let order = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("grouped aggregate ORDER BY alias should preserve order terms");
+
+    assert_eq!(
+        order.fields[0].0, "AVG(age)",
+        "grouped aggregate ORDER BY aliases should normalize onto the canonical aggregate term",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, AVG(age) \

@@ -4,7 +4,7 @@ use crate::{
 };
 use std::cmp::Ordering;
 
-use crate::db::predicate::runtime::compare::scalar::direct::eval_ordered_compare_result;
+use crate::db::predicate::runtime::compare::scalar::direct::compare::eval_ordered_compare_result;
 
 // Evaluate one scalar text compare without allocating an owned `Value::Text`.
 pub(super) fn eval_text_scalar_compare(

@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 
 // Evaluate one strict scalar compare directly against the predicate literal and
 // literal lists, leaving only unsupported coercions on the generic fallback.
-pub(super) fn eval_direct_scalar_compare<T>(
+pub(in crate::db::predicate::runtime::compare::scalar) fn eval_direct_scalar_compare<T>(
     actual: T,
     op: CompareOp,
     value: &Value,
@@ -54,7 +54,7 @@ where
 }
 
 // Evaluate direct blob equality/list membership without rebuilding `Value::Blob`.
-pub(super) fn eval_blob_scalar_compare(
+pub(in crate::db::predicate::runtime::compare::scalar) fn eval_blob_scalar_compare(
     actual: &[u8],
     op: CompareOp,
     value: &Value,
@@ -86,7 +86,7 @@ pub(super) fn eval_blob_scalar_compare(
 }
 
 // Evaluate direct null comparisons without rebuilding `Value::Null`.
-pub(super) fn eval_null_scalar_compare(
+pub(in crate::db::predicate::runtime::compare::scalar) fn eval_null_scalar_compare(
     op: CompareOp,
     value: &Value,
     coercion: &CoercionSpec,
@@ -113,7 +113,10 @@ pub(super) fn eval_null_scalar_compare(
 
 // Share the ordered compare-op mapping across direct scalar and text fast
 // paths so each caller only owns literal decode / canonical compare work.
-pub(super) fn eval_ordered_compare_result(op: CompareOp, ordering: Ordering) -> bool {
+pub(in crate::db::predicate::runtime::compare::scalar) fn eval_ordered_compare_result(
+    op: CompareOp,
+    ordering: Ordering,
+) -> bool {
     match op {
         CompareOp::Eq => ordering == Ordering::Equal,
         CompareOp::Ne => ordering != Ordering::Equal,
@@ -198,90 +201,4 @@ fn null_in_list(list: &Value) -> Option<bool> {
     }
 
     None
-}
-
-pub(super) const fn scalar_bool_from_value(value: &Value) -> Option<bool> {
-    match value {
-        Value::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_date_from_value(value: &Value) -> Option<crate::types::Date> {
-    match value {
-        Value::Date(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_duration_from_value(value: &Value) -> Option<crate::types::Duration> {
-    match value {
-        Value::Duration(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_float32_from_value(value: &Value) -> Option<crate::types::Float32> {
-    match value {
-        Value::Float32(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_float64_from_value(value: &Value) -> Option<crate::types::Float64> {
-    match value {
-        Value::Float64(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_int_from_value(value: &Value) -> Option<i64> {
-    match value {
-        Value::Int(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_principal_from_value(value: &Value) -> Option<crate::types::Principal> {
-    match value {
-        Value::Principal(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_subaccount_from_value(
-    value: &Value,
-) -> Option<crate::types::Subaccount> {
-    match value {
-        Value::Subaccount(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_timestamp_from_value(value: &Value) -> Option<crate::types::Timestamp> {
-    match value {
-        Value::Timestamp(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_uint_from_value(value: &Value) -> Option<u64> {
-    match value {
-        Value::Uint(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_ulid_from_value(value: &Value) -> Option<crate::types::Ulid> {
-    match value {
-        Value::Ulid(value) => Some(*value),
-        _ => None,
-    }
-}
-
-pub(super) const fn scalar_unit_from_value(value: &Value) -> Option<()> {
-    match value {
-        Value::Unit => Some(()),
-        _ => None,
-    }
 }

@@ -792,6 +792,26 @@ fn explain_sql_grouped_additive_order_terms_preserve_surface_contracts() {
 }
 
 #[test]
+fn explain_sql_grouped_aggregate_order_alias_matches_canonical_plan_output() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    assert_session_sql_alias_matches_canonical::<String>(
+        &session,
+        statement_explain_sql::<IndexedSessionSqlEntity>,
+        "EXPLAIN SELECT name, AVG(age) AS avg_age \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY avg_age DESC, name ASC LIMIT 2",
+        "EXPLAIN SELECT name, AVG(age) \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY AVG(age) DESC, name ASC LIMIT 2",
+        "grouped aggregate ORDER BY aliases",
+    );
+}
+
+#[test]
 fn explain_sql_rejects_non_explain_statements() {
     reset_session_sql_store();
     let session = sql_session();

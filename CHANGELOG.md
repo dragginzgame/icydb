@@ -8,8 +8,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.88.x] 🏁 - 2026-04-17 - Bounded Grouped Aggregate ORDER BY
 
+- `0.88.2` finishes the first grouped aggregate Top-K line by making grouped `ORDER BY <alias>` behave the same as ordering by the direct aggregate term, so forms like `AVG(age) AS avg_age ... ORDER BY avg_age` now keep the same bounded ranking, explain output, and query-cache identity as `ORDER BY AVG(age)`, and it follows through with more internal cleanup so the remaining fingerprint-profile and predicate-atom hotspots are split into smaller owners.
 - `0.88.1` adds bounded grouped aggregate `ORDER BY` with a dedicated Top-K strategy, so grouped queries can now rank by aggregate and post-aggregate expressions like `AVG(age)` or `ROUND(AVG(age), 2)` under `LIMIT`, while `OFFSET` remains explicitly rejected in this first cut, and it follows that execution slice with a broad internal cleanup pass that breaks several hot SQL, predicate, lexer, hashing, and storage-key modules into narrower owners.
 - `0.88.0` starts the line by teaching the planner and `EXPLAIN` to recognize aggregate and post-aggregate grouped `ORDER BY` as a distinct Top-K strategy and by splitting several hot SQL, predicate, lexer, hashing, and storage-key modules into narrower owners so the next grouped ordering slice could land on cleaner internal seams.
+
+```sql
+SELECT class_name, AVG(strength) AS avg_strength
+FROM character
+GROUP BY class_name
+ORDER BY avg_strength DESC, class_name ASC
+LIMIT 10;
+```
 
 See detailed breakdown:
 [docs/changelog/0.88.md](docs/changelog/0.88.md)
@@ -21,6 +30,14 @@ See detailed breakdown:
 - `0.87.1` follows the grouped `ORDER BY` cleanup by unifying grouped post-aggregate execution further: grouped `HAVING` now compiles onto the same grouped evaluator path used by grouped projection, so the engine no longer carries a separate grouped `HAVING` runtime walker on top of the already-shared grouped row contract.
 - `0.87.0` formalizes grouped `ORDER BY` admission so safe grouped-key transforms like `group_key + constant` and `group_key - constant` are admitted deliberately with clearer planner and explain diagnostics, and it also finishes the grouped `HAVING` internal cleanup so the engine now carries one expression-based `HAVING` model instead of the old mixed clause wrapper.
 
+```sql
+SELECT level, COUNT(*)
+FROM character
+GROUP BY level
+ORDER BY level - 2
+LIMIT 100;
+```
+
 See detailed breakdown:
 [docs/changelog/0.87.md](docs/changelog/0.87.md)
 
@@ -30,6 +47,15 @@ See detailed breakdown:
 
 - `0.86.1` follows the grouped `HAVING` widening through the remaining observability and validation seams, so `EXPLAIN` now shows grouped `HAVING` as the real expression tree instead of the old clause-only shape, grouped continuation signatures now distinguish widened `HAVING` expression structure correctly, and the grouped-focused `icydb-core` sweep is green again after the snapshot and clippy fallout closeout.
 - `0.86.0` widens grouped SQL `HAVING` from simple symbol-to-literal checks to bounded post-aggregate expressions like `ROUND(AVG(strength), 2) >= 10` and `COUNT(*) + 1 > 5`, and it also fixes grouped query cache identity so those widened `HAVING` shapes do not collide in the shared query cache.
+
+```sql
+SELECT class_name, AVG(strength)
+FROM character
+GROUP BY class_name
+HAVING ROUND(AVG(strength), 2) >= 10
+ORDER BY class_name
+LIMIT 100;
+```
 
 See detailed breakdown:
 [docs/changelog/0.86.md](docs/changelog/0.86.md)
