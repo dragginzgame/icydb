@@ -316,7 +316,7 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
 ) -> Option<PredicateProgram> {
     let predicate = canonical_index_predicate(index)?;
 
-    Some(PredicateProgram::compile_with_model(model, predicate))
+    Some(PredicateProgram::compile(model, predicate))
 }
 
 /// Build one index key from one slot reader using structural entity authority only.

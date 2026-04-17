@@ -163,7 +163,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (_visible_indexes, mut plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
-        let explain = plan.explain_with_model(authority.model());
+        let explain = plan.explain();
         let rendered = match mode {
             SqlExplainMode::Plan => explain.render_text_canonical(),
             SqlExplainMode::Json => explain.render_json_canonical(),
@@ -223,7 +223,7 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
         let strategies = command
-            .prepared_scalar_strategies_with_model(model)
+            .prepared_scalar_strategies(model)
             .map_err(QueryError::from_sql_lowering_error)?;
 
         match mode {
@@ -234,7 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.finalize_static_planning_shape(&mut plan);
                     plan
                 })?
-                .explain_with_model(model)
+                .explain()
                 .render_text_canonical()),
             SqlExplainMode::Execution => {
                 let mut plan = command
@@ -244,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let mut rendered = Vec::with_capacity(strategies.len());
 
                 for strategy in strategies {
-                    let query_explain = plan.explain_with_model(model);
+                    let query_explain = plan.explain();
                     let execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
                         &plan,
                         AggregateRouteShape::new_from_fields(
@@ -276,7 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.finalize_static_planning_shape(&mut plan);
                     plan
                 })?
-                .explain_with_model(model)
+                .explain()
                 .render_json_canonical()),
         }
     }

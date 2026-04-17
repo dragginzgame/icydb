@@ -404,12 +404,10 @@ fn project_static_planning_shape_for_model(
     plan: &AccessPlannedQuery,
 ) -> Result<StaticPlanningShape, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
-    let execution_preparation_compiled_predicate = compile_optional_predicate_with_model(
-        model,
-        plan.execution_preparation_predicate().as_ref(),
-    );
+    let execution_preparation_compiled_predicate =
+        compile_optional_predicate(model, plan.execution_preparation_predicate().as_ref());
     let effective_runtime_compiled_predicate =
-        compile_optional_predicate_with_model(model, plan.effective_execution_predicate().as_ref());
+        compile_optional_predicate(model, plan.effective_execution_predicate().as_ref());
     let scalar_projection_plan =
         if plan.grouped_plan().is_none() {
             Some(compile_scalar_projection_plan(model, &projection_spec).ok_or_else(|| {
@@ -456,11 +454,11 @@ fn project_static_planning_shape_for_model(
 
 // Compile one optional planner-frozen predicate program while keeping the
 // static planning assembly path free of repeated `Option` mapping boilerplate.
-fn compile_optional_predicate_with_model(
+fn compile_optional_predicate(
     model: &EntityModel,
     predicate: Option<&PredicateExecutionModel>,
 ) -> Option<PredicateProgram> {
-    predicate.map(|predicate| PredicateProgram::compile_with_model(model, predicate))
+    predicate.map(|predicate| PredicateProgram::compile(model, predicate))
 }
 
 // Resolve the grouped-only static planning semantics bundle once so grouped
@@ -488,7 +486,7 @@ fn resolve_grouped_static_planning_semantics(
     )?;
     extend_grouped_having_aggregate_projection_specs(&mut aggregate_projection_specs, grouped)?;
 
-    let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs_with_model(
+    let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
         model,
         aggregate_projection_specs.as_slice(),
     )?);

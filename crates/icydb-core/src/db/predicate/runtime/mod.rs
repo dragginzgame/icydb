@@ -60,10 +60,7 @@ enum CompiledPredicate {
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
-    pub(in crate::db) fn compile_with_model(
-        model: &EntityModel,
-        predicate: &PredicateExecutionModel,
-    ) -> Self {
+    pub(in crate::db) fn compile(model: &EntityModel, predicate: &PredicateExecutionModel) -> Self {
         let executable = compile_predicate_program(model, predicate);
         let compiled = if compile_scalar_predicate_program(model, &executable) {
             CompiledPredicate::Scalar

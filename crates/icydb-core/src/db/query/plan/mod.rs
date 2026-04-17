@@ -49,7 +49,7 @@ pub(in crate::db) use covering::{
 pub(in crate::db) use group::GroupedAggregateProjectionSpec;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
-    PlannedProjectionLayout, grouped_aggregate_execution_specs_with_model,
+    PlannedProjectionLayout, grouped_aggregate_execution_specs,
     grouped_aggregate_projection_specs_from_projection_spec, grouped_executor_handoff,
     resolved_grouped_distinct_execution_strategy_for_model,
 };

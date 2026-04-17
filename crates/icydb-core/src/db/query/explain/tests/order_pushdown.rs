@@ -1,8 +1,7 @@
 use super::*;
 
 #[test]
-fn explain_with_model_does_not_evaluate_order_pushdown() {
-    let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+fn explain_does_not_evaluate_order_pushdown() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
@@ -15,14 +14,13 @@ fn explain_with_model_does_not_evaluate_order_pushdown() {
     });
 
     assert_eq!(
-        plan.explain_with_model(model).order_pushdown,
+        plan.explain().order_pushdown,
         ExplainOrderPushdown::MissingModelContext
     );
 }
 
 #[test]
-fn explain_with_model_does_not_evaluate_descending_pushdown() {
-    let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+fn explain_does_not_evaluate_descending_pushdown() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
@@ -35,14 +33,13 @@ fn explain_with_model_does_not_evaluate_descending_pushdown() {
     });
 
     assert_eq!(
-        plan.explain_with_model(model).order_pushdown,
+        plan.explain().order_pushdown,
         ExplainOrderPushdown::MissingModelContext
     );
 }
 
 #[test]
-fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
-    let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+fn explain_does_not_evaluate_composite_pushdown_rejections() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -73,7 +70,7 @@ fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
     };
 
     assert_eq!(
-        plan.explain_with_model(model).order_pushdown,
+        plan.explain().order_pushdown,
         ExplainOrderPushdown::MissingModelContext
     );
 }

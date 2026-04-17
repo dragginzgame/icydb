@@ -20,7 +20,6 @@ use crate::{
             },
         },
     },
-    model::entity::EntityModel,
     traits::FieldValue,
     value::Value,
 };
@@ -501,18 +500,7 @@ pub enum ExplainDeleteLimit {
 impl AccessPlannedQuery {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
-    #[cfg(test)]
     pub(crate) fn explain(&self) -> ExplainPlan {
-        self.explain_inner()
-    }
-
-    /// Produce a stable, deterministic explanation of this logical plan
-    /// with optional model context for query-layer projections.
-    ///
-    /// Query explain intentionally does not evaluate executor route pushdown
-    /// feasibility to keep query-layer dependencies executor-agnostic.
-    #[must_use]
-    pub(crate) fn explain_with_model(&self, _model: &EntityModel) -> ExplainPlan {
         self.explain_inner()
     }
 

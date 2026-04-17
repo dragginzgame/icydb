@@ -288,7 +288,7 @@ impl PreparedSqlScalarAggregateStrategy {
         clippy::too_many_lines,
         reason = "aggregate terminal preparation keeps field and expression variants on one owner-local boundary"
     )]
-    fn from_lowered_terminal_with_model(
+    fn from_lowered_terminal(
         model: &'static EntityModel,
         terminal: &SqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
@@ -724,16 +724,14 @@ impl SqlGlobalAggregateCommandCore {
     }
 
     /// Prepare structural SQL scalar aggregate strategies using one concrete model.
-    pub(in crate::db) fn prepared_scalar_strategies_with_model(
+    pub(in crate::db) fn prepared_scalar_strategies(
         &self,
         model: &'static EntityModel,
     ) -> Result<Vec<PreparedSqlScalarAggregateStrategy>, SqlLoweringError> {
         self.terminals
             .iter()
             .map(|terminal| {
-                PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_model(
-                    model, terminal,
-                )
+                PreparedSqlScalarAggregateStrategy::from_lowered_terminal(model, terminal)
             })
             .collect()
     }

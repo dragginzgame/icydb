@@ -316,7 +316,7 @@ impl StructuralQuery {
             plan,
         )
         .map_err(QueryError::execute)?;
-        let explain = plan.explain_with_model(self.intent.model());
+        let explain = plan.explain();
 
         // Phase 1: render descriptor tree with node-local metadata.
         let mut lines = vec![descriptor.render_text_tree_verbose()];
@@ -449,7 +449,7 @@ impl StructuralQuery {
         aggregate: AggregateRouteShape<'_>,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        let query_explain = plan.explain_with_model(self.intent.model());
+        let query_explain = plan.explain();
         let terminal = aggregate.kind();
         let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate);
 
@@ -495,22 +495,18 @@ impl StructuralQuery {
 
 #[derive(Debug)]
 struct PlannedQueryCore {
-    model: &'static crate::model::entity::EntityModel,
     plan: AccessPlannedQuery,
 }
 
 impl PlannedQueryCore {
     #[must_use]
-    const fn new(
-        model: &'static crate::model::entity::EntityModel,
-        plan: AccessPlannedQuery,
-    ) -> Self {
-        Self { model, plan }
+    const fn new(plan: AccessPlannedQuery) -> Self {
+        Self { plan }
     }
 
     #[must_use]
     fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(self.model)
+        self.plan.explain()
     }
 
     /// Return the stable plan hash for this planned query.
@@ -565,28 +561,19 @@ impl<E: EntityKind> PlannedQuery<E> {
 
 #[derive(Clone, Debug)]
 struct CompiledQueryCore {
-    model: &'static crate::model::entity::EntityModel,
     entity_path: &'static str,
     plan: AccessPlannedQuery,
 }
 
 impl CompiledQueryCore {
     #[must_use]
-    const fn new(
-        model: &'static crate::model::entity::EntityModel,
-        entity_path: &'static str,
-        plan: AccessPlannedQuery,
-    ) -> Self {
-        Self {
-            model,
-            entity_path,
-            plan,
-        }
+    const fn new(entity_path: &'static str, plan: AccessPlannedQuery) -> Self {
+        Self { entity_path, plan }
     }
 
     #[must_use]
     fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(self.model)
+        self.plan.explain()
     }
 
     /// Return the stable plan hash for this compiled query.
@@ -707,7 +694,7 @@ impl<E: EntityKind> Query<E> {
     ) -> Result<ExplainPlan, QueryError> {
         let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
 
-        Ok(plan.explain_with_model(E::MODEL))
+        Ok(plan.explain())
     }
 
     pub(in crate::db) fn plan_hash_hex_with_visible_indexes(
@@ -745,14 +732,14 @@ impl<E: EntityKind> Query<E> {
     pub(in crate::db) fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
         let _projection = plan.projection_spec(E::MODEL);
 
-        PlannedQuery::from_inner(PlannedQueryCore::new(E::MODEL, plan))
+        PlannedQuery::from_inner(PlannedQueryCore::new(plan))
     }
 
     // Wrap one built plan as the typed compiled-query DTO.
     pub(in crate::db) fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
         let _projection = plan.projection_spec(E::MODEL);
 
-        CompiledQuery::from_inner(CompiledQueryCore::new(E::MODEL, E::PATH, plan))
+        CompiledQuery::from_inner(CompiledQueryCore::new(E::PATH, plan))
     }
 
     #[must_use]

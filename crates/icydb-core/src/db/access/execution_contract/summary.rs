@@ -80,7 +80,7 @@ where
             upper,
         } => {
             if let Some((index, prefix_len)) = path.index_range_details() {
-                summarize_index_range_with_model(index, prefix_len, prefix_values, lower, upper)
+                summarize_index_range(index, prefix_len, prefix_values, lower, upper)
             } else {
                 format!(
                     "IndexRange(prefix={prefix_values:?} {})",
@@ -92,7 +92,7 @@ where
     }
 }
 
-fn summarize_index_range_with_model(
+fn summarize_index_range(
     index: IndexModel,
     prefix_len: usize,
     prefix_values: &[Value],

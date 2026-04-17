@@ -309,7 +309,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let model = authority.model();
         let strategies = command
-            .prepared_scalar_strategies_with_model(model)
+            .prepared_scalar_strategies(model)
             .map_err(QueryError::from_sql_lowering_error)?;
         let mut unique_values = Vec::with_capacity(strategies.len());
         let mut columns = Vec::with_capacity(command.output_remap().len());
