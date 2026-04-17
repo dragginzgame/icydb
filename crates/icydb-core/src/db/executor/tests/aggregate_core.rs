@@ -1977,11 +1977,11 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
         .expect_err("bypassed planner shape should fail with executor invariant");
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
     assert!(
         err.message
-            .contains("unsupported grouped HAVING operator reached executor"),
-        "bypassed grouped HAVING operator should fail with executor invariant taxonomy: {err:?}",
+            .contains("grouped projection evaluation failed: grouped HAVING compare operator"),
+        "bypassed grouped HAVING operator should fail with invalid logical plan taxonomy: {err:?}",
     );
 }
 
