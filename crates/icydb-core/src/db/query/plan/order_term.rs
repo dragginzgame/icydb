@@ -78,7 +78,34 @@ mod tests {
             render_supported_order_expr(&upper),
             Some("UPPER(email)".to_string())
         );
-        assert_eq!(parse_supported_order_expr("TRIM(name)"), None);
+
+        let trim = parse_supported_order_expr("TRIM(name)")
+            .expect("trim(name) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&trim),
+            Some("TRIM(name)".to_string())
+        );
+
+        let ltrim = parse_supported_order_expr("LTRIM(name)")
+            .expect("ltrim(name) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&ltrim),
+            Some("LTRIM(name)".to_string())
+        );
+
+        let rtrim = parse_supported_order_expr("RTRIM(name)")
+            .expect("rtrim(name) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&rtrim),
+            Some("RTRIM(name)".to_string())
+        );
+
+        let length = parse_supported_order_expr("LENGTH(name)")
+            .expect("length(name) should parse onto the canonical expression tree");
+        assert_eq!(
+            render_supported_order_expr(&length),
+            Some("LENGTH(name)".to_string())
+        );
     }
 
     #[test]

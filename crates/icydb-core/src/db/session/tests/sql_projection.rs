@@ -631,16 +631,40 @@ fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
 }
 
 #[test]
-fn execute_sql_projection_rejects_order_by_alias_for_unsupported_target_family() {
+fn execute_sql_projection_order_by_supported_unary_text_aliases_match_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_session_sql_order_by_alias_unsupported::<Vec<Vec<Value>>>(
-        &session,
-        statement_projection_rows::<SessionSqlEntity>,
-        "SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 2",
-        "unsupported ORDER BY alias targets",
-    );
+    for (alias_sql, canonical_sql, context) in [
+        (
+            "SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 2",
+            "SELECT TRIM(name) FROM SessionSqlEntity ORDER BY TRIM(name) ASC LIMIT 2",
+            "ORDER BY TRIM alias",
+        ),
+        (
+            "SELECT LTRIM(name) AS left_trimmed_name FROM SessionSqlEntity ORDER BY left_trimmed_name ASC LIMIT 2",
+            "SELECT LTRIM(name) FROM SessionSqlEntity ORDER BY LTRIM(name) ASC LIMIT 2",
+            "ORDER BY LTRIM alias",
+        ),
+        (
+            "SELECT RTRIM(name) AS right_trimmed_name FROM SessionSqlEntity ORDER BY right_trimmed_name ASC LIMIT 2",
+            "SELECT RTRIM(name) FROM SessionSqlEntity ORDER BY RTRIM(name) ASC LIMIT 2",
+            "ORDER BY RTRIM alias",
+        ),
+        (
+            "SELECT LENGTH(name) AS name_len FROM SessionSqlEntity ORDER BY name_len DESC LIMIT 2",
+            "SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY LENGTH(name) DESC LIMIT 2",
+            "ORDER BY LENGTH alias",
+        ),
+    ] {
+        assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
+            &session,
+            statement_projection_rows::<SessionSqlEntity>,
+            alias_sql,
+            canonical_sql,
+            context,
+        );
+    }
 }
 
 #[test]

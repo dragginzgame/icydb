@@ -3,7 +3,7 @@ use crate::db::{
     predicate::Predicate,
     query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
     query::plan::expr::{
-        Expr, FieldId, Function, parse_supported_order_expr, render_supported_order_expr,
+        parse_supported_order_expr, render_supported_order_expr,
         rewrite_supported_order_expr_fields,
     },
     sql::{
@@ -15,7 +15,7 @@ use crate::db::{
             SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlHavingClause,
             SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
             SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-            SqlTextFunction, SqlTextFunctionCall,
+            SqlTextFunctionCall,
         },
     },
 };
@@ -337,33 +337,15 @@ fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
         SqlSelectItem::Aggregate(_) => lower_select_item_expr(item)
             .ok()
             .map(|expr| render_scalar_projection_expr_sql_label(&expr)),
-        SqlSelectItem::TextFunction(SqlTextFunctionCall {
-            function: SqlTextFunction::Lower,
-            field,
-            literal: None,
-            literal2: None,
-            literal3: None,
-        }) => render_supported_order_expr(&Expr::FunctionCall {
-            function: Function::Lower,
-            args: vec![Expr::Field(FieldId::new(field.clone()))],
-        }),
-        SqlSelectItem::TextFunction(SqlTextFunctionCall {
-            function: SqlTextFunction::Upper,
-            field,
-            literal: None,
-            literal2: None,
-            literal3: None,
-        }) => render_supported_order_expr(&Expr::FunctionCall {
-            function: Function::Upper,
-            args: vec![Expr::Field(FieldId::new(field.clone()))],
-        }),
+        SqlSelectItem::TextFunction(_) => lower_select_item_expr(item)
+            .ok()
+            .and_then(|expr| render_supported_order_expr(&expr)),
         SqlSelectItem::Arithmetic(_) | SqlSelectItem::Round(_) => {
             lower_select_item_expr(item).ok().and_then(|expr| {
                 render_supported_order_expr(&expr)
                     .or_else(|| Some(render_scalar_projection_expr_sql_label(&expr)))
             })
         }
-        SqlSelectItem::TextFunction(_) => None,
     }
 }
 

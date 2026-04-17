@@ -1659,34 +1659,6 @@ fn assert_session_sql_alias_matches_canonical<T>(
     );
 }
 
-// Execute one unsupported ORDER BY alias SQL case through the provided session
-// test runner and assert the public unsupported error contract stays stable.
-fn assert_session_sql_order_by_alias_unsupported<T>(
-    session: &DbSession<SessionSqlCanister>,
-    runner: impl Fn(&DbSession<SessionSqlCanister>, &str) -> Result<T, QueryError>,
-    sql: &str,
-    context: &str,
-) {
-    let Err(err) = runner(session, sql) else {
-        panic!("unsupported ORDER BY alias target should fail closed");
-    };
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "{context} must fail at the session SQL boundary",
-    );
-    assert!(
-        err.to_string()
-            .contains("ORDER BY alias 'trimmed_name' does not resolve to a supported order target"),
-        "{context} should explain the narrowed alias-order boundary",
-    );
-}
-
 // Parse one verbose explain payload into `diag.*` key/value pairs so session
 // tests can assert planner-choice diagnostics without snapshotting the full
 // rendered tree.

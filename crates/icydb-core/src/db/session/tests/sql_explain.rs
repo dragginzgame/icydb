@@ -662,16 +662,40 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
 }
 
 #[test]
-fn explain_sql_rejects_order_by_alias_for_unsupported_target_family() {
+fn explain_sql_order_by_supported_unary_text_aliases_match_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_session_sql_order_by_alias_unsupported::<String>(
-        &session,
-        statement_explain_sql::<SessionSqlEntity>,
-        "EXPLAIN SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 1",
-        "unsupported ORDER BY alias targets",
-    );
+    for (alias_sql, canonical_sql, context) in [
+        (
+            "EXPLAIN SELECT TRIM(name) AS trimmed_name FROM SessionSqlEntity ORDER BY trimmed_name ASC LIMIT 1",
+            "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY TRIM(name) ASC LIMIT 1",
+            "ORDER BY TRIM alias",
+        ),
+        (
+            "EXPLAIN SELECT LTRIM(name) AS left_trimmed_name FROM SessionSqlEntity ORDER BY left_trimmed_name ASC LIMIT 1",
+            "EXPLAIN SELECT LTRIM(name) FROM SessionSqlEntity ORDER BY LTRIM(name) ASC LIMIT 1",
+            "ORDER BY LTRIM alias",
+        ),
+        (
+            "EXPLAIN SELECT RTRIM(name) AS right_trimmed_name FROM SessionSqlEntity ORDER BY right_trimmed_name ASC LIMIT 1",
+            "EXPLAIN SELECT RTRIM(name) FROM SessionSqlEntity ORDER BY RTRIM(name) ASC LIMIT 1",
+            "ORDER BY RTRIM alias",
+        ),
+        (
+            "EXPLAIN SELECT LENGTH(name) AS name_len FROM SessionSqlEntity ORDER BY name_len DESC LIMIT 1",
+            "EXPLAIN SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY LENGTH(name) DESC LIMIT 1",
+            "ORDER BY LENGTH alias",
+        ),
+    ] {
+        assert_session_sql_alias_matches_canonical::<String>(
+            &session,
+            statement_explain_sql::<SessionSqlEntity>,
+            alias_sql,
+            canonical_sql,
+            context,
+        );
+    }
 }
 
 #[test]

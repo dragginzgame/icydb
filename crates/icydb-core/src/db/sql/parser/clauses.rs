@@ -16,7 +16,7 @@ use crate::{
     value::Value,
 };
 
-const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported field, LOWER/UPPER(...), bounded arithmetic, or ROUND(...) forms";
+const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported field, unary text functions, bounded arithmetic, or ROUND(...) forms";
 
 impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
@@ -75,33 +75,37 @@ impl Parser {
         };
 
         match function {
-            SqlTextFunction::Lower | SqlTextFunction::Upper => {
+            SqlTextFunction::Trim
+            | SqlTextFunction::Ltrim
+            | SqlTextFunction::Rtrim
+            | SqlTextFunction::Lower
+            | SqlTextFunction::Upper
+            | SqlTextFunction::Length => {
                 self.expect_lparen()?;
                 let field = self.expect_identifier()?;
                 self.expect_rparen()?;
 
-                Ok(match function {
-                    SqlTextFunction::Lower => format!("LOWER({field})"),
-                    SqlTextFunction::Upper => format!("UPPER({field})"),
-                    SqlTextFunction::Trim
-                    | SqlTextFunction::Ltrim
-                    | SqlTextFunction::Rtrim
-                    | SqlTextFunction::Length
-                    | SqlTextFunction::Left
-                    | SqlTextFunction::Right
-                    | SqlTextFunction::StartsWith
-                    | SqlTextFunction::EndsWith
-                    | SqlTextFunction::Contains
-                    | SqlTextFunction::Position
-                    | SqlTextFunction::Replace
-                    | SqlTextFunction::Substring => unreachable!(),
-                })
+                Ok(format!(
+                    "{}({field})",
+                    match function {
+                        SqlTextFunction::Trim => "TRIM",
+                        SqlTextFunction::Ltrim => "LTRIM",
+                        SqlTextFunction::Rtrim => "RTRIM",
+                        SqlTextFunction::Lower => "LOWER",
+                        SqlTextFunction::Upper => "UPPER",
+                        SqlTextFunction::Length => "LENGTH",
+                        SqlTextFunction::Left
+                        | SqlTextFunction::Right
+                        | SqlTextFunction::StartsWith
+                        | SqlTextFunction::EndsWith
+                        | SqlTextFunction::Contains
+                        | SqlTextFunction::Position
+                        | SqlTextFunction::Replace
+                        | SqlTextFunction::Substring => unreachable!(),
+                    }
+                ))
             }
-            SqlTextFunction::Trim
-            | SqlTextFunction::Ltrim
-            | SqlTextFunction::Rtrim
-            | SqlTextFunction::Length
-            | SqlTextFunction::Left
+            SqlTextFunction::Left
             | SqlTextFunction::Right
             | SqlTextFunction::StartsWith
             | SqlTextFunction::EndsWith

@@ -335,17 +335,35 @@ fn compile_sql_command_order_by_field_alias_matches_canonical_order_target() {
 }
 
 #[test]
-fn compile_sql_command_rejects_order_by_alias_for_unsupported_target_family() {
-    let err = compile_sql_command::<SqlLowerEntity>(
-        "SELECT TRIM(name) AS trimmed_name FROM SqlLowerEntity ORDER BY trimmed_name ASC LIMIT 2",
-        MissingRowPolicy::Ignore,
-    )
-    .expect_err("ORDER BY aliases should stay fail-closed for unsupported target families");
-
-    assert!(
-        matches!(err, SqlLoweringError::UnsupportedOrderByAlias { .. }),
-        "unsupported ORDER BY alias target must fail at the SQL lowering boundary: {err:?}",
-    );
+fn compile_sql_command_normalizes_order_by_alias_for_supported_unary_text_targets() {
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT TRIM(name) AS trimmed_name FROM SqlLowerEntity ORDER BY trimmed_name ASC LIMIT 2",
+            "TRIM(name)",
+            "ORDER BY TRIM alias",
+        ),
+        (
+            "SELECT LTRIM(name) AS left_trimmed_name FROM SqlLowerEntity ORDER BY left_trimmed_name ASC LIMIT 2",
+            "LTRIM(name)",
+            "ORDER BY LTRIM alias",
+        ),
+        (
+            "SELECT RTRIM(name) AS right_trimmed_name FROM SqlLowerEntity ORDER BY right_trimmed_name ASC LIMIT 2",
+            "RTRIM(name)",
+            "ORDER BY RTRIM alias",
+        ),
+        (
+            "SELECT LENGTH(name) AS name_len FROM SqlLowerEntity ORDER BY name_len DESC LIMIT 2",
+            "LENGTH(name)",
+            "ORDER BY LENGTH alias",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical unary text order expression",
+        );
+    }
 }
 
 #[test]

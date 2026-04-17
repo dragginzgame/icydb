@@ -215,7 +215,13 @@ pub(in crate::db) fn parse_supported_computed_order_expr(term: &str) -> Option<E
 pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId> {
     match expr {
         Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
+            function:
+                Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
+                | Function::Lower
+                | Function::Upper
+                | Function::Length,
             args,
         } => match args.as_slice() {
             [Expr::Field(field)] => Some(field),
@@ -268,7 +274,13 @@ where
 pub(in crate::db) fn render_supported_order_expr(expr: &Expr) -> Option<String> {
     match expr {
         Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
+            function:
+                Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
+                | Function::Lower
+                | Function::Upper
+                | Function::Length,
             args,
         } if matches!(args.as_slice(), [Expr::Field(_)]) => render_supported_order_function(expr),
         Expr::Binary { op, left, right }
@@ -323,7 +335,13 @@ pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
 fn render_supported_order_function(expr: &Expr) -> Option<String> {
     let function = match expr {
         Expr::FunctionCall {
-            function: function @ (Function::Lower | Function::Upper),
+            function:
+                function @ (Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
+                | Function::Lower
+                | Function::Upper
+                | Function::Length),
             args,
         } if matches!(args.as_slice(), [Expr::Field(_)]) => *function,
         _ => return None,
@@ -396,9 +414,11 @@ impl SupportedOrderExprParser {
     fn parse_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
         self.cursor.expect_lparen()?;
 
-        let expression = if name.eq_ignore_ascii_case("LOWER") || name.eq_ignore_ascii_case("UPPER")
-        {
-            self.parse_casefold_expr(name)?
+        let expression = if matches!(
+            name.to_ascii_uppercase().as_str(),
+            "TRIM" | "LTRIM" | "RTRIM" | "LOWER" | "UPPER" | "LENGTH"
+        ) {
+            self.parse_unary_text_function_expr(name)?
         } else if name.eq_ignore_ascii_case("ROUND") {
             self.parse_round_expr()?
         } else {
@@ -412,12 +432,20 @@ impl SupportedOrderExprParser {
         Ok(expression)
     }
 
-    fn parse_casefold_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
+    fn parse_unary_text_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
         let field = self.cursor.expect_identifier()?;
-        let function = if name.eq_ignore_ascii_case("LOWER") {
-            Function::Lower
-        } else {
-            Function::Upper
+        let function = match name.to_ascii_uppercase().as_str() {
+            "TRIM" => Function::Trim,
+            "LTRIM" => Function::Ltrim,
+            "RTRIM" => Function::Rtrim,
+            "LOWER" => Function::Lower,
+            "UPPER" => Function::Upper,
+            "LENGTH" => Function::Length,
+            _ => {
+                return Err(SqlParseError::unsupported_feature(
+                    "supported ORDER BY expression family",
+                ));
+            }
         };
 
         Ok(Expr::FunctionCall {
