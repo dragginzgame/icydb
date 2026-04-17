@@ -1,5 +1,6 @@
 use crate::db::sql::lowering::{SqlLoweringError, select::lower_select_item_expr};
 use crate::db::{
+    predicate::Predicate,
     query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
     query::plan::expr::{
         parse_supported_order_expr, render_supported_order_expr,
@@ -8,6 +9,7 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
+            rewrite_field_identifiers,
         },
         lowering::expr::SqlExprPhase,
         parser::{
@@ -51,9 +53,37 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
 }
 
 pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
-    predicate: SqlExpr,
+    mut predicate: SqlExpr,
     entity_scope: &[String],
 ) -> SqlExpr {
+    if let SqlExpr::NullTest { expr, negated } = &predicate
+        && let SqlExpr::Field(field) = expr.as_ref()
+    {
+        let rewritten = rewrite_field_identifiers(
+            if *negated {
+                Predicate::IsNotNull {
+                    field: field.clone(),
+                }
+            } else {
+                Predicate::IsNull {
+                    field: field.clone(),
+                }
+            },
+            |field| normalize_identifier(field, entity_scope),
+        );
+        predicate = match rewritten {
+            Predicate::IsNull { field } => SqlExpr::NullTest {
+                expr: Box::new(SqlExpr::Field(field)),
+                negated: false,
+            },
+            Predicate::IsNotNull { field } => SqlExpr::NullTest {
+                expr: Box::new(SqlExpr::Field(field)),
+                negated: true,
+            },
+            _ => unreachable!("null-test identifier rewrite should stay on the null-test boundary"),
+        };
+    }
+
     SqlIdentifierNormalizer::new(entity_scope).normalize_sql_expr(predicate)
 }
 

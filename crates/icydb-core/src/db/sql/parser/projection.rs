@@ -43,7 +43,8 @@ impl Parser {
     pub(super) fn parse_where_expr(
         &mut self,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        self.parse_sql_expr(SqlExprParseSurface::Where, 0)
+        let expr = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
+        Self::validate_where_expr(expr)
     }
 
     pub(super) fn parse_projection(
@@ -654,18 +655,41 @@ impl Parser {
 
         if self.eat_keyword(Keyword::Is) {
             let negated = self.eat_keyword(Keyword::Not);
-            if !self.peek_keyword(Keyword::Null) {
-                return Err(crate::db::sql_shared::SqlParseError::expected(
-                    "NULL after IS/IS NOT",
-                    self.peek_kind(),
-                ));
-            }
-            let _ = self.cursor.advance();
+            if self.peek_keyword(Keyword::Null) {
+                let _ = self.cursor.advance();
 
-            return Ok(Some(SqlExpr::NullTest {
-                expr: Box::new(left),
-                negated,
-            }));
+                return Ok(Some(SqlExpr::NullTest {
+                    expr: Box::new(left),
+                    negated,
+                }));
+            }
+            if self.peek_keyword(Keyword::True) || self.peek_keyword(Keyword::False) {
+                let value = if self.eat_keyword(Keyword::True) {
+                    Value::Bool(true)
+                } else {
+                    let _ = self.cursor.advance();
+                    Value::Bool(false)
+                };
+                let expr = SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(left),
+                    right: Box::new(SqlExpr::Literal(value)),
+                };
+
+                return Ok(Some(if negated {
+                    SqlExpr::Unary {
+                        op: SqlExprUnaryOp::Not,
+                        expr: Box::new(expr),
+                    }
+                } else {
+                    expr
+                }));
+            }
+
+            return Err(crate::db::sql_shared::SqlParseError::expected(
+                "NULL/TRUE/FALSE after IS/IS NOT",
+                self.peek_kind(),
+            ));
         }
 
         if self.eat_identifier_keyword("LIKE") {
@@ -674,31 +698,29 @@ impl Parser {
         if self.eat_identifier_keyword("ILIKE") {
             return self.parse_where_like_expr(left, false, true).map(Some);
         }
-        if self.cursor.peek_identifier_keyword("NOT")
-            && matches!(self.cursor.peek_next_kind(), Some(TokenKind::Identifier(_)))
-        {
+        if self.cursor.peek_keyword(Keyword::Not) {
             let mut lookahead = self.cursor.clone();
-            let _ = lookahead.eat_identifier_keyword("NOT");
+            let _ = lookahead.advance();
             if lookahead.peek_identifier_keyword("LIKE") {
-                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("LIKE");
 
                 return self.parse_where_like_expr(left, true, false).map(Some);
             }
             if lookahead.peek_identifier_keyword("ILIKE") {
-                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("ILIKE");
 
                 return self.parse_where_like_expr(left, true, true).map(Some);
             }
             if lookahead.peek_keyword(Keyword::In) {
-                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 
                 return self.parse_where_in_expr(left, true).map(Some);
             }
             if lookahead.peek_keyword(Keyword::Between) {
-                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 
                 return self.parse_where_between_expr(left, true, surface).map(Some);
@@ -750,7 +772,7 @@ impl Parser {
                         SqlTextFunction::Lower | SqlTextFunction::Upper
                     ) =>
                 {
-                    SqlExpr::TextFunction(call)
+                    Self::canonicalize_where_casefold_text_function(call)
                 }
                 _ => {
                     return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
@@ -876,17 +898,185 @@ impl Parser {
         &mut self,
         function: SqlTextFunction,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        self.expect_lparen()?;
-        let mut args = Vec::new();
-        loop {
-            args.push(self.parse_sql_expr(SqlExprParseSurface::Where, 0)?);
-            if !self.eat_comma() {
-                break;
+        match function {
+            SqlTextFunction::Trim
+            | SqlTextFunction::Ltrim
+            | SqlTextFunction::Rtrim
+            | SqlTextFunction::Lower
+            | SqlTextFunction::Upper
+            | SqlTextFunction::Length
+            | SqlTextFunction::Left
+            | SqlTextFunction::Right
+            | SqlTextFunction::Position
+            | SqlTextFunction::Replace
+            | SqlTextFunction::Substring => {
+                let call = self.parse_text_function_call(function)?;
+
+                Ok(SqlExpr::TextFunction(call))
+            }
+            SqlTextFunction::StartsWith | SqlTextFunction::EndsWith | SqlTextFunction::Contains => {
+                self.expect_lparen()?;
+                let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
+                if !self.eat_comma() {
+                    return Err(crate::db::sql_shared::SqlParseError::expected(
+                        ",",
+                        self.peek_kind(),
+                    ));
+                }
+                let literal = SqlExpr::Literal(self.parse_literal()?);
+                self.expect_rparen()?;
+
+                if !matches!(
+                    left,
+                    SqlExpr::Field(_)
+                        | SqlExpr::TextFunction(SqlTextFunctionCall {
+                            function: SqlTextFunction::Lower | SqlTextFunction::Upper,
+                            ..
+                        })
+                ) {
+                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                        match function {
+                            SqlTextFunction::StartsWith => {
+                                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+                            }
+                            SqlTextFunction::EndsWith => {
+                                "ENDS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+                            }
+                            SqlTextFunction::Contains => {
+                                "CONTAINS first argument forms beyond plain or LOWER/UPPER field wrappers"
+                            }
+                            _ => unreachable!(
+                                "bounded WHERE function matcher called with unsupported function"
+                            ),
+                        },
+                    ));
+                }
+
+                let left = match left {
+                    SqlExpr::TextFunction(call)
+                        if matches!(
+                            call.function,
+                            SqlTextFunction::Lower | SqlTextFunction::Upper
+                        ) =>
+                    {
+                        Self::canonicalize_where_casefold_text_function(call)
+                    }
+                    other => other,
+                };
+
+                Ok(SqlExpr::FunctionCall {
+                    function,
+                    args: vec![left, literal],
+                })
             }
         }
-        self.expect_rparen()?;
+    }
 
-        Ok(SqlExpr::FunctionCall { function, args })
+    fn canonicalize_where_casefold_text_function(call: SqlTextFunctionCall) -> SqlExpr {
+        SqlExpr::TextFunction(SqlTextFunctionCall {
+            function: SqlTextFunction::Lower,
+            field: call.field,
+            literal: None,
+            literal2: None,
+            literal3: None,
+        })
+    }
+
+    // Keep WHERE on the shipped reduced predicate surface even though it now
+    // parses through the shared SqlExpr seam. Unsupported expression-shaped
+    // predicates should fail at syntax time rather than slipping into lowering.
+    fn validate_where_expr(expr: SqlExpr) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        if Self::where_expr_is_admitted(&expr) {
+            Ok(expr)
+        } else {
+            Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                "unsupported expression predicate in WHERE",
+            ))
+        }
+    }
+
+    fn where_expr_is_admitted(expr: &SqlExpr) -> bool {
+        match expr {
+            SqlExpr::Literal(Value::Bool(_) | Value::Null) => true,
+            SqlExpr::Unary {
+                op: SqlExprUnaryOp::Not,
+                expr,
+            } => Self::where_expr_is_admitted(expr),
+            SqlExpr::Binary {
+                op: SqlExprBinaryOp::And | SqlExprBinaryOp::Or,
+                left,
+                right,
+            } => Self::where_expr_is_admitted(left) && Self::where_expr_is_admitted(right),
+            SqlExpr::Binary {
+                op:
+                    SqlExprBinaryOp::Eq
+                    | SqlExprBinaryOp::Ne
+                    | SqlExprBinaryOp::Lt
+                    | SqlExprBinaryOp::Lte
+                    | SqlExprBinaryOp::Gt
+                    | SqlExprBinaryOp::Gte,
+                left,
+                right,
+            } => {
+                Self::where_compare_operand_is_admitted(left)
+                    && Self::where_compare_operand_is_admitted(right)
+            }
+            SqlExpr::NullTest { expr, .. } => Self::where_null_test_operand_is_admitted(expr),
+            SqlExpr::FunctionCall {
+                function:
+                    SqlTextFunction::StartsWith | SqlTextFunction::EndsWith | SqlTextFunction::Contains,
+                args,
+            } => matches!(
+                args.as_slice(),
+                [left, SqlExpr::Literal(Value::Text(_))]
+                    if Self::where_compare_operand_is_admitted(left)
+            ),
+            SqlExpr::Case { arms, else_expr } => {
+                arms.iter().all(|arm| {
+                    Self::where_expr_is_admitted(&arm.condition)
+                        && Self::where_expr_is_admitted(&arm.result)
+                }) && else_expr
+                    .as_deref()
+                    .is_none_or(Self::where_expr_is_admitted)
+            }
+            SqlExpr::Literal(_)
+            | SqlExpr::Field(_)
+            | SqlExpr::Aggregate(_)
+            | SqlExpr::TextFunction(_)
+            | SqlExpr::FunctionCall { .. }
+            | SqlExpr::Round(_)
+            | SqlExpr::Binary {
+                op:
+                    SqlExprBinaryOp::Add
+                    | SqlExprBinaryOp::Sub
+                    | SqlExprBinaryOp::Mul
+                    | SqlExprBinaryOp::Div,
+                ..
+            } => false,
+        }
+    }
+
+    const fn where_null_test_operand_is_admitted(expr: &SqlExpr) -> bool {
+        matches!(expr, SqlExpr::Field(_) | SqlExpr::Literal(_))
+    }
+
+    const fn where_compare_operand_is_admitted(expr: &SqlExpr) -> bool {
+        match expr {
+            SqlExpr::Field(_)
+            | SqlExpr::Literal(_)
+            | SqlExpr::TextFunction(SqlTextFunctionCall {
+                function: SqlTextFunction::Lower | SqlTextFunction::Upper,
+                ..
+            }) => true,
+            SqlExpr::Aggregate(_)
+            | SqlExpr::NullTest { .. }
+            | SqlExpr::FunctionCall { .. }
+            | SqlExpr::Round(_)
+            | SqlExpr::Unary { .. }
+            | SqlExpr::Binary { .. }
+            | SqlExpr::Case { .. }
+            | SqlExpr::TextFunction(_) => false,
+        }
     }
 
     fn peek_sql_expr_binary_op(&self) -> Option<(SqlExprBinaryOp, u8)> {
