@@ -2112,6 +2112,28 @@ fn compile_sql_command_normalizes_grouped_wrapped_aggregate_input_order_by_alias
 }
 
 #[test]
+fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compare_predicate() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, ROUND(AVG(age), 2) AS avg_age \
+         FROM SqlLowerEntity \
+         WHERE name > name \
+         GROUP BY age \
+         ORDER BY avg_age DESC, age ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate ORDER BY alias with grouped residual predicate should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped aggregate ORDER BY alias should still reserve the bounded Top-K grouped lane when a residual predicate is present",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, AVG(age) \
@@ -2206,37 +2228,20 @@ fn compile_sql_command_rejects_grouped_scalar_projection_after_aggregate_specifi
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_field_to_field_predicate_in_current_slice() {
+fn compile_sql_command_accepts_grouped_field_to_field_predicate() {
     let command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age, COUNT(*) FROM SqlLowerEntity WHERE name > name GROUP BY age",
+        "SELECT age, COUNT(*) FROM SqlLowerEntity WHERE name > name GROUP BY age ORDER BY age ASC LIMIT 10",
         MissingRowPolicy::Ignore,
     )
-    .expect("grouped field-to-field predicate SQL should still lower structurally");
+    .expect("grouped field-to-field predicate SQL should lower");
 
     let SqlCommand::Query(query) = command else {
         panic!("expected lowered grouped query command");
     };
 
-    let err = query.plan().expect_err(
-        "grouped field-to-field predicate should remain fail-closed at planner validation",
+    query.plan().expect(
+        "grouped field-to-field predicate should now stay on the grouped residual predicate path",
     );
-
-    assert!(matches!(
-        err,
-        crate::db::query::intent::QueryError::Plan(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::validate::PlanError::Policy(policy)
-                    if matches!(
-                        policy.as_ref(),
-                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
-                            if matches!(
-                                group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::PredicateFieldCompareUnsupported
-                            )
-                    )
-            )
-    ));
 }
 
 #[test]

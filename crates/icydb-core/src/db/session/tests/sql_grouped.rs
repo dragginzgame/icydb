@@ -941,11 +941,28 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
 }
 
 #[test]
-fn grouped_select_helper_rejects_field_to_field_predicate_in_current_slice() {
+fn grouped_select_helper_executes_field_to_field_predicate() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
-    let err = execute_grouped_select_for_tests::<SessionDeterministicRangeEntity>(
+    for (score, handle, label) in [
+        (10_u64, "mango", "apple"),
+        (10_u64, "omega", "beta"),
+        (20_u64, "alpha", "zebra"),
+        (20_u64, "same", "same"),
+    ] {
+        session
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: "gold".to_string(),
+                score,
+                handle: handle.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic grouped field-compare fixture insert should succeed");
+    }
+
+    let execution = execute_grouped_select_for_tests::<SessionDeterministicRangeEntity>(
         &session,
         "SELECT score, COUNT(*) \
          FROM SessionDeterministicRangeEntity \
@@ -954,12 +971,16 @@ fn grouped_select_helper_rejects_field_to_field_predicate_in_current_slice() {
          ORDER BY score ASC LIMIT 10",
         None,
     )
-    .expect_err("grouped field-to-field predicate SQL should remain fail-closed");
+    .expect("grouped field-to-field predicate SQL should execute");
 
     assert!(
-        err.to_string()
-            .contains("grouped predicates do not support field-to-field comparisons"),
-        "grouped SQL helper should preserve the grouped predicate policy boundary message",
+        execution.continuation_cursor().is_none(),
+        "grouped field-to-field predicate query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        "grouped field-to-field predicate should filter rows before grouped aggregation using the shared residual predicate path",
     );
 }
 
@@ -1448,6 +1469,63 @@ fn grouped_select_helper_executes_parenthesized_wrapped_aggregate_input_order_to
     assert!(
         execution.continuation_cursor().is_none(),
         "parenthesized wrapped grouped aggregate input ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_aggregate_order_top_k_alias_with_field_compare_predicate() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (tier, score, handle, label) in [
+        ("alpha", 10_u64, "mango", "apple"),
+        ("alpha", 20_u64, "omega", "beta"),
+        ("alpha", 30_u64, "same", "same"),
+        ("bravo", 40_u64, "zulu", "able"),
+        ("bravo", 50_u64, "charlie", "zebra"),
+        ("bravo", 60_u64, "yankee", "bravo"),
+    ] {
+        session
+            .insert(SessionDeterministicRangeEntity {
+                id: Ulid::generate(),
+                tier: tier.to_string(),
+                score,
+                handle: handle.to_string(),
+                label: label.to_string(),
+            })
+            .expect("deterministic grouped Top-K field-compare fixture insert should succeed");
+    }
+
+    let execution = execute_grouped_select_for_tests::<SessionDeterministicRangeEntity>(
+        &session,
+        "SELECT tier, ROUND(AVG(score), 2) AS avg_score \
+         FROM SessionDeterministicRangeEntity \
+         WHERE handle > label \
+         GROUP BY tier \
+         ORDER BY avg_score DESC, tier ASC LIMIT 2",
+        None,
+    )
+    .expect(
+        "grouped aggregate ORDER BY alias should still execute through bounded Top-K finalize when a field-to-field residual predicate is present",
+    );
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("bravo".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(5000, 2))],
+            ),
+            (
+                Value::Text("alpha".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(1500, 2))],
+            ),
+        ],
+        "grouped aggregate ORDER BY alias should rank surviving grouped rows even when the underlying WHERE clause uses the shared field-to-field residual predicate path",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate ORDER BY alias with field-to-field predicate should not expose grouped continuation cursors in this release",
     );
 }
 

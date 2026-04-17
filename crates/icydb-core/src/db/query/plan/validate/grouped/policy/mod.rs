@@ -6,7 +6,6 @@
 mod rules;
 
 use crate::db::{
-    predicate::Predicate,
     query::plan::{
         GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingExpr, GroupSpec, ScalarPlan,
         grouped_distinct_admissibility, resolve_global_distinct_field_aggregate,
@@ -28,7 +27,6 @@ pub(in crate::db::query::plan::validate) fn validate_group_policy(
     having_expr: Option<&GroupHavingExpr>,
 ) -> Result<(), PlanError> {
     validate_grouped_distinct_policy(logical, having_expr.is_some())?;
-    validate_grouped_predicate_policy(logical.predicate.as_ref())?;
     validate_grouped_having_policy(having_expr)?;
     validate_group_spec_policy(schema, group, having_expr)?;
 
@@ -51,44 +49,6 @@ fn validate_grouped_distinct_policy(
         GroupDistinctAdmissibility::Disallowed(reason) => {
             Err(PlanError::from(reason.planner_group_plan_error(None)))
         }
-    }
-}
-
-// Reject predicate leaves that grouped execution does not interpret in this
-// slice so grouped lanes fail closed before route/runtime handoff.
-fn validate_grouped_predicate_policy(predicate: Option<&Predicate>) -> Result<(), PlanError> {
-    let Some(predicate) = predicate else {
-        return Ok(());
-    };
-
-    if predicate_contains_compare_fields(predicate) {
-        return Err(PlanError::from(
-            GroupPlanError::predicate_field_compare_unsupported(),
-        ));
-    }
-
-    Ok(())
-}
-
-// Compare-fields leaves are scalar residual semantics only in 0.79 and must
-// not be silently reinterpreted by grouped execution.
-fn predicate_contains_compare_fields(predicate: &Predicate) -> bool {
-    match predicate {
-        Predicate::And(children) | Predicate::Or(children) => {
-            children.iter().any(predicate_contains_compare_fields)
-        }
-        Predicate::Not(inner) => predicate_contains_compare_fields(inner),
-        Predicate::CompareFields(_) => true,
-        Predicate::True
-        | Predicate::False
-        | Predicate::Compare(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => false,
     }
 }
 

@@ -506,10 +506,6 @@ fn is_order_requires_limit(err: &GroupPlanError) -> bool {
     matches!(err, GroupPlanError::OrderRequiresLimit)
 }
 
-fn is_grouped_predicate_field_compare_unsupported(err: &GroupPlanError) -> bool {
-    matches!(err, GroupPlanError::PredicateFieldCompareUnsupported)
-}
-
 fn grouped_field_compare_predicate_case() -> AccessPlannedQuery {
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().predicate = Some(crate::db::Predicate::gt_fields(
@@ -833,17 +829,23 @@ fn grouped_plan_rejects_validation_shape_matrix() {
             grouped_order_without_limit_case,
             is_order_requires_limit,
         ),
-        (
-            "field-to-field predicate on grouped plan",
-            grouped_field_compare_predicate_case,
-            is_grouped_predicate_field_compare_unsupported,
-        ),
     ];
 
     for (label, build_grouped, check_error) in cases.iter().copied() {
         let grouped = build_grouped();
         assert_grouped_semantics_error_case(label, &grouped, check_error);
     }
+}
+
+#[test]
+fn grouped_plan_accepts_field_to_field_predicate() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let grouped = grouped_field_compare_predicate_case();
+
+    validate_group_query_semantics(schema, model, &grouped).expect(
+        "grouped field-to-field predicates should reuse the grouped residual predicate path instead of failing closed at policy validation",
+    );
 }
 
 #[test]

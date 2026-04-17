@@ -234,6 +234,20 @@ pub(in crate::db) fn grouped_plan_strategy(
             aggregate_family,
         ));
     }
+
+    // Reserve the bounded Top-K lane before checking residual-filter streaming
+    // compatibility. Residual predicates still block the older canonical
+    // ordered-group path, but post-aggregate Top-K runs through grouped fold
+    // and finalize rather than direct ordered streaming.
+    if matches!(
+        order_strategy_projection,
+        GroupedOrderStrategyProjection::TopK
+    ) {
+        return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
+            aggregate_family,
+        ));
+    }
+
     if plan.has_residual_predicate() {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder,
@@ -262,11 +276,9 @@ pub(in crate::db) fn grouped_plan_strategy(
     // Phase 2: require logical ORDER BY alignment and physical access-order proof for ordered grouping.
     match order_strategy_projection {
         GroupedOrderStrategyProjection::Canonical => {}
-        GroupedOrderStrategyProjection::TopK => {
-            return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
-                aggregate_family,
-            ));
-        }
+        GroupedOrderStrategyProjection::TopK => unreachable!(
+            "bounded grouped Top-K lane should be reserved before streaming-only fallback checks"
+        ),
         GroupedOrderStrategyProjection::HashFallback(reason) => {
             return Some(hash_group_fallback_strategy(reason, aggregate_family));
         }
