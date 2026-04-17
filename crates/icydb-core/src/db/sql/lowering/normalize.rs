@@ -8,14 +8,14 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
+            rewrite_field_identifiers,
         },
-        lowering::expr::SqlExprPhase,
+        lowering::{expr::SqlExprPhase, lower_sql_predicate},
         parser::{
-            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
-            SqlCompareFieldsPredicate, SqlComparePredicate, SqlExpr, SqlHavingClause,
-            SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection, SqlProjectionOperand,
-            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-            SqlTextFunctionCall,
+            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
+            SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection,
+            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+            SqlSelectStatement, SqlTextFunctionCall,
         },
     },
 };
@@ -55,7 +55,10 @@ pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
     predicate: SqlPredicate,
     entity_scope: &[String],
 ) -> SqlPredicate {
-    SqlIdentifierNormalizer::new(entity_scope).normalize_sql_predicate(predicate)
+    SqlPredicate::from_runtime_predicate(rewrite_field_identifiers(
+        lower_sql_predicate(predicate),
+        |field| normalize_identifier(field, entity_scope),
+    ))
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -131,75 +134,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 right: self.normalize_having_value_expr(clause.right),
             })
             .collect()
-    }
-
-    // Rewrite one parser-owned SQL predicate tree onto the resolved entity
-    // scope before SQL lowering maps it back onto runtime predicate authority.
-    fn normalize_sql_predicate(self, predicate: SqlPredicate) -> SqlPredicate {
-        match predicate {
-            SqlPredicate::True => SqlPredicate::True,
-            SqlPredicate::False => SqlPredicate::False,
-            SqlPredicate::And(children) => SqlPredicate::And(
-                children
-                    .into_iter()
-                    .map(|child| self.normalize_sql_predicate(child))
-                    .collect(),
-            ),
-            SqlPredicate::Or(children) => SqlPredicate::Or(
-                children
-                    .into_iter()
-                    .map(|child| self.normalize_sql_predicate(child))
-                    .collect(),
-            ),
-            SqlPredicate::Not(inner) => {
-                SqlPredicate::Not(Box::new(self.normalize_sql_predicate(*inner)))
-            }
-            SqlPredicate::Compare(SqlComparePredicate {
-                field,
-                op,
-                value,
-                coercion,
-            }) => SqlPredicate::Compare(SqlComparePredicate {
-                field: self.normalize_identifier(field),
-                op,
-                value,
-                coercion,
-            }),
-            SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
-                left_field,
-                op,
-                right_field,
-                coercion,
-            }) => SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
-                left_field: self.normalize_identifier(left_field),
-                op,
-                right_field: self.normalize_identifier(right_field),
-                coercion,
-            }),
-            SqlPredicate::IsNull { field } => SqlPredicate::IsNull {
-                field: self.normalize_identifier(field),
-            },
-            SqlPredicate::IsNotNull { field } => SqlPredicate::IsNotNull {
-                field: self.normalize_identifier(field),
-            },
-            SqlPredicate::IsMissing { field } => SqlPredicate::IsMissing {
-                field: self.normalize_identifier(field),
-            },
-            SqlPredicate::IsEmpty { field } => SqlPredicate::IsEmpty {
-                field: self.normalize_identifier(field),
-            },
-            SqlPredicate::IsNotEmpty { field } => SqlPredicate::IsNotEmpty {
-                field: self.normalize_identifier(field),
-            },
-            SqlPredicate::TextContains { field, value } => SqlPredicate::TextContains {
-                field: self.normalize_identifier(field),
-                value,
-            },
-            SqlPredicate::TextContainsCi { field, value } => SqlPredicate::TextContainsCi {
-                field: self.normalize_identifier(field),
-                value,
-            },
-        }
     }
 
     // Rewrite one select item while preserving the parser-owned projection
