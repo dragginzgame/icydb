@@ -176,17 +176,17 @@ fn fold_exprs(mut exprs: Vec<SqlExpr>, op: SqlExprBinaryOp) -> SqlExpr {
 
 const fn sql_binary_from_compare(op: CompareOp) -> SqlExprBinaryOp {
     match op {
-        CompareOp::Eq => SqlExprBinaryOp::Eq,
+        CompareOp::Eq
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => SqlExprBinaryOp::Eq,
         CompareOp::Ne => SqlExprBinaryOp::Ne,
         CompareOp::Lt => SqlExprBinaryOp::Lt,
         CompareOp::Lte => SqlExprBinaryOp::Lte,
         CompareOp::Gt => SqlExprBinaryOp::Gt,
         CompareOp::Gte => SqlExprBinaryOp::Gte,
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => SqlExprBinaryOp::Eq,
     }
 }
 
