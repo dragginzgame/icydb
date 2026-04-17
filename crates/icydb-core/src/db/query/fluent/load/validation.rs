@@ -25,16 +25,6 @@ where
         resolve_aggregate_target_field_slot(E::MODEL, field)
     }
 
-    // Resolve one terminal field target, then delegate execution to the
-    // provided closure so terminal methods can share the same slot lookup path.
-    pub(super) fn with_slot<T>(
-        field: impl AsRef<str>,
-        f: impl FnOnce(FieldSlot) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError> {
-        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
-        f(target_slot)
-    }
-
     // Enforce non-paged intent readiness before resolving one terminal slot so
     // field-based scalar terminals do not each repeat the same policy gate and
     // planner slot lookup shell.
@@ -44,29 +34,8 @@ where
         f: impl FnOnce(FieldSlot) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         self.ensure_non_paged_mode_ready()?;
-        Self::with_slot(field, f)
-    }
-
-    pub(super) fn non_paged_intent_error(&self) -> Option<IntentError> {
-        validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
-            .err()
-            .map(IntentError::from)
-    }
-
-    pub(super) fn cursor_intent_error(&self) -> Option<IntentError> {
-        self.cursor_token
-            .as_ref()
-            .and_then(|_| self.paged_intent_error())
-    }
-
-    pub(super) fn paged_intent_error(&self) -> Option<IntentError> {
-        validate_fluent_paged_mode(
-            self.query.has_grouping(),
-            self.query.has_explicit_order(),
-            self.query.load_spec(),
-        )
-        .err()
-        .map(IntentError::from)
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
+        f(target_slot)
     }
 
     // Lift one optional fluent intent violation into the query-facing boundary
@@ -80,14 +49,40 @@ where
     }
 
     pub(super) fn ensure_cursor_mode_ready(&self) -> Result<(), QueryError> {
-        Self::ensure_intent_ready(self.cursor_intent_error())
+        let error = self
+            .cursor_token
+            .as_ref()
+            .and_then(|_| {
+                validate_fluent_paged_mode(
+                    self.query.has_grouping(),
+                    self.query.has_explicit_order(),
+                    self.query.load_spec(),
+                )
+                .err()
+            })
+            .map(IntentError::from);
+
+        Self::ensure_intent_ready(error)
     }
 
     pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
-        Self::ensure_intent_ready(self.paged_intent_error())
+        let error = validate_fluent_paged_mode(
+            self.query.has_grouping(),
+            self.query.has_explicit_order(),
+            self.query.load_spec(),
+        )
+        .err()
+        .map(IntentError::from);
+
+        Self::ensure_intent_ready(error)
     }
 
     pub(super) fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
-        Self::ensure_intent_ready(self.non_paged_intent_error())
+        let error =
+            validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
+                .err()
+                .map(IntentError::from);
+
+        Self::ensure_intent_ready(error)
     }
 }

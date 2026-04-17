@@ -33,7 +33,8 @@ impl ExplainExecutionNodeDescriptor {
     }
 
     fn render_text_tree_into(&self, depth: usize, node_id_counter: &mut u64, out: &mut String) {
-        let node_id = next_node_id(node_id_counter);
+        let node_id = *node_id_counter;
+        *node_id_counter = node_id_counter.saturating_add(1);
         push_rendered_line_prefix(out, depth);
         let _ = write!(
             out,
@@ -108,7 +109,8 @@ impl ExplainExecutionNodeDescriptor {
         node_id_counter: &mut u64,
         out: &mut String,
     ) {
-        let node_id = next_node_id(node_id_counter);
+        let node_id = *node_id_counter;
+        *node_id_counter = node_id_counter.saturating_add(1);
         // Emit the node heading line first so child metadata stays visually scoped.
         let node_indent = "  ".repeat(depth);
         let field_indent = "  ".repeat(depth.saturating_add(1));
@@ -237,10 +239,4 @@ fn write_node_properties(out: &mut String, node_properties: &ExplainPropertyMap)
         }
         let _ = write!(out, "{key}={value:?}");
     }
-}
-
-const fn next_node_id(node_id_counter: &mut u64) -> u64 {
-    let node_id = *node_id_counter;
-    *node_id_counter = node_id_counter.saturating_add(1);
-    node_id
 }

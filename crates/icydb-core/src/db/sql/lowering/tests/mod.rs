@@ -1861,6 +1861,34 @@ fn compile_sql_command_deduplicates_repeated_grouped_aggregate_leaves_in_project
 }
 
 #[test]
+fn compile_sql_command_deduplicates_repeated_grouped_aggregate_input_leaves_in_projection_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age + 1) + AVG(age + 1) \
+         FROM SqlLowerEntity \
+         GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped arithmetic projection with repeated aggregate-input leaves should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+    let planned = query
+        .plan()
+        .expect("grouped arithmetic projection with repeated aggregate-input leaves should plan")
+        .into_inner();
+    let grouped = planned
+        .grouped_plan()
+        .expect("grouped arithmetic projection should keep grouped plan shape");
+
+    assert_eq!(
+        grouped.group.aggregates.len(),
+        1,
+        "repeated grouped aggregate-input leaves should keep one semantic grouped aggregate declaration",
+    );
+}
+
+#[test]
 fn compile_sql_command_allows_grouped_additive_order_over_grouped_field() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + 1 ASC LIMIT 1",
@@ -1977,6 +2005,37 @@ fn compile_sql_command_normalizes_grouped_aggregate_order_by_alias_with_limit() 
     assert_eq!(
         order.fields[0].0, "AVG(age)",
         "grouped aggregate ORDER BY aliases should normalize onto the canonical aggregate term",
+    );
+}
+
+#[test]
+fn compile_sql_command_normalizes_grouped_aggregate_input_order_by_alias_with_limit() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age + 1) AS avg_plus_one \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY avg_plus_one DESC, age ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate input ORDER BY alias with LIMIT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+    let plan = query
+        .plan()
+        .expect("grouped aggregate input ORDER BY alias with LIMIT should plan")
+        .into_inner();
+    let order = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("grouped aggregate input ORDER BY alias should preserve order terms");
+
+    assert_eq!(
+        order.fields[0].0, "AVG(age + 1)",
+        "grouped aggregate input ORDER BY aliases should normalize onto the canonical aggregate term",
     );
 }
 
@@ -2742,6 +2801,42 @@ fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals(
         command.output_remap(),
         &[0, 1, 0, 1],
         "duplicate expression aggregate outputs should remap to the first-seen unique terminal order",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_constant_folds_expression_input_terminals_before_dedup() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT SUM(2 * 3), SUM(6), AVG(ROUND(2 * 3, 1)), AVG(6.0) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("constant aggregate input expressions should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "constant-folded aggregate input expressions should dedupe onto one semantic terminal per aggregate kind",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::SumExpr { input_expr, distinct: false }
+                if *input_expr == Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64)))
+        ),
+        "SUM(2 * 3) should fold onto the canonical SUM(6) terminal",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::AvgExpr { input_expr, distinct: false }
+                if *input_expr == Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64)))
+        ),
+        "AVG(ROUND(2 * 3, 1)) should fold onto the canonical AVG(6) terminal",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 0, 1, 1],
+        "constant-folded aggregate outputs should remap to the first-seen folded terminal order",
     );
 }
 

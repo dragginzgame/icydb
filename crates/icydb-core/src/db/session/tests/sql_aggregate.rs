@@ -136,6 +136,16 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             Value::Decimal(crate::types::Decimal::from(27u64)),
         ),
         (
+            "sum constant-folded arithmetic expression",
+            "SELECT SUM(2 * 3) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(12u64)),
+        ),
+        (
+            "avg constant-folded round expression",
+            "SELECT AVG(ROUND(2 * 3, 1)) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(6u64)),
+        ),
+        (
             "bounded sum arithmetic expression",
             "SELECT SUM(age + 1) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 0",
             Value::Decimal(crate::types::Decimal::from(33u64)),

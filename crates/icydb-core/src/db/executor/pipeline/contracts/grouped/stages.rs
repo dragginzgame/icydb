@@ -19,7 +19,7 @@ use crate::{
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::{
             FieldSlot as PlannedFieldSlot, GroupedAggregateExecutionSpec,
-            GroupedDistinctExecutionStrategy,
+            GroupedDistinctExecutionStrategy, expr::extend_scalar_projection_referenced_slots,
         },
         registry::StoreHandle,
     },
@@ -64,14 +64,25 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
         compiled_predicate.mark_referenced_slots(&mut required_slots);
     }
 
-    // Phase 3: grouped reducer state only needs field-target slots for
-    // aggregates whose update contract actually reads row values.
+    // Phase 3: grouped reducer state needs every row slot referenced by either
+    // one direct field-target aggregate or one widened aggregate-input scalar
+    // expression carried into grouped fold runtime.
     for aggregate in grouped_aggregate_execution_specs {
-        let Some(target_field) = aggregate.target_field() else {
-            continue;
-        };
-        if let Some(required_slot) = required_slots.get_mut(target_field.index()) {
+        if let Some(target_field) = aggregate.target_field()
+            && let Some(required_slot) = required_slots.get_mut(target_field.index())
+        {
             *required_slot = true;
+        }
+
+        if let Some(compiled_input_expr) = aggregate.compiled_input_expr() {
+            let mut referenced_slots = Vec::new();
+            extend_scalar_projection_referenced_slots(compiled_input_expr, &mut referenced_slots);
+
+            for slot in referenced_slots {
+                if let Some(required_slot) = required_slots.get_mut(slot) {
+                    *required_slot = true;
+                }
+            }
         }
     }
 

@@ -29,12 +29,6 @@ struct JsonEscapedWriter<'a> {
     out: &'a mut String,
 }
 
-impl<'a> JsonEscapedWriter<'a> {
-    const fn new(out: &'a mut String) -> Self {
-        Self { out }
-    }
-}
-
 impl fmt::Write for JsonEscapedWriter<'_> {
     fn write_str(&mut self, value: &str) -> fmt::Result {
         write_json_string_fragment(self.out, value);
@@ -135,16 +129,12 @@ impl<'a> JsonWriter<'a> {
     }
 
     fn begin_field(&mut self, key: &str) {
-        self.sep();
-        write_json_string(self.out, key);
-        self.out.push(':');
-    }
-
-    fn sep(&mut self) {
         if !self.first {
             self.out.push(',');
         }
         self.first = false;
+        write_json_string(self.out, key);
+        self.out.push(':');
     }
 }
 
@@ -157,7 +147,7 @@ pub(in crate::db::query::explain) fn write_json_string(out: &mut String, value: 
 fn write_debug_json_string(out: &mut String, value: &impl Debug) {
     out.push('"');
 
-    let mut escaped = JsonEscapedWriter::new(out);
+    let mut escaped = JsonEscapedWriter { out };
     let _ = write!(&mut escaped, "{value:?}");
 
     out.push('"');

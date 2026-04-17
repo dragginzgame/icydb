@@ -118,8 +118,22 @@ pub(in crate::db::query) fn build_logical_plan(
         predicate: normalized_predicate,
         order: canonicalize_order_spec(model, order),
         distinct,
-        delete_limit: delete_limit_for_mode(mode),
-        page: page_spec_for_mode(mode),
+        delete_limit: match mode {
+            QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
+                Some(DeleteLimitSpec {
+                    limit: spec.limit(),
+                    offset: spec.offset(),
+                })
+            }
+            QueryMode::Load(_) | QueryMode::Delete(_) => None,
+        },
+        page: match mode {
+            QueryMode::Load(spec) if spec.limit.is_some() || spec.offset > 0 => Some(PageSpec {
+                limit: spec.limit,
+                offset: spec.offset,
+            }),
+            QueryMode::Load(_) | QueryMode::Delete(_) => None,
+        },
         consistency,
     };
 
@@ -138,32 +152,6 @@ pub(in crate::db::query) fn build_logical_plan(
         );
 
         LogicalPlan::Scalar(scalar)
-    }
-}
-
-// Project the delete-limit contract from query mode so scalar logical-plan
-// assembly does not repeat the delete-mode shape gate inline.
-const fn delete_limit_for_mode(mode: QueryMode) -> Option<DeleteLimitSpec> {
-    match mode {
-        QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
-            Some(DeleteLimitSpec {
-                limit: spec.limit(),
-                offset: spec.offset(),
-            })
-        }
-        QueryMode::Load(_) | QueryMode::Delete(_) => None,
-    }
-}
-
-// Project the load paging contract from query mode so logical-plan assembly
-// keeps load/delete mode branching in one place.
-const fn page_spec_for_mode(mode: QueryMode) -> Option<PageSpec> {
-    match mode {
-        QueryMode::Load(spec) if spec.limit.is_some() || spec.offset > 0 => Some(PageSpec {
-            limit: spec.limit,
-            offset: spec.offset,
-        }),
-        QueryMode::Load(_) | QueryMode::Delete(_) => None,
     }
 }
 

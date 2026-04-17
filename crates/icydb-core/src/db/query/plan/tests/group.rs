@@ -1750,6 +1750,80 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection
 }
 
 #[test]
+fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_projection_expr() {
+    let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    base.projection_selection = ProjectionSelection::Exprs(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Aggregate(
+                    crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
+                        AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("rank"))),
+                            right: Box::new(Expr::Literal(Value::Int(1))),
+                        },
+                    ),
+                )),
+                right: Box::new(Expr::Aggregate(
+                    crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
+                        AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("rank"))),
+                            right: Box::new(Expr::Literal(Value::Int(1))),
+                        },
+                    ),
+                )),
+            },
+            alias: None,
+        },
+    ]);
+
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            input_expr: Some(Box::new(Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            })),
+            distinct: false,
+        }],
+    );
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+
+    assert_eq!(handoff.projection_layout().group_field_positions(), &[0]);
+    assert_eq!(handoff.projection_layout().aggregate_positions(), &[1]);
+    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
+    assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
+    assert_eq!(
+        handoff.aggregate_projection_specs()[0].kind(),
+        AggregateKind::Avg
+    );
+    assert_eq!(
+        handoff.aggregate_projection_specs()[0].input_expr(),
+        Some(&Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        }),
+        "repeated grouped aggregate-input leaves should reuse one canonical grouped aggregate projection spec",
+    );
+}
+
+#[test]
 fn grouped_projection_expr_compatibility_rejects_non_group_field_reference() {
     let group = grouped_spec_for_projection_expr_tests(vec!["rank"]);
     let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {

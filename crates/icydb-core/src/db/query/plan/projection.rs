@@ -7,7 +7,7 @@ use crate::{
     db::query::{
         builder::aggregate::AggregateExpr,
         plan::{
-            FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
+            FieldSlot, GroupAggregateSpec, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
                 collect_unique_direct_projection_slots, projection_field_direct_field_name,
@@ -28,9 +28,10 @@ pub(crate) fn lower_projection_intent(
         LogicalPlan::Scalar(_) => lower_scalar_projection(model, selection),
         LogicalPlan::Grouped(grouped) => match selection {
             ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
-            ProjectionSelection::All | ProjectionSelection::Fields(_) => {
-                lower_grouped_projection_from_plan(grouped)
-            }
+            ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
+                grouped.group.group_fields.as_slice(),
+                grouped.group.aggregates.as_slice(),
+            ),
         },
     }
 }
@@ -63,29 +64,20 @@ pub(crate) fn lower_direct_projection_slots(
     selection: &ProjectionSelection,
 ) -> Option<Vec<usize>> {
     match logical {
-        LogicalPlan::Scalar(_) => lower_scalar_direct_projection_slots(model, selection),
+        LogicalPlan::Scalar(_) => match selection {
+            ProjectionSelection::All => Some((0..model.fields.len()).collect()),
+            ProjectionSelection::Fields(field_ids) => {
+                collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
+            }
+            ProjectionSelection::Exprs(fields) => collect_unique_direct_projection_slots(
+                model,
+                fields
+                    .iter()
+                    .map(projection_field_direct_field_name)
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+        },
         LogicalPlan::Grouped(_) => None,
-    }
-}
-
-// Lower one scalar logical plan into a unique direct field-slot layout when
-// the projection never leaves canonical field references.
-fn lower_scalar_direct_projection_slots(
-    model: &EntityModel,
-    selection: &ProjectionSelection,
-) -> Option<Vec<usize>> {
-    match selection {
-        ProjectionSelection::All => Some((0..model.fields.len()).collect()),
-        ProjectionSelection::Fields(field_ids) => {
-            collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
-        }
-        ProjectionSelection::Exprs(fields) => collect_unique_direct_projection_slots(
-            model,
-            fields
-                .iter()
-                .map(projection_field_direct_field_name)
-                .collect::<Option<Vec<_>>>()?,
-        ),
     }
 }
 
@@ -97,15 +89,11 @@ pub(crate) fn lower_projection_identity(logical: &LogicalPlan) -> ProjectionSpec
         LogicalPlan::Scalar(_) => ProjectionSpec::new(vec![direct_field_projection(FieldId::new(
             "__icydb_scalar_projection_default_v1__",
         ))]),
-        LogicalPlan::Grouped(grouped) => lower_grouped_projection_from_plan(grouped),
+        LogicalPlan::Grouped(grouped) => lower_grouped_projection(
+            grouped.group.group_fields.as_slice(),
+            grouped.group.aggregates.as_slice(),
+        ),
     }
-}
-
-fn lower_grouped_projection_from_plan(grouped: &GroupPlan) -> ProjectionSpec {
-    lower_grouped_projection(
-        grouped.group.group_fields.as_slice(),
-        grouped.group.aggregates.as_slice(),
-    )
 }
 
 /// Lower grouped plans to one explicit projection of grouped keys followed by

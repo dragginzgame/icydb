@@ -280,12 +280,8 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn query_plan_cache_scope_id(&self) -> usize {
-        self.db.cache_scope_id()
-    }
-
     fn with_query_plan_cache<R>(&self, f: impl FnOnce(&mut QueryPlanCache) -> R) -> R {
-        let scope_id = self.query_plan_cache_scope_id();
+        let scope_id = self.db.cache_scope_id();
 
         QUERY_PLAN_CACHES.with(|caches| {
             let mut caches = caches.borrow_mut();
@@ -341,13 +337,15 @@ impl<C: CanisterKind> DbSession<C> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
         let normalized_predicate = query.prepare_normalized_scalar_predicate()?;
-        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate(
-            authority,
-            schema_fingerprint,
-            visibility,
-            query,
-            normalized_predicate.as_ref(),
-        );
+        let cache_key =
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_and_method_version(
+                authority,
+                schema_fingerprint,
+                visibility,
+                query,
+                normalized_predicate.as_ref(),
+                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
+            );
 
         {
             let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
@@ -388,18 +386,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    pub(in crate::db) fn cached_structural_plan_for_authority(
-        &self,
-        authority: crate::db::executor::EntityAuthority,
-        schema_fingerprint: CommitSchemaFingerprint,
-        query: &StructuralQuery,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        let (entry, _) =
-            self.cached_query_plan_entry_for_authority(authority, schema_fingerprint, query)?;
-
-        Ok(entry.logical_plan().clone())
-    }
-
     // Resolve the planner-visible index slice for one typed query exactly once
     // at the session boundary before handing execution/planning off to query-owned logic.
     fn with_query_visible_indexes<E, T>(
@@ -417,38 +403,6 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes = Self::visible_indexes_for_model(E::MODEL, visibility);
 
         op(query, &visible_indexes)
-    }
-
-    // Resolve one typed structural query onto the shared lower plan cache so
-    // typed/fluent callers do not each duplicate the entity metadata plumbing.
-    fn cached_structural_plan_for_entity<E>(
-        &self,
-        query: &StructuralQuery,
-    ) -> Result<AccessPlannedQuery, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        self.cached_structural_plan_for_authority(
-            crate::db::executor::EntityAuthority::for_type::<E>(),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
-            query,
-        )
-    }
-
-    // Resolve one cached structural plan for the typed entity and then
-    // project it into one caller-owned wrapper so planned vs compiled session
-    // surfaces do not each duplicate the same cache lookup and entity wiring.
-    fn map_cached_structural_plan_for_entity<E, T>(
-        &self,
-        query: &StructuralQuery,
-        map: impl FnOnce(AccessPlannedQuery) -> T,
-    ) -> Result<T, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let plan = self.cached_structural_plan_for_entity::<E>(query)?;
-
-        Ok(map(plan))
     }
 
     pub(in crate::db::session) fn cached_prepared_query_plan_for_entity<E>(
@@ -476,10 +430,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_structural_plan_for_entity::<E, _>(
+        let (entry, _) = self.cached_query_plan_entry_for_authority(
+            crate::db::executor::EntityAuthority::for_type::<E>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
             query.structural(),
-            Query::<E>::compiled_query_from_plan,
-        )
+        )?;
+
+        Ok(Query::<E>::compiled_query_from_plan(
+            entry.logical_plan().clone(),
+        ))
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -491,10 +450,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_structural_plan_for_entity::<E, _>(
+        let (entry, _) = self.cached_query_plan_entry_for_authority(
+            crate::db::executor::EntityAuthority::for_type::<E>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
             query.structural(),
-            Query::<E>::planned_query_from_plan,
-        )
+        )?;
+
+        Ok(Query::<E>::planned_query_from_plan(
+            entry.logical_plan().clone(),
+        ))
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -651,21 +615,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Execute one prepared grouped query result and finalize the outward
-    // grouped payload at the session boundary so fluent callers do not
-    // reassemble grouped result wrappers themselves.
-    fn execute_grouped_query_result<E>(
-        &self,
-        query: &Query<E>,
-        cursor_token: Option<&str>,
-    ) -> Result<LoadQueryResult<E>, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.execute_grouped(query, cursor_token)
-            .map(LoadQueryResult::grouped)
-    }
-
     // Execute one prepared grouped query result while returning the same empty
     // scalar-attribution shell used by the grouped execution path in the
     // diagnostics surface.
@@ -682,7 +631,7 @@ impl<C: CanisterKind> DbSession<C> {
         let grouped = Self::finalize_grouped_execution_page(page, trace)?;
 
         Ok((
-            LoadQueryResult::grouped(grouped),
+            LoadQueryResult::Grouped(grouped),
             Self::grouped_query_execute_phase_attribution(phase_attribution),
             0,
         ))
@@ -708,7 +657,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::execute)?;
 
                 Ok((
-                    LoadQueryResult::rows(rows),
+                    LoadQueryResult::Rows(rows),
                     Self::scalar_query_execute_phase_attribution(phase_attribution),
                     response_decode_local_instructions,
                 ))
@@ -717,7 +666,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let result = self.execute_query_dyn(mode, plan)?;
 
                 Ok((
-                    LoadQueryResult::rows(result),
+                    LoadQueryResult::Rows(result),
                     Self::empty_query_execute_phase_attribution(),
                     0,
                 ))
@@ -841,10 +790,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if query.has_grouping() {
-            return self.execute_grouped_query_result(query, None);
+            return self
+                .execute_grouped(query, None)
+                .map(LoadQueryResult::Grouped);
         }
 
-        self.execute_query(query).map(LoadQueryResult::rows)
+        self.execute_query(query).map(LoadQueryResult::Rows)
     }
 
     /// Execute one typed delete query and return only the affected-row count.
@@ -999,27 +950,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (page, trace) = self.execute_grouped_page_with_trace(query, cursor_token)?;
-        Self::finalize_grouped_execution_page(page, trace)
-    }
-
-    // Execute the canonical grouped query core and return the raw grouped page
-    // plus optional execution trace before outward cursor formatting.
-    fn execute_grouped_page_with_trace<E>(
-        &self,
-        query: &Query<E>,
-        cursor_token: Option<&str>,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
         // Phase 1: build the prepared execution plan once from the typed query.
         let plan = self
             .cached_prepared_query_plan_for_entity::<E>(query.structural())?
             .0;
 
-        // Phase 2: reuse the shared prepared grouped execution path.
-        self.execute_grouped_plan_with_trace(plan, cursor_token)
+        // Phase 2: reuse the shared prepared grouped execution path and then
+        // finalize the outward grouped payload at the session boundary.
+        let (page, trace) = self.execute_grouped_plan_with_trace(plan, cursor_token)?;
+
+        Self::finalize_grouped_execution_page(page, trace)
     }
 
     // Execute one grouped prepared plan page with optional grouped cursor.
@@ -1087,23 +1027,6 @@ impl<C: CanisterKind> DbSession<C> {
 }
 
 impl QueryPlanCacheKey {
-    fn for_authority_with_normalized_predicate(
-        authority: crate::db::executor::EntityAuthority,
-        schema_fingerprint: CommitSchemaFingerprint,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-        normalized_predicate: Option<&crate::db::predicate::Predicate>,
-    ) -> Self {
-        Self::for_authority_with_normalized_predicate_and_method_version(
-            authority,
-            schema_fingerprint,
-            visibility,
-            query,
-            normalized_predicate,
-            SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
-        )
-    }
-
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.

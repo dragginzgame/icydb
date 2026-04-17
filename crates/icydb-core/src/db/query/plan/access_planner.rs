@@ -80,25 +80,6 @@ pub(in crate::db::query) fn normalize_query_predicate(
         .transpose()
 }
 
-// Select one access plan from a normalized predicate.
-pub(in crate::db::query) fn plan_access_from_normalized_predicate(
-    model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
-    schema_info: &SchemaInfo,
-    predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-) -> Result<AccessPlan<Value>, PlannerError> {
-    let canonical_order = canonicalize_order_spec(model, order.cloned());
-
-    plan_access_with_order(
-        model,
-        visible_indexes,
-        schema_info,
-        predicate,
-        canonical_order.as_ref(),
-    )
-}
-
 // Select one access plan for a normalized query, honoring explicit key-access
 // overrides before falling back to predicate-derived access planning.
 pub(in crate::db::query) fn plan_query_access(
@@ -111,12 +92,16 @@ pub(in crate::db::query) fn plan_query_access(
 ) -> Result<AccessPlan<Value>, PlannerError> {
     match key_access_override {
         Some(plan) => Ok(plan),
-        None => plan_access_from_normalized_predicate(
-            model,
-            visible_indexes,
-            schema_info,
-            normalized_predicate,
-            order,
-        ),
+        None => {
+            let canonical_order = canonicalize_order_spec(model, order.cloned());
+
+            plan_access_with_order(
+                model,
+                visible_indexes,
+                schema_info,
+                normalized_predicate,
+                canonical_order.as_ref(),
+            )
+        }
     }
 }

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.89.x] ∑ - 2026-04-17 - Aggregate Input Expressions
 
+- `0.89.1` follows through on the widened aggregate-input slice by making grouped aggregate `ORDER BY <alias>` work for expression-backed aggregates too, and by polishing aggregate-input lowering so constant forms like `SUM(2 * 3)` and `AVG(ROUND(2 * 3, 1))` now collapse onto the same aggregate terminals as their simpler equivalents instead of doing duplicate aggregate work.
 - `0.89.0` lets aggregate functions consume bounded scalar input expressions instead of only plain fields, so both global and grouped queries can now execute shapes like `AVG(age + 1)`, `SUM(rank + score)`, and `COUNT(1)` while keeping labels, `EXPLAIN`, fingerprints, and query-cache identity aligned with the widened aggregate-input shape.
 
 ```sql

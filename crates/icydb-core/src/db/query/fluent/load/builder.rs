@@ -82,18 +82,6 @@ where
         map(self.session, self.query())
     }
 
-    // Run one session/query projection after enforcing cursor-mode builder
-    // invariants so compiled and planned outputs do not each duplicate the
-    // same readiness check.
-    fn map_cursor_ready_query_output<T>(
-        &self,
-        map: impl FnOnce(&DbSession<E::Canister>, &Query<E>) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError> {
-        self.ensure_cursor_mode_ready()?;
-
-        self.map_session_query_output(map)
-    }
-
     // ------------------------------------------------------------------
     // Intent builders (pure)
     // ------------------------------------------------------------------
@@ -240,12 +228,14 @@ where
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.map_cursor_ready_query_output(DbSession::planned_query_with_visible_indexes)
+        self.ensure_cursor_mode_ready()?;
+        self.map_session_query_output(DbSession::planned_query_with_visible_indexes)
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.map_cursor_ready_query_output(DbSession::compile_query_with_visible_indexes)
+        self.ensure_cursor_mode_ready()?;
+        self.map_session_query_output(DbSession::compile_query_with_visible_indexes)
     }
 }
 

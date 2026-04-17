@@ -1328,6 +1328,46 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
 }
 
 #[test]
+fn grouped_select_helper_executes_bounded_aggregate_input_order_top_k_alias_rows() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, AVG(age + 1) AS avg_plus_one \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY avg_plus_one DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect("grouped aggregate input ORDER BY alias should execute through bounded Top-K finalize");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(51, 0))],
+            ),
+            (
+                Value::Text("charlie".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(41, 0))],
+            ),
+        ],
+        "grouped aggregate input ORDER BY aliases should rank by the same aggregate values as direct terms",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate input ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1807,6 +1847,38 @@ fn grouped_select_executes_aggregate_input_expressions() {
             ),
         ],
         "grouped aggregate input expressions should execute over per-row values before grouped reduction",
+    );
+}
+
+#[test]
+fn grouped_select_repeated_aggregate_input_leaves_reuse_one_grouped_output_slot() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, AVG(age + 1) + AVG(age + 1) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("repeated grouped aggregate-input leaves should execute once grouped runtime widens");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(10),
+                vec![Value::Decimal(crate::types::Decimal::new(220_000, 4))],
+            ),
+            (
+                Value::Uint(20),
+                vec![Value::Decimal(crate::types::Decimal::new(420_000, 4))],
+            ),
+        ],
+        "repeated grouped aggregate-input leaves should reuse one grouped aggregate output slot instead of changing grouped result semantics",
     );
 }
 

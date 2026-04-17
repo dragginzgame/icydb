@@ -77,30 +77,6 @@ where
         map(self.session, self.query())
     }
 
-    // Shared delete-count execution keeps the mutation contract in one place
-    // for public row-count terminals that differ only in response shaping.
-    fn execute_delete_count(&self) -> Result<u32, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.session.execute_delete_count(self.query())
-    }
-
-    // Shared row-count classification keeps the delete facade aligned on the
-    // same not-found vs not-unique contract for exact-row requirements.
-    fn require_delete_row_count(&self, expected: u32) -> Result<(), QueryError>
-    where
-        E: EntityValue,
-    {
-        let row_count = self.execute_delete_count()?;
-
-        match row_count {
-            count if count == expected => Ok(()),
-            0 => Err(ResponseError::not_found(E::PATH).into()),
-            count => Err(ResponseError::not_unique(E::PATH, count).into()),
-        }
-    }
-
     // ------------------------------------------------------------------
     // Intent builders (pure)
     // ------------------------------------------------------------------
@@ -200,7 +176,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_delete_count()
+        self.session.execute_delete_count(self.query())
     }
 
     /// Execute this delete and materialize deleted rows for one explicit
@@ -225,7 +201,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_delete_count()
+        self.execute()
     }
 
     /// Execute and require exactly one affected row.
@@ -233,7 +209,11 @@ where
     where
         E: EntityValue,
     {
-        self.require_delete_row_count(1)
+        match self.execute()? {
+            1 => Ok(()),
+            0 => Err(ResponseError::not_found(E::PATH).into()),
+            count => Err(ResponseError::not_unique(E::PATH, count).into()),
+        }
     }
 
     /// Execute and require at least one affected row.

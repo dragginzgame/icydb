@@ -43,7 +43,7 @@ where
     pub fn page(self) -> Result<PagedLoadQuery<'a, E>, QueryError> {
         self.ensure_paged_mode_ready()?;
 
-        Ok(PagedLoadQuery::from_inner(self))
+        Ok(PagedLoadQuery { inner: self })
     }
 
     /// Execute this query as cursor pagination and return items + next cursor.
@@ -57,25 +57,10 @@ where
     }
 }
 
-impl<'a, E> PagedLoadQuery<'a, E>
+impl<E> PagedLoadQuery<'_, E>
 where
     E: PersistedRow,
 {
-    // Rebind one already-validated fluent load query to the paged wrapper.
-    const fn from_inner(inner: FluentLoadQuery<'a, E>) -> Self {
-        Self { inner }
-    }
-
-    // Apply one immutable fluent-load transformation while preserving the
-    // paged-query wrapper that already owns the paged-mode invariant.
-    fn map_inner(
-        mut self,
-        map: impl FnOnce(FluentLoadQuery<'a, E>) -> FluentLoadQuery<'a, E>,
-    ) -> Self {
-        self.inner = map(self.inner);
-        self
-    }
-
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -91,8 +76,9 @@ where
 
     /// Attach an opaque continuation token for the next page.
     #[must_use]
-    pub fn cursor(self, token: impl Into<String>) -> Self {
-        self.map_inner(|query| query.cursor(token))
+    pub fn cursor(mut self, token: impl Into<String>) -> Self {
+        self.inner = self.inner.cursor(token);
+        self
     }
 
     // ------------------------------------------------------------------

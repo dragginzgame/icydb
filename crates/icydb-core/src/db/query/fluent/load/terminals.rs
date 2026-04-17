@@ -136,43 +136,6 @@ where
         Ok(render(descriptor))
     }
 
-    // Render one verbose execution explain payload through the same
-    // session-owned visible-index lane used by the other fluent explain forms.
-    fn explain_execution_verbose_text(&self) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.map_non_paged_query_output(
-            DbSession::explain_query_execution_verbose_with_visible_indexes,
-        )
-    }
-
-    // Execute one prepared fluent scalar terminal through the canonical
-    // non-paged fluent policy gate using the prepared runtime request as the
-    // single execution source.
-    fn execute_prepared_scalar_terminal_output(
-        &self,
-        strategy: PreparedFluentScalarTerminalStrategy,
-    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
-    }
-
-    // Execute one prepared fluent existing-rows terminal through the
-    // canonical non-paged fluent policy gate using the prepared existing-rows
-    // strategy as the single runtime source.
-    fn execute_prepared_existing_rows_terminal_output(
-        &self,
-        strategy: PreparedFluentExistingRowsTerminalStrategy,
-    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
-    }
-
     // Execute one prepared existing-rows terminal and decode the typed output
     // through one shared mismatch/error-mapping lane.
     fn map_prepared_existing_rows_terminal_output<T>(
@@ -183,7 +146,8 @@ where
     where
         E: EntityValue,
     {
-        let output = self.execute_prepared_existing_rows_terminal_output(strategy)?;
+        let output =
+            self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())?;
 
         map(output).map_err(QueryError::execute)
     }
@@ -205,19 +169,6 @@ where
         })
     }
 
-    // Execute one prepared fluent order-sensitive terminal through the
-    // canonical non-paged fluent policy gate using the prepared order-sensitive
-    // strategy as the single runtime source.
-    fn execute_prepared_order_sensitive_terminal_output(
-        &self,
-        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
-    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
-    }
-
     // Execute one prepared order-sensitive terminal and decode the typed
     // output through one shared mismatch/error-mapping lane.
     fn map_prepared_order_sensitive_terminal_output<T>(
@@ -228,7 +179,8 @@ where
     where
         E: EntityValue,
     {
-        let output = self.execute_prepared_order_sensitive_terminal_output(strategy)?;
+        let output =
+            self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())?;
 
         map(output).map_err(QueryError::execute)
     }
@@ -293,7 +245,8 @@ where
     where
         E: EntityValue,
     {
-        let output = self.execute_prepared_scalar_terminal_output(strategy)?;
+        let output =
+            self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())?;
 
         map(output).map_err(QueryError::execute)
     }
@@ -394,7 +347,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_execution_verbose_text()
+        self.map_non_paged_query_output(
+            DbSession::explain_query_execution_verbose_with_visible_indexes,
+        )
     }
 
     /// Execute and return the number of matching rows.

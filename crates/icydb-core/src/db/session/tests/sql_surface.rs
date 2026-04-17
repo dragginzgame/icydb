@@ -1488,6 +1488,63 @@ fn grouped_aggregate_order_alias_uses_the_normal_sql_surface_identity_and_cache_
 }
 
 #[test]
+fn grouped_aggregate_input_order_alias_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let sql = "SELECT name, AVG(age + 1) AS avg_plus_one \
+               FROM IndexedSessionSqlEntity \
+               GROUP BY name \
+               ORDER BY avg_plus_one DESC, name ASC LIMIT 2";
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "new indexed SQL session should start with an empty compiled-command cache",
+    );
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        0,
+        "new indexed SQL session should start with an empty select-plan cache",
+    );
+
+    let compiled = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect(
+            "grouped aggregate input ORDER BY alias should compile through the normal SQL surface",
+        );
+    let repeat = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("repeating one grouped aggregate input ORDER BY alias compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "grouped aggregate input ORDER BY alias should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one grouped aggregate input ORDER BY alias compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical grouped aggregate input ORDER BY alias compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &compiled,
+        sql,
+        "grouped aggregate input ORDER BY aliases must canonicalize onto the same structural query cache key before cache insertion",
+    );
+}
+
+#[test]
 fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     reset_session_sql_store();
     let session = sql_session();

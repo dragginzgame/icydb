@@ -6,6 +6,7 @@ use crate::db::sql::lowering::{
 use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -29,6 +30,7 @@ use crate::{
         },
     },
     model::entity::{EntityModel, resolve_field_slot},
+    value::Value,
 };
 
 ///
@@ -1108,10 +1110,32 @@ fn lower_sql_aggregate_shape(
             distinct,
         ) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
-            input_expr: lower_sql_aggregate_input_expr(input)?,
+            input_expr: canonicalize_sql_aggregate_input_expr(
+                kind,
+                lower_sql_aggregate_input_expr(input)?,
+            ),
             distinct,
         }),
         _ => Err(SqlLoweringError::unsupported_select_projection()),
+    }
+}
+
+// Normalize aggregate-input literal shape only where aggregate semantics
+// already collapse numeric input types onto one decimal accumulator contract.
+fn canonicalize_sql_aggregate_input_expr(kind: SqlAggregateKind, expr: Expr) -> Expr {
+    match kind {
+        SqlAggregateKind::Sum | SqlAggregateKind::Avg => {
+            let Expr::Literal(value) = expr else {
+                return expr;
+            };
+
+            value
+                .to_numeric_decimal()
+                .map_or(Expr::Literal(value), |decimal| {
+                    Expr::Literal(Value::Decimal(decimal.normalize()))
+                })
+        }
+        SqlAggregateKind::Count | SqlAggregateKind::Min | SqlAggregateKind::Max => expr,
     }
 }
 
@@ -1363,19 +1387,21 @@ fn lower_expression_owned_aggregate_call(
 }
 
 fn lower_sql_aggregate_input_expr(expr: SqlAggregateInputExpr) -> Result<Expr, SqlLoweringError> {
-    match expr {
-        SqlAggregateInputExpr::Field(field) => Ok(Expr::Field(FieldId::new(field))),
-        SqlAggregateInputExpr::Literal(literal) => Ok(Expr::Literal(literal)),
-        SqlAggregateInputExpr::Arithmetic(call) => Ok(Expr::Binary {
+    let lowered = match expr {
+        SqlAggregateInputExpr::Field(field) => Expr::Field(FieldId::new(field)),
+        SqlAggregateInputExpr::Literal(literal) => Expr::Literal(literal),
+        SqlAggregateInputExpr::Arithmetic(call) => Expr::Binary {
             op: lower_sql_aggregate_binary_op(call.op),
             left: Box::new(lower_sql_aggregate_operand_expr(call.left)?),
             right: Box::new(lower_sql_aggregate_operand_expr(call.right)?),
-        }),
-        SqlAggregateInputExpr::Round(call) => Ok(Expr::FunctionCall {
+        },
+        SqlAggregateInputExpr::Round(call) => Expr::FunctionCall {
             function: Function::Round,
             args: lower_sql_aggregate_round_args(call)?,
-        }),
-    }
+        },
+    };
+
+    Ok(fold_sql_aggregate_input_constant_expr(lowered))
 }
 
 fn lower_sql_aggregate_round_args(
@@ -1414,6 +1440,113 @@ const fn lower_sql_aggregate_binary_op(
         crate::db::sql::parser::SqlArithmeticProjectionOp::Mul => BinaryOp::Mul,
         crate::db::sql::parser::SqlArithmeticProjectionOp::Div => BinaryOp::Div,
     }
+}
+
+// Fold one aggregate-input expression when it is fully constant under the
+// bounded aggregate-input surface. This keeps aggregate terminal identity on
+// one planner-owned canonical shape before dedupe and execution wiring.
+fn fold_sql_aggregate_input_constant_expr(expr: Expr) -> Expr {
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .into_iter()
+                .map(fold_sql_aggregate_input_constant_expr)
+                .collect::<Vec<_>>();
+
+            fold_sql_aggregate_input_constant_function(function, args.as_slice())
+                .unwrap_or(Expr::FunctionCall { function, args })
+        }
+        Expr::Binary { op, left, right } => {
+            let left = fold_sql_aggregate_input_constant_expr(*left);
+            let right = fold_sql_aggregate_input_constant_expr(*right);
+
+            fold_sql_aggregate_input_constant_binary(op, &left, &right).unwrap_or_else(|| {
+                Expr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            })
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Expr::Alias {
+            expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
+            name,
+        },
+        #[cfg(test)]
+        Expr::Unary { op, expr } => Expr::Unary {
+            op,
+            expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
+        },
+    }
+}
+
+// Fold one literal-only aggregate-input binary expression so semantic
+// aggregate dedupe can treat `SUM(2 * 3)` and `SUM(6)` as the same input.
+fn fold_sql_aggregate_input_constant_binary(
+    op: BinaryOp,
+    left: &Expr,
+    right: &Expr,
+) -> Option<Expr> {
+    let (Expr::Literal(left), Expr::Literal(right)) = (left, right) else {
+        return None;
+    };
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let arithmetic_op = match op {
+        BinaryOp::Add => NumericArithmeticOp::Add,
+        BinaryOp::Sub => NumericArithmeticOp::Sub,
+        BinaryOp::Mul => NumericArithmeticOp::Mul,
+        BinaryOp::Div => NumericArithmeticOp::Div,
+        #[cfg(test)]
+        BinaryOp::And | BinaryOp::Eq => return None,
+    };
+    let result = apply_numeric_arithmetic(arithmetic_op, left, right)?;
+
+    Some(Expr::Literal(Value::Decimal(result)))
+}
+
+// Fold one literal-only aggregate-input function call when the admitted
+// aggregate-input family defines a deterministic literal result.
+fn fold_sql_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
+    match function {
+        Function::Round => fold_sql_aggregate_input_round(args),
+        Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Lower
+        | Function::Upper
+        | Function::Length
+        | Function::Left
+        | Function::Right
+        | Function::StartsWith
+        | Function::EndsWith
+        | Function::Contains
+        | Function::Position
+        | Function::Replace
+        | Function::Substring => None,
+    }
+}
+
+fn fold_sql_aggregate_input_round(args: &[Expr]) -> Option<Expr> {
+    let [Expr::Literal(input), Expr::Literal(scale)] = args else {
+        return None;
+    };
+    if matches!(input, Value::Null) || matches!(scale, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let scale = match scale {
+        Value::Int(value) => u32::try_from(*value).ok()?,
+        Value::Uint(value) => u32::try_from(*value).ok()?,
+        _ => return None,
+    };
+    let decimal = input.to_numeric_decimal()?;
+
+    Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
 }
 
 pub(in crate::db::sql::lowering) fn resolve_having_aggregate_index(

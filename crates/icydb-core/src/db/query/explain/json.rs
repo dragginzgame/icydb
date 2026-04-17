@@ -29,7 +29,8 @@ fn write_execution_node_json(
     node_id_counter: &mut u64,
     out: &mut String,
 ) {
-    let node_id = next_node_id(node_id_counter);
+    let node_id = *node_id_counter;
+    *node_id_counter = node_id_counter.saturating_add(1);
     let mut object = JsonWriter::begin_object(out);
 
     object.field_u64("node_id", node_id);
@@ -107,10 +108,4 @@ fn write_execution_node_json(
     object.field_debug_map("node_properties", node.node_properties());
 
     object.finish();
-}
-
-const fn next_node_id(node_id_counter: &mut u64) -> u64 {
-    let node_id = *node_id_counter;
-    *node_id_counter = node_id_counter.saturating_add(1);
-    node_id
 }

@@ -729,16 +729,16 @@ impl<E: EntityKind> Query<E> {
     }
 
     // Wrap one built plan as the typed planned-query DTO.
-    pub(in crate::db) fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
-        let _projection = plan.projection_spec(E::MODEL);
-
+    pub(in crate::db) const fn planned_query_from_plan(
+        plan: AccessPlannedQuery,
+    ) -> PlannedQuery<E> {
         PlannedQuery::from_inner(PlannedQueryCore::new(plan))
     }
 
     // Wrap one built plan as the typed compiled-query DTO.
-    pub(in crate::db) fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
-        let _projection = plan.projection_spec(E::MODEL);
-
+    pub(in crate::db) const fn compiled_query_from_plan(
+        plan: AccessPlannedQuery,
+    ) -> CompiledQuery<E> {
         CompiledQuery::from_inner(CompiledQueryCore::new(E::PATH, plan))
     }
 
@@ -1027,6 +1027,16 @@ impl<E: EntityKind> Query<E> {
         self.explain_execution_verbose_for_visibility(None)
     }
 
+    pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
+    }
+
     // Build one aggregate-terminal explain payload without executing the query.
     #[cfg(test)]
     #[inline(never)]
@@ -1046,16 +1056,6 @@ impl<E: EntityKind> Query<E> {
                 E::MODEL.primary_key().name(),
             ),
         )
-    }
-
-    pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
     }
 
     pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(

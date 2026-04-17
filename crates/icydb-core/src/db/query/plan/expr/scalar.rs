@@ -199,10 +199,14 @@ fn compile_scalar_field_reference(
 fn compile_scalar_literal(value: &Value) -> ScalarProjectionExpr {
     #[cfg(test)]
     {
-        compile_scalar_literal_expr_value(value)
-            .map(scalar_expr_value_into_value)
-            .map(ScalarProjectionExpr::Literal)
-            .expect("test-only scalar literal lowering must preserve scalar literal support")
+        if let Some(compiled) = compile_scalar_literal_expr_value(value) {
+            return ScalarProjectionExpr::Literal(scalar_expr_value_into_value(compiled));
+        }
+
+        // Decimal and other non-shared-scalar test literals still remain valid
+        // runtime projection leaves even when the shared scalar test helper does
+        // not model them directly.
+        ScalarProjectionExpr::Literal(value.clone())
     }
 
     #[cfg(not(test))]

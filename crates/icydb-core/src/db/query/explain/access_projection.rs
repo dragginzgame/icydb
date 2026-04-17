@@ -16,12 +16,6 @@ pub(in crate::db::query::explain) fn write_access_json(
     access: &ExplainAccessPath,
     out: &mut String,
 ) {
-    write_access_json_inner(access, out);
-}
-
-// Render the stable explain-access JSON payload directly from the final DTO
-// shape instead of routing back through the generic access visitor.
-fn write_access_json_inner(access: &ExplainAccessPath, out: &mut String) {
     match access {
         ExplainAccessPath::ByKey { key } => {
             let mut object = JsonWriter::begin_object(out);
@@ -113,7 +107,7 @@ fn write_access_json_children(children: &[ExplainAccessPath], out: &mut String) 
         if index > 0 {
             out.push(',');
         }
-        write_access_json_inner(child, out);
+        write_access_json(child, out);
     }
     out.push(']');
 }

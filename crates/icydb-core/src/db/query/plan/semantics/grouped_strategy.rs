@@ -216,9 +216,18 @@ impl GroupedPlanStrategy {
 pub(in crate::db) fn grouped_plan_strategy(
     plan: &AccessPlannedQuery,
 ) -> Option<GroupedPlanStrategy> {
-    // Phase 1: reject planner-level grouped shapes that cannot preserve ordered grouping semantics.
+    // Phase 1: project the grouped ORDER BY lane early so aggregate-streaming
+    // compatibility only gates the canonical ordered-group family. The bounded
+    // Top-K family runs through grouped fold/finalize instead of ordered
+    // grouped streaming, so widened aggregate-input expressions must not get
+    // rejected here before the planner can reserve that lane.
     let grouped = plan.grouped_plan()?;
     let aggregate_family = grouped_plan_aggregate_family(grouped.group.aggregates.as_slice());
+    let order_strategy_projection = grouped_order_strategy_projection(
+        grouped.scalar.order.as_ref(),
+        grouped.group.group_fields.as_slice(),
+    );
+
     if grouped.scalar.distinct {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::DistinctGroupingNotAdmitted,
@@ -231,7 +240,11 @@ pub(in crate::db) fn grouped_plan_strategy(
             aggregate_family,
         ));
     }
-    if !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice()) {
+    if !matches!(
+        order_strategy_projection,
+        GroupedOrderStrategyProjection::TopK
+    ) && !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice())
+    {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::AggregateStreamingNotSupported,
             aggregate_family,
@@ -247,10 +260,7 @@ pub(in crate::db) fn grouped_plan_strategy(
     }
 
     // Phase 2: require logical ORDER BY alignment and physical access-order proof for ordered grouping.
-    match grouped_order_strategy_projection(
-        grouped.scalar.order.as_ref(),
-        grouped.group.group_fields.as_slice(),
-    ) {
+    match order_strategy_projection {
         GroupedOrderStrategyProjection::Canonical => {}
         GroupedOrderStrategyProjection::TopK => {
             return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
