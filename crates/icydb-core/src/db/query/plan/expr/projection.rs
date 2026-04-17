@@ -364,6 +364,31 @@ pub(crate) fn classify_grouped_top_k_order_term(
     GroupedTopKOrderTermAdmissibility::NonGroupFieldReference
 }
 
+/// Return true when one grouped post-aggregate order expression depends on at
+/// least one aggregate leaf and therefore cannot stay on the canonical grouped-
+/// key ordered lane.
+#[must_use]
+pub(crate) fn grouped_top_k_order_term_requires_heap(term: &str) -> bool {
+    parse_grouped_post_aggregate_order_expr(term)
+        .is_some_and(|expr| expr_contains_aggregate_leaf(&expr))
+}
+
+fn expr_contains_aggregate_leaf(expr: &Expr) -> bool {
+    match expr {
+        Expr::Aggregate(_) => true,
+        Expr::Field(_) | Expr::Literal(_) => false,
+        Expr::FunctionCall { args, .. } => args.iter().any(expr_contains_aggregate_leaf),
+        Expr::Binary { left, right, .. } => {
+            expr_contains_aggregate_leaf(left.as_ref())
+                || expr_contains_aggregate_leaf(right.as_ref())
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
+            expr_contains_aggregate_leaf(expr.as_ref())
+        }
+    }
+}
+
 ///
 /// TESTS
 ///
@@ -373,7 +398,7 @@ mod tests {
     use super::{
         GroupedOrderExprClass, GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
         classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
-        order_term_preserves_group_field_order,
+        grouped_top_k_order_term_requires_heap, order_term_preserves_group_field_order,
     };
     use crate::db::query::plan::expr::ast::{
         Expr, parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
@@ -512,5 +537,15 @@ mod tests {
             classify_grouped_top_k_order_term("LOWER(score)", &["score"]),
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression,
         );
+    }
+
+    #[test]
+    fn grouped_top_k_heap_gate_requires_aggregate_leaf() {
+        assert!(grouped_top_k_order_term_requires_heap("AVG(score)"));
+        assert!(grouped_top_k_order_term_requires_heap(
+            "ROUND(AVG(score), 2)"
+        ));
+        assert!(!grouped_top_k_order_term_requires_heap("score + score"));
+        assert!(!grouped_top_k_order_term_requires_heap("score"));
     }
 }

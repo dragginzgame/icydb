@@ -11,6 +11,7 @@ use crate::db::{
         expr::{
             GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
             classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
+            grouped_top_k_order_term_requires_heap,
         },
     },
 };
@@ -363,12 +364,29 @@ fn grouped_order_strategy_projection(
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
     for (index, (order_field, _)) in order.fields.iter().enumerate() {
-        if index < group_fields.len()
-            && matches!(
-                classify_grouped_order_term_for_field(order_field, group_fields[index].field()),
-                GroupedOrderTermAdmissibility::Preserves(_)
-            )
-        {
+        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
+
+        if index < group_fields.len() {
+            match classify_grouped_order_term_for_field(order_field, group_fields[index].field()) {
+                GroupedOrderTermAdmissibility::Preserves(_) => continue,
+                GroupedOrderTermAdmissibility::PrefixMismatch => {
+                    if !aggregate_driven {
+                        return GroupedOrderStrategyProjection::HashFallback(
+                            GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+                        );
+                    }
+                }
+                GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                    if !aggregate_driven {
+                        return GroupedOrderStrategyProjection::HashFallback(
+                            GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
+                        );
+                    }
+                }
+            }
+        }
+
+        if !aggregate_driven {
             continue;
         }
 
