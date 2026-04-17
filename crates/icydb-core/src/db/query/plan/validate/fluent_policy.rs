@@ -37,23 +37,14 @@ impl FluentNonPagedPolicyContext {
 type FluentNonPagedPolicyRule =
     fn(FluentNonPagedPolicyContext) -> Option<FluentLoadPolicyViolation>;
 
-const FLUENT_NON_PAGED_POLICY_RULES: &[FluentNonPagedPolicyRule] = &[
-    fluent_non_paged_cursor_token_violation,
-    fluent_non_paged_grouped_violation,
-];
+const FLUENT_NON_PAGED_POLICY_RULES: &[FluentNonPagedPolicyRule] =
+    &[fluent_non_paged_cursor_token_violation];
 
 fn fluent_non_paged_cursor_token_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
     (ctx.has_cursor_token && !ctx.has_grouping)
         .then_some(FluentLoadPolicyViolation::cursor_requires_paged_execution())
-}
-
-const fn fluent_non_paged_grouped_violation(
-    ctx: FluentNonPagedPolicyContext,
-) -> Option<FluentLoadPolicyViolation> {
-    let _ = ctx;
-    None
 }
 
 ///

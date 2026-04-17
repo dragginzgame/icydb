@@ -277,8 +277,17 @@ impl GroupedAggregateExecutionSpec {
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
+        let normalized_candidate_input_expr = normalized_grouped_aggregate_input_expr(
+            self.projection_target_field.as_deref(),
+            self.input_expr(),
+        );
+        let normalized_expr_input = normalized_grouped_aggregate_input_expr(
+            aggregate_expr.target_field(),
+            aggregate_expr.input_expr(),
+        );
+
         self.kind == aggregate_expr.kind()
-            && self.input_expr() == aggregate_expr.input_expr()
+            && normalized_candidate_input_expr.as_ref() == normalized_expr_input.as_ref()
             && self.distinct == aggregate_expr.is_distinct()
     }
 

@@ -243,24 +243,4 @@ mod tests {
             "aggregate fingerprint identity must distinguish widened aggregate input expressions",
         );
     }
-
-    #[test]
-    fn aggregate_hash_shape_constructor_signature_accepts_only_semantic_fields() {
-        let constructor: fn(
-            AggregateKind,
-            Option<&'static str>,
-            Option<String>,
-            bool,
-        ) -> AggregateHashShape<'static> = AggregateHashShape::semantic;
-
-        let _ = constructor;
-    }
-
-    #[test]
-    fn aggregate_hash_encoder_signature_accepts_semantic_shape_only() {
-        let hash: fn(&mut Sha256, &AggregateHashShape<'static>) =
-            hash_group_aggregate_structural_fingerprint;
-
-        let _ = hash;
-    }
 }

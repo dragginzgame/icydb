@@ -254,7 +254,7 @@ fn infer_aggregate_expr_type(
         AggregateKind::Sum => infer_sum_aggregate_type(input_expr, schema, "sum"),
         AggregateKind::Avg => infer_sum_aggregate_type(input_expr, schema, "avg"),
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
-            infer_target_field_aggregate_type(kind, input_expr, schema)
+            infer_target_field_aggregate_type(input_expr, schema)
         }
     }
 }
@@ -296,7 +296,6 @@ fn infer_sum_aggregate_type(
 }
 
 fn infer_target_field_aggregate_type(
-    kind: AggregateKind,
     input_expr: Option<&Expr>,
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
@@ -305,7 +304,6 @@ fn infer_target_field_aggregate_type(
         return Ok(ExprType::Unknown);
     };
 
-    let _ = kind;
     infer_expr_type(input_expr, schema)
 }
 
