@@ -21,7 +21,7 @@ use crate::{
                 parse_supported_computed_order_expr, projection_field_expr,
             },
             group::GroupedAggregateProjectionSpec,
-            grouped_aggregate_execution_specs_with_model,
+            grouped_aggregate_execution_specs,
             grouped_aggregate_projection_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
             lower_projection_identity, lower_projection_intent,

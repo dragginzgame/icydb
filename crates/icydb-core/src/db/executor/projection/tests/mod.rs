@@ -176,7 +176,7 @@ fn grouped_execution_specs<const N: usize>(
     aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; N],
 ) -> [GroupedAggregateExecutionSpec; N] {
     aggregate_exprs.map(|aggregate_expr| {
-        GroupedAggregateExecutionSpec::from_projection_spec_with_model(
+        GroupedAggregateExecutionSpec::from_projection_spec(
             ProjectionEvalEntity::MODEL,
             &GroupedAggregateProjectionSpec::from_aggregate_expr(&aggregate_expr),
         )

@@ -356,5 +356,5 @@ fn compile_runtime_predicate_for_test(
     model: &'static EntityModel,
     predicate: &Predicate,
 ) -> PredicateProgram {
-    PredicateProgram::compile_with_model(model, predicate)
+    PredicateProgram::compile(model, predicate)
 }
