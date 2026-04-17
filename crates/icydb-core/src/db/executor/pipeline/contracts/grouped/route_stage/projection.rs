@@ -15,8 +15,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, GroupHavingExpr, GroupedDistinctExecutionStrategy,
-            GroupedExecutionConfig, GroupedFoldPath, GroupedPlanStrategy, PlannedProjectionLayout,
-            grouped_plan_strategy,
+            GroupedExecutionConfig, GroupedFoldPath, PlannedProjectionLayout,
         },
     },
     error::InternalError,
@@ -47,11 +46,6 @@ impl GroupedRouteStage {
     /// Borrow planner-carried grouped fold-path selection.
     pub(in crate::db::executor) const fn grouped_fold_path(&self) -> GroupedFoldPath {
         self.planner_payload.grouped_fold_path
-    }
-
-    /// Borrow planner-projected grouped execution strategy.
-    pub(in crate::db::executor) fn grouped_plan_strategy(&self) -> Option<GroupedPlanStrategy> {
-        grouped_plan_strategy(&self.planner_payload.plan)
     }
 
     /// Borrow grouped projection layout.
@@ -123,6 +117,12 @@ impl GroupedRouteStage {
         &self,
     ) -> crate::db::executor::route::GroupedExecutionMode {
         self.grouped_execution_mode
+    }
+
+    /// Return whether the grouped route projected bounded Top-K grouped
+    /// selection mechanics for this execution stage.
+    pub(in crate::db::executor) const fn uses_top_k_group_selection(&self) -> bool {
+        self.route_payload.top_k_group_selection
     }
 
     /// Borrow grouped runtime pagination projection.
@@ -229,6 +229,7 @@ impl GroupedRouteStage {
             },
             route_payload: crate::db::executor::pipeline::contracts::GroupedRoutePayload {
                 grouped_route_plan,
+                top_k_group_selection: false,
             },
             index_specs: crate::db::executor::pipeline::contracts::IndexSpecBundle {
                 index_prefix_specs: Vec::new(),

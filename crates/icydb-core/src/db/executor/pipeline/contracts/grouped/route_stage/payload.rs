@@ -60,6 +60,7 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
 
 pub(in crate::db::executor) struct GroupedRoutePayload {
     pub(in crate::db::executor) grouped_route_plan: ExecutionPlan,
+    pub(in crate::db::executor) top_k_group_selection: bool,
 }
 
 ///

@@ -27,7 +27,7 @@ use crate::{
             },
         },
         query::plan::{
-            GroupedPlanStrategy, OrderDirection,
+            OrderDirection,
             expr::{ProjectionSpec, parse_grouped_post_aggregate_order_expr},
         },
     },
@@ -208,10 +208,7 @@ pub(super) fn finalize_grouped_page(
         } else {
             selection.finalize_unbounded(grouped_bundle)?
         };
-    let next_cursor = if route
-        .grouped_plan_strategy()
-        .is_some_and(GroupedPlanStrategy::is_top_k_group)
-    {
+    let next_cursor = if route.uses_top_k_group_selection() {
         None
     } else {
         next_cursor_boundary
@@ -272,10 +269,7 @@ fn into_finalize_groups(
 fn compile_grouped_top_k_order(
     route: &GroupedRouteStage,
 ) -> Result<Option<CompiledGroupedTopKOrder>, InternalError> {
-    if !route
-        .grouped_plan_strategy()
-        .is_some_and(GroupedPlanStrategy::is_top_k_group)
-    {
+    if !route.uses_top_k_group_selection() {
         return Ok(None);
     }
 

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.88.x] 🏁 - 2026-04-17 - Bounded Grouped Aggregate ORDER BY
 
-- `0.88.1` adds bounded grouped aggregate `ORDER BY` with a dedicated Top-K strategy, so grouped queries can now rank by aggregate and post-aggregate expressions like `AVG(age)` or `ROUND(AVG(age), 2)` under `LIMIT`, while `OFFSET` remains explicitly rejected in this first cut.
+- `0.88.1` adds bounded grouped aggregate `ORDER BY` with a dedicated Top-K strategy, so grouped queries can now rank by aggregate and post-aggregate expressions like `AVG(age)` or `ROUND(AVG(age), 2)` under `LIMIT`, while `OFFSET` remains explicitly rejected in this first cut, and it follows that execution slice with a broad internal cleanup pass that breaks several hot SQL, predicate, lexer, hashing, and storage-key modules into narrower owners.
 - `0.88.0` starts the line by teaching the planner and `EXPLAIN` to recognize aggregate and post-aggregate grouped `ORDER BY` as a distinct Top-K strategy and by splitting several hot SQL, predicate, lexer, hashing, and storage-key modules into narrower owners so the next grouped ordering slice could land on cleaner internal seams.
 
 See detailed breakdown:
