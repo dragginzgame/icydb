@@ -656,6 +656,11 @@ fn execute_sql_projection_order_by_supported_unary_text_aliases_match_canonical_
             "SELECT LENGTH(name) FROM SessionSqlEntity ORDER BY LENGTH(name) DESC LIMIT 2",
             "ORDER BY LENGTH alias",
         ),
+        (
+            "SELECT TRIM(name) AS trimmed_name, ROUND((age + age) / (age + 1), 2) AS normalized_age FROM SessionSqlEntity ORDER BY trimmed_name ASC, normalized_age DESC LIMIT 2",
+            "SELECT TRIM(name), ROUND((age + age) / (age + 1), 2) FROM SessionSqlEntity ORDER BY TRIM(name) ASC, ROUND((age + age) / (age + 1), 2) DESC LIMIT 2",
+            "mixed TRIM plus nested ROUND alias ordering",
+        ),
     ] {
         assert_session_sql_alias_matches_canonical::<Vec<Vec<Value>>>(
             &session,

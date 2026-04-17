@@ -123,6 +123,14 @@ mod tests {
             render_supported_order_expr(&rounded),
             Some("ROUND(age + rank, 2)".to_string())
         );
+
+        let nested = parse_supported_order_expr("ROUND((age + rank) / (age + 1), 2)").expect(
+            "bounded ROUND(parenthesized arithmetic, scale) should parse onto the canonical tree",
+        );
+        assert_eq!(
+            render_supported_order_expr(&nested),
+            Some("ROUND((age + rank) / (age + 1), 2)".to_string())
+        );
     }
 
     #[test]

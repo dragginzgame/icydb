@@ -272,49 +272,7 @@ where
 /// text form.
 #[must_use]
 pub(in crate::db) fn render_supported_order_expr(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::FunctionCall {
-            function:
-                Function::Trim
-                | Function::Ltrim
-                | Function::Rtrim
-                | Function::Lower
-                | Function::Upper
-                | Function::Length,
-            args,
-        } if matches!(args.as_slice(), [Expr::Field(_)]) => render_supported_order_function(expr),
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
-            ) && matches!(left.as_ref(), Expr::Field(_))
-                && matches!(right.as_ref(), Expr::Field(_) | Expr::Literal(_)) =>
-        {
-            let left = render_supported_order_expr(left.as_ref())?;
-            let right = render_supported_order_expr(right.as_ref())?;
-
-            Some(format!("{left} {} {right}", binary_op_sql_label(*op)))
-        }
-        Expr::FunctionCall {
-            function: Function::Round,
-            args,
-        } => match args.as_slice() {
-            [
-                base @ (Expr::Field(_) | Expr::Binary { .. }),
-                Expr::Literal(scale),
-            ] => Some(format!(
-                "ROUND({}, {})",
-                render_supported_order_expr(base)?,
-                render_supported_order_literal(scale)?
-            )),
-            _ => None,
-        },
-        Expr::Field(field) => Some(field.as_str().to_string()),
-        Expr::Literal(value) => render_supported_order_literal(value),
-        Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => None,
-        #[cfg(test)]
-        Expr::Alias { .. } | Expr::Unary { .. } => None,
-    }
+    render_supported_order_expr_with_parent(expr, None)
 }
 
 /// Return whether one admitted `ORDER BY` expression must still satisfy the
@@ -349,6 +307,73 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
     let field = supported_order_expr_field(expr)?;
 
     Some(format!("{}({})", function.sql_label(), field.as_str()))
+}
+
+fn render_supported_order_expr_with_parent(
+    expr: &Expr,
+    parent_op: Option<BinaryOp>,
+) -> Option<String> {
+    match expr {
+        Expr::FunctionCall {
+            function:
+                Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
+                | Function::Lower
+                | Function::Upper
+                | Function::Length,
+            args,
+        } if matches!(args.as_slice(), [Expr::Field(_)]) => render_supported_order_function(expr),
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+            ) =>
+        {
+            let left = render_supported_order_expr_with_parent(left.as_ref(), Some(*op))?;
+            let right = render_supported_order_expr_with_parent(right.as_ref(), Some(*op))?;
+            let rendered = format!("{left} {} {right}", binary_op_sql_label(*op));
+
+            if binary_expr_requires_parentheses(*op, parent_op) {
+                Some(format!("({rendered})"))
+            } else {
+                Some(rendered)
+            }
+        }
+        Expr::FunctionCall {
+            function: Function::Round,
+            args,
+        } => match args.as_slice() {
+            [base, Expr::Literal(scale)] => Some(format!(
+                "ROUND({}, {})",
+                render_supported_order_expr_with_parent(base, None)?,
+                render_supported_order_literal(scale)?
+            )),
+            _ => None,
+        },
+        Expr::Field(field) => Some(field.as_str().to_string()),
+        Expr::Literal(value) => render_supported_order_literal(value),
+        Expr::FunctionCall { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
+        #[cfg(test)]
+        Expr::Alias { .. } | Expr::Unary { .. } => None,
+    }
+}
+
+const fn binary_expr_requires_parentheses(op: BinaryOp, parent_op: Option<BinaryOp>) -> bool {
+    let Some(parent_op) = parent_op else {
+        return false;
+    };
+
+    binary_op_precedence(op) < binary_op_precedence(parent_op)
+}
+
+const fn binary_op_precedence(op: BinaryOp) -> u8 {
+    match op {
+        BinaryOp::Add | BinaryOp::Sub => 1,
+        BinaryOp::Mul | BinaryOp::Div => 2,
+        #[cfg(test)]
+        BinaryOp::And | BinaryOp::Eq => 0,
+    }
 }
 
 const fn binary_op_sql_label(op: BinaryOp) -> &'static str {
@@ -403,12 +428,79 @@ impl SupportedOrderExprParser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, SqlParseError> {
-        let head = self.cursor.expect_identifier()?;
-        if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
-            return self.parse_function_expr(head.as_str());
+        self.parse_additive_expr()
+    }
+
+    fn parse_additive_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            let op = if self.cursor.eat_plus() {
+                Some(BinaryOp::Add)
+            } else if self.cursor.eat_minus() {
+                Some(BinaryOp::Sub)
+            } else {
+                None
+            };
+            let Some(op) = op else {
+                break;
+            };
+
+            left = Expr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(self.parse_multiplicative_expr()?),
+            };
         }
 
-        self.parse_field_or_arithmetic_expr(head)
+        Ok(left)
+    }
+
+    fn parse_multiplicative_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_primary_expr()?;
+
+        loop {
+            let op = if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
+                self.cursor.advance();
+                Some(BinaryOp::Mul)
+            } else if self.cursor.eat_slash() {
+                Some(BinaryOp::Div)
+            } else {
+                None
+            };
+            let Some(op) = op else {
+                break;
+            };
+
+            left = Expr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(self.parse_primary_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_primary_expr(&mut self) -> Result<Expr, SqlParseError> {
+        if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
+            self.cursor.expect_lparen()?;
+            let expr = self.parse_expr()?;
+            self.cursor.expect_rparen()?;
+
+            return Ok(expr);
+        }
+
+        if matches!(self.cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
+            let head = self.cursor.expect_identifier()?;
+            if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
+                return self.parse_function_expr(head.as_str());
+            }
+
+            return Ok(Expr::Field(FieldId::new(head)));
+        }
+
+        self.cursor.parse_literal().map(Expr::Literal)
     }
 
     fn parse_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
@@ -465,42 +557,6 @@ impl SupportedOrderExprParser {
             function: Function::Round,
             args: vec![base, scale],
         })
-    }
-
-    fn parse_field_or_arithmetic_expr(&mut self, field: String) -> Result<Expr, SqlParseError> {
-        let left = Expr::Field(FieldId::new(field));
-        let Some(op) = self.parse_binary_op() else {
-            return Ok(left);
-        };
-        let right = if matches!(self.cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
-            Expr::Field(FieldId::new(self.cursor.expect_identifier()?))
-        } else {
-            Expr::Literal(self.cursor.parse_literal()?)
-        };
-
-        Ok(Expr::Binary {
-            op,
-            left: Box::new(left),
-            right: Box::new(right),
-        })
-    }
-
-    fn parse_binary_op(&mut self) -> Option<BinaryOp> {
-        if self.cursor.eat_plus() {
-            return Some(BinaryOp::Add);
-        }
-        if self.cursor.eat_minus() {
-            return Some(BinaryOp::Sub);
-        }
-        if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
-            self.cursor.advance();
-            return Some(BinaryOp::Mul);
-        }
-        if self.cursor.eat_slash() {
-            return Some(BinaryOp::Div);
-        }
-
-        None
     }
 }
 
