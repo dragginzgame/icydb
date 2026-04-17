@@ -35,23 +35,44 @@ pub trait ValueProjectionExpr {
 /// stable SQL-style label.
 #[must_use]
 pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> String {
+    render_scalar_projection_expr_sql_label_with_parent(expr, None, false)
+}
+
+fn render_scalar_projection_expr_sql_label_with_parent(
+    expr: &Expr,
+    parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
+    is_right_child: bool,
+) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
         Expr::Literal(value) => render_scalar_projection_literal(value),
         Expr::FunctionCall { function, args } => {
             let rendered_args = args
                 .iter()
-                .map(render_scalar_projection_expr_sql_label)
+                .map(|arg| render_scalar_projection_expr_sql_label_with_parent(arg, None, false))
                 .collect::<Vec<_>>()
                 .join(", ");
 
             format!("{}({rendered_args})", function.sql_label())
         }
         Expr::Binary { op, left, right } => {
-            let left = render_scalar_projection_expr_sql_label(left.as_ref());
-            let right = render_scalar_projection_expr_sql_label(right.as_ref());
+            let left = render_scalar_projection_expr_sql_label_with_parent(
+                left.as_ref(),
+                Some(*op),
+                false,
+            );
+            let right = render_scalar_projection_expr_sql_label_with_parent(
+                right.as_ref(),
+                Some(*op),
+                true,
+            );
+            let rendered = format!("{left} {} {right}", binary_op_sql_label(*op));
 
-            format!("{left} {} {right}", binary_op_sql_label(*op))
+            if binary_expr_requires_parentheses(*op, parent_op, is_right_child) {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
         }
         Expr::Aggregate(aggregate) => {
             let kind = aggregate.kind().sql_label();
@@ -62,7 +83,8 @@ pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> Str
             };
 
             if let Some(input_expr) = aggregate.input_expr() {
-                let input = render_scalar_projection_expr_sql_label(input_expr);
+                let input =
+                    render_scalar_projection_expr_sql_label_with_parent(input_expr, None, false);
 
                 return format!("{kind}({distinct}{input})");
             }
@@ -70,9 +92,39 @@ pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> Str
             format!("{kind}({distinct}*)")
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } => render_scalar_projection_expr_sql_label(expr.as_ref()),
+        Expr::Alias { expr, .. } => render_scalar_projection_expr_sql_label_with_parent(
+            expr.as_ref(),
+            parent_op,
+            is_right_child,
+        ),
         #[cfg(test)]
         Expr::Unary { .. } => "expr".to_string(),
+    }
+}
+
+const fn binary_expr_requires_parentheses(
+    op: crate::db::query::plan::expr::BinaryOp,
+    parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
+    is_right_child: bool,
+) -> bool {
+    let Some(parent_op) = parent_op else {
+        return false;
+    };
+    let precedence = binary_op_precedence(op);
+    let parent_precedence = binary_op_precedence(parent_op);
+
+    precedence < parent_precedence || (is_right_child && precedence == parent_precedence)
+}
+
+const fn binary_op_precedence(op: crate::db::query::plan::expr::BinaryOp) -> u8 {
+    match op {
+        crate::db::query::plan::expr::BinaryOp::Add
+        | crate::db::query::plan::expr::BinaryOp::Sub => 1,
+        crate::db::query::plan::expr::BinaryOp::Mul
+        | crate::db::query::plan::expr::BinaryOp::Div => 2,
+        #[cfg(test)]
+        crate::db::query::plan::expr::BinaryOp::And
+        | crate::db::query::plan::expr::BinaryOp::Eq => 0,
     }
 }
 

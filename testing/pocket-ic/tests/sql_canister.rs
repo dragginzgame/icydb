@@ -113,6 +113,175 @@ fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
 }
 
 #[test]
+fn sql_canister_query_endpoint_executes_global_post_aggregate_value_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let post_aggregate = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(AVG(age), 2) AS avg_rounded, COUNT(*) + 1 AS count_plus_one, MAX(age) - MIN(age) AS spread \
+             FROM SqlTestUser",
+        )
+        .expect("global post-aggregate SQL query should succeed"),
+    );
+
+    assert_eq!(
+        post_aggregate,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec![
+                "avg_rounded".to_string(),
+                "count_plus_one".to_string(),
+                "spread".to_string(),
+            ],
+            rows: vec![vec!["32.67".to_string(), "4".to_string(), "19".to_string(),]],
+            row_count: 1,
+        },
+        "query(sql) should preserve the real reduced values for global post-aggregate projection expressions at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let matched = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT COUNT(*) FROM SqlTestUser HAVING COUNT(*) > 1",
+        )
+        .expect("global aggregate HAVING SQL query should succeed"),
+    );
+    assert_eq!(
+        matched,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["COUNT(*)".to_string()],
+            rows: vec![vec!["3".to_string()]],
+            row_count: 1,
+        },
+        "query(sql) should keep the implicit aggregate row when global HAVING matches",
+    );
+
+    let filtered = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(AVG(age), 2) AS avg_rounded FROM SqlTestUser HAVING AVG(age) > 40",
+        )
+        .expect("global aggregate HAVING should still return projection payload when filtered"),
+    );
+    assert_eq!(
+        filtered,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["avg_rounded".to_string()],
+            rows: vec![],
+            row_count: 0,
+        },
+        "query(sql) should filter away the implicit aggregate row while preserving the projection shape when global HAVING fails",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let grouped = expect_grouped(
+        query_sql(
+            &fixture,
+            "SELECT age, AVG(age + 1) AS avg_plus_one \
+             FROM SqlTestUser \
+             GROUP BY age \
+             HAVING AVG(age + 1) > 25 \
+             ORDER BY avg_plus_one DESC, age ASC \
+             LIMIT 2",
+        )
+        .expect("grouped aggregate combination SQL query should succeed"),
+    );
+    assert_eq!(
+        grouped,
+        SqlGroupedRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["age".to_string(), "avg_plus_one".to_string()],
+            rows: vec![
+                vec!["43".to_string(), "44".to_string()],
+                vec!["31".to_string(), "32".to_string()],
+            ],
+            row_count: 2,
+            next_cursor: None,
+        },
+        "query(sql) should preserve grouped aggregate-input, HAVING, and Top-K ordering values together at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_grouped_wrapped_aggregate_input_order_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let grouped = expect_grouped(
+        query_sql(
+            &fixture,
+            "SELECT name, ROUND(AVG(age + 1 * 2), 2) AS avg_boosted \
+             FROM SqlTestUser \
+             GROUP BY name \
+             ORDER BY avg_boosted DESC, name ASC \
+             LIMIT 2",
+        )
+        .expect("grouped wrapped aggregate-input ORDER BY alias SQL query should succeed"),
+    );
+    assert_eq!(
+        grouped,
+        SqlGroupedRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "avg_boosted".to_string()],
+            rows: vec![
+                vec!["charlie".to_string(), "45.00".to_string()],
+                vec!["alice".to_string(), "33.00".to_string()],
+            ],
+            row_count: 2,
+            next_cursor: None,
+        },
+        "query(sql) should preserve wrapped grouped aggregate-input ordering values at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_grouped_parenthesized_aggregate_input_order_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let grouped = expect_grouped(
+        query_sql(
+            &fixture,
+            "SELECT name, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
+             FROM SqlTestUser \
+             GROUP BY name \
+             ORDER BY avg_balanced DESC, name ASC \
+             LIMIT 2",
+        )
+        .expect("grouped parenthesized aggregate-input ORDER BY alias SQL query should succeed"),
+    );
+    assert_eq!(
+        grouped,
+        SqlGroupedRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string(), "avg_balanced".to_string()],
+            rows: vec![
+                vec!["charlie".to_string(), "43.00".to_string()],
+                vec!["alice".to_string(), "31.00".to_string()],
+            ],
+            row_count: 2,
+            next_cursor: None,
+        },
+        "query(sql) should preserve parenthesized grouped aggregate-input ordering values at the live canister boundary",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -151,6 +320,90 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
             row_count: 2,
         },
         "query(sql) should preserve scalar ROUND projection payloads at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let precedence = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT age + 1 * 2 AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("chained scalar precedence SQL query should succeed"),
+    );
+    assert_eq!(
+        precedence,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["value".to_string()],
+            rows: vec![vec!["26".to_string()], vec!["33".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve multiplication precedence inside chained scalar arithmetic at the live canister boundary",
+    );
+
+    let associativity = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT age - 1 - 2 AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("chained scalar associativity SQL query should succeed"),
+    );
+    assert_eq!(
+        associativity,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["value".to_string()],
+            rows: vec![vec!["21".to_string()], vec!["28".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve left-associative subtraction inside chained scalar arithmetic at the live canister boundary",
+    );
+
+    let parenthesized = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND((age + rank) / 2, 2) AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
+        )
+        .expect("parenthesized scalar ROUND SQL query should succeed"),
+    );
+    assert_eq!(
+        parenthesized,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["value".to_string()],
+            rows: vec![vec!["24.50".to_string()], vec!["29.50".to_string()]],
+            row_count: 2,
+        },
+        "query(sql) should preserve parenthesized scalar arithmetic before ROUND at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_chained_global_aggregate_expression_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let result = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(AVG(age + 1 * 2), 2) AS avg_shifted, ROUND(AVG((age + age) / 2), 2) AS avg_balanced FROM SqlTestUser",
+        )
+        .expect("chained global aggregate expression SQL query should succeed"),
+    );
+    assert_eq!(
+        result,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["avg_shifted".to_string(), "avg_balanced".to_string()],
+            rows: vec![vec!["34.67".to_string(), "32.67".to_string()]],
+            row_count: 1,
+        },
+        "query(sql) should preserve chained aggregate-input and parenthesized global post-aggregate values at the live canister boundary",
     );
 }
 
@@ -199,6 +452,30 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
             row_count: 2,
         },
         "query(sql) should preserve field-to-field arithmetic projection payloads at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_executes_singleton_global_output_order_alias_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ordered = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT ROUND(AVG(age), 2) AS avg_rounded FROM SqlTestUser ORDER BY avg_rounded DESC",
+        )
+        .expect("singleton global aggregate output ORDER BY alias SQL query should succeed"),
+    );
+    assert_eq!(
+        ordered,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["avg_rounded".to_string()],
+            rows: vec![vec!["32.67".to_string()]],
+            row_count: 1,
+        },
+        "query(sql) should treat singleton global aggregate output ordering as an inert no-op while still returning the correct value",
     );
 }
 

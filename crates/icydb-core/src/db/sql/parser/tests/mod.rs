@@ -246,6 +246,75 @@ fn parse_select_statement_with_scalar_field_to_field_projection_item() {
 }
 
 #[test]
+fn parse_select_statement_with_chained_scalar_projection_item_preserves_precedence() {
+    let statement = parse_sql("SELECT age + 1 * 2 FROM users")
+        .expect("chained scalar arithmetic projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
+                SqlArithmeticProjectionCall {
+                    left: SqlProjectionOperand::Field("age".to_string()),
+                    op: SqlArithmeticProjectionOp::Add,
+                    right: SqlProjectionOperand::Arithmetic(Box::new(
+                        SqlArithmeticProjectionCall {
+                            left: SqlProjectionOperand::Literal(Value::Int(1)),
+                            op: SqlArithmeticProjectionOp::Mul,
+                            right: SqlProjectionOperand::Literal(Value::Int(2)),
+                        },
+                    )),
+                },
+            )]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+        "chained scalar arithmetic projection should preserve operator precedence in the parser model",
+    );
+}
+
+#[test]
+fn parse_select_statement_with_parenthesized_round_projection_item() {
+    let statement = parse_sql("SELECT ROUND((age + salary) / 2, 2) FROM users")
+        .expect("parenthesized ROUND projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Round(SqlRoundProjectionCall {
+                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
+                    left: SqlProjectionOperand::Arithmetic(Box::new(SqlArithmeticProjectionCall {
+                        left: SqlProjectionOperand::Field("age".to_string()),
+                        op: SqlArithmeticProjectionOp::Add,
+                        right: SqlProjectionOperand::Field("salary".to_string()),
+                    },)),
+                    op: SqlArithmeticProjectionOp::Div,
+                    right: SqlProjectionOperand::Literal(Value::Int(2)),
+                }),
+                scale: Value::Int(2),
+            },)]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+        "parenthesized ROUND projection should preserve nested arithmetic structure in the parser model",
+    );
+}
+
+#[test]
 fn parse_select_statement_with_field_to_field_predicate() {
     let statement =
         parse_sql("SELECT * FROM users WHERE age > rank AND name = label ORDER BY age ASC")

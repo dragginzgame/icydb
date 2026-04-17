@@ -204,6 +204,9 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 SqlProjectionOperand::Aggregate(self.normalize_aggregate_call(aggregate))
             }
             SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
+            SqlProjectionOperand::Arithmetic(call) => {
+                SqlProjectionOperand::Arithmetic(Box::new(self.normalize_arithmetic_call(*call)))
+            }
         }
     }
 

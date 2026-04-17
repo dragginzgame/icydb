@@ -489,23 +489,71 @@ impl SupportedGroupedOrderExprParser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, SqlParseError> {
-        if self.cursor.peek_identifier_keyword("ROUND") {
-            return self.parse_round_expr();
-        }
+        self.parse_additive_expr()
+    }
 
-        let left = self.parse_operand_or_literal()?;
-        if let Some(op) = self.parse_binary_op() {
-            return Ok(Expr::Binary {
+    fn parse_additive_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            let op = if self.cursor.eat_plus() {
+                Some(BinaryOp::Add)
+            } else if self.cursor.eat_minus() {
+                Some(BinaryOp::Sub)
+            } else {
+                None
+            };
+            let Some(op) = op else {
+                break;
+            };
+
+            left = Expr::Binary {
                 op,
                 left: Box::new(left),
-                right: Box::new(self.parse_operand_or_literal()?),
-            });
+                right: Box::new(self.parse_multiplicative_expr()?),
+            };
         }
 
         Ok(left)
     }
 
-    fn parse_operand_or_literal(&mut self) -> Result<Expr, SqlParseError> {
+    fn parse_multiplicative_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_primary_expr()?;
+
+        loop {
+            let op = if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
+                self.cursor.advance();
+                Some(BinaryOp::Mul)
+            } else if self.cursor.eat_slash() {
+                Some(BinaryOp::Div)
+            } else {
+                None
+            };
+            let Some(op) = op else {
+                break;
+            };
+
+            left = Expr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(self.parse_primary_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_primary_expr(&mut self) -> Result<Expr, SqlParseError> {
+        if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
+            self.cursor.expect_lparen()?;
+            let expr = self.parse_expr()?;
+            self.cursor.expect_rparen()?;
+
+            return Ok(expr);
+        }
+        if self.cursor.peek_identifier_keyword("ROUND") {
+            return self.parse_round_expr();
+        }
         if let Some(kind) = self.parse_aggregate_kind() {
             return self.parse_aggregate_expr(kind);
         }
@@ -584,24 +632,6 @@ impl SupportedGroupedOrderExprParser {
             aggregate
         }))
     }
-
-    fn parse_binary_op(&mut self) -> Option<BinaryOp> {
-        if self.cursor.eat_plus() {
-            return Some(BinaryOp::Add);
-        }
-        if self.cursor.eat_minus() {
-            return Some(BinaryOp::Sub);
-        }
-        if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
-            self.cursor.advance();
-            return Some(BinaryOp::Mul);
-        }
-        if self.cursor.eat_slash() {
-            return Some(BinaryOp::Div);
-        }
-
-        None
-    }
 }
 
 ///
@@ -672,6 +702,35 @@ mod tests {
                 ],
             },
             "aggregate input expressions should stay on the planner expression spine instead of collapsing back to one field-only target",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_parenthesized_expression_aggregate_input_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr("ROUND(AVG((rank + score) / 2), 2)")
+            .expect("grouped order expression with parenthesized aggregate input should parse");
+
+        assert_eq!(
+            expr,
+            Expr::FunctionCall {
+                function: Function::Round,
+                args: vec![
+                    Expr::Aggregate(AggregateExpr::from_expression_input(
+                        AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Div,
+                            left: Box::new(Expr::Binary {
+                                op: BinaryOp::Add,
+                                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                                right: Box::new(Expr::Field(FieldId::new("score"))),
+                            }),
+                            right: Box::new(Expr::Literal(crate::value::Value::Int(2))),
+                        },
+                    )),
+                    Expr::Literal(crate::value::Value::Int(2)),
+                ],
+            },
+            "parenthesized aggregate-input arithmetic should preserve nested grouped order expression structure",
         );
     }
 }

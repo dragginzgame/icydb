@@ -97,6 +97,7 @@ pub(crate) enum SqlProjectionOperand {
     Field(String),
     Aggregate(SqlAggregateCall),
     Literal(Value),
+    Arithmetic(Box<SqlArithmeticProjectionCall>),
 }
 
 ///

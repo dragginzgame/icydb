@@ -606,6 +606,11 @@ fn lower_projection_operand_expr(operand: &SqlProjectionOperand) -> Result<Expr,
             Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
         }
         SqlProjectionOperand::Literal(literal) => Ok(Expr::Literal(literal.clone())),
+        SqlProjectionOperand::Arithmetic(call) => Ok(Expr::Binary {
+            op: binary_projection_op(call.op),
+            left: Box::new(lower_projection_operand_expr(&call.left)?),
+            right: Box::new(lower_projection_operand_expr(&call.right)?),
+        }),
     }
 }
 

@@ -1368,6 +1368,90 @@ fn grouped_select_helper_executes_bounded_aggregate_input_order_top_k_alias_rows
 }
 
 #[test]
+fn grouped_select_helper_executes_bounded_wrapped_aggregate_input_order_top_k_alias_rows() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, ROUND(AVG(age + 1 * 2), 2) AS avg_boosted \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY avg_boosted DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect(
+        "wrapped grouped aggregate input ORDER BY alias should execute through bounded Top-K finalize",
+    );
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(5200, 2))],
+            ),
+            (
+                Value::Text("charlie".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(4200, 2))],
+            ),
+        ],
+        "wrapped grouped aggregate input ORDER BY aliases should rank by the same aggregate values as canonical direct terms",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "wrapped grouped aggregate input ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_parenthesized_wrapped_aggregate_input_order_top_k_alias_rows() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY avg_balanced DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect(
+        "parenthesized wrapped grouped aggregate input ORDER BY alias should execute through bounded Top-K finalize",
+    );
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(5000, 2))],
+            ),
+            (
+                Value::Text("charlie".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::new(4000, 2))],
+            ),
+        ],
+        "parenthesized wrapped grouped aggregate input ORDER BY aliases should preserve the requested arithmetic precedence in grouped Top-K ranking",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "parenthesized wrapped grouped aggregate input ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_api_rejection_matrix_preserves_grouped_boundary_contracts() {
     reset_session_sql_store();
     let session = sql_session();

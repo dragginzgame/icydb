@@ -975,6 +975,47 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
 }
 
 #[test]
+fn compile_sql_command_select_chained_scalar_projection_lowers_to_nested_binary_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age + 1 * 2 FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("chained scalar projection should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .unwrap_or_else(|err| panic!("chained scalar projection plan should build: {err:?}"))
+        .into_inner()
+        .projection_selection;
+
+    assert!(
+        matches!(
+            projection,
+            crate::db::query::plan::expr::ProjectionSelection::Exprs(fields)
+            if matches!(
+                &fields[0],
+            ProjectionField::Scalar {
+                expr: Expr::Binary { op: BinaryOp::Add, left, right },
+                alias: None,
+            }
+            if matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age")
+                && matches!(
+                    right.as_ref(),
+                    Expr::Binary { op: BinaryOp::Mul, left, right }
+                    if matches!(left.as_ref(), Expr::Literal(Value::Int(1)))
+                        && matches!(right.as_ref(), Expr::Literal(Value::Int(2)))
+                )
+            )
+        ),
+        "chained scalar projection should lower to nested binary expressions with multiplication precedence preserved",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_round_with_negative_scale() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT ROUND(age, -1) FROM SqlLowerEntity",
@@ -2040,6 +2081,37 @@ fn compile_sql_command_normalizes_grouped_aggregate_input_order_by_alias_with_li
 }
 
 #[test]
+fn compile_sql_command_normalizes_grouped_wrapped_aggregate_input_order_by_alias_with_limit() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY avg_balanced DESC, age ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped wrapped aggregate input ORDER BY alias with LIMIT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+    let plan = query
+        .plan()
+        .expect("grouped wrapped aggregate input ORDER BY alias with LIMIT should plan")
+        .into_inner();
+    let order = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("grouped wrapped aggregate input ORDER BY alias should preserve order terms");
+
+    assert_eq!(
+        order.fields[0].0, "ROUND(AVG((age + age) / 2), 2)",
+        "grouped wrapped aggregate input ORDER BY aliases should preserve the canonical parenthesized aggregate term",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, AVG(age) \
@@ -2810,6 +2882,39 @@ fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
 }
 
 #[test]
+fn compile_sql_global_aggregate_command_accepts_chained_expression_input_terminals() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT AVG(age + 1 * 2), ROUND(AVG((age + age) / 2), 2) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("chained aggregate input expressions should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "chained aggregate input expressions should lower onto one terminal per aggregate leaf",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::AvgExpr { input_expr, distinct: false }
+                if matches!(
+                    input_expr,
+                    Expr::Binary { op: BinaryOp::Add, left, right }
+                    if matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age")
+                        && matches!(right.as_ref(), Expr::Literal(Value::Decimal(value)) if *value == crate::types::Decimal::from(2_u64))
+                )
+        ),
+        "AVG(age + 1 * 2) should preserve the folded semantic input shape in the typed aggregate terminal",
+    );
+    assert_eq!(
+        command.projection().len(),
+        2,
+        "chained aggregate input expressions should still preserve the outward projection shape",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expressions() {
     let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
         "SELECT ROUND(AVG(age), 4), COUNT(*) + 1, MAX(age) - MIN(age) FROM SqlLowerEntity",
@@ -2832,6 +2937,62 @@ fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expres
     assert!(
         command.output_remap().is_empty(),
         "wrapped global aggregate output expressions should stop depending on the legacy top-level terminal remap",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_ignores_singleton_output_order_by_alias() {
+    let ordered = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT AVG(age) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("singleton global aggregate output ordering should lower as an inert no-op");
+    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT AVG(age) AS avg_age FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical singleton global aggregate should lower");
+
+    assert_eq!(
+        ordered
+            .query()
+            .plan()
+            .expect("ordered singleton global aggregate base query plan should build")
+            .into_inner(),
+        canonical
+            .query()
+            .plan()
+            .expect("canonical singleton global aggregate base query plan should build")
+            .into_inner(),
+        "singleton global aggregate ORDER BY aliases should not leak into the base-row aggregate window query",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_ignores_singleton_wrapped_output_order_by_alias() {
+    let ordered = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT ROUND(AVG(age), 2) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("singleton wrapped global aggregate output ordering should lower as an inert no-op");
+    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT ROUND(AVG(age), 2) AS avg_age FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical singleton wrapped global aggregate should lower");
+
+    assert_eq!(
+        ordered
+            .query()
+            .plan()
+            .expect("ordered singleton wrapped global aggregate base query plan should build")
+            .into_inner(),
+        canonical
+            .query()
+            .plan()
+            .expect("canonical singleton wrapped global aggregate base query plan should build")
+            .into_inner(),
+        "singleton wrapped global aggregate ORDER BY aliases should not leak into the base-row aggregate window query",
     );
 }
 

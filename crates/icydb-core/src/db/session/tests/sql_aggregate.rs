@@ -136,6 +136,11 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             Value::Decimal(crate::types::Decimal::from(27u64)),
         ),
         (
+            "avg chained arithmetic expression",
+            "SELECT AVG(age + 1 * 2) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(28u64)),
+        ),
+        (
             "sum constant-folded arithmetic expression",
             "SELECT SUM(2 * 3) FROM SessionSqlEntity",
             Value::Decimal(crate::types::Decimal::from(12u64)),
@@ -144,6 +149,11 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             "avg constant-folded round expression",
             "SELECT AVG(ROUND(2 * 3, 1)) FROM SessionSqlEntity",
             Value::Decimal(crate::types::Decimal::from(6u64)),
+        ),
+        (
+            "avg parenthesized arithmetic expression",
+            "SELECT ROUND(AVG((age + age) / 2), 2) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::new(2600, 2)),
         ),
         (
             "bounded sum arithmetic expression",
@@ -247,6 +257,46 @@ fn global_aggregate_having_returns_empty_projection_when_predicate_fails() {
     assert_eq!(
         row_count, 0,
         "global aggregate HAVING should expose zero rows when the implicit group is rejected",
+    );
+}
+
+#[test]
+fn global_aggregate_output_order_alias_is_inert_for_singleton_result() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-order-alias-a", 20),
+            ("aggregate-order-alias-b", 22),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT AVG(age) AS avg_age FROM SessionSqlEntity ORDER BY avg_age DESC",
+        Value::Decimal(crate::types::Decimal::from(21_u64)),
+        "singleton global aggregate output ordering should execute as an inert no-op instead of misclassifying the alias as a base-row field",
+    );
+}
+
+#[test]
+fn global_aggregate_wrapped_output_order_alias_is_inert_for_singleton_result() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-order-wrap-a", 20),
+            ("aggregate-order-wrap-b", 22),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT ROUND(AVG(age), 2) AS avg_age FROM SessionSqlEntity ORDER BY avg_age DESC",
+        Value::Decimal(crate::types::Decimal::new(2100, 2)),
+        "singleton wrapped global aggregate output ordering should execute as an inert no-op instead of misclassifying the alias as a base-row field",
     );
 }
 

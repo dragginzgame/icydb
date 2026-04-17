@@ -228,13 +228,14 @@ impl Parser {
             SqlProjectionOperand::Field(field) => SqlHavingValueExpr::Field(field),
             SqlProjectionOperand::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(aggregate),
             SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
+            SqlProjectionOperand::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(*call),
         })
     }
 }
 
 fn render_order_arithmetic_term(term: SqlArithmeticProjectionCall) -> String {
-    let left = render_order_projection_operand(term.left);
-    let right = render_order_projection_operand(term.right);
+    let left = render_order_arithmetic_operand(term.left);
+    let right = render_order_arithmetic_operand(term.right);
     let op = match term.op {
         SqlArithmeticProjectionOp::Add => "+",
         SqlArithmeticProjectionOp::Sub => "-",
@@ -254,11 +255,21 @@ fn render_order_round_term(term: SqlRoundProjectionCall) -> String {
     format!("ROUND({input}, {})", render_order_literal(term.scale))
 }
 
+fn render_order_arithmetic_operand(operand: SqlProjectionOperand) -> String {
+    match operand {
+        SqlProjectionOperand::Arithmetic(call) => {
+            format!("({})", render_order_arithmetic_term(*call))
+        }
+        other => render_order_projection_operand(other),
+    }
+}
+
 fn render_order_projection_operand(operand: SqlProjectionOperand) -> String {
     match operand {
         SqlProjectionOperand::Field(field) => field,
         SqlProjectionOperand::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
         SqlProjectionOperand::Literal(literal) => render_order_literal(literal),
+        SqlProjectionOperand::Arithmetic(call) => render_order_arithmetic_term(*call),
     }
 }
 
@@ -272,19 +283,51 @@ fn render_order_aggregate_call(aggregate: crate::db::sql::parser::SqlAggregateCa
     };
     let distinct = if aggregate.distinct { "DISTINCT " } else { "" };
     let inner = match aggregate.input {
-        Some(input) => render_order_aggregate_input_expr(*input),
+        Some(input) => render_order_aggregate_input_expr(*input, false),
         None => "*".to_string(),
     };
 
     format!("{function}({distinct}{inner})")
 }
 
-fn render_order_aggregate_input_expr(expr: SqlAggregateInputExpr) -> String {
+fn render_order_aggregate_input_expr(expr: SqlAggregateInputExpr, nested: bool) -> String {
     match expr {
         SqlAggregateInputExpr::Field(field) => field,
         SqlAggregateInputExpr::Literal(literal) => render_order_literal(literal),
-        SqlAggregateInputExpr::Arithmetic(call) => render_order_arithmetic_term(call),
+        SqlAggregateInputExpr::Arithmetic(call) => {
+            let rendered = render_order_aggregate_input_arithmetic_term(call);
+
+            if nested {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
         SqlAggregateInputExpr::Round(call) => render_order_round_term(call),
+    }
+}
+
+fn render_order_aggregate_input_arithmetic_term(term: SqlArithmeticProjectionCall) -> String {
+    let left = render_order_aggregate_input_operand(term.left);
+    let right = render_order_aggregate_input_operand(term.right);
+    let op = match term.op {
+        SqlArithmeticProjectionOp::Add => "+",
+        SqlArithmeticProjectionOp::Sub => "-",
+        SqlArithmeticProjectionOp::Mul => "*",
+        SqlArithmeticProjectionOp::Div => "/",
+    };
+
+    format!("{left} {op} {right}")
+}
+
+fn render_order_aggregate_input_operand(operand: SqlProjectionOperand) -> String {
+    match operand {
+        SqlProjectionOperand::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
+        SqlProjectionOperand::Field(field) => field,
+        SqlProjectionOperand::Literal(literal) => render_order_literal(literal),
+        SqlProjectionOperand::Arithmetic(call) => {
+            format!("({})", render_order_aggregate_input_arithmetic_term(*call))
+        }
     }
 }
 

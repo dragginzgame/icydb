@@ -324,6 +324,9 @@ fn normalize_projection_operand_for_table_alias(
             normalize_aggregate_call_for_table_alias(aggregate, scope),
         ),
         SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
+        SqlProjectionOperand::Arithmetic(call) => SqlProjectionOperand::Arithmetic(Box::new(
+            normalize_arithmetic_projection_call_for_table_alias(*call, scope),
+        )),
     }
 }
 

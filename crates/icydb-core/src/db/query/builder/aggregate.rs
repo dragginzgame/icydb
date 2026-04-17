@@ -5,7 +5,11 @@
 
 use crate::db::query::plan::{
     AggregateKind, FieldSlot,
-    expr::{Expr, FieldId},
+    expr::{BinaryOp, Expr, FieldId, Function},
+};
+use crate::{
+    db::numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+    value::Value,
 };
 
 ///
@@ -46,7 +50,9 @@ impl AggregateExpr {
     pub(in crate::db) fn from_expression_input(kind: AggregateKind, input_expr: Expr) -> Self {
         Self {
             kind,
-            input_expr: Some(Box::new(input_expr)),
+            input_expr: Some(Box::new(canonicalize_aggregate_input_expr(
+                kind, input_expr,
+            ))),
             distinct: false,
         }
     }
@@ -113,6 +119,171 @@ impl AggregateExpr {
                 "AggregateExpr::terminal_for_kind does not support SUM/AVG field-target kinds"
             ),
         }
+    }
+}
+
+// Keep aggregate input identity canonical anywhere planner-owned aggregate
+// expressions are constructed so grouped/global paths do not drift on
+// semantically equivalent constant subexpressions.
+pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr: Expr) -> Expr {
+    let folded =
+        normalize_aggregate_input_numeric_literals(fold_aggregate_input_constant_expr(expr));
+
+    match kind {
+        AggregateKind::Sum | AggregateKind::Avg => match folded {
+            Expr::Literal(value) => value
+                .to_numeric_decimal()
+                .map_or(Expr::Literal(value), |decimal| {
+                    Expr::Literal(Value::Decimal(decimal.normalize()))
+                }),
+            other => other,
+        },
+        AggregateKind::Count
+        | AggregateKind::Min
+        | AggregateKind::Max
+        | AggregateKind::Exists
+        | AggregateKind::First
+        | AggregateKind::Last => folded,
+    }
+}
+
+// Fold literal-only aggregate-input subexpressions so semantic aggregate
+// matching can treat `AVG(age + 1 * 2)` and `AVG(age + 2)` as the same input.
+fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .into_iter()
+                .map(fold_aggregate_input_constant_expr)
+                .collect::<Vec<_>>();
+
+            fold_aggregate_input_constant_function(function, args.as_slice())
+                .unwrap_or(Expr::FunctionCall { function, args })
+        }
+        Expr::Binary { op, left, right } => {
+            let left = fold_aggregate_input_constant_expr(*left);
+            let right = fold_aggregate_input_constant_expr(*right);
+
+            fold_aggregate_input_constant_binary(op, &left, &right).unwrap_or_else(|| {
+                Expr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            })
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Expr::Alias {
+            expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
+            name,
+        },
+        #[cfg(test)]
+        Expr::Unary { op, expr } => Expr::Unary {
+            op,
+            expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
+        },
+    }
+}
+
+// Fold one literal-only binary aggregate-input fragment onto one decimal
+// literal so aggregate identity stays stable across equivalent SQL spellings.
+fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Expr> {
+    let (Expr::Literal(left), Expr::Literal(right)) = (left, right) else {
+        return None;
+    };
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let arithmetic_op = match op {
+        BinaryOp::Add => NumericArithmeticOp::Add,
+        BinaryOp::Sub => NumericArithmeticOp::Sub,
+        BinaryOp::Mul => NumericArithmeticOp::Mul,
+        BinaryOp::Div => NumericArithmeticOp::Div,
+        #[cfg(test)]
+        BinaryOp::And | BinaryOp::Eq => return None,
+    };
+    let result = apply_numeric_arithmetic(arithmetic_op, left, right)?;
+
+    Some(Expr::Literal(Value::Decimal(result)))
+}
+
+// Fold one admitted literal-only aggregate-input function call when the
+// reduced aggregate-input family has one deterministic literal result.
+fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
+    match function {
+        Function::Round => fold_aggregate_input_constant_round(args),
+        Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Lower
+        | Function::Upper
+        | Function::Length
+        | Function::Left
+        | Function::Right
+        | Function::StartsWith
+        | Function::EndsWith
+        | Function::Contains
+        | Function::Position
+        | Function::Replace
+        | Function::Substring => None,
+    }
+}
+
+// Fold one literal-only ROUND(...) aggregate-input fragment so parenthesized
+// constant arithmetic keeps the same aggregate identity as its literal result.
+fn fold_aggregate_input_constant_round(args: &[Expr]) -> Option<Expr> {
+    let [Expr::Literal(input), Expr::Literal(scale)] = args else {
+        return None;
+    };
+    if matches!(input, Value::Null) || matches!(scale, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let scale = match scale {
+        Value::Int(value) => u32::try_from(*value).ok()?,
+        Value::Uint(value) => u32::try_from(*value).ok()?,
+        _ => return None,
+    };
+    let decimal = input.to_numeric_decimal()?;
+
+    Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
+}
+
+// Normalize numeric literal leaves recursively so semantically equivalent
+// aggregate inputs like `age + 2` and `age + 1 * 2` share one canonical
+// planner identity after literal-only subtree folding.
+fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
+    match expr {
+        Expr::Literal(value) => value
+            .to_numeric_decimal()
+            .map_or(Expr::Literal(value), |decimal| {
+                Expr::Literal(Value::Decimal(decimal.normalize()))
+            }),
+        Expr::Field(_) | Expr::Aggregate(_) => expr,
+        Expr::FunctionCall { function, args } => Expr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(normalize_aggregate_input_numeric_literals)
+                .collect(),
+        },
+        Expr::Binary { op, left, right } => Expr::Binary {
+            op,
+            left: Box::new(normalize_aggregate_input_numeric_literals(*left)),
+            right: Box::new(normalize_aggregate_input_numeric_literals(*right)),
+        },
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Expr::Alias {
+            expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),
+            name,
+        },
+        #[cfg(test)]
+        Expr::Unary { op, expr } => Expr::Unary {
+            op,
+            expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),
+        },
     }
 }
 

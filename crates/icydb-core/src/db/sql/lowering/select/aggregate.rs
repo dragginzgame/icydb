@@ -280,6 +280,19 @@ where
             resolve_aggregate_index(&aggregate)?,
         )),
         SqlProjectionOperand::Literal(literal) => Ok(ResolvedHavingValueExpr::Literal(literal)),
+        SqlProjectionOperand::Arithmetic(call) => Ok(ResolvedHavingValueExpr::Binary {
+            op: lower_having_binary_op(call.op),
+            left: Box::new(lower_having_operand_expr_with_policy(
+                call.left,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
+            right: Box::new(lower_having_operand_expr_with_policy(
+                call.right,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
+        }),
     }
 }
 
@@ -409,8 +422,15 @@ fn collect_having_operand_aggregate_calls(
     operand: &SqlProjectionOperand,
     aggregate_calls: &mut Vec<SqlAggregateCall>,
 ) {
-    if let SqlProjectionOperand::Aggregate(aggregate) = operand {
-        push_unique_grouped_having_aggregate_call(aggregate_calls, aggregate.clone());
+    match operand {
+        SqlProjectionOperand::Field(_) | SqlProjectionOperand::Literal(_) => {}
+        SqlProjectionOperand::Aggregate(aggregate) => {
+            push_unique_grouped_having_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlProjectionOperand::Arithmetic(call) => {
+            collect_having_operand_aggregate_calls(&call.left, aggregate_calls);
+            collect_having_operand_aggregate_calls(&call.right, aggregate_calls);
+        }
     }
 }
 

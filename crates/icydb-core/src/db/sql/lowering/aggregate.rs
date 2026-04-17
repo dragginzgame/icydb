@@ -12,6 +12,7 @@ use crate::{
             builder::{
                 AggregateExpr,
                 aggregate::{avg, count, count_by, max_by, min_by, sum},
+                scalar_projection::render_scalar_projection_expr_sql_label,
             },
             intent::StructuralQuery,
             plan::{
@@ -584,6 +585,11 @@ impl LoweredSqlGlobalAggregateCommand {
             return Err(SqlLoweringError::global_aggregate_does_not_support_group_by());
         }
         let projection_for_having = projection.clone();
+        let order_by = strip_inert_global_aggregate_output_order_terms(
+            order_by,
+            &projection_for_having,
+            projection_aliases.as_slice(),
+        )?;
 
         let mut lowered_terminals =
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
@@ -650,6 +656,49 @@ impl LoweredSqlGlobalAggregateCommand {
             having: self.having,
         }
     }
+}
+
+// Drop singleton-result ORDER BY terms that target the global aggregate output
+// row itself, while preserving base-row ordering used to shape the aggregate input window.
+fn strip_inert_global_aggregate_output_order_terms(
+    order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> Result<Vec<crate::db::sql::parser::SqlOrderTerm>, SqlLoweringError> {
+    let inert_targets =
+        collect_global_aggregate_output_order_targets(projection, projection_aliases)?;
+
+    Ok(order_by
+        .into_iter()
+        .filter(|term| !inert_targets.iter().any(|target| target == &term.field))
+        .collect())
+}
+
+// Collect the canonical ORDER BY spellings that refer to the singleton global
+// aggregate output row so the dedicated aggregate lane can ignore them instead
+// of re-deriving them as base-row ordering.
+fn collect_global_aggregate_output_order_targets(
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> Result<Vec<String>, SqlLoweringError> {
+    let SqlProjection::Items(items) = projection else {
+        return Ok(Vec::new());
+    };
+
+    let mut targets = Vec::with_capacity(items.len());
+    for (item, alias) in items.iter().zip(projection_aliases.iter()) {
+        let expr = lower_select_item_expr(item)?;
+        if !expr_contains_aggregate(&expr) || expr_references_global_direct_fields(&expr) {
+            continue;
+        }
+
+        targets.push(render_scalar_projection_expr_sql_label(&expr));
+        if let Some(alias) = alias {
+            targets.push(alias.clone());
+        }
+    }
+
+    Ok(targets)
 }
 
 ///
@@ -1368,8 +1417,15 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
     // Only aggregate operands contribute grouped reducer slots, so the operand
     // walk can stay intentionally narrow.
     fn collect_operand_aggregates(&mut self, operand: &SqlProjectionOperand) {
-        if let SqlProjectionOperand::Aggregate(aggregate) = operand {
-            self.push_unique_aggregate(aggregate.clone());
+        match operand {
+            SqlProjectionOperand::Field(_) | SqlProjectionOperand::Literal(_) => {}
+            SqlProjectionOperand::Aggregate(aggregate) => {
+                self.push_unique_aggregate(aggregate.clone());
+            }
+            SqlProjectionOperand::Arithmetic(call) => {
+                self.collect_operand_aggregates(&call.left);
+                self.collect_operand_aggregates(&call.right);
+            }
         }
     }
 
@@ -1522,6 +1578,11 @@ fn lower_sql_aggregate_operand_expr(
     match operand {
         SqlProjectionOperand::Field(field) => Ok(Expr::Field(FieldId::new(field))),
         SqlProjectionOperand::Literal(literal) => Ok(Expr::Literal(literal)),
+        SqlProjectionOperand::Arithmetic(call) => Ok(Expr::Binary {
+            op: lower_sql_aggregate_binary_op(call.op),
+            left: Box::new(lower_sql_aggregate_operand_expr(call.left)?),
+            right: Box::new(lower_sql_aggregate_operand_expr(call.right)?),
+        }),
         SqlProjectionOperand::Aggregate(_) => {
             Err(SqlLoweringError::unsupported_select_projection())
         }
