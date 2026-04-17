@@ -31,7 +31,7 @@ If SQL admits a capability and IcyDB already has one equivalent canonical
 typed or fluent model for that capability, the default expectation is that the
 typed or fluent surface should expose it too.
 
-For `0.77`, this is not just a directional preference.
+This is not just a directional preference.
 It is the completion rule for the ordinary single-entity query surface:
 
 * admitted ordinary SQL query capability should have one canonical fluent or
@@ -161,9 +161,9 @@ Representative evidence:
 ### Global Aggregate `SELECT`
 
 Global aggregate SQL is admitted by the language contract.
-The completion goal for `0.77` is that this admitted ordinary query shape is
-described and tested as one canonical query capability rather than as a
-special-case SQL success.
+The current rule is that this admitted ordinary query shape is described and
+tested as one canonical query capability rather than as a special-case SQL
+success.
 
 Representative evidence:
 
@@ -244,10 +244,10 @@ The public rule is:
 That rule is owned by typed/fluent public APIs rather than by a separate SQL
 result envelope.
 
-## 0.77 Freeze Bar
+## Current Freeze Bar
 
-The admitted single-entity SQL surface is not considered complete for `0.77`
-until all of the following are true:
+The admitted single-entity SQL surface is not considered stable unless all of
+the following remain true:
 
 - every admitted ordinary SQL query family is represented both in SQL and in
   one canonical fluent or typed query form

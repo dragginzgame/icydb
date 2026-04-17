@@ -157,6 +157,38 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
     }
 }
 
+#[test]
+fn global_post_aggregate_expression_value_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("aggregate-post-a", 20), ("aggregate-post-b", 21)],
+    );
+
+    let cases = [
+        (
+            "rounded avg",
+            "SELECT ROUND(AVG(age), 0) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(21_u64)),
+        ),
+        (
+            "count plus one",
+            "SELECT COUNT(*) + 1 FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(3_u64)),
+        ),
+        (
+            "max minus min",
+            "SELECT MAX(age) - MIN(age) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(1_u64)),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+    }
+}
+
 // This parity test is intentionally table-shaped so whole-window and bounded
 // aggregate equivalence stay on one readable contract table.
 #[expect(
@@ -553,22 +585,25 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
     reset_session_sql_store();
     let session = sql_session();
 
-    for (sql, expected_columns, expected_rows, context) in [
+    for (sql, expected_columns, expected_fixed_scales, expected_rows, context) in [
         (
             "SELECT COUNT(*) FROM SessionSqlEntity",
             vec!["COUNT(*)".to_string()],
+            vec![None],
             vec![vec![Value::Uint(0)]],
             "plain global aggregate statement payload",
         ),
         (
             "SELECT COUNT(*) AS total_rows FROM SessionSqlEntity",
             vec!["total_rows".to_string()],
+            vec![None],
             vec![vec![Value::Uint(0)]],
             "aliased global aggregate statement payload",
         ),
         (
             "SELECT MIN(age) AS youngest, MAX(age) AS oldest FROM SessionSqlEntity",
             vec!["youngest".to_string(), "oldest".to_string()],
+            vec![None, None],
             vec![vec![Value::Null, Value::Null]],
             "multi-terminal aliased global aggregate statement payload",
         ),
@@ -579,8 +614,24 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
                 "SUM(age + 1)".to_string(),
                 "AVG(age + 1)".to_string(),
             ],
+            vec![None, None, None],
             vec![vec![Value::Uint(0), Value::Null, Value::Null]],
             "expression-input global aggregate statement payload",
+        ),
+        (
+            "SELECT ROUND(AVG(age), 4) AS avg_rounded, COUNT(*) + 1 AS count_plus_one, MAX(age) - MIN(age) AS spread FROM SessionSqlEntity",
+            vec![
+                "avg_rounded".to_string(),
+                "count_plus_one".to_string(),
+                "spread".to_string(),
+            ],
+            vec![Some(4), None, None],
+            vec![vec![
+                Value::Null,
+                Value::Decimal(crate::types::Decimal::from(1_u64)),
+                Value::Null,
+            ]],
+            "post-aggregate global aggregate statement payload",
         ),
     ] {
         let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
@@ -588,9 +639,9 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
 
         let SqlStatementResult::Projection {
             columns,
+            fixed_scales,
             rows,
             row_count,
-            ..
         } = payload
         else {
             panic!("{context} should return projection payload");
@@ -599,6 +650,10 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
         assert_eq!(
             columns, expected_columns,
             "{context} should preserve aggregate projection labels",
+        );
+        assert_eq!(
+            fixed_scales, expected_fixed_scales,
+            "{context} should preserve fixed-scale metadata",
         );
         assert_eq!(
             rows, expected_rows,

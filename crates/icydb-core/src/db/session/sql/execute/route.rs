@@ -63,10 +63,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map_err(QueryError::from_sql_lowering_error)?;
 
-                Ok(CompiledSqlCommand::GlobalAggregate {
-                    command,
-                    label_overrides: Self::sql_query_aggregate_label_overrides(statement),
-                })
+                Ok(CompiledSqlCommand::GlobalAggregate { command })
             }
             SqlStatement::Select(_) => {
                 let lowered = lower_sql_query_lane_for_entity(statement, authority)?;

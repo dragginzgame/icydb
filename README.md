@@ -107,22 +107,21 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version in Cargo manifests: `0.83.0`
-- Latest tagged release in this repo: `v0.83.0`
-- Current branch work in progress: `0.83.1`
+- Workspace version in Cargo manifests: `0.90.0`
+- Latest tagged release in this repo: `v0.90.0`
+- Current branch work in progress: post-`0.90.0` follow-through
 - Changelog: `CHANGELOG.md`
-- Detailed `0.83.x` notes: `docs/changelog/0.83.md`
+- Detailed `0.90.x` notes: `docs/changelog/0.90.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- `0.83.1` continues the serialization cleanup by moving migration state onto an explicit binary codec, simplifying `Value` decoding ownership, and making executor `bytes()` sizing use the same owner-local value-storage encoding as the rest of the runtime.
-- `0.83.0` starts the current line by moving cursor tokens and more DB-owned persisted-value paths off the generic serializer, while centralizing the remaining runtime DB CBOR helpers behind one explicit codec boundary.
-- `0.82.10` makes the local SQL shell easier to trust and inspect by separating engine work from shell render time, surfacing pure-covering executor sub-costs, and trimming more narrow covering-query overhead from ordered key-only and small projected reads.
-- `0.81.2` lets reduced SQL use bounded direct computed order terms like `ORDER BY age + 1`, `ORDER BY age + rank`, and `ORDER BY ROUND(age / 3, 2)` on the same canonical computed-order path instead of restricting that slice to aliases only.
-- `0.80.x` introduces explicit SQL compile/execute caching, then moves the reusable lower query-plan identity onto one shared structural cache key so repeated SQL and fluent reads can reuse the same lower planning work.
+- `0.90.0` closes the current single-entity SQL boundary further by turning several broad lowering fallback buckets into clause-specific semantic errors, so unsupported grouped and `HAVING` shapes fail clearly instead of collapsing into generic SQL rejection paths.
+- `0.89.1` follows through on the aggregate-input widening by making grouped `ORDER BY <alias>` work for expression-backed aggregates too, while also trimming stale query/session/explain helper ladders behind that shipped path.
+- `0.89.0` lets aggregate functions consume bounded scalar input expressions instead of only plain fields, so grouped and global queries can now execute shapes like `AVG(age + 1)`, `SUM(rank + score)`, and `COUNT(1)` through one shared aggregate model.
+- `0.88.1` adds bounded grouped aggregate `ORDER BY` with a dedicated Top-K strategy, so grouped queries can rank by aggregate and post-aggregate expressions like `AVG(age)` and `ROUND(AVG(age), 2)` under `LIMIT`.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
 
 ---
@@ -153,14 +152,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.83.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.90.0" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.83.0", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.90.0", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*` and the reduced SQL session
@@ -362,6 +361,9 @@ Public typed/fluent mutation shapes remain:
 Single-table aliases are admitted on the reduced SQL lane for:
 
 - `SELECT`
+- `DELETE`
+- `UPDATE`
+- `INSERT`
 
 Dedicated typed/session introspection helpers:
 

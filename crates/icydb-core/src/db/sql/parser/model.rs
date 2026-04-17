@@ -323,16 +323,6 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) offset: Option<u32>,
 }
 
-impl SqlSelectStatement {
-    /// Borrow the parser-owned alias, if present, for one projection item.
-    #[must_use]
-    pub(crate) fn projection_alias(&self, index: usize) -> Option<&str> {
-        self.projection_aliases
-            .get(index)
-            .and_then(Option::as_deref)
-    }
-}
-
 ///
 /// SqlReturningProjection
 ///

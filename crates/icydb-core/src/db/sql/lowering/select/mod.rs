@@ -37,7 +37,9 @@ use crate::db::sql::lowering::select::{
 pub(in crate::db) use binding::{
     canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
 };
-pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
+pub(in crate::db::sql::lowering) use projection::{
+    expr_contains_aggregate, lower_select_item_expr,
+};
 
 ///
 /// LoweredSelectShape

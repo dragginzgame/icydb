@@ -186,7 +186,7 @@ pub(crate) enum SqlLoweringError {
     UnsupportedSelectDistinct,
 
     #[error(
-        "unsupported global aggregate SQL projection; supported forms are pure aggregate terminal lists such as COUNT(*), SUM(field), or AVG(expr)"
+        "unsupported global aggregate SQL projection; supported forms are aggregate projections such as COUNT(*), SUM(field), AVG(expr), or scalar wrappers over aggregate results"
     )]
     UnsupportedGlobalAggregateProjection,
 

@@ -1,14 +1,25 @@
 use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
-        executor::{EntityAuthority, ScalarTerminalBoundaryRequest},
+        executor::{
+            EntityAuthority, ScalarTerminalBoundaryRequest,
+            projection::{
+                eval_binary_expr, eval_projection_function_call, projection_function_name,
+            },
+        },
         numeric::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
-        query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
-        query::{intent::StructuralQuery, plan::expr::ProjectionSelection},
-        session::sql::{SqlCacheAttribution, SqlStatementResult},
+        query::{
+            builder::AggregateExpr,
+            intent::StructuralQuery,
+            plan::expr::{Expr, ProjectionSelection},
+        },
+        session::sql::{
+            SqlCacheAttribution, SqlStatementResult, projection_fixed_scales_from_projection_spec,
+            projection_labels_from_projection_spec,
+        },
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
             SqlGlobalAggregateCommandCore, is_sql_global_aggregate_statement,
@@ -21,18 +32,6 @@ use crate::{
 
 fn parsed_requires_dedicated_sql_aggregate_lane(statement: &SqlStatement) -> bool {
     is_sql_global_aggregate_statement(statement)
-}
-
-// Keep the dedicated SQL aggregate lane on parser-owned outward labels
-// without reopening alias semantics in lowering or runtime strategy state.
-fn sql_aggregate_statement_label_overrides(statement: &SqlStatement) -> Vec<Option<String>> {
-    let SqlStatement::Select(select) = statement else {
-        return Vec::new();
-    };
-
-    (0..select.projection_aliases.len())
-        .map(|index| select.projection_alias(index).map(str::to_string))
-        .collect()
 }
 
 fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
@@ -161,54 +160,6 @@ impl<C: CanisterKind> DbSession<C> {
         parsed_requires_dedicated_sql_aggregate_lane(statement)
     }
 
-    pub(in crate::db::session::sql::execute) fn sql_query_aggregate_label_overrides(
-        statement: &SqlStatement,
-    ) -> Vec<Option<String>> {
-        sql_aggregate_statement_label_overrides(statement)
-    }
-
-    // Build the canonical SQL aggregate label projected by the prepared
-    // aggregate strategy so unified statement rows stay parser-stable.
-    fn sql_scalar_aggregate_label(strategy: &PreparedSqlScalarAggregateStrategy) -> String {
-        let kind = match strategy.runtime_descriptor() {
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
-            | PreparedSqlScalarAggregateRuntimeDescriptor::CountField => "COUNT",
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: crate::db::query::plan::AggregateKind::Sum,
-            } => "SUM",
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: crate::db::query::plan::AggregateKind::Avg,
-            } => "AVG",
-            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                kind: crate::db::query::plan::AggregateKind::Min,
-            } => "MIN",
-            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                kind: crate::db::query::plan::AggregateKind::Max,
-            } => "MAX",
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
-            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-                unreachable!("prepared SQL scalar aggregate strategy drifted outside SQL support")
-            }
-        };
-
-        if let Some(input_expr) = strategy.input_expr() {
-            let input = render_scalar_projection_expr_sql_label(input_expr);
-            let distinct = if strategy.is_distinct() {
-                "DISTINCT "
-            } else {
-                ""
-            };
-
-            return format!("{kind}({distinct}{input})");
-        }
-
-        match strategy.projected_field() {
-            Some(field) if strategy.is_distinct() => format!("{kind}(DISTINCT {field})"),
-            Some(field) => format!("{kind}({field})"),
-            None => format!("{kind}(*)"),
-        }
-    }
-
     // Project one single-field structural query and return its canonical field
     // values for aggregate reduction.
     fn execute_structural_sql_aggregate_field_projection(
@@ -268,6 +219,99 @@ impl<C: CanisterKind> DbSession<C> {
         !field.nullable()
     }
 
+    // Resolve one aggregate leaf in the output projection against the already
+    // prepared unique aggregate strategy list.
+    fn resolve_global_aggregate_expr_index(
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        aggregate_expr: &AggregateExpr,
+    ) -> Option<usize> {
+        strategies.iter().position(|strategy| {
+            let same_kind = strategy.aggregate_kind() == aggregate_expr.kind();
+            let same_distinct = strategy.is_distinct() == aggregate_expr.is_distinct();
+            let same_input = match strategy.input_expr() {
+                Some(input_expr) => aggregate_expr.input_expr() == Some(input_expr),
+                None => strategy.projected_field() == aggregate_expr.target_field(),
+            };
+
+            same_kind && same_distinct && same_input
+        })
+    }
+
+    // Evaluate one global post-aggregate output expression against the reduced
+    // unique aggregate values.
+    fn evaluate_global_aggregate_output_expr(
+        expr: &Expr,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        unique_values: &[Value],
+    ) -> Result<Value, QueryError> {
+        match expr {
+            Expr::Aggregate(aggregate_expr) => {
+                let Some(index) =
+                    Self::resolve_global_aggregate_expr_index(strategies, aggregate_expr)
+                else {
+                    return Err(QueryError::invariant(format!(
+                        "global aggregate projection evaluation referenced unknown aggregate expression kind={:?} target_field={:?} distinct={}",
+                        aggregate_expr.kind(),
+                        aggregate_expr.target_field(),
+                        aggregate_expr.is_distinct(),
+                    )));
+                };
+
+                unique_values.get(index).cloned().ok_or_else(|| {
+                    QueryError::invariant(format!(
+                        "global aggregate projection evaluation referenced aggregate output index={index} but only {} outputs are available",
+                        unique_values.len(),
+                    ))
+                })
+            }
+            Expr::Literal(value) => Ok(value.clone()),
+            Expr::FunctionCall { function, args } => {
+                let mut evaluated_args = Vec::with_capacity(args.len());
+
+                for arg in args {
+                    evaluated_args.push(Self::evaluate_global_aggregate_output_expr(
+                        arg,
+                        strategies,
+                        unique_values,
+                    )?);
+                }
+
+                eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
+                    QueryError::invariant(format!(
+                        "global aggregate projection evaluation failed in function {}: {err}",
+                        projection_function_name(*function),
+                    ))
+                })
+            }
+            Expr::Binary { op, left, right } => {
+                let left = Self::evaluate_global_aggregate_output_expr(
+                    left.as_ref(),
+                    strategies,
+                    unique_values,
+                )?;
+                let right = Self::evaluate_global_aggregate_output_expr(
+                    right.as_ref(),
+                    strategies,
+                    unique_values,
+                )?;
+
+                eval_binary_expr(*op, &left, &right).map_err(|err| {
+                    QueryError::invariant(format!(
+                        "global aggregate projection evaluation failed for binary op {op:?}: {err}",
+                    ))
+                })
+            }
+            Expr::Field(field) => Err(QueryError::invariant(format!(
+                "global aggregate projection evaluation referenced direct field '{}'",
+                field.as_str(),
+            ))),
+            #[cfg(test)]
+            Expr::Unary { .. } | Expr::Alias { .. } => Err(QueryError::invariant(
+                "global aggregate projection evaluation encountered unsupported test-only expression wrapper",
+            )),
+        }
+    }
+
     // Execute one SQL COUNT(*) aggregate through the shared typed scalar
     // terminal boundary so SQL reuses the existing count-route ownership.
     fn execute_count_rows_sql_aggregate_with_shared_terminal<E>(
@@ -302,7 +346,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: SqlGlobalAggregateCommandCore,
         authority: EntityAuthority,
-        label_overrides: Vec<Option<String>>,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -312,9 +355,6 @@ impl<C: CanisterKind> DbSession<C> {
             .prepared_scalar_strategies(model)
             .map_err(QueryError::from_sql_lowering_error)?;
         let mut unique_values = Vec::with_capacity(strategies.len());
-        let mut columns = Vec::with_capacity(command.output_remap().len());
-        let mut fixed_scales = Vec::with_capacity(command.output_remap().len());
-        let mut row = Vec::with_capacity(command.output_remap().len());
         let mut cache_attribution = SqlCacheAttribution::default();
 
         // Phase 1: execute each unique prepared aggregate terminal once.
@@ -369,30 +409,21 @@ impl<C: CanisterKind> DbSession<C> {
             unique_values.push(value);
         }
 
-        // Phase 2: fan unique terminal values back out into original SQL output
-        // order so duplicate aggregate projections preserve both labels and
-        // column multiplicity without rerunning identical work.
-        for (output_index, unique_index) in command.output_remap().iter().copied().enumerate() {
-            let strategy = strategies.get(unique_index).ok_or_else(|| {
-                QueryError::invariant(
-                    "global aggregate output remap referenced missing unique terminal strategy",
-                )
-            })?;
-            let value = unique_values.get(unique_index).cloned().ok_or_else(|| {
-                QueryError::invariant(
-                    "global aggregate output remap referenced missing reduced terminal value",
-                )
-            })?;
+        // Phase 2: evaluate the planner-owned global output projection over
+        // the reduced unique aggregate values so aggregate results can feed
+        // normal scalar wrappers like ROUND(...) and binary arithmetic.
+        let projection = command.projection();
+        let columns = projection_labels_from_projection_spec(projection);
+        let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
+        let mut row = Vec::with_capacity(projection.len());
 
-            columns.push(
-                label_overrides
-                    .get(output_index)
-                    .cloned()
-                    .flatten()
-                    .unwrap_or_else(|| Self::sql_scalar_aggregate_label(strategy)),
-            );
-            fixed_scales.push(None);
-            row.push(value);
+        for field in projection.fields() {
+            let crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } = field;
+            row.push(Self::evaluate_global_aggregate_output_expr(
+                expr,
+                strategies.as_slice(),
+                unique_values.as_slice(),
+            )?);
         }
 
         Ok((

@@ -291,10 +291,7 @@ pub(super) fn lower_scalar_projection_selection(
         return Ok(ProjectionSelection::All);
     };
 
-    let has_aggregate = items
-        .iter()
-        .any(|item| matches!(item, SqlSelectItem::Aggregate(_)));
-    if has_aggregate {
+    if items.iter().any(select_item_contains_aggregate) {
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
@@ -448,7 +445,7 @@ fn first_unknown_field_in_expr(expr: &Expr, model: &EntityModel) -> Option<Strin
 // expressions may depend on grouped fields, but they may not carry aggregate
 // leaves because aggregate projection remains explicit in the grouped runtime
 // handoff.
-fn expr_contains_aggregate(expr: &Expr) -> bool {
+pub(in crate::db::sql::lowering) fn expr_contains_aggregate(expr: &Expr) -> bool {
     match expr {
         Expr::Aggregate(_) => true,
         Expr::Field(_) | Expr::Literal(_) => false,
@@ -459,6 +456,12 @@ fn expr_contains_aggregate(expr: &Expr) -> bool {
         #[cfg(test)]
         Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => expr_contains_aggregate(expr),
     }
+}
+
+pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSelectItem) -> bool {
+    lower_select_item_expr(item)
+        .map(|expr| expr_contains_aggregate(&expr))
+        .unwrap_or(false)
 }
 
 pub(super) fn direct_scalar_field_selection(

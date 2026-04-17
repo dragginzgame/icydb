@@ -477,7 +477,6 @@ pub(in crate::db) enum CompiledSqlCommand {
     },
     GlobalAggregate {
         command: SqlGlobalAggregateCommandCore,
-        label_overrides: Vec<Option<String>>,
     },
     Explain(LoweredSqlCommand),
     Insert(SqlInsertStatement),

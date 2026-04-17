@@ -335,16 +335,12 @@ impl<C: CanisterKind> DbSession<C> {
                     ),
                 ))
             }
-            CompiledSqlCommand::GlobalAggregate {
-                command,
-                label_overrides,
-            } => {
+            CompiledSqlCommand::GlobalAggregate { command } => {
                 let ((execute_local_instructions, store_local_instructions), result) =
                     measure_execute_phase_with_physical_access(|| {
                         self.execute_global_aggregate_statement_for_authority::<E>(
                             command.clone(),
                             authority,
-                            label_overrides.clone(),
                         )
                     });
                 let (result, cache_attribution) = result?;
@@ -523,14 +519,8 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Delete { query, statement } => self
                 .execute_sql_delete_statement::<E>(query.clone(), statement)
                 .map(|result| (result, SqlCacheAttribution::default())),
-            CompiledSqlCommand::GlobalAggregate {
-                command,
-                label_overrides,
-            } => self.execute_global_aggregate_statement_for_authority::<E>(
-                command.clone(),
-                authority,
-                label_overrides.clone(),
-            ),
+            CompiledSqlCommand::GlobalAggregate { command } => self
+                .execute_global_aggregate_statement_for_authority::<E>(command.clone(), authority),
             CompiledSqlCommand::Explain(lowered) => {
                 if let Some(explain) =
                     self.explain_lowered_sql_execution_for_authority(lowered, authority)?

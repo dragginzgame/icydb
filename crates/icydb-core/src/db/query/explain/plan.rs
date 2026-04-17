@@ -779,79 +779,71 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 
 fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
     let mut object = JsonWriter::begin_object(out);
-    object.field_with("mode", |out| write_query_mode_json(explain.mode(), out));
+    object.field_with("mode", |out| {
+        let mut object = JsonWriter::begin_object(out);
+        match explain.mode() {
+            QueryMode::Load(spec) => {
+                object.field_str("type", "Load");
+                match spec.limit() {
+                    Some(limit) => object.field_u64("limit", u64::from(limit)),
+                    None => object.field_null("limit"),
+                }
+                object.field_u64("offset", u64::from(spec.offset()));
+            }
+            QueryMode::Delete(spec) => {
+                object.field_str("type", "Delete");
+                match spec.limit() {
+                    Some(limit) => object.field_u64("limit", u64::from(limit)),
+                    None => object.field_null("limit"),
+                }
+            }
+        }
+        object.finish();
+    });
     object.field_with("access", |out| write_access_json(explain.access(), out));
     object.field_value_debug("predicate", explain.predicate());
     object.field_value_debug("order_by", explain.order_by());
     object.field_bool("distinct", explain.distinct());
     object.field_value_debug("grouping", explain.grouping());
     object.field_value_debug("order_pushdown", explain.order_pushdown());
-    object.field_with("page", |out| write_pagination_json(explain.page(), out));
+    object.field_with("page", |out| {
+        let mut object = JsonWriter::begin_object(out);
+        match explain.page() {
+            ExplainPagination::None => {
+                object.field_str("type", "None");
+            }
+            ExplainPagination::Page { limit, offset } => {
+                object.field_str("type", "Page");
+                match limit {
+                    Some(limit) => object.field_u64("limit", u64::from(*limit)),
+                    None => object.field_null("limit"),
+                }
+                object.field_u64("offset", u64::from(*offset));
+            }
+        }
+        object.finish();
+    });
     object.field_with("delete_limit", |out| {
-        write_delete_limit_json(explain.delete_limit(), out);
+        let mut object = JsonWriter::begin_object(out);
+        match explain.delete_limit() {
+            ExplainDeleteLimit::None => {
+                object.field_str("type", "None");
+            }
+            ExplainDeleteLimit::Limit { max_rows } => {
+                object.field_str("type", "Limit");
+                object.field_u64("max_rows", u64::from(*max_rows));
+            }
+            ExplainDeleteLimit::Window { limit, offset } => {
+                object.field_str("type", "Window");
+                object.field_with("limit", |out| match limit {
+                    Some(limit) => out.push_str(&limit.to_string()),
+                    None => out.push_str("null"),
+                });
+                object.field_u64("offset", u64::from(*offset));
+            }
+        }
+        object.finish();
     });
     object.field_value_debug("consistency", &explain.consistency());
-    object.finish();
-}
-
-fn write_query_mode_json(mode: QueryMode, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
-    match mode {
-        QueryMode::Load(spec) => {
-            object.field_str("type", "Load");
-            match spec.limit() {
-                Some(limit) => object.field_u64("limit", u64::from(limit)),
-                None => object.field_null("limit"),
-            }
-            object.field_u64("offset", u64::from(spec.offset()));
-        }
-        QueryMode::Delete(spec) => {
-            object.field_str("type", "Delete");
-            match spec.limit() {
-                Some(limit) => object.field_u64("limit", u64::from(limit)),
-                None => object.field_null("limit"),
-            }
-        }
-    }
-    object.finish();
-}
-
-fn write_pagination_json(page: &ExplainPagination, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
-    match page {
-        ExplainPagination::None => {
-            object.field_str("type", "None");
-        }
-        ExplainPagination::Page { limit, offset } => {
-            object.field_str("type", "Page");
-            match limit {
-                Some(limit) => object.field_u64("limit", u64::from(*limit)),
-                None => object.field_null("limit"),
-            }
-            object.field_u64("offset", u64::from(*offset));
-        }
-    }
-    object.finish();
-}
-
-fn write_delete_limit_json(limit: &ExplainDeleteLimit, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
-    match limit {
-        ExplainDeleteLimit::None => {
-            object.field_str("type", "None");
-        }
-        ExplainDeleteLimit::Limit { max_rows } => {
-            object.field_str("type", "Limit");
-            object.field_u64("max_rows", u64::from(*max_rows));
-        }
-        ExplainDeleteLimit::Window { limit, offset } => {
-            object.field_str("type", "Window");
-            object.field_with("limit", |out| match limit {
-                Some(limit) => out.push_str(&limit.to_string()),
-                None => out.push_str("null"),
-            });
-            object.field_u64("offset", u64::from(*offset));
-        }
-    }
     object.finish();
 }

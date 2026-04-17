@@ -2810,6 +2810,32 @@ fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
 }
 
 #[test]
+fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expressions() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT ROUND(AVG(age), 4), COUNT(*) + 1, MAX(age) - MIN(age) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect(
+        "post-aggregate scalar wrappers should lower through the dedicated global aggregate lane",
+    );
+
+    assert_eq!(
+        command.terminals().len(),
+        4,
+        "wrapped global aggregate output expressions should dedupe onto one unique executable terminal per aggregate leaf",
+    );
+    assert_eq!(
+        command.projection().len(),
+        3,
+        "wrapped global aggregate output expressions should preserve the outward projection shape",
+    );
+    assert!(
+        command.output_remap().is_empty(),
+        "wrapped global aggregate output expressions should stop depending on the legacy top-level terminal remap",
+    );
+}
+
+#[test]
 fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals() {
     let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
         "SELECT COUNT(1), SUM(age + 1), COUNT(1), SUM(age + 1) FROM SqlLowerEntity",
@@ -3437,7 +3463,8 @@ fn compile_sql_global_aggregate_command_rejection_message_names_global_aggregate
     .expect_err("mixed global aggregate and scalar projection should remain fail-closed");
 
     assert!(
-        err.to_string().contains("pure aggregate terminal lists"),
+        err.to_string()
+            .contains("scalar wrappers over aggregate results"),
         "mixed aggregate rejection should name the admitted global aggregate list shape: {err}",
     );
 }

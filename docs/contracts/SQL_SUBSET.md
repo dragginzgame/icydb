@@ -85,10 +85,11 @@ Supported `SELECT` families are:
 
 - scalar row loads
 - scalar `DISTINCT` loads
-- global aggregate loads with exactly one aggregate projection terminal and no
+- global aggregate loads with one or more aggregate projection terminals and no
   `GROUP BY`
 - grouped aggregate loads
-- narrow computed projection loads
+- narrow computed projection loads, including the admitted bounded arithmetic,
+  `ROUND(...)`, and text-function projection forms
 
 ### `EXPLAIN`
 
@@ -123,7 +124,7 @@ Supported public mutation shapes are:
 - `INSERT`
 - `UPDATE`
 - `DELETE`
-- admitted `... RETURNING`
+- admitted narrow `... RETURNING`
 
 Mutation ownership still primarily lives on typed and fluent APIs:
 
@@ -151,6 +152,9 @@ Examples:
 
 - `SELECT * FROM Customer c`
 - `SELECT c.name FROM Customer AS c`
+- `DELETE FROM Customer c WHERE c.age < 20`
+- `UPDATE Customer AS c SET age = 22 WHERE c.name = 'Ada'`
+- `INSERT INTO Customer c (name, age) VALUES ('Ada', 22)`
 
 No statement may introduce more than one entity binding.
 
@@ -165,20 +169,23 @@ Supported scalar projection forms are:
 
 Supported aggregate projection forms are:
 
-- exactly one global aggregate terminal with no `GROUP BY`
-- grouped projection where grouped key items come first and aggregate items come
-  after them
+- one or more aggregate terminals with no `GROUP BY`
+- grouped projection where grouped key items come first and aggregate or
+  post-aggregate computed items come after them
 
 Supported grouped projection examples:
 
 - `SELECT age, COUNT(*) FROM Customer GROUP BY age`
 - `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
+- `SELECT age, ROUND(AVG(age), 2) FROM Customer GROUP BY age`
+- `SELECT age, AVG(age + 1) + AVG(age + 1) FROM Customer GROUP BY age`
 
 Unsupported grouped projection examples:
 
 - grouped aggregates without grouped keys in the projection
 - grouped keys appearing after aggregate outputs
-- arbitrary expression widening in grouped projection
+- grouped projection terms that reference non-group fields outside the admitted
+  grouped key and aggregate output authority
 - bounded text functions inside grouped projection
 
 ## Projection Aliases
@@ -194,7 +201,8 @@ Aliases may label:
 
 - scalar field projections
 - aggregate projections
-- admitted scalar computed text projections
+- admitted scalar computed projections
+- admitted grouped post-aggregate computed projections
 
 `ORDER BY <alias>` is supported only when the alias resolves to an already
 supported order target:
@@ -202,6 +210,10 @@ supported order target:
 - a plain field
 - `LOWER(field)`
 - `UPPER(field)`
+- admitted bounded scalar computed order targets such as field-plus-literal,
+  field-plus-field, and `ROUND(...)`
+- admitted grouped aggregate order targets, including bounded grouped Top-K
+  alias forms such as `ORDER BY avg_age DESC`
 
 Aliases do not widen the order-expression surface.
 
@@ -218,15 +230,60 @@ Supported `WHERE` predicate forms are:
   - `<=`
   - `>`
   - `>=`
+  - `<>`
+- field-to-field comparisons on the same comparison family
 - `IN (...)`
 - `NOT IN (...)`
 - `BETWEEN ... AND ...`
+- `NOT BETWEEN ... AND ...`
 - `IS NULL`
 - `IS NOT NULL`
+- `IS TRUE`
+- `IS FALSE`
+- `IS NOT TRUE`
+- `IS NOT FALSE`
 - prefix `LIKE 'prefix%'`
+- prefix `NOT LIKE 'prefix%'`
+- prefix `ILIKE 'prefix%'`
+- prefix `NOT ILIKE 'prefix%'`
 - `STARTS_WITH(field, 'prefix')`
 
 Narrow casefolded predicate forms are also supported:
 
 - `LOWER(field) LIKE 'prefix%'`
 - `UPPER(field) LIKE 'PREFIX%'`
+- `STARTS_WITH(LOWER(field), 'prefix')`
+- `STARTS_WITH(UPPER(field), 'PREFIX')`
+
+Field-bound range predicates are also supported on the plain-field lane:
+
+- `field BETWEEN lower_field AND upper_field`
+- `field NOT BETWEEN lower_field AND upper_field`
+
+Still intentionally excluded from the admitted predicate lane:
+
+- grouped field-to-field predicates
+- non-prefix `LIKE` / `NOT LIKE` / `ILIKE` / `NOT ILIKE`
+- wrapped `STARTS_WITH(...)` first arguments beyond plain or `LOWER/UPPER`
+  field wrappers
+- grouped `HAVING` variants that reuse the plain-field boolean special forms
+  or text-pattern lane directly
+
+## Public SQL Write `RETURNING`
+
+Supported `RETURNING` forms are intentionally narrow:
+
+- `RETURNING *`
+- `RETURNING field, ...`
+
+`RETURNING` is admitted on the public SQL write lane for:
+
+- `INSERT ... RETURNING`
+- `UPDATE ... RETURNING`
+- `DELETE ... RETURNING`
+
+Unsupported `RETURNING` projection forms remain fail-closed:
+
+- computed expressions in `RETURNING`
+- aggregate expressions in `RETURNING`
+- other widened projection families beyond `*` or plain field lists
