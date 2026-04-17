@@ -109,6 +109,376 @@ fn execute_sql_scalar_in_trailing_comma_matches_canonical_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_searched_case_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for searched CASE.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-case-a", 10),
+            ("where-case-b", 20),
+            ("where-case-c", 30),
+            ("where-case-d", 40),
+        ],
+    );
+
+    // Phase 2: require searched CASE WHERE to flow through the same scalar
+    // expression seam as the other admitted clause positions.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC",
+    )
+    .expect("searched CASE WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("where-case-b".to_string())],
+            vec![Value::Text("where-case-c".to_string())],
+            vec![Value::Text("where-case-d".to_string())],
+        ],
+        "searched CASE WHERE should evaluate row predicates through the unified scalar expression seam",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix that exercises NULL
+    // boolean-context behavior through searched CASE.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-case-null-a", 10),
+            ("where-case-null-b", 20),
+            ("where-case-null-c", 30),
+            ("where-case-null-d", 40),
+        ],
+    );
+
+    // Phase 2: compare NULL-condition and NULL-result CASE filters against
+    // their direct canonical boolean forms.
+    let null_condition_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN NULL THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC",
+    )
+    .expect("searched CASE WHERE with NULL condition should execute");
+    let direct_age_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 \
+         ORDER BY age ASC",
+    )
+    .expect("direct age-equality WHERE should execute");
+    let null_result_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE END \
+         ORDER BY age ASC",
+    )
+    .expect("searched CASE WHERE with NULL result should execute");
+    let direct_threshold_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 30 \
+         ORDER BY age ASC",
+    )
+    .expect("direct threshold WHERE should execute");
+
+    assert_eq!(
+        null_condition_rows, direct_age_rows,
+        "NULL searched-CASE conditions in WHERE should behave like false and fall through to the ELSE branch",
+    );
+    assert_eq!(
+        null_result_rows, direct_threshold_rows,
+        "NULL searched-CASE results in WHERE should filter rows the same way as the equivalent direct boolean predicate",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_not_searched_case_where_null_semantics_match_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for NOT-over-CASE.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-not-case-a", 10),
+            ("where-not-case-b", 20),
+            ("where-not-case-c", 30),
+            ("where-not-case-d", 40),
+        ],
+    );
+
+    // Phase 2: require NOT to preserve NULL searched-CASE semantics instead
+    // of treating unknown as false too early.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE NOT CASE WHEN age >= 30 THEN TRUE END \
+         ORDER BY age ASC",
+    )
+    .expect("NOT searched CASE WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        Vec::<Vec<Value>>::new(),
+        "NOT searched CASE WHERE should filter both true and NULL rows instead of collapsing NULL to false before negation",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_combined_boolean_searched_case_where_matches_canonical_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for composed
+    // boolean expressions that include searched CASE.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-case-and-a", 10),
+            ("where-case-and-b", 20),
+            ("where-case-and-c", 30),
+            ("where-case-and-d", 40),
+        ],
+    );
+
+    // Phase 2: compare one composed searched-CASE boolean filter against its
+    // equivalent direct boolean predicate.
+    let case_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE (CASE WHEN age >= 30 THEN TRUE END) AND age >= 20 \
+         ORDER BY age ASC",
+    )
+    .expect("composed searched CASE WHERE query should execute");
+    let canonical_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 30 \
+         ORDER BY age ASC",
+    )
+    .expect("canonical composed boolean WHERE query should execute");
+
+    assert_eq!(
+        case_rows, canonical_rows,
+        "searched CASE should preserve NULL through composed boolean expressions until the final WHERE truth collapse",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_null_boolean_and_true_filters_all_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for literal NULL
+    // boolean composition.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-null-and-a", 10),
+            ("where-null-and-b", 20),
+            ("where-null-and-c", 30),
+            ("where-null-and-d", 40),
+        ],
+    );
+
+    // Phase 2: require literal NULL boolean composition to collapse only at
+    // the final WHERE truth boundary.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE NULL AND TRUE \
+         ORDER BY age ASC",
+    )
+    .expect("NULL AND TRUE WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        Vec::<Vec<Value>>::new(),
+        "NULL AND TRUE should evaluate to unknown and filter every row",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_not_null_filters_all_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for NOT NULL.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-not-null-a", 10),
+            ("where-not-null-b", 20),
+            ("where-not-null-c", 30),
+            ("where-not-null-d", 40),
+        ],
+    );
+
+    // Phase 2: require NOT NULL in WHERE to stay unknown and filter rows.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE NOT NULL \
+         ORDER BY age ASC",
+    )
+    .expect("NOT NULL WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        Vec::<Vec<Value>>::new(),
+        "NOT NULL should remain unknown in WHERE and filter every row",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_case_with_null_true_branch_keeps_else_rows_only() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for mixed CASE
+    // branches that return NULL in boolean context.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-case-null-branch-a", 10),
+            ("where-case-null-branch-b", 20),
+            ("where-case-null-branch-c", 30),
+            ("where-case-null-branch-d", 40),
+        ],
+    );
+
+    // Phase 2: require searched CASE to keep NULL branch results until the
+    // final WHERE truth collapse.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN NULL ELSE TRUE END \
+         ORDER BY age ASC",
+    )
+    .expect("mixed NULL/TRUE searched CASE WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("where-case-null-branch-a".to_string())],
+            vec![Value::Text("where-case-null-branch-b".to_string())],
+        ],
+        "searched CASE should drop rows whose selected branch returns NULL and keep rows whose selected branch returns TRUE",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_eq_null_on_non_nullable_field_returns_no_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for NULL compare
+    // spelling over a non-nullable field.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-eq-null-a", 10),
+            ("where-eq-null-b", 20),
+            ("where-eq-null-c", 30),
+            ("where-eq-null-d", 40),
+        ],
+    );
+
+    // Phase 2: require equality-to-NULL over the current non-nullable field
+    // surface to return no rows.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = NULL \
+         ORDER BY age ASC",
+    )
+    .expect("field equals NULL WHERE query should execute on the non-nullable fixture");
+
+    assert_eq!(
+        rows,
+        Vec::<Vec<Value>>::new(),
+        "field equals NULL should keep no rows on the current non-nullable fixture",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_is_not_null_differs_from_ne_null_on_non_nullable_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for contrasting
+    // null-test and inequality-to-NULL spellings on a non-nullable field.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-is-not-null-a", 10),
+            ("where-is-not-null-b", 20),
+            ("where-is-not-null-c", 30),
+            ("where-is-not-null-d", 40),
+        ],
+    );
+
+    // Phase 2: require IS NOT NULL to keep the seeded rows while != NULL
+    // still behaves like unknown-at-WHERE and drops everything.
+    let is_not_null_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age IS NOT NULL \
+         ORDER BY age ASC",
+    )
+    .expect("field IS NOT NULL WHERE query should execute on the non-nullable fixture");
+    let ne_null_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age != NULL \
+         ORDER BY age ASC",
+    )
+    .expect("field != NULL WHERE query should execute on the non-nullable fixture");
+
+    assert_eq!(
+        is_not_null_rows,
+        vec![
+            vec![Value::Text("where-is-not-null-a".to_string())],
+            vec![Value::Text("where-is-not-null-b".to_string())],
+            vec![Value::Text("where-is-not-null-c".to_string())],
+            vec![Value::Text("where-is-not-null-d".to_string())],
+        ],
+        "IS NOT NULL should keep all rows on the current non-nullable fixture",
+    );
+    assert_eq!(
+        ne_null_rows,
+        Vec::<Vec<Value>>::new(),
+        "!= NULL should stay distinct from IS NOT NULL and keep no rows on the current non-nullable fixture",
+    );
+}
+
+#[test]
 fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
     reset_session_sql_store();
     let session = sql_session();

@@ -482,6 +482,19 @@ fn render_order_sql_expr(expr: SqlExpr) -> String {
         SqlExpr::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
         SqlExpr::Literal(literal) => render_order_literal(literal),
         SqlExpr::TextFunction(call) => render_order_text_function_term(call),
+        SqlExpr::NullTest { expr, negated } => format!(
+            "{} IS{} NULL",
+            render_order_sql_expr(*expr),
+            if negated { " NOT" } else { "" }
+        ),
+        SqlExpr::FunctionCall { function, args } => format!(
+            "{}({})",
+            function_name(function),
+            args.into_iter()
+                .map(render_order_sql_expr)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         SqlExpr::Round(call) => render_order_round_term(call),
         SqlExpr::Unary {
             op: crate::db::sql::parser::SqlExprUnaryOp::Not,
@@ -526,6 +539,25 @@ fn render_order_sql_expr(expr: SqlExpr) -> String {
 
             rendered
         }
+    }
+}
+
+const fn function_name(function: crate::db::sql::parser::SqlTextFunction) -> &'static str {
+    match function {
+        crate::db::sql::parser::SqlTextFunction::Trim => "TRIM",
+        crate::db::sql::parser::SqlTextFunction::Ltrim => "LTRIM",
+        crate::db::sql::parser::SqlTextFunction::Rtrim => "RTRIM",
+        crate::db::sql::parser::SqlTextFunction::Lower => "LOWER",
+        crate::db::sql::parser::SqlTextFunction::Upper => "UPPER",
+        crate::db::sql::parser::SqlTextFunction::Length => "LENGTH",
+        crate::db::sql::parser::SqlTextFunction::Left => "LEFT",
+        crate::db::sql::parser::SqlTextFunction::Right => "RIGHT",
+        crate::db::sql::parser::SqlTextFunction::StartsWith => "STARTS_WITH",
+        crate::db::sql::parser::SqlTextFunction::EndsWith => "ENDS_WITH",
+        crate::db::sql::parser::SqlTextFunction::Contains => "CONTAINS",
+        crate::db::sql::parser::SqlTextFunction::Position => "POSITION",
+        crate::db::sql::parser::SqlTextFunction::Replace => "REPLACE",
+        crate::db::sql::parser::SqlTextFunction::Substring => "SUBSTRING",
     }
 }
 

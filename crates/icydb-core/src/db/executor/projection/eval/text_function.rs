@@ -15,6 +15,8 @@ use crate::{
 
 pub(in crate::db) const fn projection_function_name(function: Function) -> &'static str {
     match function {
+        Function::IsNull => "is_null",
+        Function::IsNotNull => "is_not_null",
         Function::Trim => "trim",
         Function::Ltrim => "ltrim",
         Function::Rtrim => "rtrim",
@@ -40,6 +42,10 @@ pub(in crate::db) fn eval_projection_function_call(
     args: &[Value],
 ) -> Result<Value, QueryError> {
     match function {
+        Function::IsNull | Function::IsNotNull => Err(QueryError::invariant(format!(
+            "projection function evaluator received internal WHERE-only function '{}'",
+            projection_function_name(function)
+        ))),
         Function::Trim
         | Function::Ltrim
         | Function::Rtrim

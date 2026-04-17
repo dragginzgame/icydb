@@ -662,6 +662,25 @@ fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
 }
 
 #[test]
+fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC",
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 30 OR (NOT (age >= 30) AND age = 20) \
+         ORDER BY age ASC",
+        "searched CASE WHERE explain parity",
+    );
+}
+
+#[test]
 fn explain_sql_order_by_supported_scalar_text_aliases_match_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();

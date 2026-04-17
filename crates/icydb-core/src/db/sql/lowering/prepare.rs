@@ -177,7 +177,7 @@ fn lower_prepared_statement(
             LoweredSqlQuery::Select(lower_select_shape(statement, model)?),
         ))),
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Delete(lower_delete_shape(statement)),
+            LoweredSqlQuery::Delete(lower_delete_shape(statement)?),
         ))),
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
@@ -209,7 +209,7 @@ fn lower_explain_prepared(
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
                 mode,
-                query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)),
+                query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)?),
             }))
         }
     }

@@ -1,6 +1,6 @@
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
-    SqlLoweringError, lower_sql_predicate,
+    SqlLoweringError, predicate::lower_sql_where_expr,
 };
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
@@ -604,7 +604,7 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(Self {
             query: LoweredBaseQueryShape {
-                predicate: predicate.map(lower_sql_predicate),
+                predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
                 order_by,
                 limit,
                 offset,
@@ -1471,6 +1471,14 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
             SqlExpr::Aggregate(aggregate) => {
                 self.push_unique_aggregate(aggregate.clone());
             }
+            SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+                self.collect_sql_expr_aggregates(expr);
+            }
+            SqlExpr::FunctionCall { args, .. } => {
+                for arg in args {
+                    self.collect_sql_expr_aggregates(arg);
+                }
+            }
             SqlExpr::Round(call) => match &call.input {
                 SqlRoundProjectionInput::Operand(operand) => {
                     self.collect_operand_aggregates(operand);
@@ -1480,7 +1488,6 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
                     self.collect_operand_aggregates(&call.right);
                 }
             },
-            SqlExpr::Unary { expr, .. } => self.collect_sql_expr_aggregates(expr),
             SqlExpr::Binary { left, right, .. } => {
                 self.collect_sql_expr_aggregates(left);
                 self.collect_sql_expr_aggregates(right);
@@ -1732,7 +1739,9 @@ fn fold_sql_aggregate_input_constant_binary(
 fn fold_sql_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
     match function {
         Function::Round => fold_sql_aggregate_input_round(args),
-        Function::Trim
+        Function::IsNull
+        | Function::IsNotNull
+        | Function::Trim
         | Function::Ltrim
         | Function::Rtrim
         | Function::Lower

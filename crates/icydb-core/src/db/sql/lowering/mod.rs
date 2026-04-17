@@ -42,7 +42,7 @@ pub(crate) use aggregate::{
     PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
-pub(in crate::db) use predicate::lower_sql_predicate;
+pub(in crate::db) use predicate::lower_sql_where_expr;
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
@@ -232,6 +232,9 @@ pub(crate) enum SqlLoweringError {
     #[error("aggregate input expressions are not executable in this release")]
     UnsupportedAggregateInputExpressions,
 
+    #[error("unsupported SQL WHERE expression shape")]
+    UnsupportedWhereExpression,
+
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
@@ -269,6 +272,11 @@ impl SqlLoweringError {
     /// Construct one unsupported global aggregate projection SQL lowering error.
     const fn unsupported_global_aggregate_projection() -> Self {
         Self::UnsupportedGlobalAggregateProjection
+    }
+
+    /// Construct one unsupported SQL WHERE expression lowering error.
+    pub(crate) const fn unsupported_where_expression() -> Self {
+        Self::UnsupportedWhereExpression
     }
 
     /// Construct one global-aggregate-GROUP-BY SQL lowering error.

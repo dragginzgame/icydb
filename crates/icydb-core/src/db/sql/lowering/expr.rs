@@ -46,6 +46,21 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
         }
         SqlExpr::Literal(literal) => Ok(Expr::Literal(literal.clone())),
         SqlExpr::TextFunction(call) => lower_text_function_expr(call),
+        SqlExpr::NullTest { expr, negated } => Ok(Expr::FunctionCall {
+            function: if *negated {
+                Function::IsNotNull
+            } else {
+                Function::IsNull
+            },
+            args: vec![lower_sql_expr(expr.as_ref(), phase)?],
+        }),
+        SqlExpr::FunctionCall { function, args } => Ok(Expr::FunctionCall {
+            function: lower_sql_text_function(*function),
+            args: args
+                .iter()
+                .map(|arg| lower_sql_expr(arg, phase))
+                .collect::<Result<Vec<_>, SqlLoweringError>>()?,
+        }),
         SqlExpr::Round(call) => lower_round_projection_expr(call, phase),
         SqlExpr::Unary { op, expr } => Ok(Expr::Unary {
             op: lower_sql_unary_op(*op),
@@ -175,6 +190,25 @@ const fn lower_sql_binary_op(op: SqlExprBinaryOp) -> BinaryOp {
 // text projection seam so runtime/explain contracts stay unchanged.
 fn lower_text_function_expr(call: &SqlTextFunctionCall) -> Result<Expr, SqlLoweringError> {
     text_function_spec(call.function).lower_expr(call)
+}
+
+const fn lower_sql_text_function(function: SqlTextFunction) -> Function {
+    match function {
+        SqlTextFunction::Trim => Function::Trim,
+        SqlTextFunction::Ltrim => Function::Ltrim,
+        SqlTextFunction::Rtrim => Function::Rtrim,
+        SqlTextFunction::Lower => Function::Lower,
+        SqlTextFunction::Upper => Function::Upper,
+        SqlTextFunction::Length => Function::Length,
+        SqlTextFunction::Left => Function::Left,
+        SqlTextFunction::Right => Function::Right,
+        SqlTextFunction::StartsWith => Function::StartsWith,
+        SqlTextFunction::EndsWith => Function::EndsWith,
+        SqlTextFunction::Contains => Function::Contains,
+        SqlTextFunction::Position => Function::Position,
+        SqlTextFunction::Replace => Function::Replace,
+        SqlTextFunction::Substring => Function::Substring,
+    }
 }
 
 fn lower_round_projection_expr(

@@ -8,10 +8,10 @@ use super::{
     SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
     SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlParseError, SqlPredicate, SqlProjection, SqlProjectionOperand,
-    SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlOrderTerm, SqlParseError, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
+    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -20,8 +20,174 @@ use crate::{
 
 macro_rules! option_sql_pred {
     ($predicate:expr) => {
-        Some(SqlPredicate::from_runtime_predicate($predicate))
+        Some(sql_expr_from_runtime_predicate($predicate))
     };
+}
+
+fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
+    match predicate {
+        Predicate::True => SqlExpr::Literal(Value::Bool(true)),
+        Predicate::False => SqlExpr::Literal(Value::Bool(false)),
+        Predicate::And(children) => fold_predicate_children(children, SqlExprBinaryOp::And),
+        Predicate::Or(children) => fold_predicate_children(children, SqlExprBinaryOp::Or),
+        Predicate::Not(inner) => SqlExpr::Unary {
+            op: super::SqlExprUnaryOp::Not,
+            expr: Box::new(sql_expr_from_runtime_predicate(*inner)),
+        },
+        Predicate::Compare(compare) => sql_expr_from_compare(compare),
+        Predicate::CompareFields(compare) => SqlExpr::Binary {
+            op: sql_binary_from_compare(compare.op()),
+            left: Box::new(SqlExpr::Field(compare.left_field().to_string())),
+            right: Box::new(SqlExpr::Field(compare.right_field().to_string())),
+        },
+        Predicate::IsNull { field } => SqlExpr::NullTest {
+            expr: Box::new(SqlExpr::Field(field)),
+            negated: false,
+        },
+        Predicate::IsNotNull { field } => SqlExpr::NullTest {
+            expr: Box::new(SqlExpr::Field(field)),
+            negated: true,
+        },
+        Predicate::IsMissing { field } => SqlExpr::FunctionCall {
+            function: SqlTextFunction::Contains,
+            args: vec![SqlExpr::Field(field), SqlExpr::Literal(Value::Null)],
+        },
+        Predicate::IsEmpty { field } => SqlExpr::FunctionCall {
+            function: SqlTextFunction::Length,
+            args: vec![SqlExpr::Field(field)],
+        },
+        Predicate::IsNotEmpty { field } => SqlExpr::Unary {
+            op: super::SqlExprUnaryOp::Not,
+            expr: Box::new(SqlExpr::FunctionCall {
+                function: SqlTextFunction::Length,
+                args: vec![SqlExpr::Field(field)],
+            }),
+        },
+        Predicate::TextContains { field, value } => SqlExpr::FunctionCall {
+            function: SqlTextFunction::Contains,
+            args: vec![SqlExpr::Field(field), SqlExpr::Literal(value)],
+        },
+        Predicate::TextContainsCi { field, value } => SqlExpr::FunctionCall {
+            function: SqlTextFunction::Contains,
+            args: vec![
+                SqlExpr::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower,
+                    field,
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlExpr::Literal(value),
+            ],
+        },
+    }
+}
+
+fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
+    match compare.op() {
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(values) = compare.value().clone() else {
+                panic!("IN/NOT IN compare expects list literal in parser tests");
+            };
+            let join_op = if compare.op() == CompareOp::In {
+                SqlExprBinaryOp::Or
+            } else {
+                SqlExprBinaryOp::And
+            };
+            let cmp_op = if compare.op() == CompareOp::In {
+                SqlExprBinaryOp::Eq
+            } else {
+                SqlExprBinaryOp::Ne
+            };
+
+            fold_exprs(
+                values
+                    .into_iter()
+                    .map(|value| SqlExpr::Binary {
+                        op: cmp_op,
+                        left: Box::new(SqlExpr::Field(compare.field().to_string())),
+                        right: Box::new(SqlExpr::Literal(value)),
+                    })
+                    .collect(),
+                join_op,
+            )
+        }
+        CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => {
+            SqlExpr::FunctionCall {
+                function: match compare.op() {
+                    CompareOp::StartsWith => SqlTextFunction::StartsWith,
+                    CompareOp::EndsWith => SqlTextFunction::EndsWith,
+                    CompareOp::Contains => SqlTextFunction::Contains,
+                    _ => unreachable!(),
+                },
+                args: vec![
+                    if compare.coercion().id() == CoercionId::TextCasefold {
+                        SqlExpr::TextFunction(SqlTextFunctionCall {
+                            function: SqlTextFunction::Lower,
+                            field: compare.field().to_string(),
+                            literal: None,
+                            literal2: None,
+                            literal3: None,
+                        })
+                    } else {
+                        SqlExpr::Field(compare.field().to_string())
+                    },
+                    SqlExpr::Literal(compare.value().clone()),
+                ],
+            }
+        }
+        op => SqlExpr::Binary {
+            op: sql_binary_from_compare(op),
+            left: Box::new(match compare.coercion().id() {
+                CoercionId::TextCasefold => SqlExpr::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower,
+                    field: compare.field().to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                _ => SqlExpr::Field(compare.field().to_string()),
+            }),
+            right: Box::new(SqlExpr::Literal(compare.value().clone())),
+        },
+    }
+}
+
+fn fold_predicate_children(children: Vec<Predicate>, op: SqlExprBinaryOp) -> SqlExpr {
+    fold_exprs(
+        children
+            .into_iter()
+            .map(sql_expr_from_runtime_predicate)
+            .collect(),
+        op,
+    )
+}
+
+fn fold_exprs(mut exprs: Vec<SqlExpr>, op: SqlExprBinaryOp) -> SqlExpr {
+    let first = exprs.remove(0);
+    exprs
+        .into_iter()
+        .fold(first, |left, right| SqlExpr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        })
+}
+
+const fn sql_binary_from_compare(op: CompareOp) -> SqlExprBinaryOp {
+    match op {
+        CompareOp::Eq => SqlExprBinaryOp::Eq,
+        CompareOp::Ne => SqlExprBinaryOp::Ne,
+        CompareOp::Lt => SqlExprBinaryOp::Lt,
+        CompareOp::Lte => SqlExprBinaryOp::Lte,
+        CompareOp::Gt => SqlExprBinaryOp::Gt,
+        CompareOp::Gte => SqlExprBinaryOp::Gte,
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => SqlExprBinaryOp::Eq,
+    }
 }
 
 #[test]
@@ -390,6 +556,83 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
             offset: None,
         }),
         "searched CASE aggregate inputs should stay on the shared SQL-expression boundary",
+    );
+}
+
+#[test]
+fn parse_select_statement_with_searched_case_where_expression() {
+    let statement = parse_sql(
+        "SELECT name FROM users \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC",
+    )
+    .expect("searched CASE WHERE select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
+            projection_aliases: vec![None],
+            predicate: Some(SqlExpr::Case {
+                arms: vec![SqlCaseArm {
+                    condition: SqlExpr::Binary {
+                        op: SqlExprBinaryOp::Gte,
+                        left: Box::new(SqlExpr::Field("age".to_string())),
+                        right: Box::new(SqlExpr::Literal(Value::Int(30))),
+                    },
+                    result: SqlExpr::Literal(Value::Bool(true)),
+                }],
+                else_expr: Some(Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(20))),
+                })),
+            }),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: None,
+            offset: None,
+        }),
+        "searched CASE WHERE should stay on the shared pre-aggregate SQL-expression boundary",
+    );
+}
+
+#[test]
+fn parse_select_statement_distinguishes_is_null_from_eq_null() {
+    let is_null = parse_sql("SELECT * FROM users WHERE age IS NULL ORDER BY age ASC")
+        .expect("IS NULL select statement should parse");
+    let eq_null = parse_sql("SELECT * FROM users WHERE age = NULL ORDER BY age ASC")
+        .expect("= NULL select statement should parse");
+
+    let SqlStatement::Select(is_null) = is_null else {
+        panic!("expected parsed IS NULL select statement");
+    };
+    let SqlStatement::Select(eq_null) = eq_null else {
+        panic!("expected parsed = NULL select statement");
+    };
+
+    assert_eq!(
+        is_null.predicate,
+        Some(SqlExpr::NullTest {
+            expr: Box::new(SqlExpr::Field("age".to_string())),
+            negated: false,
+        }),
+        "IS NULL should preserve one dedicated null-test SQL expression node",
+    );
+    assert_eq!(
+        eq_null.predicate,
+        Some(SqlExpr::Binary {
+            op: SqlExprBinaryOp::Eq,
+            left: Box::new(SqlExpr::Field("age".to_string())),
+            right: Box::new(SqlExpr::Literal(Value::Null)),
+        }),
+        "= NULL should stay one ordinary equality expression instead of collapsing into the IS NULL node",
     );
 }
 

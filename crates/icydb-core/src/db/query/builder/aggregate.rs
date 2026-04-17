@@ -234,7 +234,9 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
 fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
     match function {
         Function::Round => fold_aggregate_input_constant_round(args),
-        Function::Trim
+        Function::IsNull
+        | Function::IsNotNull
+        | Function::Trim
         | Function::Ltrim
         | Function::Rtrim
         | Function::Lower

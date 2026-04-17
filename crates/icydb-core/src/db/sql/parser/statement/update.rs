@@ -12,7 +12,7 @@ impl Parser {
 
         // Phase 1: parse the reduced predicate before any bounded windowing.
         let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
+            Some(self.parse_where_expr()?)
         } else {
             None
         };

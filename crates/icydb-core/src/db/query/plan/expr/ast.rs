@@ -132,6 +132,8 @@ pub(crate) enum BinaryOp {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Function {
+    IsNull,
+    IsNotNull,
     Trim,
     Ltrim,
     Rtrim,
@@ -154,6 +156,8 @@ impl Function {
     #[must_use]
     pub(crate) const fn sql_label(self) -> &'static str {
         match self {
+            Self::IsNull => "IS_NULL",
+            Self::IsNotNull => "IS_NOT_NULL",
             Self::Trim => "TRIM",
             Self::Ltrim => "LTRIM",
             Self::Rtrim => "RTRIM",
@@ -440,7 +444,9 @@ fn render_supported_order_expr_with_parent(
     match expr {
         Expr::FunctionCall {
             function:
-                Function::Trim
+                Function::IsNull
+                | Function::IsNotNull
+                | Function::Trim
                 | Function::Ltrim
                 | Function::Rtrim
                 | Function::Lower
@@ -704,6 +710,11 @@ impl SupportedOrderExprParser {
         };
 
         let args = match function {
+            Function::IsNull | Function::IsNotNull => {
+                return Err(SqlParseError::unsupported_feature(
+                    "supported ORDER BY expression family",
+                ));
+            }
             Function::Trim
             | Function::Ltrim
             | Function::Rtrim

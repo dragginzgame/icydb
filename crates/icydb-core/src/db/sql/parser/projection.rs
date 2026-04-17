@@ -22,6 +22,7 @@ pub(super) enum SqlExprParseSurface {
     Projection,
     AggregateInput,
     HavingValue,
+    Where,
 }
 
 impl SqlExprParseSurface {
@@ -30,11 +31,21 @@ impl SqlExprParseSurface {
     }
 
     const fn allows_text_functions(self) -> bool {
-        matches!(self, Self::Projection)
+        matches!(self, Self::Projection | Self::Where)
+    }
+
+    const fn allows_where_postfix(self) -> bool {
+        matches!(self, Self::Where)
     }
 }
 
 impl Parser {
+    pub(super) fn parse_where_expr(
+        &mut self,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        self.parse_sql_expr(SqlExprParseSurface::Where, 0)
+    }
+
     pub(super) fn parse_projection(
         &mut self,
     ) -> Result<(SqlProjection, Vec<Option<String>>), crate::db::sql_shared::SqlParseError> {
@@ -459,7 +470,9 @@ impl Parser {
                     },
                 )))
             }
-            SqlExpr::TextFunction(_)
+            SqlExpr::NullTest { .. }
+            | SqlExpr::TextFunction(_)
+            | SqlExpr::FunctionCall { .. }
             | SqlExpr::Round(_)
             | SqlExpr::Unary { .. }
             | SqlExpr::Case { .. } => None,
@@ -473,7 +486,17 @@ impl Parser {
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let mut left = self.parse_sql_expr_prefix(surface)?;
 
-        while let Some((op, precedence)) = self.peek_sql_expr_binary_op() {
+        loop {
+            if surface.allows_where_postfix()
+                && let Some(expr) = self.try_parse_where_postfix_expr(left.clone(), surface)?
+            {
+                left = expr;
+                continue;
+            }
+
+            let Some((op, precedence)) = self.peek_sql_expr_binary_op() else {
+                break;
+            };
             if precedence < min_precedence {
                 break;
             }
@@ -575,6 +598,10 @@ impl Parser {
             ));
         };
 
+        if matches!(surface, SqlExprParseSurface::Where) {
+            return self.parse_where_function_expr(function);
+        }
+
         let call = self.parse_text_function_call(function)?;
         if self.peek_keyword(Keyword::Over) {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
@@ -616,6 +643,250 @@ impl Parser {
         self.expect_identifier_keyword("END")?;
 
         Ok(SqlExpr::Case { arms, else_expr })
+    }
+
+    fn try_parse_where_postfix_expr(
+        &mut self,
+        left: SqlExpr,
+        surface: SqlExprParseSurface,
+    ) -> Result<Option<SqlExpr>, crate::db::sql_shared::SqlParseError> {
+        debug_assert!(surface.allows_where_postfix());
+
+        if self.eat_keyword(Keyword::Is) {
+            let negated = self.eat_keyword(Keyword::Not);
+            if !self.peek_keyword(Keyword::Null) {
+                return Err(crate::db::sql_shared::SqlParseError::expected(
+                    "NULL after IS/IS NOT",
+                    self.peek_kind(),
+                ));
+            }
+            let _ = self.cursor.advance();
+
+            return Ok(Some(SqlExpr::NullTest {
+                expr: Box::new(left),
+                negated,
+            }));
+        }
+
+        if self.eat_identifier_keyword("LIKE") {
+            return self.parse_where_like_expr(left, false, false).map(Some);
+        }
+        if self.eat_identifier_keyword("ILIKE") {
+            return self.parse_where_like_expr(left, false, true).map(Some);
+        }
+        if self.cursor.peek_identifier_keyword("NOT")
+            && matches!(self.cursor.peek_next_kind(), Some(TokenKind::Identifier(_)))
+        {
+            let mut lookahead = self.cursor.clone();
+            let _ = lookahead.eat_identifier_keyword("NOT");
+            if lookahead.peek_identifier_keyword("LIKE") {
+                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.eat_identifier_keyword("LIKE");
+
+                return self.parse_where_like_expr(left, true, false).map(Some);
+            }
+            if lookahead.peek_identifier_keyword("ILIKE") {
+                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.eat_identifier_keyword("ILIKE");
+
+                return self.parse_where_like_expr(left, true, true).map(Some);
+            }
+            if lookahead.peek_keyword(Keyword::In) {
+                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
+
+                return self.parse_where_in_expr(left, true).map(Some);
+            }
+            if lookahead.peek_keyword(Keyword::Between) {
+                let _ = self.cursor.eat_identifier_keyword("NOT");
+                let _ = self.cursor.advance();
+
+                return self.parse_where_between_expr(left, true, surface).map(Some);
+            }
+        }
+
+        if self.eat_keyword(Keyword::In) {
+            return self.parse_where_in_expr(left, false).map(Some);
+        }
+        if self.eat_keyword(Keyword::Between) {
+            return self
+                .parse_where_between_expr(left, false, surface)
+                .map(Some);
+        }
+
+        Ok(None)
+    }
+
+    fn parse_where_like_expr(
+        &mut self,
+        left: SqlExpr,
+        negated: bool,
+        casefold: bool,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let Value::Text(pattern) = self.parse_literal()? else {
+            return Err(crate::db::sql_shared::SqlParseError::expected(
+                "string literal pattern after LIKE",
+                self.peek_kind(),
+            ));
+        };
+        let Some(prefix) = pattern.strip_suffix('%') else {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "LIKE patterns beyond trailing '%' prefix form",
+            ));
+        };
+
+        let left = if casefold {
+            match left {
+                SqlExpr::Field(field) => SqlExpr::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower,
+                    field,
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlExpr::TextFunction(call)
+                    if matches!(
+                        call.function,
+                        SqlTextFunction::Lower | SqlTextFunction::Upper
+                    ) =>
+                {
+                    SqlExpr::TextFunction(call)
+                }
+                _ => {
+                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                        "LIKE left-hand expression forms beyond plain or LOWER/UPPER field wrappers",
+                    ));
+                }
+            }
+        } else {
+            left
+        };
+
+        let expr = SqlExpr::FunctionCall {
+            function: SqlTextFunction::StartsWith,
+            args: vec![left, SqlExpr::Literal(Value::Text(prefix.to_string()))],
+        };
+
+        Ok(if negated {
+            SqlExpr::Unary {
+                op: SqlExprUnaryOp::Not,
+                expr: Box::new(expr),
+            }
+        } else {
+            expr
+        })
+    }
+
+    fn parse_where_in_expr(
+        &mut self,
+        left: SqlExpr,
+        negated: bool,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        self.expect_lparen()?;
+        let mut values = Vec::new();
+        loop {
+            values.push(SqlExpr::Literal(self.parse_literal()?));
+            if !self.eat_comma() {
+                break;
+            }
+            if matches!(self.peek_kind(), Some(TokenKind::RParen)) {
+                break;
+            }
+        }
+        self.expect_rparen()?;
+
+        let op = if negated {
+            SqlExprBinaryOp::Ne
+        } else {
+            SqlExprBinaryOp::Eq
+        };
+        let join_op = if negated {
+            SqlExprBinaryOp::And
+        } else {
+            SqlExprBinaryOp::Or
+        };
+        let mut values = values.into_iter();
+        let Some(first) = values.next() else {
+            return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                "IN requires at least one literal",
+            ));
+        };
+        let mut expr = SqlExpr::Binary {
+            op,
+            left: Box::new(left.clone()),
+            right: Box::new(first),
+        };
+        for value in values {
+            expr = SqlExpr::Binary {
+                op: join_op,
+                left: Box::new(expr),
+                right: Box::new(SqlExpr::Binary {
+                    op,
+                    left: Box::new(left.clone()),
+                    right: Box::new(value),
+                }),
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_where_between_expr(
+        &mut self,
+        left: SqlExpr,
+        negated: bool,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let lower = self.parse_sql_expr_prefix(surface)?;
+        self.expect_keyword(Keyword::And)?;
+        let upper = self.parse_sql_expr_prefix(surface)?;
+
+        Ok(if negated {
+            SqlExpr::Binary {
+                op: SqlExprBinaryOp::Or,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Lt,
+                    left: Box::new(left.clone()),
+                    right: Box::new(lower),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Gt,
+                    left: Box::new(left),
+                    right: Box::new(upper),
+                }),
+            }
+        } else {
+            SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Gte,
+                    left: Box::new(left.clone()),
+                    right: Box::new(lower),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Lte,
+                    left: Box::new(left),
+                    right: Box::new(upper),
+                }),
+            }
+        })
+    }
+
+    fn parse_where_function_expr(
+        &mut self,
+        function: SqlTextFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        self.expect_lparen()?;
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_sql_expr(SqlExprParseSurface::Where, 0)?);
+            if !self.eat_comma() {
+                break;
+            }
+        }
+        self.expect_rparen()?;
+
+        Ok(SqlExpr::FunctionCall { function, args })
     }
 
     fn peek_sql_expr_binary_op(&self) -> Option<(SqlExprBinaryOp, u8)> {

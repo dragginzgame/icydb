@@ -38,8 +38,6 @@ pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
-#[cfg(feature = "sql")]
-pub(in crate::db) use parser::parse_predicate_from_cursor;
 pub(crate) use parser::parse_sql_predicate;
 
 #[cfg(test)]

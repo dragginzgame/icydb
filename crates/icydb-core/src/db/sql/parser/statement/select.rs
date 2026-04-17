@@ -13,7 +13,7 @@ impl Parser {
 
         // Phase 1: parse predicate and grouping clauses in canonical sequence.
         let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
+            Some(self.parse_where_expr()?)
         } else {
             None
         };
@@ -64,10 +64,9 @@ impl Parser {
         };
         if let Some(alias) = table_alias.as_deref() {
             predicate = predicate.map(|predicate| {
-                crate::db::sql::parser::statement::normalize_predicate_for_table_alias(
+                crate::db::sql::parser::statement::normalize_sql_expr_for_table_alias(
                     predicate,
-                    entity.as_str(),
-                    alias,
+                    &[entity.clone(), alias.to_string()],
                 )
             });
             group_by = crate::db::sql::parser::statement::normalize_identifier_list_for_table_alias(

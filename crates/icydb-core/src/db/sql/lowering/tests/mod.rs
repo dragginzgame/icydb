@@ -1119,6 +1119,93 @@ fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null()
 }
 
 #[test]
+fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE WHERE SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered searched CASE WHERE query command");
+    };
+
+    let fluent_query =
+        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+            Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    Value::Int(30),
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::True,
+            ]),
+            Predicate::And(vec![
+                Predicate::Not(Box::new(Predicate::Compare(
+                    ComparePredicate::with_coercion(
+                        "age",
+                        CompareOp::Gte,
+                        Value::Int(30),
+                        CoercionId::NumericWiden,
+                    ),
+                ))),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Eq,
+                    Value::Uint(20),
+                    CoercionId::Strict,
+                )),
+            ]),
+        ]));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("searched CASE WHERE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("canonical searched CASE WHERE fluent plan should build")
+            .into_inner(),
+        "searched CASE WHERE should lower through the shared pre-aggregate expression seam before predicate adaptation",
+    );
+}
+
+#[test]
+fn compile_sql_command_distinguishes_is_null_from_eq_null_predicates() {
+    let is_null = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age IS NULL",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("IS NULL SQL query should lower");
+    let eq_null = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age = NULL",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("= NULL SQL query should lower");
+
+    let SqlCommand::Query(is_null_query) = is_null else {
+        panic!("expected lowered IS NULL query command");
+    };
+    let SqlCommand::Query(eq_null_query) = eq_null else {
+        panic!("expected lowered = NULL query command");
+    };
+
+    assert_ne!(
+        is_null_query
+            .plan()
+            .expect("IS NULL SQL plan should build")
+            .into_inner(),
+        eq_null_query
+            .plan()
+            .expect("= NULL SQL plan should build")
+            .into_inner(),
+        "IS NULL and = NULL should remain semantically distinct through SQL lowering",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_round_with_negative_scale() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT ROUND(age, -1) FROM SqlLowerEntity",

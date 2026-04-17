@@ -12,13 +12,12 @@ use crate::db::sql::identifier::{identifier_last_segment, normalize_identifier_t
 use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
-        SqlAssignment, SqlCompareFieldsPredicate, SqlComparePredicate, SqlDeleteStatement,
-        SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-        SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection,
-        SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
-        SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
-        SqlUpdateStatement,
+        SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
+        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlHavingClause, SqlHavingValueExpr,
+        SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
+        SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+        SqlTextFunctionCall, SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -332,13 +331,13 @@ fn normalize_projection_operand_for_table_alias(
 // Reduce one parsed predicate tree onto canonical entity-local identifiers so
 // alias-qualified WHERE clauses stay planner-neutral.
 pub(super) fn normalize_predicate_for_table_alias(
-    predicate: SqlPredicate,
+    predicate: SqlExpr,
     entity: &str,
     alias: &str,
-) -> SqlPredicate {
+) -> SqlExpr {
     let scope = table_alias_scope(entity, alias);
 
-    normalize_sql_predicate_for_table_alias(predicate, scope.as_slice())
+    normalize_sql_expr_for_table_alias(predicate, scope.as_slice())
 }
 
 // Reduce one identifier list such as GROUP BY onto canonical entity-local
@@ -483,7 +482,7 @@ fn normalize_aggregate_input_expr_for_table_alias(
     }
 }
 
-fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]) -> SqlExpr {
+pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]) -> SqlExpr {
     match expr {
         SqlExpr::Field(field) => SqlExpr::Field(normalize_identifier_to_scope(field, scope)),
         SqlExpr::Aggregate(aggregate) => {
@@ -493,6 +492,17 @@ fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]) -> SqlExp
         SqlExpr::TextFunction(call) => {
             SqlExpr::TextFunction(normalize_text_function_call_for_table_alias(call, scope))
         }
+        SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
+            expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
+            negated,
+        },
+        SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(|arg| normalize_sql_expr_for_table_alias(arg, scope))
+                .collect(),
+        },
         SqlExpr::Round(call) => {
             SqlExpr::Round(normalize_round_projection_call_for_table_alias(call, scope))
         }
@@ -515,76 +525,6 @@ fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]) -> SqlExp
                 .collect(),
             else_expr: else_expr
                 .map(|else_expr| Box::new(normalize_sql_expr_for_table_alias(*else_expr, scope))),
-        },
-    }
-}
-
-fn normalize_sql_predicate_for_table_alias(
-    predicate: SqlPredicate,
-    scope: &[String],
-) -> SqlPredicate {
-    match predicate {
-        SqlPredicate::True => SqlPredicate::True,
-        SqlPredicate::False => SqlPredicate::False,
-        SqlPredicate::And(children) => SqlPredicate::And(
-            children
-                .into_iter()
-                .map(|child| normalize_sql_predicate_for_table_alias(child, scope))
-                .collect(),
-        ),
-        SqlPredicate::Or(children) => SqlPredicate::Or(
-            children
-                .into_iter()
-                .map(|child| normalize_sql_predicate_for_table_alias(child, scope))
-                .collect(),
-        ),
-        SqlPredicate::Not(inner) => SqlPredicate::Not(Box::new(
-            normalize_sql_predicate_for_table_alias(*inner, scope),
-        )),
-        SqlPredicate::Compare(SqlComparePredicate {
-            field,
-            op,
-            value,
-            coercion,
-        }) => SqlPredicate::Compare(SqlComparePredicate {
-            field: normalize_identifier_to_scope(field, scope),
-            op,
-            value,
-            coercion,
-        }),
-        SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
-            left_field,
-            op,
-            right_field,
-            coercion,
-        }) => SqlPredicate::CompareFields(SqlCompareFieldsPredicate {
-            left_field: normalize_identifier_to_scope(left_field, scope),
-            op,
-            right_field: normalize_identifier_to_scope(right_field, scope),
-            coercion,
-        }),
-        SqlPredicate::IsNull { field } => SqlPredicate::IsNull {
-            field: normalize_identifier_to_scope(field, scope),
-        },
-        SqlPredicate::IsNotNull { field } => SqlPredicate::IsNotNull {
-            field: normalize_identifier_to_scope(field, scope),
-        },
-        SqlPredicate::IsMissing { field } => SqlPredicate::IsMissing {
-            field: normalize_identifier_to_scope(field, scope),
-        },
-        SqlPredicate::IsEmpty { field } => SqlPredicate::IsEmpty {
-            field: normalize_identifier_to_scope(field, scope),
-        },
-        SqlPredicate::IsNotEmpty { field } => SqlPredicate::IsNotEmpty {
-            field: normalize_identifier_to_scope(field, scope),
-        },
-        SqlPredicate::TextContains { field, value } => SqlPredicate::TextContains {
-            field: normalize_identifier_to_scope(field, scope),
-            value,
-        },
-        SqlPredicate::TextContainsCi { field, value } => SqlPredicate::TextContainsCi {
-            field: normalize_identifier_to_scope(field, scope),
-            value,
         },
     }
 }

@@ -3,10 +3,7 @@
 //! Does not own: cursor movement, clause sequencing, or execution semantics.
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
-use crate::{
-    db::predicate::{CoercionId, CompareOp, Predicate},
-    value::Value,
-};
+use crate::{db::predicate::CompareOp, value::Value};
 
 ///
 /// SqlStatement
@@ -138,6 +135,14 @@ pub(crate) enum SqlExpr {
     Aggregate(SqlAggregateCall),
     Literal(Value),
     TextFunction(SqlTextFunctionCall),
+    NullTest {
+        expr: Box<Self>,
+        negated: bool,
+    },
+    FunctionCall {
+        function: SqlTextFunction,
+        args: Vec<Self>,
+    },
     Round(SqlRoundProjectionCall),
     Unary {
         op: SqlExprUnaryOp,
@@ -152,113 +157,6 @@ pub(crate) enum SqlExpr {
         arms: Vec<SqlCaseArm>,
         else_expr: Option<Box<Self>>,
     },
-}
-
-///
-/// SqlComparePredicate
-///
-/// Parser-owned field-to-literal comparison leaf preserved on the SQL frontend
-/// seam until SQL lowering maps the reduced predicate family back onto the
-/// runtime predicate authority.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlComparePredicate {
-    pub(crate) field: String,
-    pub(crate) op: CompareOp,
-    pub(crate) value: Value,
-    pub(crate) coercion: CoercionId,
-}
-
-///
-/// SqlCompareFieldsPredicate
-///
-/// Parser-owned field-to-field comparison leaf preserved on the SQL frontend
-/// seam so single-entity SQL statements no longer carry runtime `Predicate`
-/// values before lowering.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlCompareFieldsPredicate {
-    pub(crate) left_field: String,
-    pub(crate) op: CompareOp,
-    pub(crate) right_field: String,
-    pub(crate) coercion: CoercionId,
-}
-
-///
-/// SqlPredicate
-///
-/// Parser-owned SQL predicate tree for `WHERE` clauses on statement shells.
-/// This keeps reduced SQL statement parsing on a frontend model owned by SQL
-/// parsing instead of constructing runtime `Predicate` values directly.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlPredicate {
-    True,
-    False,
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-    Compare(SqlComparePredicate),
-    CompareFields(SqlCompareFieldsPredicate),
-    IsNull { field: String },
-    IsNotNull { field: String },
-    IsMissing { field: String },
-    IsEmpty { field: String },
-    IsNotEmpty { field: String },
-    TextContains { field: String, value: Value },
-    TextContainsCi { field: String, value: Value },
-}
-
-impl SqlPredicate {
-    /// Convert one runtime predicate tree into the SQL frontend predicate model.
-    #[must_use]
-    pub(crate) fn from_runtime_predicate(predicate: Predicate) -> Self {
-        match predicate {
-            Predicate::True => Self::True,
-            Predicate::False => Self::False,
-            Predicate::And(children) => Self::And(
-                children
-                    .into_iter()
-                    .map(Self::from_runtime_predicate)
-                    .collect(),
-            ),
-            Predicate::Or(children) => Self::Or(
-                children
-                    .into_iter()
-                    .map(Self::from_runtime_predicate)
-                    .collect(),
-            ),
-            Predicate::Not(inner) => Self::Not(Box::new(Self::from_runtime_predicate(*inner))),
-            Predicate::Compare(compare) => Self::Compare(SqlComparePredicate {
-                field: compare.field().to_string(),
-                op: compare.op(),
-                value: compare.value().clone(),
-                coercion: compare.coercion().id(),
-            }),
-            Predicate::CompareFields(compare) => Self::CompareFields(SqlCompareFieldsPredicate {
-                left_field: compare.left_field().to_string(),
-                op: compare.op(),
-                right_field: compare.right_field().to_string(),
-                coercion: compare.coercion().id(),
-            }),
-            Predicate::IsNull { field } => Self::IsNull { field },
-            Predicate::IsNotNull { field } => Self::IsNotNull { field },
-            Predicate::IsMissing { field } => Self::IsMissing { field },
-            Predicate::IsEmpty { field } => Self::IsEmpty { field },
-            Predicate::IsNotEmpty { field } => Self::IsNotEmpty { field },
-            Predicate::TextContains { field, value } => Self::TextContains { field, value },
-            Predicate::TextContainsCi { field, value } => Self::TextContainsCi { field, value },
-        }
-    }
-}
-
-impl From<Predicate> for SqlPredicate {
-    fn from(value: Predicate) -> Self {
-        Self::from_runtime_predicate(value)
-    }
 }
 
 impl SqlExpr {
@@ -321,12 +219,13 @@ impl SqlExpr {
         match self {
             Self::Aggregate(_) => true,
             Self::Field(_) | Self::Literal(_) | Self::TextFunction(_) => false,
+            Self::NullTest { expr, .. } | Self::Unary { expr, .. } => expr.contains_aggregate(),
+            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_aggregate),
             Self::Round(call) => match &call.input {
                 SqlRoundProjectionInput::Operand(operand) => Self::from_projection_operand(operand),
                 SqlRoundProjectionInput::Arithmetic(call) => Self::from_arithmetic_call(call),
             }
             .contains_aggregate(),
-            Self::Unary { expr, .. } => expr.contains_aggregate(),
             Self::Binary { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
             }
@@ -617,7 +516,7 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) entity: String,
     pub(crate) projection: SqlProjection,
     pub(crate) projection_aliases: Vec<Option<String>>,
-    pub(crate) predicate: Option<SqlPredicate>,
+    pub(crate) predicate: Option<SqlExpr>,
     pub(crate) distinct: bool,
     pub(crate) group_by: Vec<String>,
     pub(crate) having: Vec<SqlHavingClause>,
@@ -652,7 +551,7 @@ pub(crate) enum SqlReturningProjection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDeleteStatement {
     pub(crate) entity: String,
-    pub(crate) predicate: Option<SqlPredicate>,
+    pub(crate) predicate: Option<SqlExpr>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
@@ -718,7 +617,7 @@ pub(crate) struct SqlAssignment {
 pub(crate) struct SqlUpdateStatement {
     pub(crate) entity: String,
     pub(crate) assignments: Vec<SqlAssignment>,
-    pub(crate) predicate: Option<SqlPredicate>,
+    pub(crate) predicate: Option<SqlExpr>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,

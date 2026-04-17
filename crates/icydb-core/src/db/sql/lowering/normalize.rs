@@ -8,14 +8,13 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-            rewrite_field_identifiers,
         },
-        lowering::{expr::SqlExprPhase, lower_sql_predicate},
+        lowering::expr::SqlExprPhase,
         parser::{
             SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
-            SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlPredicate, SqlProjection,
-            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-            SqlSelectStatement, SqlTextFunctionCall,
+            SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+            SqlTextFunctionCall,
         },
     },
 };
@@ -52,13 +51,10 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
 }
 
 pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
-    predicate: SqlPredicate,
+    predicate: SqlExpr,
     entity_scope: &[String],
-) -> SqlPredicate {
-    SqlPredicate::from_runtime_predicate(rewrite_field_identifiers(
-        lower_sql_predicate(predicate),
-        |field| normalize_identifier(field, entity_scope),
-    ))
+) -> SqlExpr {
+    SqlIdentifierNormalizer::new(entity_scope).normalize_sql_expr(predicate)
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -220,6 +216,17 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             SqlExpr::TextFunction(call) => {
                 SqlExpr::TextFunction(self.normalize_text_function_call(call))
             }
+            SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
+                expr: Box::new(self.normalize_sql_expr(*expr)),
+                negated,
+            },
+            SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
+                function,
+                args: args
+                    .into_iter()
+                    .map(|arg| self.normalize_sql_expr(arg))
+                    .collect(),
+            },
             SqlExpr::Round(call) => SqlExpr::Round(self.normalize_round_call(call)),
             SqlExpr::Unary { op, expr } => SqlExpr::Unary {
                 op,

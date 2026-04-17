@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.91.x] 🪜 - 2026-04-18 - Unified SQL Expression Front End
+
+- `0.91.1` finishes the SQL expression unification line by moving `WHERE` onto the same `SqlExpr` pipeline as `SELECT`, `ORDER BY`, aggregate inputs, and `HAVING`, so searched `CASE` now works in `WHERE` too, boolean and `NULL` filtering stay consistent at the final row-filter boundary, and SQL now keeps `IS NULL` / `IS NOT NULL` distinct from `= NULL` / `!= NULL` instead of collapsing those spellings into one predicate shape.
+- `0.91.0` starts the searched `CASE` line by teaching the shared SQL expression pipeline and planner to understand `CASE WHEN ... THEN ... [ELSE ...] END`, so searched `CASE` now works in `SELECT` projections, aggregate input expressions, and aggregate `HAVING` expressions, while the SQL front end also stops storing runtime predicates directly on statements and keeps `WHERE` on a parser-owned SQL predicate model before lowering converts it back to the runtime predicate authority.
+
+See detailed breakdown:
+[docs/changelog/0.91.md](docs/changelog/0.91.md)
+
+---
+
 ## [0.90.x] 🧱 - 2026-04-17 - SQL Surface Closure
 
 - `0.90.7` closes another scalar ordering parity gap by letting already-supported projection text functions like `LEFT(name, 2)` order by alias or direct term too, and it also makes `FILTER (...)` and `OVER (...)` fail with explicit unsupported-feature errors instead of generic parser drift.

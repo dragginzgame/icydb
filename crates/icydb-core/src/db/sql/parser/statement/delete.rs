@@ -10,7 +10,7 @@ impl Parser {
         let table_alias = self.parse_optional_table_alias()?;
 
         let mut predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_predicate()?)
+            Some(self.parse_where_expr()?)
         } else {
             None
         };

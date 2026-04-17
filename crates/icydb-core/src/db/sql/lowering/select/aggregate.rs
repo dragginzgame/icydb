@@ -437,10 +437,15 @@ fn collect_sql_expr_aggregate_calls(expr: &SqlExpr, aggregate_calls: &mut Vec<Sq
         SqlExpr::Aggregate(aggregate) => {
             push_unique_grouped_having_aggregate_call(aggregate_calls, aggregate.clone());
         }
-        SqlExpr::Round(call) => collect_round_input_aggregate_calls(&call.input, aggregate_calls),
-        SqlExpr::Unary { expr, .. } => {
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
             collect_sql_expr_aggregate_calls(expr, aggregate_calls);
         }
+        SqlExpr::FunctionCall { args, .. } => {
+            for arg in args {
+                collect_sql_expr_aggregate_calls(arg, aggregate_calls);
+            }
+        }
+        SqlExpr::Round(call) => collect_round_input_aggregate_calls(&call.input, aggregate_calls),
         SqlExpr::Binary { left, right, .. } => {
             collect_sql_expr_aggregate_calls(left, aggregate_calls);
             collect_sql_expr_aggregate_calls(right, aggregate_calls);
