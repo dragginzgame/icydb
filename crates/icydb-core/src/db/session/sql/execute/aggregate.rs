@@ -7,10 +7,7 @@ use crate::{
             compare_numeric_or_strict_order,
         },
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
-        query::{
-            intent::StructuralQuery,
-            plan::expr::{ProjectionField, ProjectionSelection},
-        },
+        query::{intent::StructuralQuery, plan::expr::ProjectionSelection},
         session::sql::{SqlCacheAttribution, SqlStatementResult},
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
@@ -245,10 +242,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
         let projection_query =
-            query.projection_selection(ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
-                expr: input_expr,
-                alias: None,
-            }]));
+            query.projection_selection(ProjectionSelection::single_scalar_expr(input_expr));
 
         self.execute_structural_sql_aggregate_field_projection(projection_query, authority)
     }
