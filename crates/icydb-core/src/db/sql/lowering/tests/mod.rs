@@ -1929,6 +1929,65 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
 }
 
 #[test]
+fn compile_sql_command_allows_grouped_aggregate_order_with_limit() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY AVG(age) DESC, age ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate ORDER BY with LIMIT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    query.plan().expect(
+        "grouped aggregate ORDER BY with LIMIT should reserve the bounded Top-K grouped lane",
+    );
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY AVG(age) DESC \
+         LIMIT 1 OFFSET 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate ORDER BY with OFFSET should still lower structurally");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+
+    let err = query
+        .plan()
+        .expect_err("grouped aggregate ORDER BY with OFFSET must stay fail-closed");
+
+    assert!(matches!(
+        err,
+        crate::db::query::intent::QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderOffsetNotSupported
+                            )
+                    )
+            )
+    ));
+}
+
+#[test]
 fn compile_sql_command_rejects_grouped_non_group_field_projection() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, name, COUNT(*) FROM SqlLowerEntity GROUP BY age",

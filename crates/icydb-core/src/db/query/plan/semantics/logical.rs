@@ -11,8 +11,8 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupHavingExpr, GroupHavingValueExpr, GroupPlan,
-            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
-            PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
+            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
+            LogicalPlan, PlannerRouteProfile, QueryMode, ResolvedOrder, ResolvedOrderField,
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
@@ -23,7 +23,7 @@ use crate::{
             group::GroupedAggregateProjectionSpec,
             grouped_aggregate_execution_specs_with_model,
             grouped_aggregate_projection_specs_from_projection_spec,
-            grouped_cursor_policy_violation, lower_direct_projection_slots,
+            grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
             lower_projection_identity, lower_projection_intent,
             residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access,
@@ -731,6 +731,10 @@ fn resolved_order_for_plan(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Option<ResolvedOrder>, InternalError> {
+    if grouped_plan_strategy(plan).is_some_and(GroupedPlanStrategy::is_top_k_group) {
+        return Ok(None);
+    }
+
     let Some(order) = plan.scalar_plan().order.as_ref() else {
         return Ok(None);
     };
@@ -823,6 +827,9 @@ fn order_expression_scalar_seam_error(rendered: &str) -> InternalError {
     ))
 }
 
+// Keep the grouped Top-K execution seam fail-closed until the bounded heap
+// route is wired. Planner semantics may already reserve `top_k_group`, but the
+// executor must not silently treat that as plain hash-group ordering.
 fn order_referenced_slots_for_resolved_order(
     resolved_order: Option<&ResolvedOrder>,
 ) -> Option<Vec<usize>> {

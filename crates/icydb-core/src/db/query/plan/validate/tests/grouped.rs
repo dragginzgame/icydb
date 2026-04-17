@@ -69,6 +69,23 @@ fn grouped_spec() -> GroupSpec {
     }
 }
 
+fn grouped_spec_with_avg_score() -> GroupSpec {
+    GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model(), "team").expect("group field slot should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("score".to_string()),
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        },
+    }
+}
+
 fn scalar_with_group_order(order_fields: Vec<(String, OrderDirection)>) -> ScalarPlan {
     ScalarPlan {
         mode: QueryMode::Load(LoadSpec {
@@ -280,6 +297,40 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
     assert!(is_group_policy_error(&err, |inner| matches!(
         inner,
         GroupPlanError::OrderExpressionNotAdmissible { term } if term == "score + score"
+    )));
+}
+
+#[test]
+fn grouped_aggregate_order_with_limit_passes_planner_cursor_policy() {
+    let mut logical = scalar_with_group_order(vec![
+        ("AVG(score)".to_string(), OrderDirection::Desc),
+        ("team".to_string(), OrderDirection::Asc),
+    ]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 0,
+    });
+
+    validate_group_cursor_constraints_for_tests(&logical, &grouped_spec_with_avg_score()).expect(
+        "aggregate-driven grouped ORDER BY with LIMIT should reserve the bounded Top-K lane",
+    );
+}
+
+#[test]
+fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy() {
+    let mut logical =
+        scalar_with_group_order(vec![("AVG(score)".to_string(), OrderDirection::Desc)]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 1,
+    });
+
+    let err = validate_group_cursor_constraints_for_tests(&logical, &grouped_spec_with_avg_score())
+        .expect_err("aggregate-driven grouped ORDER BY with OFFSET must stay fail-closed");
+
+    assert!(is_group_policy_error(&err, |inner| matches!(
+        inner,
+        GroupPlanError::OrderOffsetNotSupported
     )));
 }
 

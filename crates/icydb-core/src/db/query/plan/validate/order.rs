@@ -8,7 +8,10 @@ use crate::{
     db::{
         query::plan::{
             OrderSpec,
-            expr::{ExprType, infer_expr_type, parse_supported_order_expr},
+            expr::{
+                Expr, ExprType, infer_expr_type, parse_grouped_post_aggregate_order_expr,
+                parse_supported_order_expr,
+            },
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -39,7 +42,7 @@ fn validate_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError
 }
 
 fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {
-    let Some(expression) = parse_supported_order_expr(field) else {
+    let Some(expression) = parse_supported_or_grouped_post_aggregate_order_expr(field) else {
         return Err(PlanError::from(OrderPlanError::unknown_field(field)));
     };
     let inferred = infer_expr_type(&expression, schema)?;
@@ -52,6 +55,14 @@ fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<()
     }
 
     Ok(())
+}
+
+// ORDER BY validation first admits the scalar expression family and then the
+// grouped post-aggregate expression family so grouped aggregate order terms do
+// not get rejected as unknown fields before grouped planner policy selects the
+// correct execution lane.
+fn parse_supported_or_grouped_post_aggregate_order_expr(field: &str) -> Option<Expr> {
+    parse_supported_order_expr(field).or_else(|| parse_grouped_post_aggregate_order_expr(field))
 }
 
 /// Reject duplicate non-primary-key fields in ORDER BY.

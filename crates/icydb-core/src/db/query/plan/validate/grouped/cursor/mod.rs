@@ -5,9 +5,28 @@
 
 use crate::db::query::plan::{
     FieldSlot, GroupSpec, OrderSpec, ScalarPlan,
-    expr::{GroupedOrderTermAdmissibility, classify_grouped_order_term_for_field},
+    expr::{
+        GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
+        classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
+        grouped_top_k_order_term_requires_heap,
+    },
     validate::{GroupPlanError, PlanError},
 };
+
+///
+/// GroupedOrderCursorLane
+///
+/// Planner-local grouped cursor lane chosen from the declared grouped ORDER BY
+/// terms. Canonical keeps the old grouped-key ordered contract. TopK reserves
+/// the bounded aggregate-order lane that still requires LIMIT and currently
+/// rejects OFFSET until rank-window paging lands.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GroupedOrderCursorLane {
+    Canonical,
+    TopK,
+}
 
 // Validate grouped cursor-order constraints in one dedicated gate.
 pub(in crate::db::query::plan::validate) fn validate_group_cursor_constraints(
@@ -19,37 +38,77 @@ pub(in crate::db::query::plan::validate) fn validate_group_cursor_constraints(
     let Some(order) = logical.order.as_ref() else {
         return Ok(());
     };
-    logical
+    let page = logical
         .page
         .as_ref()
-        .and_then(|page| page.limit)
+        .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
+
+    page.limit
         .map(|_| ())
         .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
-    validate_order_prefix_alignment(order, group.group_fields.as_slice())
+
+    match validate_order_lane(order, group.group_fields.as_slice())? {
+        GroupedOrderCursorLane::Canonical => Ok(()),
+        GroupedOrderCursorLane::TopK if page.offset == 0 => Ok(()),
+        GroupedOrderCursorLane::TopK => {
+            Err(PlanError::from(GroupPlanError::order_offset_not_supported()))
+        }
+    }
 }
 
-// Validate that ORDER BY starts with GROUP BY key fields in declaration order,
-// distinguishing true prefix mismatch from unsupported-but-evaluable grouped
-// order expressions.
-fn validate_order_prefix_alignment(
+// Validate that grouped ORDER BY terms stay on one supported planner lane.
+//
+// Canonical grouped ordering still requires grouped-key prefix alignment.
+// Aggregate-driven grouped ordering may reserve the bounded Top-K lane instead,
+// but only when every term is admissible under the grouped post-aggregate
+// expression model.
+fn validate_order_lane(
     order: &OrderSpec,
     group_fields: &[FieldSlot],
-) -> Result<(), PlanError> {
-    if order.fields.len() < group_fields.len() {
-        return Err(PlanError::from(
-            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-        ));
-    }
+) -> Result<GroupedOrderCursorLane, PlanError> {
+    let grouped_field_names = group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<Vec<_>>();
+    let mut top_k_required = false;
 
-    for (group_field, (order_field, _)) in group_fields.iter().zip(order.fields.iter()) {
-        match classify_grouped_order_term_for_field(order_field, group_field.field()) {
-            GroupedOrderTermAdmissibility::Preserves(_) => {}
-            GroupedOrderTermAdmissibility::PrefixMismatch => {
+    for (index, (order_field, _)) in order.fields.iter().enumerate() {
+        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
+
+        if index < group_fields.len() {
+            match classify_grouped_order_term_for_field(order_field, group_fields[index].field()) {
+                GroupedOrderTermAdmissibility::Preserves(_) => continue,
+                GroupedOrderTermAdmissibility::PrefixMismatch => {
+                    if !aggregate_driven {
+                        return Err(PlanError::from(
+                            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+                        ));
+                    }
+                }
+                GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                    if !aggregate_driven {
+                        return Err(PlanError::from(
+                            GroupPlanError::order_expression_not_admissible(order_field.clone()),
+                        ));
+                    }
+                }
+            }
+        }
+
+        if !aggregate_driven {
+            continue;
+        }
+
+        match classify_grouped_top_k_order_term(order_field, grouped_field_names.as_slice()) {
+            GroupedTopKOrderTermAdmissibility::Admissible => {
+                top_k_required = true;
+            }
+            GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return Err(PlanError::from(
                     GroupPlanError::order_prefix_not_aligned_with_group_keys(),
                 ));
             }
-            GroupedOrderTermAdmissibility::UnsupportedExpression => {
+            GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
                 return Err(PlanError::from(
                     GroupPlanError::order_expression_not_admissible(order_field.clone()),
                 ));
@@ -57,5 +116,15 @@ fn validate_order_prefix_alignment(
         }
     }
 
-    Ok(())
+    if top_k_required {
+        return Ok(GroupedOrderCursorLane::TopK);
+    }
+
+    if order.fields.len() < group_fields.len() {
+        return Err(PlanError::from(
+            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+        ));
+    }
+
+    Ok(GroupedOrderCursorLane::Canonical)
 }

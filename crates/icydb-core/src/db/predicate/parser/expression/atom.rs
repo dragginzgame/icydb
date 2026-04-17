@@ -17,48 +17,13 @@ use crate::{
     value::Value,
 };
 
-// Parse one full predicate tree from the shared reduced-SQL token cursor.
-pub(in crate::db) fn parse_predicate_from_cursor(
+// Parse one parenthesized predicate or one field/operator predicate atom.
+pub(in crate::db::predicate::parser::expression) fn parse_predicate_primary(
     cursor: &mut SqlTokenCursor,
 ) -> Result<Predicate, SqlParseError> {
-    parse_or_predicate(cursor)
-}
-
-// Parse OR chains with left-associative reduced SQL predicate semantics.
-fn parse_or_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
-    let mut left = parse_and_predicate(cursor)?;
-    while cursor.eat_keyword(Keyword::Or) {
-        let right = parse_and_predicate(cursor)?;
-        left = Predicate::Or(vec![left, right]);
-    }
-
-    Ok(left)
-}
-
-// Parse AND chains with stronger precedence than OR.
-fn parse_and_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
-    let mut left = parse_not_predicate(cursor)?;
-    while cursor.eat_keyword(Keyword::And) {
-        let right = parse_not_predicate(cursor)?;
-        left = Predicate::And(vec![left, right]);
-    }
-
-    Ok(left)
-}
-
-// Parse unary NOT before falling through to one primary predicate atom.
-fn parse_not_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
-    if cursor.eat_keyword(Keyword::Not) {
-        return Ok(Predicate::Not(Box::new(parse_not_predicate(cursor)?)));
-    }
-
-    parse_predicate_primary(cursor)
-}
-
-// Parse one parenthesized predicate or one field/operator predicate atom.
-fn parse_predicate_primary(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
     if cursor.eat_lparen() {
-        let predicate = parse_predicate_from_cursor(cursor)?;
+        let predicate =
+            crate::db::predicate::parser::expression::parse_predicate_from_cursor(cursor)?;
         cursor.expect_rparen()?;
 
         return Ok(predicate);

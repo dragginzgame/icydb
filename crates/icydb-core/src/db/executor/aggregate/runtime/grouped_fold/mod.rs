@@ -50,7 +50,7 @@ use crate::{
             },
         },
         index::IndexCompilePolicy,
-        query::plan::FieldSlot,
+        query::plan::{FieldSlot, GroupedPlanStrategy},
     },
     error::InternalError,
     model::field::FieldKind,
@@ -788,6 +788,12 @@ impl GroupedFoldRouteKind {
             .is_some()
         {
             return Self::GlobalDistinct;
+        }
+        if route
+            .grouped_plan_strategy()
+            .is_some_and(GroupedPlanStrategy::is_top_k_group)
+        {
+            return Self::Generic;
         }
         if route.grouped_fold_path().uses_count_rows_dedicated_fold() {
             return Self::CountRowsDedicated;

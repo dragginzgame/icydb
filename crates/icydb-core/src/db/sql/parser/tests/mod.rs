@@ -1863,6 +1863,54 @@ fn parse_select_grouped_statement_with_post_aggregate_having_exprs() {
 }
 
 #[test]
+fn parse_select_grouped_statement_with_aggregate_order_terms() {
+    let statement = parse_sql(
+        "SELECT age, AVG(score) \
+         FROM users \
+         GROUP BY age \
+         ORDER BY AVG(score) DESC, ROUND(AVG(score), 2) ASC, age ASC \
+         LIMIT 10",
+    )
+    .expect("grouped aggregate ORDER BY terms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Avg,
+                    field: Some("score".to_string()),
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec!["age".to_string()],
+            having: vec![],
+            order_by: vec![
+                SqlOrderTerm {
+                    field: "AVG(score)".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                },
+                SqlOrderTerm {
+                    field: "ROUND(AVG(score), 2)".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+                SqlOrderTerm {
+                    field: "age".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+            ],
+            limit: Some(10),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_grouped_statement_rejects_having_is_true() {
     let err = parse_sql(
         "SELECT age, COUNT(*) \

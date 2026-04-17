@@ -40,6 +40,20 @@ impl Parser {
     }
 
     fn parse_order_term_target(&mut self) -> Result<String, SqlParseError> {
+        if let Some(kind) = self.parse_aggregate_kind() {
+            let aggregate = self.parse_aggregate_call(kind)?;
+            if let Some(op) = self.parse_direct_order_arithmetic_op() {
+                return Ok(render_order_arithmetic_term(
+                    self.parse_arithmetic_projection_call(
+                        SqlProjectionOperand::Aggregate(aggregate),
+                        op,
+                    )?,
+                ));
+            }
+
+            return Ok(render_order_aggregate_call(aggregate));
+        }
+
         let field = self.expect_identifier()?;
         if let Some(op) = self.parse_direct_order_arithmetic_op() {
             return Ok(render_order_arithmetic_term(

@@ -303,6 +303,10 @@ pub enum GroupPlanError {
     #[error("grouped ORDER BY requires LIMIT")]
     OrderRequiresLimit,
 
+    /// Aggregate-driven grouped ORDER BY stays LIMIT-only until rank-window paging lands.
+    #[error("grouped aggregate ORDER BY does not support OFFSET in this release")]
+    OrderOffsetNotSupported,
+
     /// Grouped predicate shapes stay fail-closed for field-to-field compares in this slice.
     #[error("grouped predicates do not support field-to-field comparisons in this release")]
     PredicateFieldCompareUnsupported,
@@ -404,6 +408,11 @@ impl GroupPlanError {
     /// Construct one grouped ORDER BY requires LIMIT validation error.
     pub(crate) const fn order_requires_limit() -> Self {
         Self::OrderRequiresLimit
+    }
+
+    /// Construct one grouped aggregate ORDER BY offset policy error.
+    pub(crate) const fn order_offset_not_supported() -> Self {
+        Self::OrderOffsetNotSupported
     }
 
     /// Construct one grouped ORDER BY prefix-alignment validation error.
@@ -867,6 +876,7 @@ impl GroupPlanError {
                 | Self::OrderPrefixNotAlignedWithGroupKeys
                 | Self::OrderExpressionNotAdmissible { .. }
                 | Self::OrderRequiresLimit
+                | Self::OrderOffsetNotSupported
                 | Self::PredicateFieldCompareUnsupported
                 | Self::DistinctHavingUnsupported
                 | Self::HavingUnsupportedCompareOp { .. }

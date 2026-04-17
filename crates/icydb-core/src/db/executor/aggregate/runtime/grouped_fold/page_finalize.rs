@@ -22,10 +22,14 @@ use crate::{
             pipeline::contracts::{GroupedRouteStage, PageCursor},
             projection::{
                 CompiledGroupedProjectionPlan, GroupedProjectionExpr, compile_grouped_having_expr,
-                compile_grouped_projection_plan_if_needed,
+                compile_grouped_projection_expr, compile_grouped_projection_plan_if_needed,
+                eval_grouped_projection_expr,
             },
         },
-        query::plan::expr::ProjectionSpec,
+        query::plan::{
+            GroupedPlanStrategy, OrderDirection,
+            expr::{ProjectionSpec, parse_grouped_post_aggregate_order_expr},
+        },
     },
     error::InternalError,
     value::Value,
@@ -43,16 +47,32 @@ use crate::{
 struct GroupedPageCandidate {
     group_key: GroupKey,
     aggregate_values: Vec<Value>,
-    direction: Direction,
+    ranking: GroupedPageCandidateRanking,
+}
+
+#[derive(Eq, PartialEq)]
+enum GroupedPageCandidateRanking {
+    Canonical {
+        direction: Direction,
+    },
+    TopK {
+        order_values: Vec<Value>,
+        directions: Vec<OrderDirection>,
+    },
+}
+
+struct CompiledGroupedTopKOrder {
+    terms: Vec<CompiledGroupedTopKOrderTerm>,
+}
+
+struct CompiledGroupedTopKOrderTerm {
+    expr: GroupedProjectionExpr,
+    direction: OrderDirection,
 }
 
 impl Ord for GroupedPageCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_grouped_boundary_values(
-            self.direction,
-            self.group_key.canonical_value(),
-            other.group_key.canonical_value(),
-        )
+        compare_grouped_page_candidate_order(self, other)
     }
 }
 
@@ -68,7 +88,7 @@ impl GroupedPageCandidate {
     fn from_finalized(
         finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
         aggregate_count: usize,
-        direction: Direction,
+        ranking: GroupedPageCandidateRanking,
     ) -> Self {
         let (group_key, aggregate_values) = if aggregate_count == 1 {
             let (group_key, aggregate_value) = finalized_group.finalize_single();
@@ -81,7 +101,7 @@ impl GroupedPageCandidate {
         Self {
             group_key,
             aggregate_values,
-            direction,
+            ranking,
         }
     }
 
@@ -120,7 +140,7 @@ impl GroupedPageCandidate {
         }
         if let Some(resume_boundary) = resume_boundary
             && !grouped_resume_boundary_allows_candidate(
-                self.direction,
+                self.canonical_direction(),
                 self.group_key.canonical_value(),
                 resume_boundary,
             )
@@ -129,6 +149,13 @@ impl GroupedPageCandidate {
         }
 
         Ok(true)
+    }
+
+    const fn canonical_direction(&self) -> Direction {
+        match self.ranking {
+            GroupedPageCandidateRanking::Canonical { direction } => direction,
+            GroupedPageCandidateRanking::TopK { .. } => Direction::Asc,
+        }
     }
 
     // Consume this finalized grouped payload into the public grouped row DTO.
@@ -174,16 +201,23 @@ pub(super) fn finalize_grouped_page(
         pagination_window,
         compiled_projection,
         compiled_having_expr,
-    );
+    )?;
     let (page_rows, next_cursor_boundary) =
         if let Some(selection_bound) = route.grouped_selection_bound() {
             selection.finalize_bounded(grouped_bundle, selection_bound)?
         } else {
             selection.finalize_unbounded(grouped_bundle)?
         };
-    let next_cursor = next_cursor_boundary
-        .map(|last_group_key| route.grouped_next_cursor(last_group_key))
-        .transpose()?;
+    let next_cursor = if route
+        .grouped_plan_strategy()
+        .is_some_and(GroupedPlanStrategy::is_top_k_group)
+    {
+        None
+    } else {
+        next_cursor_boundary
+            .map(|last_group_key| route.grouped_next_cursor(last_group_key))
+            .transpose()?
+    };
 
     Ok((page_rows, next_cursor))
 }
@@ -195,12 +229,29 @@ fn into_grouped_page_candidates(
     grouped_bundle: GroupedAggregateBundle,
     sorted: bool,
     direction: Direction,
+    compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
+    group_fields: &[crate::db::query::plan::FieldSlot],
 ) -> Vec<GroupedPageCandidate> {
     let aggregate_count = grouped_bundle.aggregate_count();
     into_finalize_groups(grouped_bundle, sorted)
         .into_iter()
         .map(|finalized_group| {
-            GroupedPageCandidate::from_finalized(finalized_group, aggregate_count, direction)
+            let mut candidate = GroupedPageCandidate::from_finalized(
+                finalized_group,
+                aggregate_count,
+                GroupedPageCandidateRanking::Canonical { direction },
+            );
+
+            if let Some(compiled_order) = compiled_top_k_order {
+                candidate.ranking = compile_grouped_page_candidate_top_k_ranking(
+                    &candidate,
+                    compiled_order,
+                    group_fields,
+                )
+                .expect("grouped Top-K order values must compile from finalized groups");
+            }
+
+            candidate
         })
         .collect()
 }
@@ -218,6 +269,90 @@ fn into_finalize_groups(
     }
 }
 
+fn compile_grouped_top_k_order(
+    route: &GroupedRouteStage,
+) -> Result<Option<CompiledGroupedTopKOrder>, InternalError> {
+    if !route
+        .grouped_plan_strategy()
+        .is_some_and(GroupedPlanStrategy::is_top_k_group)
+    {
+        return Ok(None);
+    }
+
+    let order = route.plan().scalar_plan().order.as_ref().ok_or_else(|| {
+        InternalError::query_invalid_logical_plan(
+            "grouped Top-K strategy requires explicit grouped ORDER BY terms",
+        )
+    })?;
+    let mut terms = Vec::with_capacity(order.fields.len());
+
+    for (field, direction) in &order.fields {
+        let expr = parse_grouped_post_aggregate_order_expr(field).ok_or_else(|| {
+            InternalError::query_invalid_logical_plan(format!(
+                "grouped Top-K order term did not stay on the grouped post-aggregate seam: '{field}'",
+            ))
+        })?;
+        let compiled = match compile_grouped_projection_expr(
+            &expr,
+            route.group_fields(),
+            route.grouped_aggregate_execution_specs(),
+        ) {
+            Ok(compiled) => compiled,
+            Err(ProjectionEvalError::UnknownField { .. }) => continue,
+            Err(err) => {
+                return Err(ProjectionEvalError::into_grouped_projection_internal_error(
+                    err,
+                ));
+            }
+        };
+        terms.push(CompiledGroupedTopKOrderTerm {
+            expr: compiled,
+            direction: *direction,
+        });
+    }
+
+    if terms.is_empty() {
+        return Err(InternalError::query_invalid_logical_plan(
+            "grouped Top-K order did not retain any grouped-row-visible order terms",
+        ));
+    }
+
+    Ok(Some(CompiledGroupedTopKOrder { terms }))
+}
+
+fn compile_grouped_page_candidate_top_k_ranking(
+    candidate: &GroupedPageCandidate,
+    compiled_order: &CompiledGroupedTopKOrder,
+    group_fields: &[crate::db::query::plan::FieldSlot],
+) -> Result<GroupedPageCandidateRanking, InternalError> {
+    let Value::List(group_key_values) = candidate.group_key.canonical_value() else {
+        return Err(GroupedRouteStage::canonical_group_key_must_be_list(
+            candidate.group_key.canonical_value(),
+        ));
+    };
+    let grouped_row = GroupedRowView::new(
+        group_key_values.as_slice(),
+        candidate.aggregate_values.as_slice(),
+        group_fields,
+        &[],
+    );
+    let mut order_values = Vec::with_capacity(compiled_order.terms.len());
+    let mut directions = Vec::with_capacity(compiled_order.terms.len());
+
+    for term in &compiled_order.terms {
+        order_values.push(
+            eval_grouped_projection_expr(&term.expr, &grouped_row)
+                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?,
+        );
+        directions.push(term.direction);
+    }
+
+    Ok(GroupedPageCandidateRanking::TopK {
+        order_values,
+        directions,
+    })
+}
+
 ///
 /// GroupedPageFinalizeSelection
 ///
@@ -231,6 +366,7 @@ fn into_finalize_groups(
 struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
     compiled_having_expr: Option<GroupedProjectionExpr>,
+    compiled_top_k_order: Option<CompiledGroupedTopKOrder>,
     group_fields: &'a [crate::db::query::plan::FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
     resume_boundary: Option<&'a Value>,
@@ -240,20 +376,21 @@ struct GroupedPageFinalizeSelection<'a> {
 impl<'a> GroupedPageFinalizeSelection<'a> {
     // Build one grouped page-finalize selection contract from the grouped
     // route and one already-resolved grouped projection plan.
-    const fn new(
+    fn new(
         route: &'a GroupedRouteStage,
         pagination_window: &'a GroupedPaginationWindow,
         compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
         compiled_having_expr: Option<GroupedProjectionExpr>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
             direction: route.direction(),
             compiled_having_expr,
+            compiled_top_k_order: compile_grouped_top_k_order(route)?,
             group_fields: route.group_fields(),
             pagination_window,
             resume_boundary: route.grouped_resume_boundary(),
             compiled_projection,
-        }
+        })
     }
 
     // Finalize one bounded grouped page window without sorting every
@@ -264,7 +401,14 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         selection_bound: usize,
     ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
         let selected_candidates = self.retain_smallest_candidates(
-            into_grouped_page_candidates(grouped_bundle, false, self.direction).into_iter(),
+            into_grouped_page_candidates(
+                grouped_bundle,
+                false,
+                self.direction,
+                self.compiled_top_k_order.as_ref(),
+                self.group_fields,
+            )
+            .into_iter(),
             selection_bound,
         )?;
 
@@ -278,7 +422,14 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         grouped_bundle: GroupedAggregateBundle,
     ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
         self.finalize_rows_from_candidates(
-            into_grouped_page_candidates(grouped_bundle, true, self.direction).into_iter(),
+            into_grouped_page_candidates(
+                grouped_bundle,
+                true,
+                self.direction,
+                self.compiled_top_k_order.as_ref(),
+                self.group_fields,
+            )
+            .into_iter(),
             |candidate| self.matches_window(candidate),
         )
     }
@@ -367,6 +518,59 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
             filter_candidate,
             GroupedPageCandidate::into_row,
         )
+    }
+}
+
+fn compare_grouped_page_candidate_order(
+    left: &GroupedPageCandidate,
+    right: &GroupedPageCandidate,
+) -> Ordering {
+    match (&left.ranking, &right.ranking) {
+        (
+            GroupedPageCandidateRanking::Canonical {
+                direction: left_direction,
+            },
+            GroupedPageCandidateRanking::Canonical {
+                direction: right_direction,
+            },
+        ) if left_direction == right_direction => compare_grouped_boundary_values(
+            *left_direction,
+            left.group_key.canonical_value(),
+            right.group_key.canonical_value(),
+        ),
+        (
+            GroupedPageCandidateRanking::TopK {
+                order_values: left_values,
+                directions,
+            },
+            GroupedPageCandidateRanking::TopK {
+                order_values: right_values,
+                directions: right_directions,
+            },
+        ) if directions == right_directions => {
+            for ((left_value, right_value), direction) in left_values
+                .iter()
+                .zip(right_values.iter())
+                .zip(directions.iter())
+            {
+                let cmp = match direction {
+                    OrderDirection::Asc => canonical_value_compare(left_value, right_value),
+                    OrderDirection::Desc => canonical_value_compare(right_value, left_value),
+                };
+                if !cmp.is_eq() {
+                    return cmp;
+                }
+            }
+
+            canonical_value_compare(
+                left.group_key.canonical_value(),
+                right.group_key.canonical_value(),
+            )
+        }
+        _ => canonical_value_compare(
+            left.group_key.canonical_value(),
+            right.group_key.canonical_value(),
+        ),
     }
 }
 
@@ -511,7 +715,9 @@ mod tests {
             group_key: GroupKey::from_group_values(vec![Value::Uint(21)])
                 .expect("candidate group key"),
             aggregate_values: vec![Value::Uint(2), Value::Uint(90)],
-            direction: crate::db::direction::Direction::Asc,
+            ranking: super::GroupedPageCandidateRanking::Canonical {
+                direction: crate::db::direction::Direction::Asc,
+            },
         }];
 
         let (rows, next_cursor_boundary) = finalize_grouped_page_rows_with_shaper(
