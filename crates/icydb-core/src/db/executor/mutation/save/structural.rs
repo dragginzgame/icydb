@@ -80,7 +80,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // patch is redundant identity wiring rather than a second generated
         // value source.
         if let Some(authored_patch) = authored_patch {
-            Self::reject_explicit_generated_fields(mode, authored_patch, old_raw.as_ref())?;
+            Self::reject_explicit_generated_fields(authored_patch)?;
         }
 
         // Phase 1: materialize and preflight the structural after-image under
@@ -141,23 +141,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // generation on create or later rewrites, except for the redundant primary
     // key slot because the structural API already carries the authoritative
     // key separately.
-    fn reject_explicit_generated_fields(
-        mode: MutationMode,
-        patch: &UpdatePatch,
-        old_row: Option<&RawRow>,
-    ) -> Result<(), InternalError> {
-        let rejects_generated_fields = match mode {
-            MutationMode::Insert | MutationMode::Update => true,
-            MutationMode::Replace => {
-                let _ = old_row;
-                true
-            }
-        };
-
-        if !rejects_generated_fields {
-            return Ok(());
-        }
-
+    fn reject_explicit_generated_fields(patch: &UpdatePatch) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let field = &E::MODEL.fields()[entry.slot().index()];
             if field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name() {

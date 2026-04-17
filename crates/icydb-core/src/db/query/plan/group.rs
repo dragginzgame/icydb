@@ -137,10 +137,15 @@ impl GroupedAggregateProjectionSpec {
     /// Build one grouped aggregate projection spec from one semantic aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate_expr: &AggregateExpr) -> Self {
+        let target_field = aggregate_expr.target_field().map(str::to_string);
+
         Self {
             kind: aggregate_expr.kind(),
-            target_field: aggregate_expr.target_field().map(str::to_string),
-            input_expr: aggregate_expr.input_expr().cloned(),
+            target_field: target_field.clone(),
+            input_expr: normalized_grouped_aggregate_input_expr(
+                target_field.as_deref(),
+                aggregate_expr.input_expr(),
+            ),
             distinct: aggregate_expr.is_distinct(),
         }
     }
@@ -148,10 +153,15 @@ impl GroupedAggregateProjectionSpec {
     /// Build one grouped aggregate projection spec from one grouped aggregate declaration.
     #[must_use]
     pub(in crate::db) fn from_group_aggregate_spec(aggregate: &GroupAggregateSpec) -> Self {
+        let target_field = aggregate.target_field().map(str::to_string);
+
         Self {
             kind: aggregate.kind(),
-            target_field: aggregate.target_field().map(str::to_string),
-            input_expr: aggregate.input_expr().cloned(),
+            target_field: target_field.clone(),
+            input_expr: normalized_grouped_aggregate_input_expr(
+                target_field.as_deref(),
+                aggregate.input_expr(),
+            ),
             distinct: aggregate.distinct(),
         }
     }
@@ -185,7 +195,12 @@ impl GroupedAggregateProjectionSpec {
     pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
         self.kind == aggregate.kind()
             && self.target_field() == aggregate.target_field()
-            && self.input_expr() == aggregate.input_expr()
+            && self.input_expr()
+                == normalized_grouped_aggregate_input_expr(
+                    aggregate.target_field(),
+                    aggregate.input_expr(),
+                )
+                .as_ref()
             && self.distinct == aggregate.distinct()
     }
 }
@@ -286,6 +301,20 @@ impl GroupedAggregateExecutionSpec {
             compiled_input_expr: None,
             distinct,
         }
+    }
+}
+
+// Keep grouped aggregate projection identity canonical by treating direct
+// field-leaf aggregate inputs as the legacy field-target shape instead of a
+// widened expression-backed aggregate.
+fn normalized_grouped_aggregate_input_expr(
+    target_field: Option<&str>,
+    input_expr: Option<&Expr>,
+) -> Option<Expr> {
+    match input_expr {
+        Some(Expr::Field(field_id)) if target_field == Some(field_id.as_str()) => None,
+        Some(expr) => Some(expr.clone()),
+        None => None,
     }
 }
 

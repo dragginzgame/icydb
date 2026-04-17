@@ -46,8 +46,6 @@ impl ExecutionKernel {
         // Phase 2: validate the shared continuation/budget contract once
         // before the short path builds its canonical scan request.
         continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
-        let _ = continuation;
-        let _ = load_order_route_contract;
 
         // Phase 3: derive the shared scan contract from plan-owned
         // consistency only, then let the resolved short-path plan build the

@@ -100,7 +100,7 @@ pub(super) fn validate_scalar_fast_path_binary_bytes(
         return Ok(false);
     }
 
-    let _ = decode_scalar_fast_path_binary_bytes(raw_bytes, kind)?;
+    decode_scalar_fast_path_binary_bytes(raw_bytes, kind)?;
     Ok(true)
 }
 

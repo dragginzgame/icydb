@@ -13,10 +13,9 @@ const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
 
 const AGGREGATE_TARGET_ABSENT_TAG: u8 = 0x00;
 const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
-const AGGREGATE_INPUT_EXPR_ABSENT_TAG: u8 = 0x02;
-const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x03;
-const AGGREGATE_DISTINCT_TAG: u8 = 0x04;
-const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x05;
+const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
+const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
+const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x04;
 
 const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
 const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
@@ -78,13 +77,6 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
         }
         None => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
     }
-    match shape.input_expr.as_deref() {
-        Some(input_expr) => {
-            write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
-            write_str(hasher, input_expr);
-        }
-        None => write_tag(hasher, AGGREGATE_INPUT_EXPR_ABSENT_TAG),
-    }
     write_tag(
         hasher,
         if shape.distinct {
@@ -93,6 +85,10 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
             AGGREGATE_NON_DISTINCT_TAG
         },
     );
+    if let Some(input_expr) = shape.input_expr.as_deref() {
+        write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
+        write_str(hasher, input_expr);
+    }
 }
 
 const fn aggregate_kind_tag(kind: AggregateKind) -> u8 {

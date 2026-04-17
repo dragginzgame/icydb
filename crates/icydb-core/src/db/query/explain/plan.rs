@@ -503,7 +503,7 @@ impl AccessPlannedQuery {
     #[must_use]
     #[cfg(test)]
     pub(crate) fn explain(&self) -> ExplainPlan {
-        self.explain_inner(None)
+        self.explain_inner()
     }
 
     /// Produce a stable, deterministic explanation of this logical plan
@@ -512,14 +512,11 @@ impl AccessPlannedQuery {
     /// Query explain intentionally does not evaluate executor route pushdown
     /// feasibility to keep query-layer dependencies executor-agnostic.
     #[must_use]
-    pub(crate) fn explain_with_model(&self, model: &EntityModel) -> ExplainPlan {
-        self.explain_inner(Some(model))
+    pub(crate) fn explain_with_model(&self, _model: &EntityModel) -> ExplainPlan {
+        self.explain_inner()
     }
 
-    pub(in crate::db::query::explain) fn explain_inner(
-        &self,
-        model: Option<&EntityModel>,
-    ) -> ExplainPlan {
+    pub(in crate::db::query::explain) fn explain_inner(&self) -> ExplainPlan {
         // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
@@ -566,7 +563,7 @@ impl AccessPlannedQuery {
         };
 
         // Phase 2: project scalar plan + access path into deterministic explain surface.
-        explain_scalar_inner(logical, grouping, model, &self.access)
+        explain_scalar_inner(logical, grouping, &self.access)
     }
 }
 
@@ -633,7 +630,6 @@ const fn explain_group_having_binary_op_label(
 fn explain_scalar_inner<K>(
     logical: &ScalarPlan,
     grouping: ExplainGrouping,
-    model: Option<&EntityModel>,
     access: &AccessPlan<K>,
 ) -> ExplainPlan
 where
@@ -648,7 +644,7 @@ where
 
     // Phase 2: project scalar-plan fields into explain-specific enums.
     let order_by = explain_order(logical.order.as_ref());
-    let order_pushdown = explain_order_pushdown(model);
+    let order_pushdown = explain_order_pushdown();
     let page = explain_page(logical.page.as_ref());
     let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
 
@@ -668,9 +664,7 @@ where
     }
 }
 
-const fn explain_order_pushdown(model: Option<&EntityModel>) -> ExplainOrderPushdown {
-    let _ = model;
-
+const fn explain_order_pushdown() -> ExplainOrderPushdown {
     // Query explain does not own physical pushdown feasibility routing.
     ExplainOrderPushdown::MissingModelContext
 }

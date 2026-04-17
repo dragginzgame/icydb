@@ -199,12 +199,16 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
 
 fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
     write_tag(hasher, aggregate_kind_tag(aggregate.kind()));
-    match aggregate.input_expr() {
-        Some(input_expr) => {
+    match (aggregate.target_field(), aggregate.input_expr()) {
+        (Some(target_field), Some(Expr::Field(field_id))) if field_id.as_str() == target_field => {
+            write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
+            write_str(hasher, target_field);
+        }
+        (_, Some(input_expr)) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
             hash_expr(hasher, input_expr, false);
         }
-        None => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
+        (_, None) => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
     }
     write_tag(
         hasher,
@@ -537,12 +541,5 @@ mod tests {
             hash_projection(&sum_distinct_plus_decimal_zero),
             "distinct numeric no-op literal subtype differences must not fragment identity",
         );
-    }
-
-    #[test]
-    fn projection_hash_encoder_signature_accepts_projection_semantics_only() {
-        let hash: fn(&mut Sha256, &ProjectionSpec) = hash_projection_structural_fingerprint;
-
-        let _ = hash;
     }
 }

@@ -288,7 +288,6 @@ pub(super) fn lower_scalar_projection_selection(
     distinct: bool,
 ) -> Result<ProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
-        let _ = distinct;
         return Ok(ProjectionSelection::All);
     };
 

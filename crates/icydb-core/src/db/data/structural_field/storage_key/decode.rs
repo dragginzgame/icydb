@@ -109,7 +109,7 @@ pub(in crate::db) fn validate_storage_key_binary_value_bytes(
         return Ok(false);
     }
 
-    let _ = decode_storage_key_binary_value_bytes(raw_bytes, kind)?;
+    decode_storage_key_binary_value_bytes(raw_bytes, kind)?;
 
     Ok(true)
 }

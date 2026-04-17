@@ -48,8 +48,6 @@ pub(in crate::db::executor) const fn aggregate_non_count_streaming_allowed(
     // reconciled correctly only through the canonical materialized row path.
     // Keeping this lane materialized preserves aggregate/load parity for
     // `EXISTS`, `FIRST`, `LAST`, `MIN`, and `MAX` on ordered secondary shapes.
-    let _ = secondary_pushdown_eligible;
-
     false
 }
 
