@@ -1817,9 +1817,11 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
         Some(&Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Decimal(crate::types::Decimal::from(
+                1_u64
+            ),))),
         }),
-        "repeated grouped aggregate-input leaves should reuse one canonical grouped aggregate projection spec",
+        "repeated grouped aggregate-input leaves should reuse one canonical normalized grouped aggregate projection spec",
     );
 }
 

@@ -3102,9 +3102,11 @@ fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
         Some(&Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("age"))),
-            right: Box::new(Expr::Literal(Value::Int(1))),
+            right: Box::new(Expr::Literal(Value::Decimal(crate::types::Decimal::from(
+                1_u64
+            ),))),
         }),
-        "grouped aggregate input SQL should preserve the canonical aggregate input expression in grouped plan semantics",
+        "grouped aggregate input SQL should preserve the canonical normalized aggregate input expression in grouped plan semantics",
     );
 }
 

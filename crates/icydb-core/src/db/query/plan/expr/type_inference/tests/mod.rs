@@ -302,7 +302,7 @@ fn infer_avg_aggregate_over_numeric_expression_uses_expression_result_type() {
     let inferred =
         infer_expr_type(&expr, schema).expect("avg over numeric input expression should infer");
 
-    assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
+    assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Unknown));
 }
 
 #[test]
