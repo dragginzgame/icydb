@@ -504,10 +504,14 @@ impl Parser {
 
             self.advance_sql_expr_binary_op();
             let right = self.parse_sql_expr(surface, precedence.saturating_add(1))?;
-            left = SqlExpr::Binary {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
+            left = if matches!(surface, SqlExprParseSurface::Where) {
+                Self::canonicalize_where_compare_expr(op, left, right)
+            } else {
+                SqlExpr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
             };
         }
 
@@ -757,31 +761,28 @@ impl Parser {
             ));
         };
 
-        let left = if casefold {
-            match left {
-                SqlExpr::Field(field) => SqlExpr::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Lower,
-                    field,
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlExpr::TextFunction(call)
-                    if matches!(
-                        call.function,
-                        SqlTextFunction::Lower | SqlTextFunction::Upper
-                    ) =>
-                {
-                    Self::canonicalize_where_casefold_text_function(call)
-                }
-                _ => {
-                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        "LIKE left-hand expression forms beyond plain or LOWER/UPPER field wrappers",
-                    ));
-                }
+        let left = match left {
+            SqlExpr::Field(field) if casefold => SqlExpr::TextFunction(SqlTextFunctionCall {
+                function: SqlTextFunction::Lower,
+                field,
+                literal: None,
+                literal2: None,
+                literal3: None,
+            }),
+            SqlExpr::TextFunction(call)
+                if matches!(
+                    call.function,
+                    SqlTextFunction::Lower | SqlTextFunction::Upper
+                ) =>
+            {
+                Self::canonicalize_where_casefold_text_function(call)
             }
-        } else {
-            left
+            SqlExpr::Field(field) => SqlExpr::Field(field),
+            _ => {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "LIKE left-hand expression forms beyond plain or LOWER/UPPER field wrappers",
+                ));
+            }
         };
 
         let expr = SqlExpr::FunctionCall {
@@ -980,6 +981,45 @@ impl Parser {
             literal2: None,
             literal3: None,
         })
+    }
+
+    // Keep the shared WHERE expression seam aligned with the older predicate
+    // surface by preserving the same field-first and symmetric-equality
+    // canonical forms the predicate parser had already shipped.
+    fn canonicalize_where_compare_expr(
+        op: SqlExprBinaryOp,
+        left: SqlExpr,
+        right: SqlExpr,
+    ) -> SqlExpr {
+        match (&left, &right) {
+            (
+                SqlExpr::Literal(_),
+                SqlExpr::Field(_)
+                | SqlExpr::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower | SqlTextFunction::Upper,
+                    ..
+                }),
+            ) => SqlExpr::Binary {
+                op: flip_sql_compare_op(op),
+                left: Box::new(right),
+                right: Box::new(left),
+            },
+            (SqlExpr::Field(left_field), SqlExpr::Field(right_field))
+                if matches!(op, SqlExprBinaryOp::Eq | SqlExprBinaryOp::Ne)
+                    && left_field < right_field =>
+            {
+                SqlExpr::Binary {
+                    op,
+                    left: Box::new(right),
+                    right: Box::new(left),
+                }
+            }
+            _ => SqlExpr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        }
     }
 
     // Keep WHERE on the shipped reduced predicate surface even though it now
@@ -1259,6 +1299,23 @@ impl Parser {
         let _ = self.cursor.advance();
 
         Some(op)
+    }
+}
+
+const fn flip_sql_compare_op(op: SqlExprBinaryOp) -> SqlExprBinaryOp {
+    match op {
+        SqlExprBinaryOp::Eq => SqlExprBinaryOp::Eq,
+        SqlExprBinaryOp::Ne => SqlExprBinaryOp::Ne,
+        SqlExprBinaryOp::Lt => SqlExprBinaryOp::Gt,
+        SqlExprBinaryOp::Lte => SqlExprBinaryOp::Gte,
+        SqlExprBinaryOp::Gt => SqlExprBinaryOp::Lt,
+        SqlExprBinaryOp::Gte => SqlExprBinaryOp::Lte,
+        SqlExprBinaryOp::Or
+        | SqlExprBinaryOp::And
+        | SqlExprBinaryOp::Add
+        | SqlExprBinaryOp::Sub
+        | SqlExprBinaryOp::Mul
+        | SqlExprBinaryOp::Div => op,
     }
 }
 
