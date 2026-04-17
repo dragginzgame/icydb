@@ -139,6 +139,32 @@ impl GroupHavingValueExpr {
     }
 }
 
+// Canonicalize one grouped-key compare literal against one grouped field kind
+// when the Int<->Uint conversion is lossless and unambiguous. Both fluent
+// grouped HAVING and SQL grouped HAVING bind through this helper so those two
+// surfaces cannot drift on numeric grouped-key literal normalization again.
+pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
+    field_kind: Option<FieldKind>,
+    value: &Value,
+) -> Option<Value> {
+    match field_kind? {
+        FieldKind::Relation { key_kind, .. } => {
+            canonicalize_grouped_having_numeric_literal_for_field_kind(Some(*key_kind), value)
+        }
+        FieldKind::Int => match value {
+            Value::Int(inner) => Some(Value::Int(*inner)),
+            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            _ => None,
+        },
+        FieldKind::Uint => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+            Value::Uint(inner) => Some(Value::Uint(*inner)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 impl GroupHavingClause {
     /// Borrow grouped HAVING symbol reference.
     #[must_use]

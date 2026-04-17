@@ -14,15 +14,15 @@ use crate::{
         query::{
             intent::{Query, StructuralQuery},
             plan::{
-                GroupHavingExpr, GroupHavingValueExpr, expr::ProjectionSelection,
-                resolve_group_field_slot,
+                GroupHavingExpr, GroupHavingValueExpr,
+                canonicalize_grouped_having_numeric_literal_for_field_kind,
+                expr::ProjectionSelection, resolve_group_field_slot,
             },
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlOrderTerm, SqlSelectStatement},
     },
     model::entity::EntityModel,
     traits::EntityKind,
-    value::Value,
 };
 
 use crate::db::sql::lowering::select::{
@@ -301,8 +301,10 @@ fn canonicalize_grouped_having_compare_literals(
 ) -> (GroupHavingValueExpr, GroupHavingValueExpr) {
     match (&left, &right) {
         (GroupHavingValueExpr::GroupField(field_slot), GroupHavingValueExpr::Literal(value)) => {
-            let canonical =
-                canonicalize_grouped_having_numeric_literal_for_field(field_slot.kind(), value);
+            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
+                field_slot.kind(),
+                value,
+            );
             (
                 left,
                 canonical
@@ -311,38 +313,16 @@ fn canonicalize_grouped_having_compare_literals(
             )
         }
         (GroupHavingValueExpr::Literal(value), GroupHavingValueExpr::GroupField(field_slot)) => {
-            let canonical =
-                canonicalize_grouped_having_numeric_literal_for_field(field_slot.kind(), value);
+            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
+                field_slot.kind(),
+                value,
+            );
             (
                 canonical.map(GroupHavingValueExpr::Literal).unwrap_or(left),
                 right,
             )
         }
         _ => (left, right),
-    }
-}
-
-fn canonicalize_grouped_having_numeric_literal_for_field(
-    field_kind: Option<crate::model::field::FieldKind>,
-    value: &Value,
-) -> Option<Value> {
-    use crate::model::field::FieldKind;
-
-    match field_kind? {
-        FieldKind::Relation { key_kind, .. } => {
-            canonicalize_grouped_having_numeric_literal_for_field(Some(*key_kind), value)
-        }
-        FieldKind::Int => match value {
-            Value::Int(inner) => Some(Value::Int(*inner)),
-            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
-            _ => None,
-        },
-        FieldKind::Uint => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
-            Value::Uint(inner) => Some(Value::Uint(*inner)),
-            _ => None,
-        },
-        _ => None,
     }
 }
 

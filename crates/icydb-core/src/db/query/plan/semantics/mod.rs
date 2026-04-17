@@ -25,6 +25,7 @@ pub(crate) use group_distinct::{
 };
 pub(in crate::db) use group_having::grouped_cursor_policy_violation;
 pub(crate) use group_having::{GroupedCursorPolicyViolation, grouped_having_compare_op_supported};
+pub(in crate::db) use group_model::canonicalize_grouped_having_numeric_literal_for_field_kind;
 #[cfg(test)]
 pub(crate) use grouped_strategy::GroupedPlanAggregateFamily;
 pub(crate) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};

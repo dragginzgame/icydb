@@ -83,6 +83,7 @@ pub(crate) use projection::{
 };
 #[cfg(test)]
 pub(crate) use semantics::GroupedPlanAggregateFamily;
+pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_field_kind;
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
