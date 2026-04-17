@@ -466,6 +466,10 @@ thread_local! {
 // can separate semantic compilation from execution without coupling the seam to
 // typed entity binding or executor scratch state.
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "compiled SQL keeps the full global aggregate command owned on the session boundary"
+)]
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: StructuralQuery,

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.90.x] 🧱 - 2026-04-17 - SQL Surface Closure
 
+- `0.90.2` finishes another obvious single-entity aggregate gap by letting global aggregate queries use `HAVING` over the one implicit aggregate group, so shapes like `SELECT COUNT(*) FROM character HAVING COUNT(*) > 1` and `SELECT ROUND(AVG(strength), 2) FROM character HAVING AVG(strength) >= 12` now work through the same shared post-aggregate boolean evaluator instead of failing closed.
 - `0.90.1` finishes one important missing single-entity aggregate case by letting global aggregate results feed ordinary scalar wrappers, so queries like `ROUND(AVG(strength), 4)`, `COUNT(*) + 1`, and `MAX(level) - MIN(level)` now execute through the dedicated global aggregate lane instead of failing closed.
 - `0.90.0` closes the single-entity SQL line by replacing several generic lowering failures with specific semantic errors, so unsupported shapes like `HAVING` without `GROUP BY`, grouped `SELECT *`, grouped non-key projections, scalar terms after grouped aggregates, and grouped SQL sent into the global-aggregate lane now fail clearly and consistently instead of collapsing into broad fallback buckets.
 

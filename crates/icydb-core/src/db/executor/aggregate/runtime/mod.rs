@@ -9,8 +9,10 @@ mod grouped_output;
 
 use crate::{
     db::executor::projection::{
-        GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr,
+        GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, compile_grouped_having_expr,
+        evaluate_grouped_having_expr,
     },
+    db::query::plan::GroupHavingExpr,
     error::InternalError,
 };
 
@@ -33,6 +35,19 @@ pub(in crate::db::executor) fn group_matches_having_expr(
 ) -> Result<bool, InternalError> {
     evaluate_grouped_having_expr(expr, grouped_row)
         .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+}
+
+// Evaluate one global aggregate HAVING expression through the shared grouped
+// post-aggregate evaluator on the implicit single aggregate row.
+pub(in crate::db) fn aggregate_result_matches_having_expr(
+    expr: &GroupHavingExpr,
+    aggregate_values: &[crate::value::Value],
+) -> Result<bool, InternalError> {
+    let compiled = compile_grouped_having_expr(expr, &[])
+        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
+    let grouped_row = GroupedRowView::new(&[], aggregate_values, &[], &[]);
+
+    group_matches_having_expr(&compiled, &grouped_row)
 }
 
 ///

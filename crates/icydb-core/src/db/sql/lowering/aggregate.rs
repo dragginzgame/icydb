@@ -15,7 +15,7 @@ use crate::{
             },
             intent::StructuralQuery,
             plan::{
-                AggregateKind, FieldSlot,
+                AggregateKind, FieldSlot, GroupHavingExpr,
                 expr::{
                     Alias, BinaryOp, Expr, FieldId, Function, ProjectionField, ProjectionSpec,
                     compile_scalar_projection_expr, expr_references_only_fields,
@@ -24,7 +24,9 @@ use crate::{
             },
         },
         sql::{
-            lowering::select::{expr_contains_aggregate, lower_select_item_expr},
+            lowering::select::{
+                expr_contains_aggregate, lower_global_aggregate_having_expr, lower_select_item_expr,
+            },
             parser::{
                 SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlExplainMode,
                 SqlProjection, SqlProjectionOperand, SqlRoundProjectionInput, SqlSelectItem,
@@ -553,6 +555,7 @@ pub(crate) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) query: LoweredBaseQueryShape,
     pub(in crate::db::sql::lowering) terminals: Vec<SqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering) projection: ProjectionSpec,
+    pub(in crate::db::sql::lowering) having: Option<GroupHavingExpr>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::sql::lowering) output_remap: Vec<usize>,
 }
@@ -580,12 +583,17 @@ impl LoweredSqlGlobalAggregateCommand {
         if !group_by.is_empty() {
             return Err(SqlLoweringError::global_aggregate_does_not_support_group_by());
         }
-        if !having.is_empty() {
-            return Err(SqlLoweringError::having_requires_group_by());
-        }
+        let projection_for_having = projection.clone();
 
-        let lowered_terminals =
+        let mut lowered_terminals =
             LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
+        let having =
+            lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
+                resolve_or_insert_global_aggregate_terminal_index(
+                    &mut lowered_terminals.terminals,
+                    aggregate,
+                )
+            })?;
 
         Ok(Self {
             query: LoweredBaseQueryShape {
@@ -596,6 +604,7 @@ impl LoweredSqlGlobalAggregateCommand {
             },
             terminals: lowered_terminals.terminals,
             projection: lowered_terminals.projection,
+            having,
             output_remap: lowered_terminals.output_remap,
         })
     }
@@ -619,6 +628,7 @@ impl LoweredSqlGlobalAggregateCommand {
             )),
             terminals,
             projection: self.projection,
+            having: self.having,
             output_remap: self.output_remap,
         })
     }
@@ -637,6 +647,7 @@ impl LoweredSqlGlobalAggregateCommand {
             ),
             terminals: self.terminals,
             projection: self.projection,
+            having: self.having,
         }
     }
 }
@@ -676,6 +687,7 @@ pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
     terminals: Vec<TypedSqlGlobalAggregateTerminal>,
     projection: ProjectionSpec,
+    having: Option<GroupHavingExpr>,
     output_remap: Vec<usize>,
 }
 
@@ -698,6 +710,13 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     #[cfg(test)]
     pub(crate) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
+    }
+
+    /// Borrow the optional global aggregate HAVING expression.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) const fn having(&self) -> Option<&GroupHavingExpr> {
+        self.having.as_ref()
     }
 
     /// Borrow the output-to-unique-terminal remap preserved from original SQL projection order.
@@ -730,6 +749,7 @@ pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
     terminals: Vec<SqlGlobalAggregateTerminal>,
     projection: ProjectionSpec,
+    having: Option<GroupHavingExpr>,
 }
 
 impl SqlGlobalAggregateCommandCore {
@@ -743,6 +763,12 @@ impl SqlGlobalAggregateCommandCore {
     #[must_use]
     pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
+    }
+
+    /// Borrow the optional global aggregate HAVING expression.
+    #[must_use]
+    pub(in crate::db) const fn having(&self) -> Option<&GroupHavingExpr> {
+        self.having.as_ref()
     }
 
     /// Prepare structural SQL scalar aggregate strategies using one concrete model.
@@ -772,15 +798,11 @@ pub(in crate::db) fn is_sql_global_aggregate_statement(statement: &SqlStatement)
 // Detect one constrained global aggregate select shape without widening any
 // non-aggregate SQL surface onto the dedicated aggregate execution lane.
 fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
-    if statement.distinct || !statement.group_by.is_empty() || !statement.having.is_empty() {
+    if statement.distinct || !statement.group_by.is_empty() {
         return false;
     }
 
-    LoweredSqlGlobalAggregateTerminals::from_projection(
-        statement.projection.clone(),
-        &statement.projection_aliases,
-    )
-    .is_ok()
+    LoweredSqlGlobalAggregateCommand::from_select_statement(statement.clone()).is_ok()
 }
 
 /// Bind one lowered global aggregate EXPLAIN shape onto the structural query
@@ -1021,6 +1043,23 @@ fn lower_global_aggregate_terminal(
         (AggregateKind::Exists | AggregateKind::First | AggregateKind::Last, _, _)
         | (_, None, None) => Err(SqlLoweringError::unsupported_global_aggregate_projection()),
     }
+}
+
+fn resolve_or_insert_global_aggregate_terminal_index(
+    terminals: &mut Vec<SqlGlobalAggregateTerminal>,
+    aggregate: &SqlAggregateCall,
+) -> Result<usize, SqlLoweringError> {
+    let aggregate_expr = lower_aggregate_call(aggregate.clone())?;
+    let terminal = lower_global_aggregate_terminal(&aggregate_expr)?;
+
+    Ok(terminals
+        .iter()
+        .position(|current| current == &terminal)
+        .unwrap_or_else(|| {
+            let index = terminals.len();
+            terminals.push(terminal);
+            index
+        }))
 }
 
 ///

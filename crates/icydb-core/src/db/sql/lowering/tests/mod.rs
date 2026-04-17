@@ -3441,16 +3441,35 @@ fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_rejects_having_without_group_by_specifically() {
-    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
         "SELECT COUNT(*) FROM SqlLowerEntity HAVING COUNT(*) > 1",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("global aggregate lane should reject HAVING without GROUP BY specifically");
+    .expect("global aggregate lane should admit aggregate-only HAVING");
 
     assert!(
-        matches!(err, SqlLoweringError::HavingRequiresGroupBy),
-        "global aggregate lane should preserve the semantic HAVING/GROUP BY boundary",
+        command.having().is_some(),
+        "global aggregate HAVING should lower onto the shared post-aggregate boolean contract",
+    );
+    assert_eq!(
+        command.terminals(),
+        &[TypedSqlGlobalAggregateTerminal::CountRows],
+        "global aggregate HAVING should reuse the same unique terminal list instead of introducing a second aggregate lane",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_rejects_direct_field_global_having() {
+    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) FROM SqlLowerEntity HAVING age > 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("global aggregate HAVING should stay aggregate-only");
+
+    assert!(
+        matches!(err, SqlLoweringError::UnsupportedSelectHaving),
+        "global aggregate HAVING should reject direct field references through the existing HAVING boundary",
     );
 }
 

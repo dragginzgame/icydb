@@ -9,15 +9,10 @@ use crate::db::sql::lowering::{
 };
 use crate::{
     db::{
-        QueryError,
         predicate::{MissingRowPolicy, Predicate},
         query::{
             intent::{Query, StructuralQuery},
-            plan::{
-                GroupHavingExpr, GroupHavingValueExpr,
-                canonicalize_grouped_having_numeric_literal_for_field_kind,
-                expr::ProjectionSelection, resolve_group_field_slot,
-            },
+            plan::expr::ProjectionSelection,
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlOrderTerm, SqlSelectStatement},
     },
@@ -27,13 +22,14 @@ use crate::{
 
 use crate::db::sql::lowering::select::{
     aggregate::{
-        ResolvedHavingClause, ResolvedHavingExpr, ResolvedHavingValueExpr,
-        extend_grouped_having_aggregate_calls, lower_having_clauses,
+        ResolvedHavingClause, extend_grouped_having_aggregate_calls, lower_having_clauses,
+        resolve_grouped_having_expr,
     },
     order::apply_order_terms_structural,
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
 };
 
+pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
 pub(in crate::db) use binding::{
     canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
 };
@@ -280,83 +276,5 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         order_by,
         limit,
         offset,
-    }
-}
-
-fn resolve_grouped_having_expr(
-    model: &'static EntityModel,
-    expr: ResolvedHavingExpr,
-) -> Result<GroupHavingExpr, SqlLoweringError> {
-    match expr {
-        ResolvedHavingExpr::Compare { left, op, right } => {
-            let left = resolve_grouped_having_value_expr(model, left)?;
-            let right = resolve_grouped_having_value_expr(model, right)?;
-            let (left, right) = canonicalize_grouped_having_compare_literals(left, right);
-
-            Ok(GroupHavingExpr::Compare { left, op, right })
-        }
-    }
-}
-
-// Keep grouped SQL HAVING field/literal compares aligned with the fluent
-// grouped HAVING boundary when the numeric conversion is lossless. This only
-// canonicalizes the narrow Int<->Uint drift for direct grouped key compares.
-fn canonicalize_grouped_having_compare_literals(
-    left: GroupHavingValueExpr,
-    right: GroupHavingValueExpr,
-) -> (GroupHavingValueExpr, GroupHavingValueExpr) {
-    match (&left, &right) {
-        (GroupHavingValueExpr::GroupField(field_slot), GroupHavingValueExpr::Literal(value)) => {
-            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
-                field_slot.kind(),
-                value,
-            );
-            (
-                left,
-                canonical
-                    .map(GroupHavingValueExpr::Literal)
-                    .unwrap_or(right),
-            )
-        }
-        (GroupHavingValueExpr::Literal(value), GroupHavingValueExpr::GroupField(field_slot)) => {
-            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
-                field_slot.kind(),
-                value,
-            );
-            (
-                canonical.map(GroupHavingValueExpr::Literal).unwrap_or(left),
-                right,
-            )
-        }
-        _ => (left, right),
-    }
-}
-
-fn resolve_grouped_having_value_expr(
-    model: &'static EntityModel,
-    expr: ResolvedHavingValueExpr,
-) -> Result<GroupHavingValueExpr, SqlLoweringError> {
-    match expr {
-        ResolvedHavingValueExpr::GroupField(field) => Ok(GroupHavingValueExpr::GroupField(
-            resolve_group_field_slot(model, &field).map_err(QueryError::from)?,
-        )),
-        ResolvedHavingValueExpr::AggregateIndex(index) => {
-            Ok(GroupHavingValueExpr::AggregateIndex(index))
-        }
-        ResolvedHavingValueExpr::Literal(value) => Ok(GroupHavingValueExpr::Literal(value)),
-        ResolvedHavingValueExpr::FunctionCall { function, args } => {
-            Ok(GroupHavingValueExpr::FunctionCall {
-                function,
-                args: args
-                    .into_iter()
-                    .map(|arg| resolve_grouped_having_value_expr(model, arg))
-                    .collect::<Result<Vec<_>, _>>()?,
-            })
-        }
-        ResolvedHavingValueExpr::Binary { op, left, right } => Ok(GroupHavingValueExpr::Binary {
-            op,
-            left: Box::new(resolve_grouped_having_value_expr(model, *left)?),
-            right: Box::new(resolve_grouped_having_value_expr(model, *right)?),
-        }),
     }
 }

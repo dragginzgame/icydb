@@ -189,6 +189,67 @@ fn global_post_aggregate_expression_value_matrix_matches_expected_values() {
     }
 }
 
+#[test]
+fn global_aggregate_having_returns_single_row_when_predicate_matches() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("aggregate-having-a", 20), ("aggregate-having-b", 21)],
+    );
+
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) > 1",
+        Value::Uint(2),
+        "global aggregate HAVING should preserve its single reduced row when the predicate matches",
+    );
+}
+
+#[test]
+fn global_aggregate_having_returns_empty_projection_when_predicate_fails() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("aggregate-having-fail-a", 20)]);
+
+    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT ROUND(AVG(age), 0) AS avg_rounded \
+         FROM SessionSqlEntity \
+         HAVING AVG(age) > 30",
+    )
+    .expect("global aggregate HAVING should execute through the shared post-aggregate evaluator");
+
+    let SqlStatementResult::Projection {
+        columns,
+        fixed_scales,
+        rows,
+        row_count,
+    } = payload
+    else {
+        panic!("global aggregate HAVING failure should still return projection payload");
+    };
+
+    assert_eq!(
+        columns,
+        vec!["avg_rounded".to_string()],
+        "global aggregate HAVING should preserve output labels even when it filters away the implicit group",
+    );
+    assert_eq!(
+        fixed_scales,
+        vec![Some(0)],
+        "global aggregate HAVING should preserve fixed-scale metadata on empty payloads",
+    );
+    assert!(
+        rows.is_empty(),
+        "global aggregate HAVING should filter away the implicit group when the predicate fails",
+    );
+    assert_eq!(
+        row_count, 0,
+        "global aggregate HAVING should expose zero rows when the implicit group is rejected",
+    );
+}
+
 // This parity test is intentionally table-shaped so whole-window and bounded
 // aggregate equivalence stay on one readable contract table.
 #[expect(

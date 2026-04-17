@@ -1,13 +1,20 @@
 use crate::db::sql::lowering::{SqlLoweringError, aggregate::resolve_having_aggregate_index};
 use crate::{
     db::{
+        QueryError,
         predicate::CompareOp,
-        query::plan::expr::{BinaryOp, Function},
+        query::plan::{
+            GroupHavingExpr, GroupHavingValueExpr,
+            canonicalize_grouped_having_numeric_literal_for_field_kind,
+            expr::{BinaryOp, Function},
+            resolve_group_field_slot,
+        },
         sql::parser::{
             SqlAggregateCall, SqlArithmeticProjectionOp, SqlHavingClause, SqlHavingValueExpr,
             SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput,
         },
     },
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -75,10 +82,69 @@ pub(super) fn lower_having_clauses(
     group_by_fields: &[String],
     grouped_aggregates: &[SqlAggregateCall],
 ) -> Result<Vec<ResolvedHavingClause>, SqlLoweringError> {
+    lower_having_clauses_with_policy(
+        having_clauses,
+        projection,
+        HavingFieldPolicy::Grouped,
+        |aggregate| resolve_having_aggregate_index(aggregate, grouped_aggregates),
+        group_by_fields.is_empty(),
+    )
+}
+
+pub(in crate::db::sql::lowering) fn lower_global_aggregate_having_expr<F>(
+    having_clauses: Vec<SqlHavingClause>,
+    projection: &SqlProjection,
+    mut resolve_aggregate_index: F,
+) -> Result<Option<GroupHavingExpr>, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
+    let clauses = lower_having_clauses_with_policy(
+        having_clauses,
+        projection,
+        HavingFieldPolicy::RejectDirectFields,
+        |aggregate| resolve_aggregate_index(aggregate),
+        false,
+    )?;
+    if clauses.is_empty() {
+        return Ok(None);
+    }
+
+    let mut resolved = clauses
+        .into_iter()
+        .map(|clause| resolve_having_expr(None, clause.into_expr()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Some(if resolved.len() == 1 {
+        resolved
+            .pop()
+            .expect("global aggregate HAVING should keep one resolved clause")
+    } else {
+        GroupHavingExpr::And(resolved)
+    }))
+}
+
+pub(in crate::db::sql::lowering) fn resolve_grouped_having_expr(
+    model: &'static EntityModel,
+    expr: ResolvedHavingExpr,
+) -> Result<GroupHavingExpr, SqlLoweringError> {
+    resolve_having_expr(Some(model), expr)
+}
+
+fn lower_having_clauses_with_policy<F>(
+    having_clauses: Vec<SqlHavingClause>,
+    projection: &SqlProjection,
+    field_policy: HavingFieldPolicy,
+    mut resolve_aggregate_index: F,
+    require_group_by: bool,
+) -> Result<Vec<ResolvedHavingClause>, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
     if having_clauses.is_empty() {
         return Ok(Vec::new());
     }
-    if group_by_fields.is_empty() {
+    if require_group_by {
         return Err(SqlLoweringError::having_requires_group_by());
     }
 
@@ -89,58 +155,103 @@ pub(super) fn lower_having_clauses(
     let mut lowered = Vec::with_capacity(having_clauses.len());
     for clause in having_clauses {
         lowered.push(ResolvedHavingClause {
-            expr: lower_having_expr(clause, grouped_aggregates)?,
+            expr: lower_having_expr_with_policy(
+                clause,
+                field_policy,
+                &mut resolve_aggregate_index,
+            )?,
         });
     }
 
     Ok(lowered)
 }
 
-fn lower_having_expr(
+fn lower_having_expr_with_policy<F>(
     clause: SqlHavingClause,
-    grouped_aggregates: &[SqlAggregateCall],
-) -> Result<ResolvedHavingExpr, SqlLoweringError> {
+    field_policy: HavingFieldPolicy,
+    resolve_aggregate_index: &mut F,
+) -> Result<ResolvedHavingExpr, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
     Ok(ResolvedHavingExpr::Compare {
-        left: lower_having_value_expr(clause.left, grouped_aggregates)?,
+        left: lower_having_value_expr_with_policy(
+            clause.left,
+            field_policy,
+            resolve_aggregate_index,
+        )?,
         op: clause.op,
-        right: lower_having_value_expr(clause.right, grouped_aggregates)?,
+        right: lower_having_value_expr_with_policy(
+            clause.right,
+            field_policy,
+            resolve_aggregate_index,
+        )?,
     })
 }
 
-fn lower_having_value_expr(
+fn lower_having_value_expr_with_policy<F>(
     expr: SqlHavingValueExpr,
-    grouped_aggregates: &[SqlAggregateCall],
-) -> Result<ResolvedHavingValueExpr, SqlLoweringError> {
+    field_policy: HavingFieldPolicy,
+    resolve_aggregate_index: &mut F,
+) -> Result<ResolvedHavingValueExpr, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
     match expr {
-        SqlHavingValueExpr::Field(field) => Ok(ResolvedHavingValueExpr::GroupField(field)),
+        SqlHavingValueExpr::Field(field) => match field_policy {
+            HavingFieldPolicy::Grouped => Ok(ResolvedHavingValueExpr::GroupField(field)),
+            HavingFieldPolicy::RejectDirectFields => {
+                Err(SqlLoweringError::unsupported_select_having())
+            }
+        },
         SqlHavingValueExpr::Aggregate(aggregate) => Ok(ResolvedHavingValueExpr::AggregateIndex(
-            resolve_having_aggregate_index(&aggregate, grouped_aggregates)?,
+            resolve_aggregate_index(&aggregate)?,
         )),
         SqlHavingValueExpr::Literal(literal) => Ok(ResolvedHavingValueExpr::Literal(literal)),
         SqlHavingValueExpr::Arithmetic(call) => Ok(ResolvedHavingValueExpr::Binary {
             op: lower_having_binary_op(call.op),
-            left: Box::new(lower_having_operand_expr(call.left, grouped_aggregates)?),
-            right: Box::new(lower_having_operand_expr(call.right, grouped_aggregates)?),
+            left: Box::new(lower_having_operand_expr_with_policy(
+                call.left,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
+            right: Box::new(lower_having_operand_expr_with_policy(
+                call.right,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
         }),
         SqlHavingValueExpr::Round(call) => Ok(ResolvedHavingValueExpr::FunctionCall {
             function: Function::Round,
-            args: lower_having_round_args(call, grouped_aggregates)?,
+            args: lower_having_round_args_with_policy(call, field_policy, resolve_aggregate_index)?,
         }),
     }
 }
 
-fn lower_having_round_args(
+fn lower_having_round_args_with_policy<F>(
     call: SqlRoundProjectionCall,
-    grouped_aggregates: &[SqlAggregateCall],
-) -> Result<Vec<ResolvedHavingValueExpr>, SqlLoweringError> {
+    field_policy: HavingFieldPolicy,
+    resolve_aggregate_index: &mut F,
+) -> Result<Vec<ResolvedHavingValueExpr>, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
     let value_expr = match call.input {
         SqlRoundProjectionInput::Operand(operand) => {
-            lower_having_operand_expr(operand, grouped_aggregates)?
+            lower_having_operand_expr_with_policy(operand, field_policy, resolve_aggregate_index)?
         }
         SqlRoundProjectionInput::Arithmetic(call) => ResolvedHavingValueExpr::Binary {
             op: lower_having_binary_op(call.op),
-            left: Box::new(lower_having_operand_expr(call.left, grouped_aggregates)?),
-            right: Box::new(lower_having_operand_expr(call.right, grouped_aggregates)?),
+            left: Box::new(lower_having_operand_expr_with_policy(
+                call.left,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
+            right: Box::new(lower_having_operand_expr_with_policy(
+                call.right,
+                field_policy,
+                resolve_aggregate_index,
+            )?),
         },
     };
 
@@ -150,14 +261,23 @@ fn lower_having_round_args(
     ])
 }
 
-fn lower_having_operand_expr(
+fn lower_having_operand_expr_with_policy<F>(
     operand: SqlProjectionOperand,
-    grouped_aggregates: &[SqlAggregateCall],
-) -> Result<ResolvedHavingValueExpr, SqlLoweringError> {
+    field_policy: HavingFieldPolicy,
+    resolve_aggregate_index: &mut F,
+) -> Result<ResolvedHavingValueExpr, SqlLoweringError>
+where
+    F: FnMut(&SqlAggregateCall) -> Result<usize, SqlLoweringError>,
+{
     match operand {
-        SqlProjectionOperand::Field(field) => Ok(ResolvedHavingValueExpr::GroupField(field)),
+        SqlProjectionOperand::Field(field) => match field_policy {
+            HavingFieldPolicy::Grouped => Ok(ResolvedHavingValueExpr::GroupField(field)),
+            HavingFieldPolicy::RejectDirectFields => {
+                Err(SqlLoweringError::unsupported_select_having())
+            }
+        },
         SqlProjectionOperand::Aggregate(aggregate) => Ok(ResolvedHavingValueExpr::AggregateIndex(
-            resolve_having_aggregate_index(&aggregate, grouped_aggregates)?,
+            resolve_aggregate_index(&aggregate)?,
         )),
         SqlProjectionOperand::Literal(literal) => Ok(ResolvedHavingValueExpr::Literal(literal)),
     }
@@ -170,6 +290,93 @@ pub(super) fn extend_grouped_having_aggregate_calls(
     for clause in having_clauses {
         collect_having_value_expr_aggregate_calls(&clause.left, aggregate_calls);
         collect_having_value_expr_aggregate_calls(&clause.right, aggregate_calls);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum HavingFieldPolicy {
+    Grouped,
+    RejectDirectFields,
+}
+
+fn resolve_having_expr(
+    model: Option<&'static EntityModel>,
+    expr: ResolvedHavingExpr,
+) -> Result<GroupHavingExpr, SqlLoweringError> {
+    match expr {
+        ResolvedHavingExpr::Compare { left, op, right } => {
+            let left = resolve_having_value_expr(model, left)?;
+            let right = resolve_having_value_expr(model, right)?;
+            let (left, right) = canonicalize_grouped_having_compare_literals(left, right);
+
+            Ok(GroupHavingExpr::Compare { left, op, right })
+        }
+    }
+}
+
+fn canonicalize_grouped_having_compare_literals(
+    left: GroupHavingValueExpr,
+    right: GroupHavingValueExpr,
+) -> (GroupHavingValueExpr, GroupHavingValueExpr) {
+    match (&left, &right) {
+        (GroupHavingValueExpr::GroupField(field_slot), GroupHavingValueExpr::Literal(value)) => {
+            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
+                field_slot.kind(),
+                value,
+            );
+            (
+                left,
+                canonical
+                    .map(GroupHavingValueExpr::Literal)
+                    .unwrap_or(right),
+            )
+        }
+        (GroupHavingValueExpr::Literal(value), GroupHavingValueExpr::GroupField(field_slot)) => {
+            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
+                field_slot.kind(),
+                value,
+            );
+            (
+                canonical.map(GroupHavingValueExpr::Literal).unwrap_or(left),
+                right,
+            )
+        }
+        _ => (left, right),
+    }
+}
+
+fn resolve_having_value_expr(
+    model: Option<&'static EntityModel>,
+    expr: ResolvedHavingValueExpr,
+) -> Result<GroupHavingValueExpr, SqlLoweringError> {
+    match expr {
+        ResolvedHavingValueExpr::GroupField(field) => {
+            let Some(model) = model else {
+                return Err(SqlLoweringError::unsupported_select_having());
+            };
+
+            Ok(GroupHavingValueExpr::GroupField(
+                resolve_group_field_slot(model, &field).map_err(QueryError::from)?,
+            ))
+        }
+        ResolvedHavingValueExpr::AggregateIndex(index) => {
+            Ok(GroupHavingValueExpr::AggregateIndex(index))
+        }
+        ResolvedHavingValueExpr::Literal(value) => Ok(GroupHavingValueExpr::Literal(value)),
+        ResolvedHavingValueExpr::FunctionCall { function, args } => {
+            Ok(GroupHavingValueExpr::FunctionCall {
+                function,
+                args: args
+                    .into_iter()
+                    .map(|arg| resolve_having_value_expr(model, arg))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        }
+        ResolvedHavingValueExpr::Binary { op, left, right } => Ok(GroupHavingValueExpr::Binary {
+            op,
+            left: Box::new(resolve_having_value_expr(model, *left)?),
+            right: Box::new(resolve_having_value_expr(model, *right)?),
+        }),
     }
 }
 

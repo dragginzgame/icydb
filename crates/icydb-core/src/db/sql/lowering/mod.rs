@@ -63,6 +63,10 @@ pub(in crate::db) use select::{
 pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandInner);
 
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "global aggregate lowering keeps one owned command payload on the generic-free SQL seam"
+)]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     Query(LoweredSqlQuery),
     Explain {
@@ -88,6 +92,10 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
 ///
 #[cfg(test)]
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "typed SQL tests keep one owned global aggregate command to validate binding without adding box indirection"
+)]
 pub(crate) enum SqlCommand<E: EntityKind> {
     Query(Query<E>),
     Explain {

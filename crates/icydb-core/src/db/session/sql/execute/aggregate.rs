@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
         executor::{
-            EntityAuthority, ScalarTerminalBoundaryRequest,
+            EntityAuthority, ScalarTerminalBoundaryRequest, aggregate_result_matches_having_expr,
             projection::{
                 eval_binary_expr, eval_projection_function_call, projection_function_name,
             },
@@ -409,12 +409,36 @@ impl<C: CanisterKind> DbSession<C> {
             unique_values.push(value);
         }
 
-        // Phase 2: evaluate the planner-owned global output projection over
-        // the reduced unique aggregate values so aggregate results can feed
-        // normal scalar wrappers like ROUND(...) and binary arithmetic.
+        // Phase 2: apply optional global aggregate HAVING on the single
+        // reduced aggregate row before post-aggregate output projection.
         let projection = command.projection();
         let columns = projection_labels_from_projection_spec(projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
+
+        if let Some(expr) = command.having() {
+            let matched = aggregate_result_matches_having_expr(expr, unique_values.as_slice())
+                .map_err(|err| {
+                    QueryError::invariant(format!(
+                        "global aggregate HAVING evaluation failed: {err}"
+                    ))
+                })?;
+
+            if !matched {
+                return Ok((
+                    SqlStatementResult::Projection {
+                        columns,
+                        fixed_scales,
+                        rows: Vec::new(),
+                        row_count: 0,
+                    },
+                    cache_attribution,
+                ));
+            }
+        }
+
+        // Phase 3: evaluate the planner-owned global output projection over
+        // the reduced unique aggregate values so aggregate results can feed
+        // normal scalar wrappers like ROUND(...) and binary arithmetic.
         let mut row = Vec::with_capacity(projection.len());
 
         for field in projection.fields() {
