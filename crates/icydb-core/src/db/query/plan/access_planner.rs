@@ -90,18 +90,17 @@ pub(in crate::db::query) fn plan_query_access(
     order: Option<&OrderSpec>,
     key_access_override: Option<AccessPlan<Value>>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    match key_access_override {
-        Some(plan) => Ok(plan),
-        None => {
-            let canonical_order = canonicalize_order_spec(model, order.cloned());
+    if let Some(plan) = key_access_override {
+        Ok(plan)
+    } else {
+        let canonical_order = canonicalize_order_spec(model, order.cloned());
 
-            plan_access_with_order(
-                model,
-                visible_indexes,
-                schema_info,
-                normalized_predicate,
-                canonical_order.as_ref(),
-            )
-        }
+        plan_access_with_order(
+            model,
+            visible_indexes,
+            schema_info,
+            normalized_predicate,
+            canonical_order.as_ref(),
+        )
     }
 }
