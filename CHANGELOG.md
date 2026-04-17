@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.91.x] 🪜 - 2026-04-18 - Unified SQL Expression Front End
 
+- `0.91.2` follows the `WHERE` unification through the internal lowering boundary by splitting `WHERE` into explicit validation, normalization, and predicate-compilation phases, moving that work into narrower modules, and adding guard tests so the final predicate compiler stays a structural executor over normalized boolean expressions instead of slowly becoming a second semantic layer again.
 - `0.91.1` finishes the SQL expression unification line by moving `WHERE` onto the same `SqlExpr` pipeline as `SELECT`, `ORDER BY`, aggregate inputs, and `HAVING`, so searched `CASE` now works in `WHERE` too, boolean and `NULL` filtering stay consistent at the final row-filter boundary, and SQL now keeps `IS NULL` / `IS NOT NULL` distinct from `= NULL` / `!= NULL` instead of collapsing those spellings into one predicate shape.
 - `0.91.0` starts the searched `CASE` line by teaching the shared SQL expression pipeline and planner to understand `CASE WHEN ... THEN ... [ELSE ...] END`, so searched `CASE` now works in `SELECT` projections, aggregate input expressions, and aggregate `HAVING` expressions, while the SQL front end also stops storing runtime predicates directly on statements and keeps `WHERE` on a parser-owned SQL predicate model before lowering converts it back to the runtime predicate authority.
 
