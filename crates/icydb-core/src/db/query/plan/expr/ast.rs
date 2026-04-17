@@ -5,7 +5,7 @@
 
 use crate::db::{
     query::builder::aggregate::AggregateExpr,
-    sql_shared::{SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
+    sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
 };
 use crate::value::Value;
 
@@ -172,6 +172,26 @@ pub(in crate::db) fn parse_supported_order_expr(term: &str) -> Option<Expr> {
     }
 
     let mut parser = SupportedOrderExprParser::new(SqlTokenCursor::new(tokens));
+    let expression = parser.parse_expr().ok()?;
+
+    parser.cursor.is_eof().then_some(expression)
+}
+
+/// Parse one grouped post-aggregate `ORDER BY` expression term into the shared
+/// planner expression tree.
+///
+/// This parser stays intentionally narrow. It admits the grouped post-
+/// aggregate expression family needed for `0.88` planning groundwork:
+/// grouped-key leaves, aggregate leaves, one binary arithmetic layer, and
+/// `ROUND(...)` wrappers over those same admitted inputs.
+#[must_use]
+pub(in crate::db) fn parse_grouped_post_aggregate_order_expr(term: &str) -> Option<Expr> {
+    let tokens = tokenize_sql(term).ok()?;
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut parser = SupportedGroupedOrderExprParser::new(SqlTokenCursor::new(tokens));
     let expression = parser.parse_expr().ok()?;
 
     parser.cursor.is_eof().then_some(expression)
@@ -435,6 +455,129 @@ impl SupportedOrderExprParser {
             left: Box::new(left),
             right: Box::new(right),
         })
+    }
+
+    fn parse_binary_op(&mut self) -> Option<BinaryOp> {
+        if self.cursor.eat_plus() {
+            return Some(BinaryOp::Add);
+        }
+        if self.cursor.eat_minus() {
+            return Some(BinaryOp::Sub);
+        }
+        if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
+            self.cursor.advance();
+            return Some(BinaryOp::Mul);
+        }
+        if self.cursor.eat_slash() {
+            return Some(BinaryOp::Div);
+        }
+
+        None
+    }
+}
+
+// Parse one grouped post-aggregate order expression using the same reduced-SQL
+// token surface as grouped projection and grouped HAVING parsing, while keeping
+// the admitted family intentionally narrower than general SQL expressions.
+struct SupportedGroupedOrderExprParser {
+    cursor: SqlTokenCursor,
+}
+
+impl SupportedGroupedOrderExprParser {
+    const fn new(cursor: SqlTokenCursor) -> Self {
+        Self { cursor }
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, SqlParseError> {
+        if self.cursor.peek_identifier_keyword("ROUND") {
+            return self.parse_round_expr();
+        }
+
+        let left = self.parse_operand_or_literal()?;
+        if let Some(op) = self.parse_binary_op() {
+            return Ok(Expr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(self.parse_operand_or_literal()?),
+            });
+        }
+
+        Ok(left)
+    }
+
+    fn parse_operand_or_literal(&mut self) -> Result<Expr, SqlParseError> {
+        if let Some(kind) = self.parse_aggregate_kind() {
+            return self.parse_aggregate_expr(kind);
+        }
+        if matches!(self.cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
+            return self
+                .cursor
+                .expect_identifier()
+                .map(|field| Expr::Field(field.into()));
+        }
+
+        self.cursor.parse_literal().map(Expr::Literal)
+    }
+
+    fn parse_round_expr(&mut self) -> Result<Expr, SqlParseError> {
+        self.cursor.expect_identifier()?;
+        self.cursor.expect_lparen()?;
+        let input = self.parse_expr()?;
+        if !self.cursor.eat_comma() {
+            return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+        }
+        let scale = Expr::Literal(self.cursor.parse_literal()?);
+        self.cursor.expect_rparen()?;
+
+        Ok(Expr::FunctionCall {
+            function: Function::Round,
+            args: vec![input, scale],
+        })
+    }
+
+    fn parse_aggregate_kind(&self) -> Option<crate::db::query::plan::AggregateKind> {
+        match self.cursor.peek_kind() {
+            Some(TokenKind::Keyword(Keyword::Count)) => {
+                Some(crate::db::query::plan::AggregateKind::Count)
+            }
+            Some(TokenKind::Keyword(Keyword::Sum)) => {
+                Some(crate::db::query::plan::AggregateKind::Sum)
+            }
+            Some(TokenKind::Keyword(Keyword::Avg)) => {
+                Some(crate::db::query::plan::AggregateKind::Avg)
+            }
+            Some(TokenKind::Keyword(Keyword::Min)) => {
+                Some(crate::db::query::plan::AggregateKind::Min)
+            }
+            Some(TokenKind::Keyword(Keyword::Max)) => {
+                Some(crate::db::query::plan::AggregateKind::Max)
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_aggregate_expr(
+        &mut self,
+        kind: crate::db::query::plan::AggregateKind,
+    ) -> Result<Expr, SqlParseError> {
+        self.cursor.advance();
+        self.cursor.expect_lparen()?;
+        let distinct = self.cursor.eat_keyword(Keyword::Distinct);
+        let target_field = if kind == crate::db::query::plan::AggregateKind::Count
+            && matches!(self.cursor.peek_kind(), Some(TokenKind::Star))
+        {
+            self.cursor.advance();
+            None
+        } else {
+            Some(self.cursor.expect_identifier()?)
+        };
+        self.cursor.expect_rparen()?;
+
+        Ok(Expr::Aggregate(AggregateExpr::from_semantic_parts(
+            kind,
+            target_field,
+            distinct,
+        )))
     }
 
     fn parse_binary_op(&mut self) -> Option<BinaryOp> {

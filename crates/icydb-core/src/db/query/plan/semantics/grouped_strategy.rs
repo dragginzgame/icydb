@@ -8,7 +8,10 @@ use crate::db::{
     access::AccessPlan,
     query::plan::{
         AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec,
-        expr::{GroupedOrderTermAdmissibility, classify_grouped_order_term_for_field},
+        expr::{
+            GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
+            classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
+        },
     },
 };
 
@@ -18,8 +21,9 @@ use crate::db::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GroupedPlanFamily {
-    HashGroup,
-    OrderedGroup,
+    Hash,
+    Ordered,
+    TopK,
 }
 
 ///
@@ -109,8 +113,9 @@ impl GroupedPlanStrategy {
     #[must_use]
     pub(crate) const fn code(self) -> &'static str {
         match self.family {
-            GroupedPlanFamily::HashGroup => "hash_group",
-            GroupedPlanFamily::OrderedGroup => "ordered_group",
+            GroupedPlanFamily::Hash => "hash_group",
+            GroupedPlanFamily::Ordered => "ordered_group",
+            GroupedPlanFamily::TopK => "top_k_group",
         }
     }
 
@@ -128,7 +133,7 @@ impl GroupedPlanStrategy {
         aggregate_family: GroupedPlanAggregateFamily,
     ) -> Self {
         Self {
-            family: GroupedPlanFamily::HashGroup,
+            family: GroupedPlanFamily::Hash,
             aggregate_family,
             fallback_reason: Some(reason),
         }
@@ -147,7 +152,19 @@ impl GroupedPlanStrategy {
         aggregate_family: GroupedPlanAggregateFamily,
     ) -> Self {
         Self {
-            family: GroupedPlanFamily::OrderedGroup,
+            family: GroupedPlanFamily::Ordered,
+            aggregate_family,
+            fallback_reason: None,
+        }
+    }
+
+    /// Construct one bounded grouped Top-K planner strategy artifact with one explicit grouped aggregate-family profile.
+    #[must_use]
+    pub(crate) const fn top_k_group_with_aggregate_family(
+        aggregate_family: GroupedPlanAggregateFamily,
+    ) -> Self {
+        Self {
+            family: GroupedPlanFamily::TopK,
             aggregate_family,
             fallback_reason: None,
         }
@@ -156,7 +173,13 @@ impl GroupedPlanStrategy {
     /// Return whether the planner selected the ordered grouped family.
     #[must_use]
     pub(crate) const fn is_ordered_group(self) -> bool {
-        matches!(self.family, GroupedPlanFamily::OrderedGroup)
+        matches!(self.family, GroupedPlanFamily::Ordered)
+    }
+
+    /// Return whether the planner selected the bounded grouped Top-K family.
+    #[must_use]
+    pub(crate) const fn is_top_k_group(self) -> bool {
+        matches!(self.family, GroupedPlanFamily::TopK)
     }
 
     /// Return whether the planner admitted the ordered grouped family.
@@ -223,11 +246,19 @@ pub(in crate::db) fn grouped_plan_strategy(
     }
 
     // Phase 2: require logical ORDER BY alignment and physical access-order proof for ordered grouping.
-    if let Some(reason) = grouped_order_prefix_alignment_fallback_reason(
+    match grouped_order_strategy_projection(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
     ) {
-        return Some(hash_group_fallback_strategy(reason, aggregate_family));
+        GroupedOrderStrategyProjection::Canonical => {}
+        GroupedOrderStrategyProjection::TopK => {
+            return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
+                aggregate_family,
+            ));
+        }
+        GroupedOrderStrategyProjection::HashFallback(reason) => {
+            return Some(hash_group_fallback_strategy(reason, aggregate_family));
+        }
     }
     if grouped_access_path_proves_group_order(grouped.group.group_fields.as_slice(), &plan.access) {
         return Some(GroupedPlanStrategy::ordered_group_with_aggregate_family(
@@ -301,28 +332,74 @@ const fn hash_group_fallback_strategy(
     GroupedPlanStrategy::hash_group_with_aggregate_family(reason, aggregate_family)
 }
 
-fn grouped_order_prefix_alignment_fallback_reason(
+///
+/// GroupedOrderStrategyProjection
+///
+/// Planner-local grouped order-strategy projection result.
+/// This keeps `0.87` canonical grouped-key proof and `0.88` Top-K reservation
+/// under one owner so grouped strategy selection does not fork those decisions
+/// through parallel helper trees.
+///
+enum GroupedOrderStrategyProjection {
+    Canonical,
+    TopK,
+    HashFallback(GroupedPlanFallbackReason),
+}
+
+fn grouped_order_strategy_projection(
     order: Option<&OrderSpec>,
     group_fields: &[FieldSlot],
-) -> Option<GroupedPlanFallbackReason> {
-    let order = order?;
-    if order.fields.len() < group_fields.len() {
-        return Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch);
-    }
+) -> GroupedOrderStrategyProjection {
+    let Some(order) = order else {
+        return GroupedOrderStrategyProjection::Canonical;
+    };
+    let grouped_field_names = group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<Vec<_>>();
+    let mut top_k_required = false;
 
-    for (group_field, (order_field, _)) in group_fields.iter().zip(order.fields.iter()) {
-        match classify_grouped_order_term_for_field(order_field, group_field.field()) {
-            GroupedOrderTermAdmissibility::Preserves(_) => {}
-            GroupedOrderTermAdmissibility::PrefixMismatch => {
-                return Some(GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch);
+    // Phase 1: walk the user-declared grouped ORDER BY list once and keep
+    // canonical grouped-key proof separate from the broader grouped Top-K
+    // expression family admitted by the `0.88` planner lane.
+    for (index, (order_field, _)) in order.fields.iter().enumerate() {
+        if index < group_fields.len()
+            && matches!(
+                classify_grouped_order_term_for_field(order_field, group_fields[index].field()),
+                GroupedOrderTermAdmissibility::Preserves(_)
+            )
+        {
+            continue;
+        }
+
+        match classify_grouped_top_k_order_term(order_field, grouped_field_names.as_slice()) {
+            GroupedTopKOrderTermAdmissibility::Admissible => {
+                top_k_required = true;
             }
-            GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                return Some(GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible);
+            GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
+                return GroupedOrderStrategyProjection::HashFallback(
+                    GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+                );
+            }
+            GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
+                return GroupedOrderStrategyProjection::HashFallback(
+                    GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
+                );
             }
         }
     }
 
-    None
+    if top_k_required {
+        return GroupedOrderStrategyProjection::TopK;
+    }
+
+    if order.fields.len() < group_fields.len() {
+        return GroupedOrderStrategyProjection::HashFallback(
+            GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+        );
+    }
+
+    GroupedOrderStrategyProjection::Canonical
 }
 
 fn grouped_access_path_proves_group_order<K>(

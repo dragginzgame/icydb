@@ -156,6 +156,10 @@ impl GroupedExecutionMode {
         plan_strategy: GroupedPlanStrategy,
         projection: GroupedExecutionModeProjection,
     ) -> Self {
+        if plan_strategy.is_top_k_group() {
+            return Self::HashMaterialized;
+        }
+
         let direction_compatible = !matches!(projection.direction, Direction::Desc)
             || projection.desc_physical_reverse_supported;
         let ordered_route_eligible = plan_strategy.ordered_group_admitted()

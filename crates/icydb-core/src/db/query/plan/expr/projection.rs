@@ -3,7 +3,10 @@
 //! that flow into structural execution.
 
 use crate::{
-    db::query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId, parse_supported_order_expr},
+    db::query::plan::expr::ast::{
+        Alias, BinaryOp, Expr, FieldId, parse_grouped_post_aggregate_order_expr,
+        parse_supported_order_expr,
+    },
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
@@ -221,6 +224,20 @@ pub(crate) enum GroupedOrderTermAdmissibility {
     UnsupportedExpression,
 }
 
+///
+/// GroupedTopKOrderTermAdmissibility
+///
+/// Planner-local grouped Top-K admission result for one `ORDER BY` term.
+/// This keeps the `0.88` aggregate-order lane explicit without widening the
+/// older canonical grouped-key proof helper into a catch-all classifier.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedTopKOrderTermAdmissibility {
+    Admissible,
+    NonGroupFieldReference,
+    UnsupportedExpression,
+}
+
 /// Return true when one canonical `ORDER BY` term preserves the same
 /// lexicographic order as one grouped key field.
 ///
@@ -329,6 +346,24 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
     )
 }
 
+/// Return true when one grouped `ORDER BY` term is admissible for the
+/// aggregate/post-aggregate Top-K lane over the declared grouped key set.
+#[must_use]
+pub(crate) fn classify_grouped_top_k_order_term(
+    term: &str,
+    group_fields: &[&str],
+) -> GroupedTopKOrderTermAdmissibility {
+    let Some(expr) = parse_grouped_post_aggregate_order_expr(term) else {
+        return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
+    };
+
+    if expr_references_only_fields(&expr, group_fields) {
+        return GroupedTopKOrderTermAdmissibility::Admissible;
+    }
+
+    GroupedTopKOrderTermAdmissibility::NonGroupFieldReference
+}
+
 ///
 /// TESTS
 ///
@@ -336,14 +371,22 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        GroupedOrderExprClass, GroupedOrderTermAdmissibility,
-        classify_grouped_order_term_for_field, order_term_preserves_group_field_order,
+        GroupedOrderExprClass, GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
+        classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
+        order_term_preserves_group_field_order,
     };
-    use crate::db::query::plan::expr::ast::{Expr, parse_supported_order_expr};
+    use crate::db::query::plan::expr::ast::{
+        Expr, parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
+    };
 
     fn parse(expr: &str) -> Expr {
         parse_supported_order_expr(expr)
             .expect("supported grouped ORDER BY test expression should parse")
+    }
+
+    fn parse_top_k(expr: &str) -> Expr {
+        parse_grouped_post_aggregate_order_expr(expr)
+            .expect("supported grouped Top-K ORDER BY test expression should parse")
     }
 
     #[test]
@@ -421,5 +464,53 @@ mod tests {
             "ROUND(score, 2)",
             "score"
         ));
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_accepts_aggregate_leaf_terms() {
+        let _expr = parse_top_k("AVG(score)");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term("AVG(score)", &["score"]),
+            GroupedTopKOrderTermAdmissibility::Admissible,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_accepts_post_aggregate_round_terms() {
+        let _expr = parse_top_k("ROUND(AVG(score), 2)");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term("ROUND(AVG(score), 2)", &["score"]),
+            GroupedTopKOrderTermAdmissibility::Admissible,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_accepts_group_field_scalar_composition() {
+        let _expr = parse_top_k("score + score");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term("score + score", &["score"]),
+            GroupedTopKOrderTermAdmissibility::Admissible,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_rejects_non_group_field_leaves() {
+        let _expr = parse_top_k("AVG(score) + other_score");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term("AVG(score) + other_score", &["score"]),
+            GroupedTopKOrderTermAdmissibility::NonGroupFieldReference,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_rejects_unsupported_wrapper_functions() {
+        assert_eq!(
+            classify_grouped_top_k_order_term("LOWER(score)", &["score"]),
+            GroupedTopKOrderTermAdmissibility::UnsupportedExpression,
+        );
     }
 }

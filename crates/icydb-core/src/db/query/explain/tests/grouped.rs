@@ -101,6 +101,37 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
 }
 
 #[test]
+fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
+    let mut grouped =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: vec![
+                    FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                        .expect("group field should resolve"),
+                ],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Avg,
+                    target_field: Some("rank".to_string()),
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::unbounded(),
+            });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("AVG(rank)".to_string(), OrderDirection::Desc)],
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: "top_k_group",
+            fallback_reason: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {

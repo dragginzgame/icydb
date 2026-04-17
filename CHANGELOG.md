@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.88.x] 🏁 - 2026-04-17 - Grouped Aggregate ORDER BY Groundwork
+
+- `0.88.0` starts bounded grouped aggregate ordering by teaching the planner and `EXPLAIN` to recognize aggregate and post-aggregate grouped `ORDER BY` shapes as a distinct Top-K strategy, while runtime still stays fail-closed until the heap-backed execution slice lands.
+
+See detailed breakdown:
+[docs/changelog/0.88.md](docs/changelog/0.88.md)
+
+---
+
 ## [0.87.x] 🎚️ - 2026-04-17 - Grouped ORDER BY Proof Cleanup
 
 - `0.87.1` follows the grouped `ORDER BY` cleanup by unifying grouped post-aggregate execution further: grouped `HAVING` now compiles onto the same grouped evaluator path used by grouped projection, so the engine no longer carries a separate grouped `HAVING` runtime walker on top of the already-shared grouped row contract.

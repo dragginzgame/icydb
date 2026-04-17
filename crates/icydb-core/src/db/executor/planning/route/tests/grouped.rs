@@ -179,6 +179,42 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
 }
 
 #[test]
+fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order() {
+    let mut grouped =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: grouped_field_slots(&["rank"]),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Avg,
+                    target_field: Some("rank".to_string()),
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::unbounded(),
+            });
+    grouped.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("AVG(rank)".to_string(), OrderDirection::Desc)],
+    });
+
+    assert_eq!(
+        grouped_plan_strategy(&grouped).expect("grouped plan should project planner strategy"),
+        GroupedPlanStrategy::top_k_group_with_aggregate_family(
+            GroupedPlanAggregateFamily::FieldTargetRows,
+        ),
+        "aggregate grouped ORDER BY should reserve the Top-K planner lane before authority finalization widens grouped order validation",
+    );
+    assert_eq!(
+        GroupedExecutionMode::from_planner_strategy(
+            GroupedPlanStrategy::top_k_group_with_aggregate_family(
+                GroupedPlanAggregateFamily::FieldTargetRows,
+            ),
+            GroupedExecutionModeProjection::from_route_inputs(Direction::Desc, false, false),
+        ),
+        GroupedExecutionMode::HashMaterialized,
+        "aggregate grouped ORDER BY should reserve the Top-K planner lane while route execution remains materialized hash-grouped until heap execution lands",
+    );
+}
+
+#[test]
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
